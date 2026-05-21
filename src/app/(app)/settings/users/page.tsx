@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
 
+import { InviteUserDialog } from "./invite-user-dialog";
 import { UserRowActions } from "./user-row-actions";
 
 export default async function UsersPage() {
@@ -34,12 +35,17 @@ export default async function UsersPage() {
 
   return (
     <div className="p-8">
-      <h1 className="text-foreground text-2xl font-bold tracking-tight">
-        Users
-      </h1>
-      <p className="text-muted-foreground mt-1 text-sm">
-        Manage who can access the workspace.
-      </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-foreground text-2xl font-bold tracking-tight">
+            Users
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Manage who can access the workspace.
+          </p>
+        </div>
+        <InviteUserDialog />
+      </div>
 
       <div className="border-border mt-6 overflow-hidden rounded-lg border">
         <Table>
@@ -76,6 +82,7 @@ export default async function UsersPage() {
                 <TableCell>
                   <UserRowActions
                     userId={u.id}
+                    email={u.email ?? ""}
                     name={u.full_name || u.email || "this user"}
                     role={u.role === "admin" ? "admin" : "member"}
                     active={u.active}

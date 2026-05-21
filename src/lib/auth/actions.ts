@@ -34,3 +34,39 @@ export async function signOut() {
   await supabase.auth.signOut({ scope: "local" });
   redirect("/login");
 }
+
+export type SetPasswordState = { error: string } | null;
+
+/**
+ * Server action: set the signed-in user's password. Used after an invite or
+ * password-reset link establishes a session via /auth/confirm.
+ */
+export async function setPassword(
+  _prevState: SetPasswordState,
+  formData: FormData,
+): Promise<SetPasswordState> {
+  const password = String(formData.get("password") ?? "");
+  const confirm = String(formData.get("confirm") ?? "");
+
+  if (password.length < 8) {
+    return { error: "Password must be at least 8 characters." };
+  }
+  if (password !== confirm) {
+    return { error: "The passwords do not match." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: "Your link has expired. Please request a new one." };
+  }
+
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) {
+    return { error: "Could not set your password. Please try again." };
+  }
+
+  redirect("/leads");
+}

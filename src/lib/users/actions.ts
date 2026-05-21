@@ -77,3 +77,42 @@ export async function setUserActive(
   revalidatePath("/settings/users");
   return { error: null };
 }
+
+/** Invite a new user by email. They receive a link to set a password. */
+export async function inviteUser(
+  email: string,
+  role: "admin" | "member",
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const auth = await requireAdmin(supabase);
+  if ("error" in auth) return { error: auth.error };
+
+  const trimmed = email.trim().toLowerCase();
+  if (!trimmed) return { error: "Enter an email address." };
+
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.inviteUserByEmail(trimmed, {
+    data: { role },
+  });
+  if (error) {
+    if (/already|registered|exists/i.test(error.message)) {
+      return { error: "A user with that email already exists." };
+    }
+    return { error: "Could not send the invitation." };
+  }
+
+  revalidatePath("/settings/users");
+  return { error: null };
+}
+
+/** Send a user a password-reset email. */
+export async function sendPasswordReset(email: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const auth = await requireAdmin(supabase);
+  if ("error" in auth) return { error: auth.error };
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email);
+  if (error) return { error: "Could not send the reset email." };
+
+  return { error: null };
+}

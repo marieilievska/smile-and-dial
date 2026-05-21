@@ -9,9 +9,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  sendPasswordReset,
   setUserActive,
   updateUserRole,
   type ActionResult,
@@ -19,12 +21,14 @@ import {
 
 export function UserRowActions({
   userId,
+  email,
   name,
   role,
   active,
   isSelf,
 }: {
   userId: string;
+  email: string;
   name: string;
   role: "admin" | "member";
   active: boolean;
@@ -69,6 +73,18 @@ export function UserRowActions({
         >
           Make {nextRole}
         </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={pending}
+          onSelect={() =>
+            run(
+              () => sendPasswordReset(email),
+              `Password-reset email sent to ${email}.`,
+            )
+          }
+        >
+          Send password reset
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem
           disabled={isSelf || pending}
           onSelect={() =>
