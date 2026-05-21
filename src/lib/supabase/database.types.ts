@@ -14,6 +14,30 @@ export type Database = {
   };
   public: {
     Tables: {
+      lists: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          id: string;
+          name: string;
+          owner_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          name: string;
+          owner_id: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          name?: string;
+          owner_id?: string;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: {
           active: boolean;

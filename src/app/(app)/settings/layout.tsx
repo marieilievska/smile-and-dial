@@ -1,8 +1,13 @@
 import { redirect } from "next/navigation";
 
+import { SettingsNav } from "@/components/app-shell/settings-nav";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function SettingsPage() {
+export default async function SettingsLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -15,6 +20,12 @@ export default async function SettingsPage() {
     .eq("id", user.id)
     .single();
 
-  // Send each role to the first settings page available to them.
-  redirect(profile?.role === "admin" ? "/settings/users" : "/settings/lists");
+  return (
+    <div>
+      <div className="border-border border-b px-8 pt-6">
+        <SettingsNav isAdmin={profile?.role === "admin"} />
+      </div>
+      {children}
+    </div>
+  );
 }
