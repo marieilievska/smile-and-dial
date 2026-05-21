@@ -39,6 +39,27 @@ export type Database = {
   };
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          elevenlabs_api_key: string | null;
+          elevenlabs_voice_ids: string | null;
+          id: number;
+          updated_at: string;
+        };
+        Insert: {
+          elevenlabs_api_key?: string | null;
+          elevenlabs_voice_ids?: string | null;
+          id?: number;
+          updated_at?: string;
+        };
+        Update: {
+          elevenlabs_api_key?: string | null;
+          elevenlabs_voice_ids?: string | null;
+          id?: number;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       custom_field_defs: {
         Row: {
           created_at: string;
