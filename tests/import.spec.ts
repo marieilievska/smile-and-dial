@@ -5,7 +5,9 @@ test.use({ storageState: "playwright/.auth/user.json" });
 
 test.describe("CSV import", () => {
   const stamp = Date.now();
+  const tail = String(stamp).slice(-6);
   const company = `E2E Import Co ${stamp}`;
+  const mobileCompany = `E2E Mobile Co ${stamp}`;
 
   let admin: SupabaseClient;
   let listId: string;
@@ -34,11 +36,18 @@ test.describe("CSV import", () => {
     await admin.from("lists").delete().eq("id", listId);
   });
 
-  test("a CSV of leads can be imported into a list", async ({ page }) => {
+  test("a CSV imports valid leads and blocks mobile numbers", async ({
+    page,
+  }) => {
+    // The mock Twilio Lookup keys off the number prefix:
+    // +1700… is mobile (blocked), +1999… is invalid, the rest are landlines.
     const csv =
       "company,business_phone,city,state\n" +
-      `${company},+1512000${stamp % 10000},Austin,TX\n` +
-      `Second ${company},+1512111${stamp % 10000},Reno,NV\n`;
+      `${company},+1512${tail}1,Austin,TX\n` +
+      `Second ${company},+1512${tail}2,Reno,NV\n` +
+      `Third ${company},+1512${tail}3,Dallas,TX\n` +
+      `${mobileCompany},+1700${tail}4,Austin,TX\n` +
+      `E2E Invalid Co ${stamp},+1999${tail}5,Reno,NV\n`;
 
     await page.goto("/leads/import");
 
@@ -54,10 +63,24 @@ test.describe("CSV import", () => {
       .click();
     await page.getByRole("button", { name: "Continue" }).click();
 
-    await page.getByRole("button", { name: /Import 2 leads/ }).click();
+    // Map step → run the Twilio Lookup analysis.
+    await page.getByRole("button", { name: "Review import" }).click();
+
+    // Summary step: 3 valid leads, 1 mobile blocked, 1 invalid.
+    await expect(page.getByText(/3 leads ready to import/)).toBeVisible();
+    await expect(page.getByText(/1 mobile number skipped/)).toBeVisible();
+    await expect(page.getByText(/1 invalid number skipped/)).toBeVisible();
+
+    // The skipped rows are downloadable as an error report.
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download error report" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("import-errors.csv");
+
+    await page.getByRole("button", { name: /Import 3 leads/ }).click();
     await expect(page.getByText("Import complete")).toBeVisible();
 
-    // The imported lead shows up on the Leads page.
+    // The valid lead shows up on the Leads page.
     await page.goto("/leads");
     await page
       .getByPlaceholder("Search company, phone, or email")
@@ -66,5 +89,14 @@ test.describe("CSV import", () => {
     await expect(
       page.getByRole("cell", { name: company, exact: true }),
     ).toBeVisible();
+
+    // The mobile-number lead was blocked and never imported.
+    await page
+      .getByPlaceholder("Search company, phone, or email")
+      .fill(mobileCompany);
+    await page.getByRole("button", { name: "Search" }).click();
+    await expect(
+      page.getByRole("cell", { name: mobileCompany, exact: true }),
+    ).toHaveCount(0);
   });
 });

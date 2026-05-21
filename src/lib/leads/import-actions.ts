@@ -5,8 +5,15 @@ import { revalidatePath } from "next/cache";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
-import { IMPORTABLE_FIELDS, type ImportResult } from "./import-fields";
+import {
+  COST_PER_LOOKUP,
+  IMPORTABLE_FIELDS,
+  type ImportAnalysis,
+  type ImportResult,
+  type LineType,
+} from "./import-fields";
 import { stateToTimezone } from "./timezone";
+import { isUsCaNumber, lookupLineType } from "./twilio-lookup";
 
 type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
 type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
@@ -23,17 +30,106 @@ function slugify(name: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
+/** Find the CSV header that the user mapped to the business_phone field. */
+function phoneHeaderFrom(mapping: Record<string, string>): string {
+  for (const [header, target] of Object.entries(mapping)) {
+    if (target === "field:business_phone") return header;
+  }
+  return "";
+}
+
+/**
+ * Run a Twilio Lookup on every row's business phone and report how many
+ * leads will import versus be skipped (mobile numbers for TCPA compliance,
+ * or invalid/disconnected numbers). Shown to the user before they commit.
+ */
+export async function analyzeImport(input: {
+  mapping: Record<string, string>;
+  rows: Record<string, string>[];
+}): Promise<ImportAnalysis> {
+  const empty: ImportAnalysis = {
+    total: input.rows.length,
+    importable: 0,
+    mobile: 0,
+    invalid: 0,
+    estCost: 0,
+    rowLineTypes: [],
+    skipped: [],
+    error: null,
+  };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ...empty, error: "You are not signed in." };
+
+  const phoneHeader = phoneHeaderFrom(input.mapping);
+  const rowLineTypes: LineType[] = [];
+  const skipped: { phone: string; reason: string }[] = [];
+  let importable = 0;
+  let mobile = 0;
+  let invalid = 0;
+  let lookups = 0;
+
+  for (const row of input.rows) {
+    const phone = phoneHeader ? (row[phoneHeader] ?? "").trim() : "";
+
+    // No phone, or a number outside US/CA: nothing to look up, import as-is.
+    if (!phone || !isUsCaNumber(phone)) {
+      rowLineTypes.push("unknown");
+      importable++;
+      continue;
+    }
+
+    lookups++;
+    const lineType = await lookupLineType(phone);
+    rowLineTypes.push(lineType);
+
+    if (lineType === "mobile") {
+      mobile++;
+      skipped.push({ phone, reason: "Mobile number (TCPA compliance)" });
+    } else if (lineType === "invalid") {
+      invalid++;
+      skipped.push({ phone, reason: "Invalid or disconnected number" });
+    } else {
+      importable++;
+    }
+  }
+
+  return {
+    total: input.rows.length,
+    importable,
+    mobile,
+    invalid,
+    estCost: lookups * COST_PER_LOOKUP,
+    rowLineTypes,
+    skipped,
+    error: null,
+  };
+}
+
 /**
  * Import leads from parsed CSV rows. `mapping` maps each CSV header to one of:
  * "field:<leadField>", "custom:<customFieldId>", "newcustom", or "skip".
+ *
+ * `rowLineTypes` (from `analyzeImport`, aligned by index) lets the import skip
+ * mobile and invalid numbers without paying for a second round of lookups.
  */
 export async function importLeads(input: {
   listId: string;
   dedup: "skip" | "update";
   mapping: Record<string, string>;
   rows: Record<string, string>[];
+  rowLineTypes?: LineType[];
 }): Promise<ImportResult> {
-  const base = { imported: 0, updated: 0, skipped: 0 };
+  const base = {
+    imported: 0,
+    updated: 0,
+    skipped: 0,
+    skippedMobile: 0,
+    skippedInvalid: 0,
+  };
   const supabase = await createClient();
   const {
     data: { user },
@@ -112,8 +208,21 @@ export async function importLeads(input: {
     customs: { customId: string; value: string }[];
   }[] = [];
   let skipped = 0;
+  let skippedMobile = 0;
+  let skippedInvalid = 0;
 
-  for (const row of input.rows) {
+  input.rows.forEach((row, index) => {
+    // Drop mobile and invalid numbers flagged by the Twilio Lookup analysis.
+    const lineType = input.rowLineTypes?.[index];
+    if (lineType === "mobile") {
+      skippedMobile++;
+      return;
+    }
+    if (lineType === "invalid") {
+      skippedInvalid++;
+      return;
+    }
+
     const fields: Record<string, unknown> = {};
     for (const [header, key] of headerToField) {
       const raw = (row[header] ?? "").trim();
@@ -141,23 +250,25 @@ export async function importLeads(input: {
     if (phone) {
       if (seen.has(phone)) {
         skipped++;
-        continue;
+        return;
       }
       seen.add(phone);
       const existingId = phoneToLeadId.get(phone);
       if (existingId) {
         if (input.dedup === "skip") {
           skipped++;
-          continue;
+          return;
         }
         updates.push({ leadId: existingId, fields, customs });
-        continue;
+        return;
       }
     }
 
     newLeads.push({ ...fields, owner_id: user.id, list_id: input.listId });
     newCustoms.push(customs);
-  }
+  });
+
+  const failTail = { skipped, skippedMobile, skippedInvalid };
 
   // Insert new leads in batches, keeping the returned ids aligned by index.
   let imported = 0;
@@ -168,7 +279,12 @@ export async function importLeads(input: {
       .insert(batch as LeadInsert[])
       .select("id");
     if (error || !inserted) {
-      return { ...base, imported, error: "Some rows could not be imported." };
+      return {
+        ...failTail,
+        imported,
+        updated: 0,
+        error: "Some rows could not be imported.",
+      };
     }
     imported += inserted.length;
 
@@ -213,5 +329,12 @@ export async function importLeads(input: {
   }
 
   revalidatePath("/leads");
-  return { imported, updated, skipped, error: null };
+  return {
+    imported,
+    updated,
+    skipped,
+    skippedMobile,
+    skippedInvalid,
+    error: null,
+  };
 }
