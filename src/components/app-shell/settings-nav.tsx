@@ -16,6 +16,7 @@ export function SettingsNav({ isAdmin }: { isAdmin: boolean }) {
         ]
       : []),
     { label: "Lists", href: "/settings/lists" },
+    { label: "Knowledge bases", href: "/settings/knowledge-bases" },
   ];
 
   return (
