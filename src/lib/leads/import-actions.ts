@@ -1,0 +1,217 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+
+import type { Database } from "@/lib/supabase/database.types";
+import { createClient } from "@/lib/supabase/server";
+
+import { IMPORTABLE_FIELDS, type ImportResult } from "./import-fields";
+import { stateToTimezone } from "./timezone";
+
+type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
+type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
+
+const FIELD_KEYS = new Set<string>(IMPORTABLE_FIELDS.map((f) => f.key));
+const NUMERIC_FIELDS = new Set(["google_rating", "google_reviews"]);
+const INSERT_BATCH = 500;
+
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Import leads from parsed CSV rows. `mapping` maps each CSV header to one of:
+ * "field:<leadField>", "custom:<customFieldId>", "newcustom", or "skip".
+ */
+export async function importLeads(input: {
+  listId: string;
+  dedup: "skip" | "update";
+  mapping: Record<string, string>;
+  rows: Record<string, string>[];
+}): Promise<ImportResult> {
+  const base = { imported: 0, updated: 0, skipped: 0 };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ...base, error: "You are not signed in." };
+
+  const { data: list } = await supabase
+    .from("lists")
+    .select("id")
+    .eq("id", input.listId)
+    .maybeSingle();
+  if (!list) return { ...base, error: "Choose a valid list to import into." };
+
+  // Resolve custom-field columns: create new fields, reuse existing ones.
+  const headerToCustomId = new Map<string, string>();
+  for (const [header, target] of Object.entries(input.mapping)) {
+    if (target.startsWith("custom:")) {
+      headerToCustomId.set(header, target.slice(7));
+    } else if (target === "newcustom") {
+      const slug = slugify(header);
+      if (!slug) continue;
+      const { data: existing } = await supabase
+        .from("custom_field_defs")
+        .select("id")
+        .eq("slug", slug)
+        .maybeSingle();
+      if (existing) {
+        headerToCustomId.set(header, existing.id);
+        continue;
+      }
+      const { count } = await supabase
+        .from("custom_field_defs")
+        .select("id", { count: "exact", head: true });
+      const { data: created, error } = await supabase
+        .from("custom_field_defs")
+        .insert({
+          name: header,
+          slug,
+          type: "text",
+          sort_order: count ?? 0,
+        })
+        .select("id")
+        .single();
+      if (error || !created) {
+        return { ...base, error: "Could not create a custom field." };
+      }
+      headerToCustomId.set(header, created.id);
+    }
+  }
+
+  const headerToField = new Map<string, string>();
+  for (const [header, target] of Object.entries(input.mapping)) {
+    if (target.startsWith("field:")) {
+      const key = target.slice(6);
+      if (FIELD_KEYS.has(key)) headerToField.set(header, key);
+    }
+  }
+
+  // Existing phone numbers, for deduplication.
+  const { data: existing } = await supabase
+    .from("leads")
+    .select("id, business_phone")
+    .eq("owner_id", user.id)
+    .not("business_phone", "is", null);
+  const phoneToLeadId = new Map<string, string>();
+  for (const lead of existing ?? []) {
+    if (lead.business_phone) phoneToLeadId.set(lead.business_phone, lead.id);
+  }
+
+  const seen = new Set<string>();
+  const newLeads: Record<string, unknown>[] = [];
+  const newCustoms: { customId: string; value: string }[][] = [];
+  const updates: {
+    leadId: string;
+    fields: Record<string, unknown>;
+    customs: { customId: string; value: string }[];
+  }[] = [];
+  let skipped = 0;
+
+  for (const row of input.rows) {
+    const fields: Record<string, unknown> = {};
+    for (const [header, key] of headerToField) {
+      const raw = (row[header] ?? "").trim();
+      if (!raw) continue;
+      if (NUMERIC_FIELDS.has(key)) {
+        const n = Number(raw);
+        if (!Number.isNaN(n)) fields[key] = n;
+      } else {
+        fields[key] = raw;
+      }
+    }
+    if (typeof fields.state === "string" && !fields.timezone) {
+      const tz = stateToTimezone(fields.state);
+      if (tz) fields.timezone = tz;
+    }
+
+    const customs: { customId: string; value: string }[] = [];
+    for (const [header, customId] of headerToCustomId) {
+      const raw = (row[header] ?? "").trim();
+      if (raw) customs.push({ customId, value: raw });
+    }
+
+    const phone =
+      typeof fields.business_phone === "string" ? fields.business_phone : "";
+    if (phone) {
+      if (seen.has(phone)) {
+        skipped++;
+        continue;
+      }
+      seen.add(phone);
+      const existingId = phoneToLeadId.get(phone);
+      if (existingId) {
+        if (input.dedup === "skip") {
+          skipped++;
+          continue;
+        }
+        updates.push({ leadId: existingId, fields, customs });
+        continue;
+      }
+    }
+
+    newLeads.push({ ...fields, owner_id: user.id, list_id: input.listId });
+    newCustoms.push(customs);
+  }
+
+  // Insert new leads in batches, keeping the returned ids aligned by index.
+  let imported = 0;
+  for (let i = 0; i < newLeads.length; i += INSERT_BATCH) {
+    const batch = newLeads.slice(i, i + INSERT_BATCH);
+    const { data: inserted, error } = await supabase
+      .from("leads")
+      .insert(batch as LeadInsert[])
+      .select("id");
+    if (error || !inserted) {
+      return { ...base, imported, error: "Some rows could not be imported." };
+    }
+    imported += inserted.length;
+
+    const customRows: {
+      lead_id: string;
+      custom_field_id: string;
+      value: string;
+    }[] = [];
+    inserted.forEach((lead, j) => {
+      for (const c of newCustoms[i + j]) {
+        customRows.push({
+          lead_id: lead.id,
+          custom_field_id: c.customId,
+          value: c.value,
+        });
+      }
+    });
+    if (customRows.length > 0) {
+      await supabase.from("lead_custom_values").insert(customRows);
+    }
+  }
+
+  // Apply updates for matched leads.
+  let updated = 0;
+  for (const u of updates) {
+    const { error } = await supabase
+      .from("leads")
+      .update(u.fields as LeadUpdate)
+      .eq("id", u.leadId);
+    if (!error) {
+      updated++;
+      if (u.customs.length > 0) {
+        await supabase.from("lead_custom_values").upsert(
+          u.customs.map((c) => ({
+            lead_id: u.leadId,
+            custom_field_id: c.customId,
+            value: c.value,
+          })),
+        );
+      }
+    }
+  }
+
+  revalidatePath("/leads");
+  return { imported, updated, skipped, error: null };
+}

@@ -1,4 +1,4 @@
-import { Search, Users } from "lucide-react";
+import { Search, Upload, Users } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -185,6 +185,12 @@ export default async function LeadsPage({
         <LeadsFilters lists={lists ?? []} />
         <ColumnPicker />
         <SavedViews views={views ?? []} />
+        <Button asChild variant="outline">
+          <Link href="/leads/import">
+            <Upload className="size-4" />
+            Import
+          </Link>
+        </Button>
       </div>
 
       {leads.length > 0 ? (
