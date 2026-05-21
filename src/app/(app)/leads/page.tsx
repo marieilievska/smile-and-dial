@@ -12,10 +12,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { type CustomFieldType } from "@/lib/custom-fields/actions";
+import { IMPORTABLE_FIELDS } from "@/lib/leads/import-fields";
 import { createClient } from "@/lib/supabase/server";
 
 import { ColumnPicker } from "./column-picker";
 import { DEFAULT_COLUMN_KEYS, LEAD_COLUMNS, type DisplayLead } from "./columns";
+import { LeadDetailModal, type CustomFieldDef } from "./lead-detail-modal";
+import { LeadRow } from "./lead-row";
 import { LeadsFilters } from "./leads-filters";
 import { buildLeadsQuery, parseSort, str } from "./leads-query";
 import { leadsHref, type SearchParams } from "./leads-url";
@@ -97,16 +101,78 @@ export default async function LeadsPage({
       .order("created_at", { ascending: true }),
   ]);
 
+  // Lead detail modal: load the full lead when ?lead=<id> is set.
+  const leadParam = str(params.lead);
+  let leadDetail: {
+    id: string;
+    company: string | null;
+    fieldValues: Record<string, string>;
+    customFields: CustomFieldDef[];
+    customValues: Record<string, unknown>;
+  } | null = null;
+  if (/^[0-9a-f-]{36}$/i.test(leadParam)) {
+    const [{ data: lead }, { data: defs }, { data: values }] =
+      await Promise.all([
+        supabase
+          .from("leads")
+          .select("*")
+          .eq("id", leadParam)
+          .is("deleted_at", null)
+          .maybeSingle(),
+        supabase
+          .from("custom_field_defs")
+          .select("id, name, type, options, sort_order")
+          .order("sort_order", { ascending: true }),
+        supabase
+          .from("lead_custom_values")
+          .select("custom_field_id, value")
+          .eq("lead_id", leadParam),
+      ]);
+    if (lead) {
+      const row = lead as Record<string, unknown>;
+      const fieldValues: Record<string, string> = {};
+      for (const f of IMPORTABLE_FIELDS) {
+        const value = row[f.key];
+        fieldValues[f.key] = value == null ? "" : String(value);
+      }
+      leadDetail = {
+        id: lead.id,
+        company: lead.company,
+        fieldValues,
+        customFields: (defs ?? []).map((d) => ({
+          id: d.id,
+          name: d.name,
+          type: d.type as CustomFieldType,
+          options: Array.isArray(d.options)
+            ? d.options.filter((o): o is string => typeof o === "string")
+            : [],
+        })),
+        customValues: Object.fromEntries(
+          (values ?? []).map((v) => [v.custom_field_id, v.value]),
+        ),
+      };
+    }
+  }
+
   // Hidden inputs so the search form preserves filters, sort, and columns.
   const preservedParams = Object.entries(params).filter(
     ([key, value]) =>
-      typeof value === "string" && value && key !== "q" && key !== "page",
+      typeof value === "string" &&
+      value &&
+      key !== "q" &&
+      key !== "page" &&
+      key !== "lead",
   ) as [string, string][];
 
   // Export carries every filter except pagination — it exports all matches.
   const exportQs = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (typeof value === "string" && value && key !== "page") {
+    if (
+      typeof value === "string" &&
+      value &&
+      key !== "page" &&
+      key !== "lead"
+    ) {
       exportQs.set(key, value);
     }
   }
@@ -183,11 +249,11 @@ export default async function LeadsPage({
             </TableHeader>
             <TableBody>
               {leads.map((lead) => (
-                <TableRow key={lead.id}>
+                <LeadRow key={lead.id} leadId={lead.id}>
                   {columns.map((col) => (
                     <TableCell key={col.key}>{col.cell(lead)}</TableCell>
                   ))}
-                </TableRow>
+                </LeadRow>
               ))}
             </TableBody>
           </Table>
@@ -238,6 +304,16 @@ export default async function LeadsPage({
             </Button>
           </div>
         </div>
+      ) : null}
+
+      {leadDetail ? (
+        <LeadDetailModal
+          leadId={leadDetail.id}
+          leadCompany={leadDetail.company}
+          fieldValues={leadDetail.fieldValues}
+          customFields={leadDetail.customFields}
+          customValues={leadDetail.customValues}
+        />
       ) : null}
     </div>
   );
