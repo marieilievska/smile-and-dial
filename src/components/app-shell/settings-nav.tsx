@@ -9,7 +9,12 @@ export function SettingsNav({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
 
   const tabs = [
-    ...(isAdmin ? [{ label: "Users", href: "/settings/users" }] : []),
+    ...(isAdmin
+      ? [
+          { label: "Users", href: "/settings/users" },
+          { label: "Custom fields", href: "/settings/custom-fields" },
+        ]
+      : []),
     { label: "Lists", href: "/settings/lists" },
   ];
 
