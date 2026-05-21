@@ -18,7 +18,12 @@ import { createClient } from "@/lib/supabase/server";
 
 import { ColumnPicker } from "./column-picker";
 import { DEFAULT_COLUMN_KEYS, LEAD_COLUMNS, type DisplayLead } from "./columns";
-import { LeadDetailModal, type CustomFieldDef } from "./lead-detail-modal";
+import {
+  LeadDetailModal,
+  type CustomFieldDef,
+  type LeadEvent,
+  type LeadMeta,
+} from "./lead-detail-modal";
 import { LeadRow } from "./lead-row";
 import { LeadsFilters } from "./leads-filters";
 import { buildLeadsQuery, parseSort, str } from "./leads-query";
@@ -109,13 +114,15 @@ export default async function LeadsPage({
     fieldValues: Record<string, string>;
     customFields: CustomFieldDef[];
     customValues: Record<string, unknown>;
+    meta: LeadMeta;
+    events: LeadEvent[];
   } | null = null;
   if (/^[0-9a-f-]{36}$/i.test(leadParam)) {
     const [{ data: lead }, { data: defs }, { data: values }] =
       await Promise.all([
         supabase
           .from("leads")
-          .select("*")
+          .select("*, list:lists(name)")
           .eq("id", leadParam)
           .is("deleted_at", null)
           .maybeSingle(),
@@ -150,6 +157,16 @@ export default async function LeadsPage({
         customValues: Object.fromEntries(
           (values ?? []).map((v) => [v.custom_field_id, v.value]),
         ),
+        meta: {
+          status: lead.status,
+          lastOutcome: lead.last_outcome,
+          listName: lead.list?.name ?? "—",
+          retryCounter: lead.retry_counter,
+          restingUntil: lead.resting_until,
+          nextCallAt: lead.next_call_at,
+          aiSummary: lead.ai_summary,
+        },
+        events: [{ id: "created", label: "Lead created", at: lead.created_at }],
       };
     }
   }
@@ -313,6 +330,8 @@ export default async function LeadsPage({
           fieldValues={leadDetail.fieldValues}
           customFields={leadDetail.customFields}
           customValues={leadDetail.customValues}
+          meta={leadDetail.meta}
+          events={leadDetail.events}
         />
       ) : null}
     </div>
