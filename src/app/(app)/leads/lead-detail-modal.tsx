@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { Clock } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -62,18 +63,52 @@ export type CustomFieldDef = {
   options: string[];
 };
 
+/** Read-only pipeline context shown alongside the editable fields. */
+export type LeadMeta = {
+  status: string;
+  lastOutcome: string | null;
+  listName: string;
+  retryCounter: number;
+  restingUntil: string | null;
+  nextCallAt: string | null;
+  aiSummary: string | null;
+};
+
+/**
+ * One entry in the lead's activity timeline. Today only the "created" event
+ * exists; later phases append calls, callbacks, DNC changes, and edits.
+ */
+export type LeadEvent = {
+  id: string;
+  label: string;
+  at: string;
+};
+
+function humanize(value: string | null): string {
+  if (!value) return "—";
+  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
+}
+
+function formatDateTime(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "—";
+}
+
 export function LeadDetailModal({
   leadId,
   leadCompany,
   fieldValues,
   customFields,
   customValues,
+  meta,
+  events,
 }: {
   leadId: string;
   leadCompany: string | null;
   fieldValues: Record<string, string>;
   customFields: CustomFieldDef[];
   customValues: Record<string, unknown>;
+  meta: LeadMeta;
+  events: LeadEvent[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -112,44 +147,140 @@ export function LeadDetailModal({
         if (!next) close();
       }}
     >
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>{leadCompany || "Lead details"}</DialogTitle>
           <DialogDescription>{STATUS_TEXT[status]}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {STANDARD_FIELDS.map((field) => (
-            <AutosaveField
-              key={field.key}
-              id={`lead-${field.key}`}
-              label={field.label}
-              type={field.type}
-              initial={fieldValues[field.key] ?? ""}
-              onSave={saveField(field.key)}
-            />
-          ))}
-        </div>
-
-        {customFields.length > 0 ? (
-          <div className="mt-2 flex flex-col gap-4">
-            <h3 className="text-foreground text-sm font-semibold">
-              Custom fields
-            </h3>
+        <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+          <div className="flex flex-col gap-6">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {customFields.map((field) => (
-                <CustomFieldEditor
-                  key={field.id}
-                  field={field}
-                  initial={customValues[field.id]}
-                  onSave={saveCustom(field.id)}
+              {STANDARD_FIELDS.map((field) => (
+                <AutosaveField
+                  key={field.key}
+                  id={`lead-${field.key}`}
+                  label={field.label}
+                  type={field.type}
+                  initial={fieldValues[field.key] ?? ""}
+                  onSave={saveField(field.key)}
                 />
               ))}
             </div>
+
+            {customFields.length > 0 ? (
+              <Section title="Custom fields">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {customFields.map((field) => (
+                    <CustomFieldEditor
+                      key={field.id}
+                      field={field}
+                      initial={customValues[field.id]}
+                      onSave={saveCustom(field.id)}
+                    />
+                  ))}
+                </div>
+              </Section>
+            ) : null}
+
+            <Section title="AI summary">
+              {meta.aiSummary ? (
+                <p className="text-muted-foreground text-sm whitespace-pre-line">
+                  {meta.aiSummary}
+                </p>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No summary yet — this is generated after the lead is called.
+                </p>
+              )}
+            </Section>
+
+            <Section title="Campaign & list">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <InfoRow label="List" value={meta.listName} />
+                <InfoRow label="Status" value={humanize(meta.status)} />
+                <InfoRow
+                  label="Last outcome"
+                  value={humanize(meta.lastOutcome)}
+                />
+                <InfoRow
+                  label="Retry counter"
+                  value={String(meta.retryCounter)}
+                />
+                <InfoRow
+                  label="Resting until"
+                  value={formatDateTime(meta.restingUntil)}
+                />
+                <InfoRow
+                  label="Next call"
+                  value={formatDateTime(meta.nextCallAt)}
+                />
+              </dl>
+            </Section>
           </div>
-        ) : null}
+
+          <div className="lg:border-border lg:border-l lg:pl-6">
+            <Section title="Activity">
+              <ActivityTimeline events={events} />
+            </Section>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A titled block inside the modal. */
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-foreground text-sm font-semibold">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+/** A label/value pair in the read-only Campaign & list section. */
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col">
+      <dt className="text-muted-foreground text-xs">{label}</dt>
+      <dd className="text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+/** The lead's activity timeline, newest first. */
+function ActivityTimeline({ events }: { events: LeadEvent[] }) {
+  if (events.length === 0) {
+    return <p className="text-muted-foreground text-sm">No activity yet.</p>;
+  }
+
+  const ordered = [...events].sort((a, b) => b.at.localeCompare(a.at));
+  return (
+    <ol className="flex flex-col gap-4">
+      {ordered.map((event) => (
+        <li key={event.id} className="flex gap-3">
+          <span className="bg-muted text-muted-foreground mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full">
+            <Clock className="size-3.5" />
+          </span>
+          <div className="flex flex-col">
+            <span className="text-foreground text-sm font-medium">
+              {event.label}
+            </span>
+            <span className="text-muted-foreground text-xs">
+              {formatDateTime(event.at)}
+            </span>
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }
 
