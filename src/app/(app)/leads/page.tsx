@@ -1,4 +1,4 @@
-import { Search, Upload, Users } from "lucide-react";
+import { Download, Search, Upload, Users } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -17,20 +17,12 @@ import { createClient } from "@/lib/supabase/server";
 import { ColumnPicker } from "./column-picker";
 import { DEFAULT_COLUMN_KEYS, LEAD_COLUMNS, type DisplayLead } from "./columns";
 import { LeadsFilters } from "./leads-filters";
+import { buildLeadsQuery, parseSort, str } from "./leads-query";
 import { leadsHref, type SearchParams } from "./leads-url";
 import { SavedViews } from "./saved-views";
 import { SortableHeader } from "./sortable-header";
 
 const PAGE_SIZE = 25;
-const SORT_KEYS = new Set([
-  ...LEAD_COLUMNS.map((c) => c.sortKey).filter(Boolean),
-  "created_at",
-]);
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function str(value: string | string[] | undefined): string {
-  return typeof value === "string" ? value : "";
-}
 
 export default async function LeadsPage({
   searchParams,
@@ -39,10 +31,7 @@ export default async function LeadsPage({
 }) {
   const params = await searchParams;
   const query = str(params.q);
-  const sort = SORT_KEYS.has(str(params.sort))
-    ? str(params.sort)
-    : "created_at";
-  const dir: "asc" | "desc" = params.dir === "asc" ? "asc" : "desc";
+  const { sort, dir } = parseSort(params);
   const page = Math.max(1, Number(params.page) || 1);
 
   const supabase = await createClient();
@@ -51,47 +40,8 @@ export default async function LeadsPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  let listQuery = supabase
-    .from("leads")
-    .select(
-      "id, company, business_phone, business_email, status, last_outcome, city, state, conversations, call_attempts, last_call_at, next_call_at, owner_id, list:lists(name)",
-      { count: "exact" },
-    )
-    .is("deleted_at", null);
-
-  // Search.
-  if (query) {
-    const safe = query.replace(/[%,()\\*]/g, "").trim();
-    if (safe) {
-      listQuery = listQuery.or(
-        `company.ilike.%${safe}%,business_phone.ilike.%${safe}%,business_email.ilike.%${safe}%`,
-      );
-    }
-  }
-
-  // Filters.
-  const listId = str(params.list);
-  if (/^[0-9a-f-]{36}$/i.test(listId))
-    listQuery = listQuery.eq("list_id", listId);
-  if (str(params.status))
-    listQuery = listQuery.eq("status", str(params.status));
-  if (str(params.outcome)) {
-    listQuery = listQuery.eq("last_outcome", str(params.outcome));
-  }
-  const dateFilters: [string, string, string][] = [
-    ["created_from", "created_to", "created_at"],
-    ["lastcall_from", "lastcall_to", "last_call_at"],
-    ["nextcall_from", "nextcall_to", "next_call_at"],
-  ];
-  for (const [fromKey, toKey, column] of dateFilters) {
-    const from = str(params[fromKey]);
-    const to = str(params[toKey]);
-    if (DATE_RE.test(from)) listQuery = listQuery.gte(column, from);
-    if (DATE_RE.test(to)) listQuery = listQuery.lte(column, `${to}T23:59:59`);
-  }
-
   const offset = (page - 1) * PAGE_SIZE;
-  const { data, count } = await listQuery
+  const { data, count } = await buildLeadsQuery(supabase, params)
     .order(sort, { ascending: dir === "asc" })
     .order("id", { ascending: true })
     .range(offset, offset + PAGE_SIZE - 1);
@@ -153,6 +103,17 @@ export default async function LeadsPage({
       typeof value === "string" && value && key !== "q" && key !== "page",
   ) as [string, string][];
 
+  // Export carries every filter except pagination — it exports all matches.
+  const exportQs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === "string" && value && key !== "page") {
+      exportQs.set(key, value);
+    }
+  }
+  const exportHref = exportQs.toString()
+    ? `/leads/export?${exportQs}`
+    : "/leads/export";
+
   return (
     <div className="flex flex-col gap-6 p-8">
       <div>
@@ -185,6 +146,12 @@ export default async function LeadsPage({
         <LeadsFilters lists={lists ?? []} />
         <ColumnPicker />
         <SavedViews views={views ?? []} />
+        <Button asChild variant="outline">
+          <a href={exportHref}>
+            <Download className="size-4" />
+            Export
+          </a>
+        </Button>
         <Button asChild variant="outline">
           <Link href="/leads/import">
             <Upload className="size-4" />
