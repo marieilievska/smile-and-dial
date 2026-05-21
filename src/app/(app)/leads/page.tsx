@@ -16,6 +16,7 @@ import { type CustomFieldType } from "@/lib/custom-fields/actions";
 import { IMPORTABLE_FIELDS } from "@/lib/leads/import-fields";
 import { createClient } from "@/lib/supabase/server";
 
+import { BulkActionBar } from "./bulk-action-bar";
 import { ColumnPicker } from "./column-picker";
 import { DEFAULT_COLUMN_KEYS, LEAD_COLUMNS, type DisplayLead } from "./columns";
 import {
@@ -29,6 +30,7 @@ import { LeadsFilters } from "./leads-filters";
 import { buildLeadsQuery, parseSort, str } from "./leads-query";
 import { leadsHref, type SearchParams } from "./leads-url";
 import { SavedViews } from "./saved-views";
+import { RowCheckbox, SelectAllCheckbox, SelectionProvider } from "./selection";
 import { SortableHeader } from "./sortable-header";
 
 const PAGE_SIZE = 25;
@@ -96,15 +98,30 @@ export default async function LeadsPage({
     : new Set(DEFAULT_COLUMN_KEYS);
   const columns = LEAD_COLUMNS.filter((c) => visibleKeys.has(c.key));
 
-  // Filter controls need the user's lists and saved views.
-  const [{ data: lists }, { data: views }] = await Promise.all([
+  // Filter controls need the user's lists and saved views; bulk actions need
+  // the current user's role (and, for admins, the possible owners).
+  const [{ data: lists }, { data: views }, { data: me }] = await Promise.all([
     supabase.from("lists").select("id, name").order("name"),
     supabase
       .from("saved_views")
       .select("id, name, params")
       .eq("page", "leads")
       .order("created_at", { ascending: true }),
+    supabase.from("profiles").select("role").eq("id", user.id).single(),
   ]);
+  const isAdmin = me?.role === "admin";
+
+  let owners: { id: string; name: string }[] = [];
+  if (isAdmin) {
+    const { data: people } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .order("full_name");
+    owners = (people ?? []).map((p) => ({
+      id: p.id,
+      name: p.full_name || p.email || "Unknown",
+    }));
+  }
 
   // Lead detail modal: load the full lead when ?lead=<id> is set.
   const leadParam = str(params.lead);
@@ -243,47 +260,58 @@ export default async function LeadsPage({
         </Button>
       </div>
 
-      {leads.length > 0 ? (
-        <div className="border-border overflow-x-auto rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {columns.map((col) =>
-                  col.sortKey ? (
-                    <SortableHeader
-                      key={col.key}
-                      label={col.label}
-                      sortKey={col.sortKey}
-                      currentSort={sort}
-                      currentDir={dir}
-                      params={params}
-                    />
-                  ) : (
-                    <TableHead key={col.key}>{col.label}</TableHead>
-                  ),
-                )}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {leads.map((lead) => (
-                <LeadRow key={lead.id} leadId={lead.id}>
-                  {columns.map((col) => (
-                    <TableCell key={col.key}>{col.cell(lead)}</TableCell>
-                  ))}
-                </LeadRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      ) : (
-        <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
-          <Users className="text-muted-foreground size-8" />
-          <p className="text-foreground text-sm font-medium">No leads match</p>
-          <p className="text-muted-foreground text-sm">
-            Try a different search or clear your filters.
-          </p>
-        </div>
-      )}
+      <SelectionProvider allIds={leads.map((l) => l.id)}>
+        <BulkActionBar lists={lists ?? []} owners={owners} isAdmin={isAdmin} />
+        {leads.length > 0 ? (
+          <div className="border-border overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <SelectAllCheckbox />
+                  </TableHead>
+                  {columns.map((col) =>
+                    col.sortKey ? (
+                      <SortableHeader
+                        key={col.key}
+                        label={col.label}
+                        sortKey={col.sortKey}
+                        currentSort={sort}
+                        currentDir={dir}
+                        params={params}
+                      />
+                    ) : (
+                      <TableHead key={col.key}>{col.label}</TableHead>
+                    ),
+                  )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {leads.map((lead) => (
+                  <LeadRow key={lead.id} leadId={lead.id}>
+                    <TableCell className="w-10">
+                      <RowCheckbox leadId={lead.id} />
+                    </TableCell>
+                    {columns.map((col) => (
+                      <TableCell key={col.key}>{col.cell(lead)}</TableCell>
+                    ))}
+                  </LeadRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        ) : (
+          <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+            <Users className="text-muted-foreground size-8" />
+            <p className="text-foreground text-sm font-medium">
+              No leads match
+            </p>
+            <p className="text-muted-foreground text-sm">
+              Try a different search or clear your filters.
+            </p>
+          </div>
+        )}
+      </SelectionProvider>
 
       {leads.length > 0 ? (
         <div className="flex items-center justify-between">

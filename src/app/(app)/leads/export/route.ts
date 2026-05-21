@@ -38,7 +38,14 @@ export async function GET(request: NextRequest) {
   );
   const { sort, dir } = parseSort(params);
 
-  const { data } = await buildLeadsQuery(supabase, params)
+  // `ids` (from "Export selected") narrows the export to specific leads.
+  let query = buildLeadsQuery(supabase, params);
+  const idsParam = str(params.ids);
+  if (idsParam) {
+    query = query.in("id", idsParam.split(",").filter(Boolean));
+  }
+
+  const { data } = await query
     .order(sort, { ascending: dir === "asc" })
     .order("id", { ascending: true })
     .range(0, EXPORT_LIMIT - 1);
