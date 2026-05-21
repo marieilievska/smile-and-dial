@@ -17,7 +17,10 @@ export function AppSidebar({ isAdmin }: { isAdmin: boolean }) {
           Smile <span className="text-coral">&amp;</span> Dial
         </span>
       </div>
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+      <nav
+        aria-label="Main"
+        className="flex flex-1 flex-col gap-1 overflow-y-auto p-3"
+      >
         {items.map((item) => {
           const active =
             pathname === item.href || pathname.startsWith(`${item.href}/`);
