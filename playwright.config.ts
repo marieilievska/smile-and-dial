@@ -1,4 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
+import dotenv from "dotenv";
+
+// Load local env (Supabase keys, E2E credentials). In CI these values come
+// from GitHub Actions secrets and .env.local is absent — dotenv is a no-op.
+dotenv.config({ path: ".env.local" });
 
 /**
  * Playwright E2E configuration.
