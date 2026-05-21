@@ -14,6 +14,39 @@ export type Database = {
   };
   public: {
     Tables: {
+      custom_field_defs: {
+        Row: {
+          created_at: string;
+          id: string;
+          name: string;
+          options: Json;
+          required: boolean;
+          slug: string;
+          sort_order: number;
+          type: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          name: string;
+          options?: Json;
+          required?: boolean;
+          slug: string;
+          sort_order?: number;
+          type: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          name?: string;
+          options?: Json;
+          required?: boolean;
+          slug?: string;
+          sort_order?: number;
+          type?: string;
+        };
+        Relationships: [];
+      };
       lists: {
         Row: {
           created_at: string;
