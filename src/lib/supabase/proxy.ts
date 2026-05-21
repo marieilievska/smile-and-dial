@@ -37,15 +37,20 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
+  const { pathname } = request.nextUrl;
+  const isLoginRoute = pathname === "/login";
+  // /auth/* covers the invite / password-reset confirm + set-password flow.
+  const isAuthFlowRoute = pathname.startsWith("/auth/");
 
-  if (!user && !isAuthRoute) {
+  // Unauthenticated users may only reach /login and the /auth/* flow.
+  if (!user && !isLoginRoute && !isAuthFlowRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  if (user && isAuthRoute) {
+  // Signed-in users have no reason to see the login page.
+  if (user && isLoginRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/leads";
     return NextResponse.redirect(url);

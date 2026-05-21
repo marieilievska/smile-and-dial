@@ -39,6 +39,18 @@ test.describe("users management — admin", () => {
       page.getByRole("menuitem", { name: "Deactivate" }),
     ).toBeDisabled();
   });
+
+  test("an admin can open the invite dialog", async ({ page }) => {
+    await page.goto("/settings/users");
+    await page.getByRole("button", { name: "Invite user" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel("Email")).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: "Send invitation" }),
+    ).toBeVisible();
+  });
 });
 
 test.describe("users management — member", () => {
