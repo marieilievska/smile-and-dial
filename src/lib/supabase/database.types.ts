@@ -99,6 +99,71 @@ export type Database = {
         };
         Relationships: [];
       };
+      knowledge_base_sources: {
+        Row: {
+          created_at: string;
+          file_path: string | null;
+          id: string;
+          kb_id: string;
+          synced_at: string | null;
+          type: string;
+          url: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          file_path?: string | null;
+          id?: string;
+          kb_id: string;
+          synced_at?: string | null;
+          type: string;
+          url?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          file_path?: string | null;
+          id?: string;
+          kb_id?: string;
+          synced_at?: string | null;
+          type?: string;
+          url?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_base_sources_kb_id_fkey";
+            columns: ["kb_id"];
+            isOneToOne: false;
+            referencedRelation: "knowledge_bases";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      knowledge_bases: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          elevenlabs_kb_id: string | null;
+          id: string;
+          name: string;
+          owner_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          elevenlabs_kb_id?: string | null;
+          id?: string;
+          name: string;
+          owner_id: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          elevenlabs_kb_id?: string | null;
+          id?: string;
+          name?: string;
+          owner_id?: string;
+        };
+        Relationships: [];
+      };
       lead_custom_values: {
         Row: {
           custom_field_id: string;
