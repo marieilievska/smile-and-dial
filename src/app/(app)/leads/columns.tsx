@@ -22,7 +22,10 @@ export type LeadColumn = {
   label: string;
   /** DB column to sort by. Omit for non-sortable columns. */
   sortKey?: string;
+  /** Rendered cell for the Leads table. */
   cell: (lead: DisplayLead) => React.ReactNode;
+  /** Plain-text value for the CSV export. */
+  text: (lead: DisplayLead) => string;
 };
 
 function humanize(value: string | null): string {
@@ -32,6 +35,11 @@ function humanize(value: string | null): string {
 
 function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleDateString() : "—";
+}
+
+/** Date for CSV: blank rather than an em dash when there is no value. */
+function dateText(value: string | null): string {
+  return value ? new Date(value).toLocaleDateString() : "";
 }
 
 function statusVariant(
@@ -50,6 +58,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     label: "Company",
     sortKey: "company",
     cell: (l) => <span className="font-medium">{l.company || "—"}</span>,
+    text: (l) => l.company ?? "",
   },
   {
     key: "phone",
@@ -57,6 +66,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     cell: (l) => (
       <span className="font-mono text-xs">{l.business_phone || "—"}</span>
     ),
+    text: (l) => l.business_phone ?? "",
   },
   {
     key: "email",
@@ -64,6 +74,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     cell: (l) => (
       <span className="text-muted-foreground">{l.business_email || "—"}</span>
     ),
+    text: (l) => l.business_email ?? "",
   },
   {
     key: "status",
@@ -72,6 +83,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     cell: (l) => (
       <Badge variant={statusVariant(l.status)}>{humanize(l.status)}</Badge>
     ),
+    text: (l) => humanize(l.status),
   },
   {
     key: "last_outcome",
@@ -79,17 +91,20 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     cell: (l) => (
       <span className="text-muted-foreground">{humanize(l.last_outcome)}</span>
     ),
+    text: (l) => (l.last_outcome ? humanize(l.last_outcome) : ""),
   },
   {
     key: "list",
     label: "List",
     cell: (l) => <span className="text-muted-foreground">{l.listName}</span>,
+    text: (l) => l.listName,
   },
   {
     key: "city",
     label: "City",
     sortKey: "city",
     cell: (l) => <span className="text-muted-foreground">{l.city || "—"}</span>,
+    text: (l) => l.city ?? "",
   },
   {
     key: "state",
@@ -98,6 +113,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     cell: (l) => (
       <span className="text-muted-foreground">{l.state || "—"}</span>
     ),
+    text: (l) => l.state ?? "",
   },
   {
     key: "conversations",
@@ -106,6 +122,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     cell: (l) => (
       <span className="text-muted-foreground">{l.conversations}</span>
     ),
+    text: (l) => String(l.conversations),
   },
   {
     key: "call_attempts",
@@ -114,6 +131,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     cell: (l) => (
       <span className="text-muted-foreground">{l.call_attempts}</span>
     ),
+    text: (l) => String(l.call_attempts),
   },
   {
     key: "last_call",
@@ -124,6 +142,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
         {formatDate(l.last_call_at)}
       </span>
     ),
+    text: (l) => dateText(l.last_call_at),
   },
   {
     key: "next_call",
@@ -134,11 +153,13 @@ export const LEAD_COLUMNS: LeadColumn[] = [
         {formatDate(l.next_call_at)}
       </span>
     ),
+    text: (l) => dateText(l.next_call_at),
   },
   {
     key: "owner",
     label: "Owner",
     cell: (l) => <span className="text-muted-foreground">{l.ownerName}</span>,
+    text: (l) => l.ownerName,
   },
 ];
 
