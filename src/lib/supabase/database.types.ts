@@ -47,6 +47,152 @@ export type Database = {
         };
         Relationships: [];
       };
+      lead_custom_values: {
+        Row: {
+          custom_field_id: string;
+          lead_id: string;
+          value: Json | null;
+        };
+        Insert: {
+          custom_field_id: string;
+          lead_id: string;
+          value?: Json | null;
+        };
+        Update: {
+          custom_field_id?: string;
+          lead_id?: string;
+          value?: Json | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lead_custom_values_custom_field_id_fkey";
+            columns: ["custom_field_id"];
+            isOneToOne: false;
+            referencedRelation: "custom_field_defs";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lead_custom_values_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      leads: {
+        Row: {
+          ai_summary: string | null;
+          business_email: string | null;
+          business_phone: string | null;
+          call_attempts: number;
+          category: string | null;
+          city: string | null;
+          company: string | null;
+          conversations: number;
+          created_at: string;
+          deleted_at: string | null;
+          employee_name: string | null;
+          google_place_id: string | null;
+          google_rating: number | null;
+          google_reviews: number | null;
+          id: string;
+          last_call_at: string | null;
+          last_outcome: string | null;
+          list_id: string;
+          manager_name: string | null;
+          next_call_at: string | null;
+          owner_id: string;
+          owner_name: string | null;
+          owner_phone: string | null;
+          resting_until: string | null;
+          retry_counter: number;
+          retry_position: number;
+          state: string | null;
+          status: string;
+          timezone: string | null;
+          updated_at: string;
+          utm_campaign: string | null;
+          website: string | null;
+        };
+        Insert: {
+          ai_summary?: string | null;
+          business_email?: string | null;
+          business_phone?: string | null;
+          call_attempts?: number;
+          category?: string | null;
+          city?: string | null;
+          company?: string | null;
+          conversations?: number;
+          created_at?: string;
+          deleted_at?: string | null;
+          employee_name?: string | null;
+          google_place_id?: string | null;
+          google_rating?: number | null;
+          google_reviews?: number | null;
+          id?: string;
+          last_call_at?: string | null;
+          last_outcome?: string | null;
+          list_id: string;
+          manager_name?: string | null;
+          next_call_at?: string | null;
+          owner_id: string;
+          owner_name?: string | null;
+          owner_phone?: string | null;
+          resting_until?: string | null;
+          retry_counter?: number;
+          retry_position?: number;
+          state?: string | null;
+          status?: string;
+          timezone?: string | null;
+          updated_at?: string;
+          utm_campaign?: string | null;
+          website?: string | null;
+        };
+        Update: {
+          ai_summary?: string | null;
+          business_email?: string | null;
+          business_phone?: string | null;
+          call_attempts?: number;
+          category?: string | null;
+          city?: string | null;
+          company?: string | null;
+          conversations?: number;
+          created_at?: string;
+          deleted_at?: string | null;
+          employee_name?: string | null;
+          google_place_id?: string | null;
+          google_rating?: number | null;
+          google_reviews?: number | null;
+          id?: string;
+          last_call_at?: string | null;
+          last_outcome?: string | null;
+          list_id?: string;
+          manager_name?: string | null;
+          next_call_at?: string | null;
+          owner_id?: string;
+          owner_name?: string | null;
+          owner_phone?: string | null;
+          resting_until?: string | null;
+          retry_counter?: number;
+          retry_position?: number;
+          state?: string | null;
+          status?: string;
+          timezone?: string | null;
+          updated_at?: string;
+          utm_campaign?: string | null;
+          website?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "leads_list_id_fkey";
+            columns: ["list_id"];
+            isOneToOne: false;
+            referencedRelation: "lists";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       lists: {
         Row: {
           created_at: string;
