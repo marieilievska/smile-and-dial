@@ -3,31 +3,28 @@ import Link from "next/link";
 
 import { TableHead } from "@/components/ui/table";
 
+import { leadsHref, type SearchParams } from "./leads-url";
+
 export function SortableHeader({
   label,
-  column,
+  sortKey,
   currentSort,
   currentDir,
-  query,
+  params,
 }: {
   label: string;
-  column: string;
+  sortKey: string;
   currentSort: string;
   currentDir: "asc" | "desc";
-  query: string;
+  params: SearchParams;
 }) {
-  const isActive = currentSort === column;
+  const isActive = currentSort === sortKey;
   const nextDir = isActive && currentDir === "asc" ? "desc" : "asc";
-
-  const params = new URLSearchParams();
-  if (query) params.set("q", query);
-  params.set("sort", column);
-  params.set("dir", nextDir);
 
   return (
     <TableHead>
       <Link
-        href={`/leads?${params.toString()}`}
+        href={leadsHref(params, { sort: sortKey, dir: nextDir, page: "1" })}
         className="hover:text-foreground inline-flex items-center gap-1"
       >
         {label}
