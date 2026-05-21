@@ -24,12 +24,13 @@ export async function login(
     return { error: "Incorrect email or password." };
   }
 
-  redirect("/");
+  redirect("/leads");
 }
 
-/** Server action: sign out and return to the login page. */
+/** Server action: sign out of this session and return to the login page. */
 export async function signOut() {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  // Local scope: sign out of this browser only, not every device.
+  await supabase.auth.signOut({ scope: "local" });
   redirect("/login");
 }
