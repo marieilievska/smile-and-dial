@@ -11,7 +11,7 @@ source of truth for every architectural and design decision.
 
 - **Framework:** Next.js 16 (App Router, TypeScript)
 - **Styling:** Tailwind CSS v4 + shadcn/ui, design tokens per BUILD_PLAN.md Section 19
-- **Database / auth:** Supabase _(added in Phase 1, step 2)_
+- **Database / auth:** Supabase (Postgres, RLS, Supabase Auth)
 - **Testing:** Playwright E2E, run on every pull request via GitHub Actions
 - **Hosting:** Vercel
 
@@ -19,10 +19,12 @@ source of truth for every architectural and design decision.
 
 ```bash
 npm install
+cp .env.example .env.local   # then fill in the Supabase credentials
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). Authentication is
+invite-only — there is no public signup. Use a seeded account to sign in.
 
 ## Scripts
 

@@ -11,6 +11,7 @@
     "format:check": "prettier --check .",
     "test": "playwright test",
     "test:e2e": "playwright test",
+    "seed": "node --env-file=.env.local scripts/seed.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -23,6 +24,8 @@
     ]
   },
   "dependencies": {
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.106.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
@@ -40,6 +43,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "eslint-config-prettier": "^10.1.8",
