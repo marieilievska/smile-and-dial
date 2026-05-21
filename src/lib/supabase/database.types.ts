@@ -400,6 +400,54 @@ export type Database = {
         };
         Relationships: [];
       };
+      twilio_numbers: {
+        Row: {
+          attached_campaign_id: string | null;
+          country: string;
+          flagged_for_rotation: boolean;
+          friendly_name: string | null;
+          id: string;
+          last_calls_count_24h: number;
+          last_connect_rate_24h: number | null;
+          last_connect_rate_check_at: string | null;
+          monthly_cost: number;
+          phone_number: string;
+          purchased_at: string;
+          released_at: string | null;
+          twilio_sid: string | null;
+        };
+        Insert: {
+          attached_campaign_id?: string | null;
+          country: string;
+          flagged_for_rotation?: boolean;
+          friendly_name?: string | null;
+          id?: string;
+          last_calls_count_24h?: number;
+          last_connect_rate_24h?: number | null;
+          last_connect_rate_check_at?: string | null;
+          monthly_cost?: number;
+          phone_number: string;
+          purchased_at?: string;
+          released_at?: string | null;
+          twilio_sid?: string | null;
+        };
+        Update: {
+          attached_campaign_id?: string | null;
+          country?: string;
+          flagged_for_rotation?: boolean;
+          friendly_name?: string | null;
+          id?: string;
+          last_calls_count_24h?: number;
+          last_connect_rate_24h?: number | null;
+          last_connect_rate_check_at?: string | null;
+          monthly_cost?: number;
+          phone_number?: string;
+          purchased_at?: string;
+          released_at?: string | null;
+          twilio_sid?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
