@@ -14,6 +14,8 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       E2E_TEST_EMAIL: ${{ secrets.E2E_TEST_EMAIL }}
       E2E_TEST_PASSWORD: ${{ secrets.E2E_TEST_PASSWORD }}
+      E2E_MEMBER_EMAIL: ${{ secrets.E2E_MEMBER_EMAIL }}
+      E2E_MEMBER_PASSWORD: ${{ secrets.E2E_MEMBER_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6

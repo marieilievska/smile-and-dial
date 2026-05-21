@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { AppSidebar } from "@/components/app-shell/sidebar";
 import { TopBar } from "@/components/app-shell/top-bar";
+import { Toaster } from "@/components/ui/sonner";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function AppLayout({
@@ -35,6 +36,7 @@ export default async function AppLayout({
         <TopBar name={name} email={email} role={role} />
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
+      <Toaster />
     </div>
   );
 }

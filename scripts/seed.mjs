@@ -38,6 +38,13 @@ const users = [
     fullName: "E2E Test User",
     role: "admin",
   },
+  {
+    label: "E2E member user",
+    email: process.env.E2E_MEMBER_EMAIL,
+    password: process.env.E2E_MEMBER_PASSWORD,
+    fullName: "E2E Member User",
+    role: "member",
+  },
 ];
 
 let hadError = false;
