@@ -871,6 +871,27 @@ export type Database = {
           },
         ];
       };
+      twilio_status_events: {
+        Row: {
+          call_sid: string;
+          event_type: string;
+          raw_payload: Json | null;
+          received_at: string;
+        };
+        Insert: {
+          call_sid: string;
+          event_type: string;
+          raw_payload?: Json | null;
+          received_at?: string;
+        };
+        Update: {
+          call_sid?: string;
+          event_type?: string;
+          raw_payload?: Json | null;
+          received_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       dial_queue: {
