@@ -10,6 +10,9 @@ test.describe("Do not call", () => {
   const tail = String(stamp).slice(-6);
   const phoneA = `+1888${tail}01`;
   const phoneB = `+1888${tail}02`;
+  const importPhone1 = `+1888${tail}10`;
+  const importPhone2 = `+1888${tail}11`;
+  const importPhone3 = `+1888${tail}12`;
 
   let admin: SupabaseClient;
 
@@ -115,5 +118,49 @@ test.describe("Do not call", () => {
       await admin.from("leads").delete().eq("list_id", list!.id);
       await admin.from("lists").delete().eq("id", list!.id);
     }
+  });
+
+  test("a CSV import adds numbers to DNC", async ({ page }) => {
+    // Pre-seed one of the rows so we can prove the importer skips
+    // already-on-DNC numbers instead of failing the whole batch.
+    await admin.from("dnc_entries").insert({
+      phone: importPhone2,
+      reason: "manual",
+      company_snapshot: "Pre-seeded",
+    });
+
+    // CSV with: 1 brand-new row, 1 already-on-DNC row, 1 unparseable row.
+    const csv =
+      "phone,business\n" +
+      `${importPhone1},Imported Co A\n` +
+      `${importPhone2},Imported Co B\n` +
+      `not-a-phone,Imported Co C\n` +
+      `${importPhone3},Imported Co D\n`;
+
+    await page.goto("/dnc/import");
+    await page.getByLabel("CSV file").setInputFiles({
+      name: "dnc.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(csv),
+    });
+
+    // The wizard guesses "phone" and "business" columns — confirm and submit.
+    await expect(page.getByText(/^dnc\.csv/)).toBeVisible();
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await expect(page.getByText("Import complete")).toBeVisible();
+    await expect(page.getByText(/2 numbers added to DNC/)).toBeVisible();
+    await expect(page.getByText(/1 duplicate skipped/)).toBeVisible();
+    await expect(
+      page.getByText(/1 row skipped \(invalid phone\)/),
+    ).toBeVisible();
+
+    // The two brand-new numbers show up on the DNC page with reason "Imported".
+    await page.goto("/dnc?reason=imported");
+    await expect(
+      page.getByRole("cell", { name: importPhone1, exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: importPhone3, exact: true }),
+    ).toBeVisible();
   });
 });

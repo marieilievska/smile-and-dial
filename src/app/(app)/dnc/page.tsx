@@ -1,4 +1,5 @@
-import { Ban } from "lucide-react";
+import { Ban, Upload } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
@@ -98,7 +99,15 @@ export default async function DncPage({
             Workspace-wide list of phone numbers the dialer must skip.
           </p>
         </div>
-        <AddDncDialog />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/dnc/import">
+              <Upload className="size-4" />
+              Import
+            </Link>
+          </Button>
+          <AddDncDialog />
+        </div>
       </div>
 
       <form method="get" action="/dnc" className="flex items-end gap-2">
