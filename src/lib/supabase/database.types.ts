@@ -117,6 +117,97 @@ export type Database = {
         };
         Relationships: [];
       };
+      campaigns: {
+        Row: {
+          agent_id: string;
+          calendly_event_id: string | null;
+          calling_hours_end: string;
+          calling_hours_start: string;
+          calls_per_day_cap: number;
+          calls_per_hour_cap: number;
+          concurrency_cap_per_user: number;
+          created_at: string;
+          daily_spend_cap: number | null;
+          description: string | null;
+          email_template_id: string | null;
+          ended_at: string | null;
+          goal_id: string;
+          id: string;
+          monthly_spend_cap: number | null;
+          name: string;
+          owner_id: string;
+          status: string;
+          transfer_destination_phone: string | null;
+          twilio_number_id: string | null;
+        };
+        Insert: {
+          agent_id: string;
+          calendly_event_id?: string | null;
+          calling_hours_end?: string;
+          calling_hours_start?: string;
+          calls_per_day_cap?: number;
+          calls_per_hour_cap?: number;
+          concurrency_cap_per_user?: number;
+          created_at?: string;
+          daily_spend_cap?: number | null;
+          description?: string | null;
+          email_template_id?: string | null;
+          ended_at?: string | null;
+          goal_id: string;
+          id?: string;
+          monthly_spend_cap?: number | null;
+          name: string;
+          owner_id: string;
+          status?: string;
+          transfer_destination_phone?: string | null;
+          twilio_number_id?: string | null;
+        };
+        Update: {
+          agent_id?: string;
+          calendly_event_id?: string | null;
+          calling_hours_end?: string;
+          calling_hours_start?: string;
+          calls_per_day_cap?: number;
+          calls_per_hour_cap?: number;
+          concurrency_cap_per_user?: number;
+          created_at?: string;
+          daily_spend_cap?: number | null;
+          description?: string | null;
+          email_template_id?: string | null;
+          ended_at?: string | null;
+          goal_id?: string;
+          id?: string;
+          monthly_spend_cap?: number | null;
+          name?: string;
+          owner_id?: string;
+          status?: string;
+          transfer_destination_phone?: string | null;
+          twilio_number_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_agent_id_fkey";
+            columns: ["agent_id"];
+            isOneToOne: false;
+            referencedRelation: "agents";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "campaigns_goal_id_fkey";
+            columns: ["goal_id"];
+            isOneToOne: false;
+            referencedRelation: "goals";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "campaigns_twilio_number_id_fkey";
+            columns: ["twilio_number_id"];
+            isOneToOne: false;
+            referencedRelation: "twilio_numbers";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       custom_field_defs: {
         Row: {
           created_at: string;
@@ -524,7 +615,15 @@ export type Database = {
           released_at?: string | null;
           twilio_sid?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "twilio_numbers_attached_campaign_fk";
+            columns: ["attached_campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
     Views: {
