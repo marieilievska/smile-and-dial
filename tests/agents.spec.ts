@@ -93,17 +93,19 @@ test.describe("Agent builder", () => {
     // Lands back on the Agents page.
     await expect(page).toHaveURL(/\/settings\/agents$/);
 
-    // The DB has the saved agent with the right shape.
+    // The DB has the saved agent with the right shape, including the
+    // (mocked) ElevenLabs agent id from the sync step.
     const { data: agent } = await admin
       .from("agents")
       .select(
-        "name, tools_enabled, knowledge_base_ids, system_prompt, prompt_personality",
+        "name, tools_enabled, knowledge_base_ids, system_prompt, prompt_personality, elevenlabs_agent_id",
       )
       .eq("name", agentName)
       .single();
     expect(agent?.prompt_personality).toBe("Friendly and direct.");
     expect(agent?.tools_enabled).toMatchObject({ schedule_callback: true });
     expect(agent?.knowledge_base_ids).toContain(kbId);
+    expect(agent?.elevenlabs_agent_id).toMatch(/^agent_mock_/);
     expect(agent?.system_prompt).toContain("Friendly and direct.");
   });
 });

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { syncAgentToElevenLabs } from "@/lib/elevenlabs/agents";
 import { createClient } from "@/lib/supabase/server";
 
 import type { ToolsEnabled } from "./prompt";
@@ -62,6 +63,29 @@ export async function createAgent(input: {
     .select("id")
     .single();
   if (error || !created) return { error: "Could not save the agent." };
+
+  // Mirror the agent to ElevenLabs. On failure roll back so we don't leave
+  // a half-saved agent the admin can't reach from the wizard.
+  const sync = await syncAgentToElevenLabs(
+    {
+      name,
+      systemPrompt: input.systemPrompt,
+      voiceId: input.voiceId.trim() || null,
+      aiModel: input.aiModel.trim() || null,
+      goal: input.goal.trim() || null,
+    },
+    null,
+  );
+  if (sync.error) {
+    await supabase.from("agents").delete().eq("id", created.id);
+    return { error: sync.error };
+  }
+  if (sync.elevenlabsAgentId) {
+    await supabase
+      .from("agents")
+      .update({ elevenlabs_agent_id: sync.elevenlabsAgentId })
+      .eq("id", created.id);
+  }
 
   revalidatePath("/settings/agents");
   return { error: null, agentId: created.id };
