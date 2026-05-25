@@ -117,6 +117,130 @@ export type Database = {
         };
         Relationships: [];
       };
+      calls: {
+        Row: {
+          agent_id: string | null;
+          answered_at: string | null;
+          campaign_id: string;
+          cost_breakdown: Json | null;
+          created_at: string;
+          direction: string;
+          duration_seconds: number | null;
+          elevenlabs_conversation_id: string | null;
+          ended_at: string | null;
+          extracted_data: Json | null;
+          goal_met: boolean;
+          id: string;
+          lead_id: string;
+          outcome: string | null;
+          outcome_source: string | null;
+          recording_path: string | null;
+          score: number | null;
+          started_at: string | null;
+          status: string;
+          summary: string | null;
+          talk_time_seconds: number | null;
+          transcript_json: Json | null;
+          twilio_call_sid: string | null;
+          twilio_number_id: string | null;
+        };
+        Insert: {
+          agent_id?: string | null;
+          answered_at?: string | null;
+          campaign_id: string;
+          cost_breakdown?: Json | null;
+          created_at?: string;
+          direction: string;
+          duration_seconds?: number | null;
+          elevenlabs_conversation_id?: string | null;
+          ended_at?: string | null;
+          extracted_data?: Json | null;
+          goal_met?: boolean;
+          id?: string;
+          lead_id: string;
+          outcome?: string | null;
+          outcome_source?: string | null;
+          recording_path?: string | null;
+          score?: number | null;
+          started_at?: string | null;
+          status?: string;
+          summary?: string | null;
+          talk_time_seconds?: number | null;
+          transcript_json?: Json | null;
+          twilio_call_sid?: string | null;
+          twilio_number_id?: string | null;
+        };
+        Update: {
+          agent_id?: string | null;
+          answered_at?: string | null;
+          campaign_id?: string;
+          cost_breakdown?: Json | null;
+          created_at?: string;
+          direction?: string;
+          duration_seconds?: number | null;
+          elevenlabs_conversation_id?: string | null;
+          ended_at?: string | null;
+          extracted_data?: Json | null;
+          goal_met?: boolean;
+          id?: string;
+          lead_id?: string;
+          outcome?: string | null;
+          outcome_source?: string | null;
+          recording_path?: string | null;
+          score?: number | null;
+          started_at?: string | null;
+          status?: string;
+          summary?: string | null;
+          talk_time_seconds?: number | null;
+          transcript_json?: Json | null;
+          twilio_call_sid?: string | null;
+          twilio_number_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "calls_agent_id_fkey";
+            columns: ["agent_id"];
+            isOneToOne: false;
+            referencedRelation: "agents";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
+            foreignKeyName: "calls_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "calls_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_twilio_number_id_fkey";
+            columns: ["twilio_number_id"];
+            isOneToOne: false;
+            referencedRelation: "twilio_numbers";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       campaigns: {
         Row: {
           agent_id: string;
@@ -269,7 +393,15 @@ export type Database = {
           reason?: string;
           source_call_id?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "dnc_entries_source_call_id_fkey";
+            columns: ["source_call_id"];
+            isOneToOne: false;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       dnc_removals: {
         Row: {
@@ -410,6 +542,13 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "custom_field_defs";
             referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lead_custom_values_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
           },
           {
             foreignKeyName: "lead_custom_values_lead_id_fkey";
@@ -564,6 +703,13 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
+            foreignKeyName: "list_campaign_attachments_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
             foreignKeyName: "list_campaign_attachments_list_id_fkey";
             columns: ["list_id"];
             isOneToOne: false;
@@ -716,16 +862,65 @@ export type Database = {
             referencedRelation: "campaigns";
             referencedColumns: ["id"];
           },
+          {
+            foreignKeyName: "twilio_numbers_attached_campaign_fk";
+            columns: ["attached_campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
         ];
       };
     };
     Views: {
-      [_ in never]: never;
+      dial_queue: {
+        Row: {
+          agent_id: string | null;
+          business_phone: string | null;
+          calling_hours_end: string | null;
+          calling_hours_start: string | null;
+          calls_per_day_cap: number | null;
+          calls_per_hour_cap: number | null;
+          campaign_id: string | null;
+          concurrency_cap_per_user: number | null;
+          daily_spend_cap: number | null;
+          lead_id: string | null;
+          lead_timezone: string | null;
+          monthly_spend_cap: number | null;
+          next_call_at: string | null;
+          owner_id: string | null;
+          twilio_number_id: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_agent_id_fkey";
+            columns: ["agent_id"];
+            isOneToOne: false;
+            referencedRelation: "agents";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "campaigns_twilio_number_id_fkey";
+            columns: ["twilio_number_id"];
+            isOneToOne: false;
+            referencedRelation: "twilio_numbers";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Functions: {
       elevenlabs_voice_ids: { Args: never; Returns: string };
       is_admin: { Args: { uid: string }; Returns: boolean };
       is_phone_on_dnc: { Args: { phone_to_check: string }; Returns: boolean };
+      is_within_calling_hours: {
+        Args: { hours_end: string; hours_start: string; lead_timezone: string };
+        Returns: boolean;
+      };
+      pre_call_check: {
+        Args: { in_campaign_id: string; in_lead_id: string };
+        Returns: string;
+      };
     };
     Enums: {
       [_ in never]: never;
