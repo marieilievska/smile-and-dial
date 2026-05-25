@@ -11,23 +11,14 @@ export default async function NewAgentPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") redirect("/leads");
-
-  const [{ data: settings }, { data: kbs }] = await Promise.all([
-    supabase
-      .from("app_settings")
-      .select("elevenlabs_voice_ids")
-      .eq("id", 1)
-      .maybeSingle(),
+  // app_settings is admin-only; the security-definer RPC lets every
+  // authenticated user read just the voice ids for the wizard's picker.
+  const [{ data: voiceIdsString }, { data: kbs }] = await Promise.all([
+    supabase.rpc("elevenlabs_voice_ids"),
     supabase.from("knowledge_bases").select("id, name").order("name"),
   ]);
 
-  const voiceIds = (settings?.elevenlabs_voice_ids ?? "")
+  const voiceIds = (voiceIdsString ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);

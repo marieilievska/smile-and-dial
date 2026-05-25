@@ -19,14 +19,7 @@ export default async function EditAgentPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") redirect("/leads");
-
-  const [{ data: agent }, { data: settings }, { data: kbs }] =
+  const [{ data: agent }, { data: voiceIdsString }, { data: kbs }] =
     await Promise.all([
       supabase
         .from("agents")
@@ -35,16 +28,12 @@ export default async function EditAgentPage({
         )
         .eq("id", id)
         .maybeSingle(),
-      supabase
-        .from("app_settings")
-        .select("elevenlabs_voice_ids")
-        .eq("id", 1)
-        .maybeSingle(),
+      supabase.rpc("elevenlabs_voice_ids"),
       supabase.from("knowledge_bases").select("id, name").order("name"),
     ]);
   if (!agent) notFound();
 
-  const voiceIds = (settings?.elevenlabs_voice_ids ?? "")
+  const voiceIds = (voiceIdsString ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
