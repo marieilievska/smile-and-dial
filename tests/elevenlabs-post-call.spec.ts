@@ -142,9 +142,17 @@ test.describe("ElevenLabs post-call webhook", () => {
       .delete()
       .eq("conversation_id", "UNKNOWN_CONVO");
     await admin
+      .from("callbacks")
+      .delete()
+      .eq("lead_id", leadId ?? "");
+    await admin
+      .from("dnc_entries")
+      .delete()
+      .like("phone", `+1555${String(stamp).slice(-6)}%`);
+    await admin
       .from("calls")
       .delete()
-      .eq("id", callId ?? "");
+      .eq("lead_id", leadId ?? "");
     await admin
       .from("leads")
       .delete()
@@ -234,6 +242,28 @@ test.describe("ElevenLabs post-call webhook", () => {
       openai: 0.01,
       total: 0.08,
     });
+
+    // The `callback` disposition also fires the side effect: a callback
+    // row appears, lead.status moves to 'callback', and next_call_at is
+    // set to the scheduled time the agent captured.
+    const { data: cb } = await admin
+      .from("callbacks")
+      .select("status, scheduled_at, originating_call_id, created_by")
+      .eq("lead_id", leadId)
+      .eq("originating_call_id", callId);
+    expect(cb?.length).toBe(1);
+    expect(cb![0].status).toBe("pending");
+    expect(cb![0].created_by).toBeNull();
+    expect(new Date(cb![0].scheduled_at).toISOString()).toBe(
+      new Date("2026-06-02T14:00:00-05:00").toISOString(),
+    );
+    const { data: leadAfter } = await admin
+      .from("leads")
+      .select("status, next_call_at")
+      .eq("id", leadId)
+      .single();
+    expect(leadAfter?.status).toBe("callback");
+    expect(leadAfter?.next_call_at).not.toBeNull();
 
     await context.dispose();
   });
@@ -344,6 +374,143 @@ test.describe("ElevenLabs post-call webhook", () => {
         .delete()
         .eq("conversation_id", convo);
       await admin.from("calls").delete().eq("id", call!.id);
+    }
+  });
+
+  test("disposition=dnc auto-inserts into DNC and sets lead status to dnc", async () => {
+    // Fresh lead + call so we don't interfere with the callback-side-effect
+    // lead from the earlier test.
+    const stamp2 = Date.now();
+    const phone = `+1555${String(stamp2).slice(-6)}10`;
+    const convo = `convo-${stamp}-dnc`;
+
+    const { data: dncLead } = await admin
+      .from("leads")
+      .insert({
+        owner_id: ownerId,
+        list_id: listId,
+        company: `E2E DNC Co ${stamp2}`,
+        business_phone: phone,
+      })
+      .select("id")
+      .single();
+    const { data: dncCall } = await admin
+      .from("calls")
+      .insert({
+        lead_id: dncLead!.id,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "completed",
+        elevenlabs_conversation_id: convo,
+      })
+      .select("id")
+      .single();
+    try {
+      const context = await playwrightRequest.newContext({
+        baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+        storageState: undefined,
+      });
+      const res = await context.post("/api/elevenlabs/post-call", {
+        headers: { "content-type": "application/json" },
+        data: {
+          conversation_id: convo,
+          analysis: { data_collection: { disposition: "dnc" } },
+        },
+      });
+      expect(res.ok()).toBe(true);
+
+      const { data: dnc } = await admin
+        .from("dnc_entries")
+        .select("reason, source_call_id, company_snapshot")
+        .eq("phone", phone)
+        .single();
+      expect(dnc?.reason).toBe("dnc_requested");
+      expect(dnc?.source_call_id).toBe(dncCall!.id);
+      expect(dnc?.company_snapshot).toBe(`E2E DNC Co ${stamp2}`);
+
+      const { data: leadAfter } = await admin
+        .from("leads")
+        .select("status, next_call_at")
+        .eq("id", dncLead!.id)
+        .single();
+      expect(leadAfter?.status).toBe("dnc");
+      expect(leadAfter?.next_call_at).toBeNull();
+
+      await context.dispose();
+    } finally {
+      await admin
+        .from("elevenlabs_webhook_events")
+        .delete()
+        .eq("conversation_id", convo);
+      await admin.from("dnc_entries").delete().eq("phone", phone);
+      await admin.from("calls").delete().eq("id", dncCall!.id);
+      await admin.from("leads").delete().eq("id", dncLead!.id);
+    }
+  });
+
+  test("a callback with no callback_datetime falls back to ~tomorrow", async () => {
+    const stamp2 = Date.now();
+    const phone = `+1555${String(stamp2).slice(-6)}12`;
+    const convo = `convo-${stamp}-cb-nodate`;
+    const { data: l } = await admin
+      .from("leads")
+      .insert({
+        owner_id: ownerId,
+        list_id: listId,
+        company: `E2E CB-NoDate Co ${stamp2}`,
+        business_phone: phone,
+      })
+      .select("id")
+      .single();
+    const { data: c } = await admin
+      .from("calls")
+      .insert({
+        lead_id: l!.id,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        direction: "outbound",
+        status: "completed",
+        elevenlabs_conversation_id: convo,
+      })
+      .select("id")
+      .single();
+    try {
+      const ctx = await playwrightRequest.newContext({
+        baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+        storageState: undefined,
+      });
+      const res = await ctx.post("/api/elevenlabs/post-call", {
+        headers: { "content-type": "application/json" },
+        data: {
+          conversation_id: convo,
+          // Note: no callback_datetime extracted.
+          analysis: { data_collection: { disposition: "callback" } },
+        },
+      });
+      expect(res.ok()).toBe(true);
+
+      const { data: cb } = await admin
+        .from("callbacks")
+        .select("scheduled_at, status")
+        .eq("lead_id", l!.id)
+        .single();
+      expect(cb?.status).toBe("pending");
+      // The fallback should be roughly +24h. Allow a wide window.
+      const scheduled = new Date(cb!.scheduled_at).getTime();
+      const expected = Date.now() + 24 * 60 * 60 * 1000;
+      expect(Math.abs(scheduled - expected)).toBeLessThan(60_000);
+
+      await ctx.dispose();
+    } finally {
+      await admin
+        .from("elevenlabs_webhook_events")
+        .delete()
+        .eq("conversation_id", convo);
+      await admin.from("callbacks").delete().eq("lead_id", l!.id);
+      await admin.from("calls").delete().eq("id", c!.id);
+      await admin.from("leads").delete().eq("id", l!.id);
     }
   });
 });
