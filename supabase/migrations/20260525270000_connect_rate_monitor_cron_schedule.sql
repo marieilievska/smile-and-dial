@@ -1,0 +1,12 @@
+-- Nightly pg_cron schedule for the Twilio connect-rate monitor.
+--
+-- INTENTIONALLY DORMANT. Activate together with the dialer cron + spend
+-- cap monitor when going live.
+
+-- create extension if not exists pg_cron;
+--
+-- select cron.schedule(
+--   'twilio-connect-rate-monitor-nightly',
+--   '0 4 * * *', -- every day at 04:00 UTC (after midnight rollover in US)
+--   $$ select public.monitor_twilio_connect_rates(); $$
+-- );

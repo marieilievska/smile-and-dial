@@ -1079,6 +1079,7 @@ export type Database = {
         Returns: boolean;
       };
       monitor_campaign_spend_caps: { Args: never; Returns: number };
+      monitor_twilio_connect_rates: { Args: never; Returns: number };
       pre_call_check: {
         Args: { in_campaign_id: string; in_lead_id: string };
         Returns: string;
