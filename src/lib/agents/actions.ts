@@ -162,10 +162,7 @@ export async function updateAgent(
   return { error: null, agentId: id };
 }
 
-/**
- * Delete an agent locally and on ElevenLabs. Once campaigns exist
- * (Step 18) this will also block deletion of an agent a campaign uses.
- */
+/** Delete an agent locally and on ElevenLabs, unless a campaign uses it. */
 export async function deleteAgent(id: string): Promise<AgentResult> {
   const supabase = await createClient();
   const {
@@ -179,6 +176,17 @@ export async function deleteAgent(id: string): Promise<AgentResult> {
     .eq("id", id)
     .maybeSingle();
   if (!existing) return { error: "That agent no longer exists." };
+
+  // Block delete if any campaign references this agent.
+  const { count: campaignsUsing } = await supabase
+    .from("campaigns")
+    .select("id", { count: "exact", head: true })
+    .eq("agent_id", id);
+  if ((campaignsUsing ?? 0) > 0) {
+    return {
+      error: "This agent is used by a campaign. Detach it before deleting.",
+    };
+  }
 
   if (existing.elevenlabs_agent_id) {
     await deleteAgentOnElevenLabs(existing.elevenlabs_agent_id);
