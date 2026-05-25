@@ -79,6 +79,32 @@ async function fetchApiKey(): Promise<string | null> {
   return data?.elevenlabs_api_key ?? null;
 }
 
+/** Delete an ElevenLabs agent. Mocked unless ELEVENLABS_LIVE=live. */
+export async function deleteAgentOnElevenLabs(
+  agentId: string,
+): Promise<{ error: string | null }> {
+  if (!isLive()) return { error: null };
+
+  const apiKey = await fetchApiKey();
+  if (!apiKey) return { error: "ElevenLabs API key isn't set." };
+
+  try {
+    const res = await fetch(
+      `${ELEVENLABS_API}/${encodeURIComponent(agentId)}`,
+      {
+        method: "DELETE",
+        headers: { "xi-api-key": apiKey },
+      },
+    );
+    if (!res.ok && res.status !== 404) {
+      return { error: `ElevenLabs delete failed (${res.status}).` };
+    }
+    return { error: null };
+  } catch {
+    return { error: "ElevenLabs delete failed." };
+  }
+}
+
 /**
  * Create or update an ElevenLabs agent from our wizard inputs. When
  * `existingId` is null, a new agent is created; otherwise the existing
