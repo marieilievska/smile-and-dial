@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Download, FolderInput, Trash2, UserCog, X } from "lucide-react";
+import { Ban, Download, FolderInput, Trash2, UserCog, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -39,6 +39,7 @@ import {
   bulkMoveToList,
   bulkReassignOwner,
 } from "@/lib/leads/bulk-actions";
+import { bulkAddLeadsToDnc } from "@/lib/dnc/actions";
 
 import { useSelection } from "./selection";
 
@@ -113,6 +114,24 @@ export function BulkActionBar({
           }}
         />
       ) : null}
+
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={async () => {
+          const result = await bulkAddLeadsToDnc({ leadIds: ids });
+          if (result.error) toast.error(result.error);
+          else {
+            toast.success(
+              `Added ${result.added ?? ids.length} ${result.added === 1 ? "number" : "numbers"} to DNC.`,
+            );
+            clear();
+          }
+        }}
+      >
+        <Ban className="size-4" />
+        Add to DNC
+      </Button>
 
       <Button variant="outline" size="sm" onClick={exportSelected}>
         <Download className="size-4" />

@@ -241,6 +241,60 @@ export type Database = {
         };
         Relationships: [];
       };
+      dnc_entries: {
+        Row: {
+          added_at: string;
+          added_by_user_id: string | null;
+          company_snapshot: string | null;
+          id: string;
+          phone: string;
+          reason: string;
+          source_call_id: string | null;
+        };
+        Insert: {
+          added_at?: string;
+          added_by_user_id?: string | null;
+          company_snapshot?: string | null;
+          id?: string;
+          phone: string;
+          reason: string;
+          source_call_id?: string | null;
+        };
+        Update: {
+          added_at?: string;
+          added_by_user_id?: string | null;
+          company_snapshot?: string | null;
+          id?: string;
+          phone?: string;
+          reason?: string;
+          source_call_id?: string | null;
+        };
+        Relationships: [];
+      };
+      dnc_removals: {
+        Row: {
+          id: string;
+          phone: string;
+          reason_text: string;
+          removed_at: string;
+          removed_by_user_id: string;
+        };
+        Insert: {
+          id?: string;
+          phone: string;
+          reason_text: string;
+          removed_at?: string;
+          removed_by_user_id: string;
+        };
+        Update: {
+          id?: string;
+          phone?: string;
+          reason_text?: string;
+          removed_at?: string;
+          removed_by_user_id?: string;
+        };
+        Relationships: [];
+      };
       goals: {
         Row: {
           created_at: string;
@@ -671,6 +725,7 @@ export type Database = {
     Functions: {
       elevenlabs_voice_ids: { Args: never; Returns: string };
       is_admin: { Args: { uid: string }; Returns: boolean };
+      is_phone_on_dnc: { Args: { phone_to_check: string }; Returns: boolean };
     };
     Enums: {
       [_ in never]: never;
