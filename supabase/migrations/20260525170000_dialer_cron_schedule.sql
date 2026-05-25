@@ -1,0 +1,30 @@
+-- pg_cron schedule that fires the dialer Edge Function every 30 seconds.
+--
+-- INTENTIONALLY DORMANT. The block below is commented out so the schedule
+-- isn't created. Flip it on by:
+--   1. Deploying the Edge Function (see supabase/functions/dial-tick).
+--   2. Setting `app.settings.dialer_tick_url` and `app.settings.dialer_tick_secret`
+--      via `alter database … set`.
+--   3. Uncommenting the schedule below and re-running the migration.
+--
+-- We keep the schedule out of the schema until Step 24's retry/outcome engine
+-- is in place, otherwise a half-built dialer will redial leads in a tight
+-- loop. Once that's done and you've reviewed costs, uncomment.
+
+-- create extension if not exists pg_cron;
+-- create extension if not exists pg_net;
+--
+-- select cron.schedule(
+--   'dialer-tick-30s',
+--   '*/30 * * * * *', -- every 30 seconds
+--   $$
+--     select net.http_post(
+--       url := current_setting('app.settings.dialer_tick_url'),
+--       headers := jsonb_build_object(
+--         'Content-Type', 'application/json',
+--         'x-dialer-secret', current_setting('app.settings.dialer_tick_secret')
+--       ),
+--       body := '{}'::jsonb
+--     );
+--   $$
+-- );

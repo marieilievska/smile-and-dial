@@ -41,9 +41,12 @@ export async function updateSession(request: NextRequest) {
   const isLoginRoute = pathname === "/login";
   // /auth/* covers the invite / password-reset confirm + set-password flow.
   const isAuthFlowRoute = pathname.startsWith("/auth/");
+  // /api/* routes return JSON error responses on auth failure; they should
+  // not be redirected to /login (which produces a 405 on POST).
+  const isApiRoute = pathname.startsWith("/api/");
 
   // Unauthenticated users may only reach /login and the /auth/* flow.
-  if (!user && !isLoginRoute && !isAuthFlowRoute) {
+  if (!user && !isLoginRoute && !isAuthFlowRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
