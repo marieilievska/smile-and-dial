@@ -1,0 +1,177 @@
+import "server-only";
+
+import { createClient } from "@supabase/supabase-js";
+
+import type { Database } from "@/lib/supabase/database.types";
+
+type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
+type CallOutcome = Database["public"]["Tables"]["calls"]["Row"]["outcome"];
+type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
+
+/**
+ * Outcomes that increment the unified 2d/2d/15d retry cycle and leave the
+ * lead in `ready_to_call`. See BUILD_PLAN §8.
+ */
+const RETRY_OUTCOMES = new Set<CallOutcome>([
+  "voicemail",
+  "no_answer",
+  "busy",
+  "failed",
+  "hung_up_immediately",
+  "gatekeeper",
+  "ai_error",
+]);
+
+/**
+ * The cycle's delay (in days) at each retry_position. The position cycles
+ * 0 → 1 → 2 → 0 forever.
+ */
+const RETRY_DELAY_DAYS: readonly number[] = [2, 2, 15];
+
+/** Outcomes that put the lead into `resting` for some number of days. */
+const RESTING_OUTCOMES: Record<string, number> = {
+  not_interested: 30,
+  ai_receptionist: 15,
+};
+
+/** Outcomes that close the lead (terminal). */
+const TERMINAL_OUTCOMES: Record<
+  string,
+  { status: Database["public"]["Tables"]["leads"]["Row"]["status"] }
+> = {
+  goal_met: { status: "goal_met" },
+  transferred_to_human: { status: "goal_met" },
+};
+
+function makeServiceClient(): SupabaseAdmin {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  if (!url || !key) {
+    throw new Error(
+      "Retry engine requires NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.",
+    );
+  }
+  return createClient<Database>(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+export type RetryApplyResult =
+  | { ok: true; status: "applied" }
+  | { ok: true; status: "already_applied" }
+  | { ok: true; status: "no_outcome" }
+  | { ok: true; status: "outcome_handled_elsewhere" }
+  | { ok: false; reason: string };
+
+/**
+ * Apply BUILD_PLAN §8's retry rules for one call's outcome. Idempotent: a
+ * second call for the same `callId` will short-circuit at the
+ * `retry_applied_at` check. Both the Twilio status webhook and the
+ * ElevenLabs post-call webhook can call this safely — whoever wins the
+ * compare-and-swap races first.
+ *
+ * Outcomes split into four buckets:
+ *
+ *   * **Retry**: voicemail / no_answer / busy / failed / hung_up_immediately
+ *     / gatekeeper / ai_error
+ *       → bump retry_counter, advance retry_position 0→1→2→0, push
+ *         next_call_at by 2d / 2d / 15d, status stays `ready_to_call`.
+ *   * **Resting**: not_interested (30d) / ai_receptionist (15d)
+ *       → reset counters, status='resting', set resting_until and
+ *         next_call_at to (now + N days).
+ *   * **Terminal**: goal_met / transferred_to_human
+ *       → reset counters, status='goal_met', clear next_call_at.
+ *   * **Handled elsewhere**: dnc / invalid_number / language_barrier /
+ *     callback are owned by `applyOutcomeSideEffects` in the post-call
+ *     webhook. We return `outcome_handled_elsewhere` and don't touch
+ *     the lead.
+ */
+export async function applyRetryForCall(
+  callId: string,
+): Promise<RetryApplyResult> {
+  const supabase = makeServiceClient();
+
+  // Compare-and-swap claim on the call row. If we don't get any rows back,
+  // someone else already applied retry for this call.
+  const { data: claimed, error: claimError } = await supabase
+    .from("calls")
+    .update({ retry_applied_at: new Date().toISOString() })
+    .eq("id", callId)
+    .is("retry_applied_at", null)
+    .select("id, lead_id, outcome");
+  if (claimError) return { ok: false, reason: "could_not_claim_call" };
+  if (!claimed || claimed.length === 0) {
+    return { ok: true, status: "already_applied" };
+  }
+  const call = claimed[0];
+  if (!call.outcome) {
+    // Roll back the claim — we didn't actually apply anything, and a later
+    // webhook update may still set an outcome that deserves processing.
+    await supabase
+      .from("calls")
+      .update({ retry_applied_at: null })
+      .eq("id", callId);
+    return { ok: true, status: "no_outcome" };
+  }
+
+  // Side-effect outcomes (DNC / callback) are owned by the post-call
+  // webhook's `applyOutcomeSideEffects`. Don't touch the lead here.
+  if (
+    call.outcome === "dnc" ||
+    call.outcome === "invalid_number" ||
+    call.outcome === "language_barrier" ||
+    call.outcome === "callback"
+  ) {
+    return { ok: true, status: "outcome_handled_elsewhere" };
+  }
+
+  const update: LeadUpdate = { updated_at: new Date().toISOString() };
+
+  if (RETRY_OUTCOMES.has(call.outcome)) {
+    const { data: lead } = await supabase
+      .from("leads")
+      .select("retry_counter, retry_position")
+      .eq("id", call.lead_id)
+      .single();
+    const position = ((lead?.retry_position ?? 0) % 3) as 0 | 1 | 2;
+    const delayDays = RETRY_DELAY_DAYS[position];
+    update.retry_counter = (lead?.retry_counter ?? 0) + 1;
+    update.retry_position = (position + 1) % 3;
+    update.next_call_at = new Date(
+      Date.now() + delayDays * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    update.status = "ready_to_call";
+    update.resting_until = null;
+  } else if (RESTING_OUTCOMES[call.outcome] !== undefined) {
+    const days = RESTING_OUTCOMES[call.outcome];
+    const restingUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    update.status = "resting";
+    update.resting_until = restingUntil.toISOString();
+    update.next_call_at = restingUntil.toISOString();
+    update.retry_counter = 0;
+    update.retry_position = 0;
+  } else if (TERMINAL_OUTCOMES[call.outcome] !== undefined) {
+    update.status = TERMINAL_OUTCOMES[call.outcome].status;
+    update.next_call_at = null;
+    update.resting_until = null;
+    update.retry_counter = 0;
+    update.retry_position = 0;
+  } else {
+    // Outcomes that exist in our enum but the engine doesn't know about
+    // (none today). Roll back the claim so a later code path can pick this
+    // up if needed.
+    await supabase
+      .from("calls")
+      .update({ retry_applied_at: null })
+      .eq("id", callId);
+    return { ok: false, reason: `unhandled_outcome:${call.outcome}` };
+  }
+
+  const { error: leadError } = await supabase
+    .from("leads")
+    .update(update)
+    .eq("id", call.lead_id);
+  if (leadError) return { ok: false, reason: "could_not_update_lead" };
+
+  return { ok: true, status: "applied" };
+}

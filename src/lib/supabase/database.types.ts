@@ -214,6 +214,7 @@ export type Database = {
           outcome: string | null;
           outcome_source: string | null;
           recording_path: string | null;
+          retry_applied_at: string | null;
           score: number | null;
           started_at: string | null;
           status: string;
@@ -240,6 +241,7 @@ export type Database = {
           outcome?: string | null;
           outcome_source?: string | null;
           recording_path?: string | null;
+          retry_applied_at?: string | null;
           score?: number | null;
           started_at?: string | null;
           status?: string;
@@ -266,6 +268,7 @@ export type Database = {
           outcome?: string | null;
           outcome_source?: string | null;
           recording_path?: string | null;
+          retry_applied_at?: string | null;
           score?: number | null;
           started_at?: string | null;
           status?: string;
@@ -1029,6 +1032,7 @@ export type Database = {
     };
     Functions: {
       elevenlabs_voice_ids: { Args: never; Returns: string };
+      expire_resting_leads: { Args: never; Returns: number };
       is_admin: { Args: { uid: string }; Returns: boolean };
       is_phone_on_dnc: { Args: { phone_to_check: string }; Returns: boolean };
       is_within_calling_hours: {
