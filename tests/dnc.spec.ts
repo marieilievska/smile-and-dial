@@ -13,6 +13,9 @@ test.describe("Do not call", () => {
   const importPhone1 = `+1888${tail}10`;
   const importPhone2 = `+1888${tail}11`;
   const importPhone3 = `+1888${tail}12`;
+  const bulkPhone1 = `+1888${tail}20`;
+  const bulkPhone2 = `+1888${tail}21`;
+  const bulkPhone3 = `+1888${tail}22`;
 
   let admin: SupabaseClient;
 
@@ -161,6 +164,105 @@ test.describe("Do not call", () => {
     ).toBeVisible();
     await expect(
       page.getByRole("cell", { name: importPhone3, exact: true }),
+    ).toBeVisible();
+  });
+
+  test("admin can select rows, export a CSV, and bulk-remove with a reason", async ({
+    page,
+  }) => {
+    // Seed three rows so there's a known selection to act on.
+    await admin.from("dnc_entries").insert([
+      { phone: bulkPhone1, reason: "manual", company_snapshot: "Bulk Co 1" },
+      { phone: bulkPhone2, reason: "manual", company_snapshot: "Bulk Co 2" },
+      { phone: bulkPhone3, reason: "manual", company_snapshot: "Bulk Co 3" },
+    ]);
+
+    await page.goto("/dnc?reason=manual");
+
+    // Select the first two via their checkboxes.
+    await page.getByRole("checkbox", { name: `Select ${bulkPhone1}` }).check();
+    await page.getByRole("checkbox", { name: `Select ${bulkPhone2}` }).check();
+    await expect(page.getByText("2 selected")).toBeVisible();
+
+    // Export selected — the download CSV contains both rows.
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Export selected" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("dnc.csv");
+    const csvBody = (await download.createReadStream().then(
+      (s) =>
+        new Promise<string>((resolve, reject) => {
+          const chunks: Buffer[] = [];
+          s.on("data", (c: Buffer) => chunks.push(c));
+          s.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+          s.on("error", reject);
+        }),
+    ))!;
+    expect(csvBody).toContain(bulkPhone1);
+    expect(csvBody).toContain(bulkPhone2);
+    expect(csvBody).not.toContain(bulkPhone3);
+
+    // Bulk remove the same two with a shared reason.
+    await page.getByRole("button", { name: "Remove from DNC" }).click();
+    const dialog = page.getByRole("alertdialog");
+    await dialog.getByLabel("Reason").fill("Cleaning up duplicates.");
+    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+
+    // Both removed rows disappear; the third stays.
+    await expect(
+      page.getByRole("cell", { name: bulkPhone1, exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("cell", { name: bulkPhone2, exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("cell", { name: bulkPhone3, exact: true }),
+    ).toBeVisible();
+
+    // The audit log has one row per phone (the visibility window can lag a
+    // moment, so poll).
+    await expect
+      .poll(
+        async () => {
+          const { data } = await admin
+            .from("dnc_removals")
+            .select("phone, reason_text")
+            .in("phone", [bulkPhone1, bulkPhone2]);
+          return data?.length ?? 0;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(2);
+    const { data: logs } = await admin
+      .from("dnc_removals")
+      .select("phone, reason_text")
+      .in("phone", [bulkPhone1, bulkPhone2]);
+    for (const log of logs ?? []) {
+      expect(log.reason_text).toBe("Cleaning up duplicates.");
+    }
+  });
+
+  test("the date-range filter narrows the DNC table", async ({ page }) => {
+    // Two future-dated rows shouldn't appear in a filter that ends yesterday.
+    const future = `+1888${tail}30`;
+    await admin.from("dnc_entries").insert({
+      phone: future,
+      reason: "manual",
+      company_snapshot: "Future Co",
+    });
+
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    await page.goto(`/dnc?to=${yesterday}`);
+    await expect(
+      page.getByRole("cell", { name: future, exact: true }),
+    ).toHaveCount(0);
+
+    // With no date filter, the row is visible.
+    await page.goto("/dnc");
+    await expect(
+      page.getByRole("cell", { name: future, exact: true }),
     ).toBeVisible();
   });
 });

@@ -93,6 +93,71 @@ export async function removeFromDnc(input: {
 }
 
 /**
+ * Bulk-remove DNC entries by id. Admin only. Writes one row to
+ * `dnc_removals` per phone (with the shared reason text) before deleting,
+ * so the audit log captures every removal even when done in a batch.
+ */
+export async function bulkRemoveFromDnc(input: {
+  ids: string[];
+  reasonText: string;
+}): Promise<DncResult & { removed?: number }> {
+  const reasonText = input.reasonText.trim();
+  if (!reasonText) {
+    return { error: "Enter a reason for removing these numbers." };
+  }
+  if (input.ids.length === 0) {
+    return { error: "No numbers selected." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  if (me?.role !== "admin") {
+    return { error: "Only admins can remove numbers from DNC." };
+  }
+
+  // Look up the phones being removed so the audit log captures them.
+  const { data: entries } = await supabase
+    .from("dnc_entries")
+    .select("id, phone")
+    .in("id", input.ids);
+  if (!entries || entries.length === 0) {
+    return { error: "Those numbers are not on the list." };
+  }
+
+  // Log every removal first — never delete without a paper trail.
+  const logRows = entries.map((e) => ({
+    phone: e.phone,
+    removed_by_user_id: user.id,
+    reason_text: reasonText,
+  }));
+  const { error: logError } = await supabase
+    .from("dnc_removals")
+    .insert(logRows);
+  if (logError) return { error: "Could not log the removals." };
+
+  const { error: deleteError } = await supabase
+    .from("dnc_entries")
+    .delete()
+    .in(
+      "id",
+      entries.map((e) => e.id),
+    );
+  if (deleteError) return { error: "Could not remove the numbers." };
+
+  revalidatePath(DNC_PATH);
+  return { error: null, removed: entries.length };
+}
+
+/**
  * Bulk-add the selected leads' phone numbers to DNC. Used from the leads
  * bulk action bar. Skips leads without a phone and silently swallows the
  * unique-violation that happens when a number is already on the list.
