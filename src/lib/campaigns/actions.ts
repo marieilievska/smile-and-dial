@@ -222,7 +222,15 @@ export async function endCampaign(id: string): Promise<CampaignResult> {
       .eq("id", existing.twilio_number_id);
   }
 
+  // Detach every list still attached to this campaign.
+  await supabase
+    .from("list_campaign_attachments")
+    .update({ detached_at: new Date().toISOString() })
+    .eq("campaign_id", id)
+    .is("detached_at", null);
+
   revalidatePath(CAMPAIGNS_PATH);
+  revalidatePath("/settings/lists");
   return { error: null, campaignId: id };
 }
 

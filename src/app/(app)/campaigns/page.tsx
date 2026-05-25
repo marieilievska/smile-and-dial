@@ -47,6 +47,8 @@ export default async function CampaignsPage() {
     { data: goalsRaw },
     { data: rawNumbers },
     { data: kbsRaw },
+    { data: rawLists },
+    { data: rawAttachments },
   ] = await Promise.all([
     supabase
       .from("campaigns")
@@ -65,6 +67,11 @@ export default async function CampaignsPage() {
       .is("released_at", null)
       .order("phone_number"),
     supabase.from("knowledge_bases").select("id, name"),
+    supabase.from("lists").select("id, name").order("name"),
+    supabase
+      .from("list_campaign_attachments")
+      .select("list_id, campaign_id")
+      .is("detached_at", null),
   ]);
 
   const agentOptions: Option[] = (agentsRaw ?? []).map((a) => ({
@@ -85,6 +92,30 @@ export default async function CampaignsPage() {
       .map((id) => (kbName.has(id) ? { id, name: kbName.get(id)! } : null))
       .filter((x): x is Option => x !== null);
   });
+
+  const allLists: Option[] = (rawLists ?? []).map((l) => ({
+    id: l.id,
+    name: l.name,
+  }));
+  const attachments = rawAttachments ?? [];
+  const campaignToListIds = new Map<string, string[]>();
+  attachments.forEach((row) => {
+    const existing = campaignToListIds.get(row.campaign_id) ?? [];
+    campaignToListIds.set(row.campaign_id, [...existing, row.list_id]);
+  });
+  const attachedListIds = new Set(attachments.map((a) => a.list_id));
+
+  function eligibleListsFor(campaignId: string | null): Option[] {
+    const result = allLists.filter((l) => !attachedListIds.has(l.id));
+    if (campaignId) {
+      const own = campaignToListIds.get(campaignId) ?? [];
+      const ownLists = allLists.filter(
+        (l) => own.includes(l.id) && !result.find((r) => r.id === l.id),
+      );
+      result.push(...ownLists);
+    }
+    return result;
+  }
 
   const allNumbers = rawNumbers ?? [];
   const unattachedNumbers = allNumbers.filter((n) => !n.attached_campaign_id);
@@ -145,6 +176,8 @@ export default async function CampaignsPage() {
           goals={goalOptions}
           twilioNumbers={numbersForCampaign(null)}
           kbsByAgent={kbsByAgent}
+          eligibleLists={eligibleListsFor(null)}
+          currentListIds={[]}
         />
       </div>
 
@@ -217,6 +250,10 @@ export default async function CampaignsPage() {
                             campaign.twilio_number_id,
                           )}
                           kbsByAgent={kbsByAgent}
+                          eligibleLists={eligibleListsFor(campaign.id)}
+                          currentListIds={
+                            campaignToListIds.get(campaign.id) ?? []
+                          }
                         />
                         <DeleteCampaignDialog
                           campaign={{

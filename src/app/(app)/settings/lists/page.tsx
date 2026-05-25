@@ -12,6 +12,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 import { DeleteListDialog } from "./delete-list-dialog";
+import { ListAttachmentControls } from "./list-attachment-controls";
 import { ListFormDialog } from "./list-form-dialog";
 
 export default async function ListsPage() {
@@ -21,10 +22,37 @@ export default async function ListsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: lists } = await supabase
-    .from("lists")
-    .select("id, name, description, created_at")
-    .order("created_at", { ascending: true });
+  const [{ data: lists }, { data: campaigns }, { data: attachments }] =
+    await Promise.all([
+      supabase
+        .from("lists")
+        .select("id, name, description, created_at")
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("campaigns")
+        .select("id, name, status")
+        .neq("status", "ended")
+        .order("name"),
+      supabase
+        .from("list_campaign_attachments")
+        .select("list_id, campaign:campaigns(id, name)")
+        .is("detached_at", null),
+    ]);
+
+  const campaignByList = new Map<string, { id: string; name: string }>();
+  (attachments ?? []).forEach((row) => {
+    if (row.campaign) {
+      campaignByList.set(row.list_id, {
+        id: row.campaign.id,
+        name: row.campaign.name,
+      });
+    }
+  });
+
+  const activeCampaigns = (campaigns ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+  }));
 
   return (
     <div className="p-8">
@@ -47,28 +75,40 @@ export default async function ListsPage() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Description</TableHead>
+                <TableHead>Campaign</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="w-40" />
+                <TableHead className="w-56" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lists.map((list) => (
-                <TableRow key={list.id}>
-                  <TableCell className="font-medium">{list.name}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {list.description || "—"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {new Date(list.created_at).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      <ListFormDialog mode="edit" list={list} />
-                      <DeleteListDialog list={list} />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {lists.map((list) => {
+                const attached = campaignByList.get(list.id) ?? null;
+                return (
+                  <TableRow key={list.id}>
+                    <TableCell className="font-medium">{list.name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {list.description || "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {attached ? attached.name : "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {new Date(list.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        <ListAttachmentControls
+                          list={{ id: list.id, name: list.name }}
+                          attachedCampaign={attached}
+                          campaigns={activeCampaigns}
+                        />
+                        <ListFormDialog mode="edit" list={list} />
+                        <DeleteListDialog list={list} />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
