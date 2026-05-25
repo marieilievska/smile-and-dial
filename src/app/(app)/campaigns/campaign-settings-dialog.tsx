@@ -23,9 +23,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { createCampaign, updateCampaign } from "@/lib/campaigns/actions";
+import { setCampaignLists } from "@/lib/campaigns/list-attachments-actions";
 
 type Option = { id: string; name: string };
 
@@ -67,6 +69,8 @@ export function CampaignSettingsDialog({
   goals,
   twilioNumbers,
   kbsByAgent,
+  eligibleLists,
+  currentListIds,
 }: {
   mode: "create" | "edit";
   campaign?: CampaignData;
@@ -74,6 +78,8 @@ export function CampaignSettingsDialog({
   goals: Option[];
   twilioNumbers: TwilioOption[];
   kbsByAgent: Record<string, Option[]>;
+  eligibleLists: Option[];
+  currentListIds: string[];
 }) {
   const isEdit = mode === "edit";
   const [open, setOpen] = useState(false);
@@ -114,6 +120,8 @@ export function CampaignSettingsDialog({
       ? String(campaign.monthly_spend_cap)
       : "",
   );
+  const [selectedListIds, setSelectedListIds] =
+    useState<string[]>(currentListIds);
 
   // Numbers eligible for THIS campaign: include this campaign's current
   // number even if it's flagged as attached.
@@ -144,19 +152,41 @@ export function CampaignSettingsDialog({
           : await createCampaign(input);
       if (result.error) {
         toast.error(result.error);
-      } else {
-        toast.success(isEdit ? "Campaign updated." : "Campaign created.");
-        setOpen(false);
-        if (!isEdit) {
-          setName("");
-          setDescription("");
-          setTwilioNumberId(NO_NUMBER);
-          setTransferDestinationPhone("");
-          setDailySpendCap("");
-          setMonthlySpendCap("");
+        return;
+      }
+
+      // Sync the Lists tab selection. The campaign exists now in both
+      // create and edit modes.
+      const targetId = result.campaignId;
+      if (targetId) {
+        const listResult = await setCampaignLists({
+          campaignId: targetId,
+          listIds: selectedListIds,
+        });
+        if (listResult.error) {
+          toast.error(listResult.error);
+          return;
         }
       }
+
+      toast.success(isEdit ? "Campaign updated." : "Campaign created.");
+      setOpen(false);
+      if (!isEdit) {
+        setName("");
+        setDescription("");
+        setTwilioNumberId(NO_NUMBER);
+        setTransferDestinationPhone("");
+        setDailySpendCap("");
+        setMonthlySpendCap("");
+        setSelectedListIds([]);
+      }
     });
+  }
+
+  function toggleList(id: string) {
+    setSelectedListIds((ids) =>
+      ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id],
+    );
   }
 
   return (
@@ -194,6 +224,7 @@ export function CampaignSettingsDialog({
             <TabsTrigger value="tools">Tools</TabsTrigger>
             <TabsTrigger value="kb">Knowledge base</TabsTrigger>
             <TabsTrigger value="goal">Goal</TabsTrigger>
+            <TabsTrigger value="lists">Lists</TabsTrigger>
           </TabsList>
 
           <TabsContent
@@ -403,6 +434,40 @@ export function CampaignSettingsDialog({
             ) : (
               <p className="text-muted-foreground text-sm">
                 The selected agent has no knowledge bases attached.
+              </p>
+            )}
+          </TabsContent>
+
+          <TabsContent
+            value="lists"
+            className="flex flex-col gap-3 outline-none"
+          >
+            <p className="text-muted-foreground text-sm">
+              Lists attached to this campaign get dialed when it runs. A list
+              can be attached to only one active campaign at a time.
+            </p>
+            {eligibleLists.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {eligibleLists.map((list) => (
+                  <div key={list.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`campaign-list-${list.id}`}
+                      checked={selectedListIds.includes(list.id)}
+                      onCheckedChange={() => toggleList(list.id)}
+                    />
+                    <Label
+                      htmlFor={`campaign-list-${list.id}`}
+                      className="font-normal"
+                    >
+                      {list.name}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No unattached lists. Create one on Settings → Lists, or detach
+                an existing attachment first.
               </p>
             )}
           </TabsContent>

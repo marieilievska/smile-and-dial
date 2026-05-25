@@ -479,6 +479,45 @@ export type Database = {
           },
         ];
       };
+      list_campaign_attachments: {
+        Row: {
+          attached_at: string;
+          campaign_id: string;
+          detached_at: string | null;
+          id: string;
+          list_id: string;
+        };
+        Insert: {
+          attached_at?: string;
+          campaign_id: string;
+          detached_at?: string | null;
+          id?: string;
+          list_id: string;
+        };
+        Update: {
+          attached_at?: string;
+          campaign_id?: string;
+          detached_at?: string | null;
+          id?: string;
+          list_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "list_campaign_attachments_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "list_campaign_attachments_list_id_fkey";
+            columns: ["list_id"];
+            isOneToOne: false;
+            referencedRelation: "lists";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       lists: {
         Row: {
           created_at: string;
