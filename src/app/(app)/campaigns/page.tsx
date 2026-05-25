@@ -12,11 +12,15 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
 
+import { CampaignRowActions } from "./campaign-row-actions";
 import {
   CampaignSettingsDialog,
   type CampaignData,
+  type TwilioOption,
 } from "./campaign-settings-dialog";
 import { DeleteCampaignDialog } from "./delete-campaign-dialog";
+
+type Option = { id: string; name: string };
 
 function humanize(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
@@ -37,18 +41,71 @@ export default async function CampaignsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // RLS scopes the rows to the caller's own (or all, for admins).
-  const [{ data: rawCampaigns }, { data: agents }, { data: goals }] =
-    await Promise.all([
-      supabase
-        .from("campaigns")
-        .select(
-          "id, name, description, status, agent_id, goal_id, daily_spend_cap, monthly_spend_cap, created_at, agent:agents(name), goal:goals(name)",
-        )
-        .order("created_at", { ascending: false }),
-      supabase.from("agents").select("id, name").order("name"),
-      supabase.from("goals").select("id, name").order("name"),
-    ]);
+  const [
+    { data: rawCampaigns },
+    { data: agentsRaw },
+    { data: goalsRaw },
+    { data: rawNumbers },
+    { data: kbsRaw },
+  ] = await Promise.all([
+    supabase
+      .from("campaigns")
+      .select(
+        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, created_at, agent:agents(name), goal:goals(name)",
+      )
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("agents")
+      .select("id, name, knowledge_base_ids")
+      .order("name"),
+    supabase.from("goals").select("id, name").order("name"),
+    supabase
+      .from("twilio_numbers")
+      .select("id, phone_number, friendly_name, attached_campaign_id")
+      .is("released_at", null)
+      .order("phone_number"),
+    supabase.from("knowledge_bases").select("id, name"),
+  ]);
+
+  const agentOptions: Option[] = (agentsRaw ?? []).map((a) => ({
+    id: a.id,
+    name: a.name,
+  }));
+  const goalOptions: Option[] = (goalsRaw ?? []).map((g) => ({
+    id: g.id,
+    name: g.name,
+  }));
+
+  const kbName = new Map<string, string>();
+  (kbsRaw ?? []).forEach((k) => kbName.set(k.id, k.name));
+  const kbsByAgent: Record<string, Option[]> = {};
+  (agentsRaw ?? []).forEach((a) => {
+    const ids = (a.knowledge_base_ids ?? []) as string[];
+    kbsByAgent[a.id] = ids
+      .map((id) => (kbName.has(id) ? { id, name: kbName.get(id)! } : null))
+      .filter((x): x is Option => x !== null);
+  });
+
+  const allNumbers = rawNumbers ?? [];
+  const unattachedNumbers = allNumbers.filter((n) => !n.attached_campaign_id);
+  function numbersForCampaign(twilioNumberId: string | null): TwilioOption[] {
+    const list = unattachedNumbers.map((n) => ({
+      id: n.id,
+      phone_number: n.phone_number,
+      friendly_name: n.friendly_name,
+    }));
+    if (twilioNumberId) {
+      const current = allNumbers.find((n) => n.id === twilioNumberId);
+      if (current && !list.find((n) => n.id === current.id)) {
+        list.push({
+          id: current.id,
+          phone_number: current.phone_number,
+          friendly_name: current.friendly_name,
+        });
+      }
+    }
+    return list;
+  }
 
   const campaigns = (rawCampaigns ?? []).map((c) => ({
     id: c.id,
@@ -57,18 +114,19 @@ export default async function CampaignsPage() {
     status: c.status,
     agent_id: c.agent_id,
     goal_id: c.goal_id,
+    twilio_number_id: c.twilio_number_id,
+    calling_hours_start: c.calling_hours_start,
+    calling_hours_end: c.calling_hours_end,
+    calls_per_hour_cap: c.calls_per_hour_cap,
+    calls_per_day_cap: c.calls_per_day_cap,
+    concurrency_cap_per_user: c.concurrency_cap_per_user,
+    transfer_destination_phone: c.transfer_destination_phone,
     daily_spend_cap: c.daily_spend_cap,
     monthly_spend_cap: c.monthly_spend_cap,
     created_at: c.created_at,
     agent_name: c.agent?.name ?? "—",
     goal_name: c.goal?.name ?? "—",
   }));
-
-  const agentOptions = (agents ?? []).map((a) => ({
-    id: a.id,
-    name: a.name,
-  }));
-  const goalOptions = (goals ?? []).map((g) => ({ id: g.id, name: g.name }));
 
   return (
     <div className="p-8">
@@ -85,6 +143,8 @@ export default async function CampaignsPage() {
           mode="create"
           agents={agentOptions}
           goals={goalOptions}
+          twilioNumbers={numbersForCampaign(null)}
+          kbsByAgent={kbsByAgent}
         />
       </div>
 
@@ -98,7 +158,7 @@ export default async function CampaignsPage() {
                 <TableHead>Agent</TableHead>
                 <TableHead>Goal</TableHead>
                 <TableHead>Created</TableHead>
-                <TableHead className="w-40" />
+                <TableHead className="w-64" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -109,6 +169,14 @@ export default async function CampaignsPage() {
                   description: campaign.description,
                   agent_id: campaign.agent_id,
                   goal_id: campaign.goal_id,
+                  twilio_number_id: campaign.twilio_number_id,
+                  calling_hours_start: campaign.calling_hours_start,
+                  calling_hours_end: campaign.calling_hours_end,
+                  calls_per_hour_cap: campaign.calls_per_hour_cap,
+                  calls_per_day_cap: campaign.calls_per_day_cap,
+                  concurrency_cap_per_user: campaign.concurrency_cap_per_user,
+                  transfer_destination_phone:
+                    campaign.transfer_destination_phone,
                   daily_spend_cap: campaign.daily_spend_cap,
                   monthly_spend_cap: campaign.monthly_spend_cap,
                 };
@@ -132,12 +200,23 @@ export default async function CampaignsPage() {
                       {new Date(campaign.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <div className="flex justify-end gap-1">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <CampaignRowActions
+                          campaign={{
+                            id: campaign.id,
+                            name: campaign.name,
+                            status: campaign.status,
+                          }}
+                        />
                         <CampaignSettingsDialog
                           mode="edit"
                           campaign={data}
                           agents={agentOptions}
                           goals={goalOptions}
+                          twilioNumbers={numbersForCampaign(
+                            campaign.twilio_number_id,
+                          )}
+                          kbsByAgent={kbsByAgent}
                         />
                         <DeleteCampaignDialog
                           campaign={{
