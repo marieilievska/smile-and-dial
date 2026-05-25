@@ -1,9 +1,20 @@
-import { Bot, Plus } from "lucide-react";
+import { Bot, Pencil, Plus } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
+
+import { DeleteAgentDialog } from "./delete-agent-dialog";
 
 export default async function AgentsPage() {
   const supabase = await createClient();
@@ -19,10 +30,10 @@ export default async function AgentsPage() {
     .single();
   if (me?.role !== "admin") redirect("/leads");
 
-  const { count } = await supabase
+  const { data: agents } = await supabase
     .from("agents")
-    .select("id", { count: "exact", head: true });
-  const total = count ?? 0;
+    .select("id, name, voice_id, ai_model, elevenlabs_agent_id, created_at")
+    .order("created_at", { ascending: false });
 
   return (
     <div className="p-8">
@@ -43,19 +54,73 @@ export default async function AgentsPage() {
         </Button>
       </div>
 
-      <div className="border-border mt-6 flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
-        <Bot className="text-muted-foreground size-8" />
-        <p className="text-foreground text-sm font-medium">
-          {total === 0
-            ? "No agents yet"
-            : `${total} ${total === 1 ? "agent" : "agents"} built`}
-        </p>
-        <p className="text-muted-foreground text-sm">
-          {total === 0
-            ? "Build your first agent to start running campaigns."
-            : "A full list with edit and delete is on the way."}
-        </p>
-      </div>
+      {agents && agents.length > 0 ? (
+        <div className="border-border mt-6 overflow-hidden rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Voice</TableHead>
+                <TableHead>Model</TableHead>
+                <TableHead>ElevenLabs</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="w-40" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {agents.map((agent) => (
+                <TableRow key={agent.id}>
+                  <TableCell className="font-medium">{agent.name}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {agent.voice_id || "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {agent.ai_model || "—"}
+                  </TableCell>
+                  <TableCell>
+                    {agent.elevenlabs_agent_id ? (
+                      <Badge variant="secondary">Synced</Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">
+                        Not synced
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {new Date(agent.created_at).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        asChild
+                        aria-label={`Edit ${agent.name}`}
+                      >
+                        <Link href={`/settings/agents/${agent.id}/edit`}>
+                          <Pencil className="size-4" />
+                          Edit
+                        </Link>
+                      </Button>
+                      <DeleteAgentDialog
+                        agent={{ id: agent.id, name: agent.name }}
+                      />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      ) : (
+        <div className="border-border mt-6 flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+          <Bot className="text-muted-foreground size-8" />
+          <p className="text-foreground text-sm font-medium">No agents yet</p>
+          <p className="text-muted-foreground text-sm">
+            Build your first agent to start running campaigns.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

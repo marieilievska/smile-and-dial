@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { createAgent } from "@/lib/agents/actions";
+import { createAgent, updateAgent } from "@/lib/agents/actions";
 import {
   ALL_TOOLS,
   TOOL_LABELS,
@@ -81,26 +81,44 @@ const STEPS = [
 
 type KbOption = { id: string; name: string };
 
+export type AgentInitial = {
+  id: string;
+  name: string;
+  voiceId: string;
+  aiModel: string;
+  personality: string;
+  environment: string;
+  tone: string;
+  goal: string;
+  guardrails: string;
+  systemPrompt: string;
+  toolsEnabled: ToolsEnabled;
+  knowledgeBaseIds: string[];
+};
+
 export function AgentWizard({
   voiceIds,
   knowledgeBases,
+  agent,
 }: {
   voiceIds: string[];
   knowledgeBases: KbOption[];
+  agent?: AgentInitial;
 }) {
   const router = useRouter();
+  const isEdit = Boolean(agent);
   const [step, setStep] = useState(1);
-  const [name, setName] = useState("");
-  const [voiceId, setVoiceId] = useState(voiceIds[0] ?? "");
-  const [aiModel, setAiModel] = useState(AI_MODELS[0]);
-  const [personality, setPersonality] = useState("");
-  const [environment, setEnvironment] = useState("");
-  const [tone, setTone] = useState("");
-  const [goal, setGoal] = useState("");
-  const [guardrails, setGuardrails] = useState("");
-  const [tools, setTools] = useState<ToolsEnabled>({});
-  const [kbIds, setKbIds] = useState<string[]>([]);
-  const [systemPrompt, setSystemPrompt] = useState("");
+  const [name, setName] = useState(agent?.name ?? "");
+  const [voiceId, setVoiceId] = useState(agent?.voiceId || voiceIds[0] || "");
+  const [aiModel, setAiModel] = useState(agent?.aiModel || AI_MODELS[0]);
+  const [personality, setPersonality] = useState(agent?.personality ?? "");
+  const [environment, setEnvironment] = useState(agent?.environment ?? "");
+  const [tone, setTone] = useState(agent?.tone ?? "");
+  const [goal, setGoal] = useState(agent?.goal ?? "");
+  const [guardrails, setGuardrails] = useState(agent?.guardrails ?? "");
+  const [tools, setTools] = useState<ToolsEnabled>(agent?.toolsEnabled ?? {});
+  const [kbIds, setKbIds] = useState<string[]>(agent?.knowledgeBaseIds ?? []);
+  const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? "");
   const [pending, startTransition] = useTransition();
 
   function next() {
@@ -135,7 +153,7 @@ export function AgentWizard({
 
   function save() {
     startTransition(async () => {
-      const result = await createAgent({
+      const input = {
         name,
         voiceId,
         aiModel,
@@ -147,11 +165,15 @@ export function AgentWizard({
         systemPrompt,
         toolsEnabled: tools,
         knowledgeBaseIds: kbIds,
-      });
+      };
+      const result =
+        isEdit && agent
+          ? await updateAgent(agent.id, input)
+          : await createAgent(input);
       if (result.error) {
         toast.error(result.error);
       } else {
-        toast.success("Agent created.");
+        toast.success(isEdit ? "Agent updated." : "Agent created.");
         router.push("/settings/agents");
       }
     });
@@ -164,7 +186,7 @@ export function AgentWizard({
     <div className="p-8">
       <div>
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          Build agent
+          {isEdit ? "Edit agent" : "Build agent"}
         </h1>
         <p className="text-muted-foreground mt-1 text-sm">Step {step} of 9</p>
       </div>
@@ -340,7 +362,7 @@ export function AgentWizard({
             </Button>
           ) : (
             <Button onClick={save} disabled={pending || !name.trim()}>
-              {pending ? "Saving…" : "Save agent"}
+              {pending ? "Saving…" : isEdit ? "Save changes" : "Save agent"}
             </Button>
           )}
         </CardFooter>

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 
-import { AgentWizard } from "./agent-wizard";
+import { AgentWizard } from "../agent-wizard";
 
 export default async function NewAgentPage() {
   const supabase = await createClient();
