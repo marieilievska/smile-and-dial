@@ -187,7 +187,7 @@ async function currentAttempts(
  * a misconfigured env doesn't quietly spend money.
  */
 export async function runDialerTick(
-  options: { limit?: number } = {},
+  options: { limit?: number; leadIds?: string[] } = {},
 ): Promise<TickSummary> {
   const twilioLive = process.env.TWILIO_LIVE === "live";
   const elevenLive = process.env.ELEVENLABS_LIVE === "live";
@@ -201,14 +201,20 @@ export async function runDialerTick(
 
   const supabase = makeServiceClient();
 
-  // Light filter pass: leads currently eligible to dial.
-  const { data: queue } = await supabase
+  // Light filter pass: leads currently eligible to dial. When `leadIds` is
+  // passed (Playwright tests use this to keep cross-test leads out of the
+  // tick), narrow the queue to just those rows.
+  let query = supabase
     .from("dial_queue")
     .select(
       "lead_id, owner_id, business_phone, campaign_id, agent_id, twilio_number_id",
     )
     .order("next_call_at", { ascending: true, nullsFirst: true })
     .limit(options.limit ?? 50);
+  if (options.leadIds && options.leadIds.length > 0) {
+    query = query.in("lead_id", options.leadIds);
+  }
+  const { data: queue } = await query;
 
   const candidates = queue ?? [];
 

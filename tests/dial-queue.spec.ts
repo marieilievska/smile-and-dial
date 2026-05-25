@@ -261,12 +261,22 @@ test.describe("Dial queue", () => {
   });
 
   test("an outside-calling-hours window drops the lead", async () => {
-    // Force a window that's already in the past today.
+    // Build a 1-minute window that's deterministically two hours ahead of
+    // the lead's current local clock — so it can never accidentally include
+    // "now" no matter when the test runs.
+    const nowNy = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "America/New_York" }),
+    );
+    const target = new Date(nowNy.getTime() + 2 * 60 * 60 * 1000);
+    const hh = String(target.getHours()).padStart(2, "0");
+    const mm = String(target.getMinutes()).padStart(2, "0");
+    const windowStart = `${hh}:${mm}:00`;
+    const windowEnd = `${hh}:${mm}:30`;
     await admin
       .from("campaigns")
       .update({
-        calling_hours_start: "00:00:00",
-        calling_hours_end: "00:01:00",
+        calling_hours_start: windowStart,
+        calling_hours_end: windowEnd,
       })
       .eq("id", campaignId);
     expect(await leadInQueue()).toBe(false);
