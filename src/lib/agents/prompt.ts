@@ -1,0 +1,104 @@
+/**
+ * Assemble the 6-block ElevenLabs agent prompt from the wizard inputs.
+ * Per BUILD_PLAN.md Section 9.
+ */
+
+export const ALL_TOOLS = [
+  "send_email",
+  "schedule_callback",
+  "get_available_times",
+  "book_appointment",
+  "mark_dnc",
+  "transfer_to_number",
+] as const;
+
+export type ToolKey = (typeof ALL_TOOLS)[number];
+
+export type ToolsEnabled = Partial<Record<ToolKey, boolean>>;
+
+export const TOOL_LABELS: Record<ToolKey, string> = {
+  send_email: "Send email",
+  schedule_callback: "Schedule a callback",
+  get_available_times: "Get available times (Calendly)",
+  book_appointment: "Book an appointment (Calendly)",
+  mark_dnc: "Add the lead to do-not-call",
+  transfer_to_number: "Transfer to a human",
+};
+
+const TOOL_BLOCKS: Record<ToolKey, string> = {
+  send_email: `## send_email
+**When to use:** When the lead requests information by email during the call, or asks to be sent details.
+**How to use:**
+1. Confirm the lead's email address by reading it back to them.
+2. Call the tool with their confirmed email.
+3. Tell them "I've sent that over — you should see it within a minute."`,
+  schedule_callback: `## schedule_callback
+**When to use:** When the lead says they're busy now and asks to be called back at a specific time.
+**How to use:**
+1. Confirm the date and time clearly: "So that's Tuesday the 15th at 2 PM your local time, correct?"
+2. Call the tool with the confirmed datetime in ISO 8601 format (e.g., "2026-01-15T14:00:00-06:00").`,
+  get_available_times: `## get_available_times
+**When to use:** When the lead expresses interest in scheduling a meeting and you need to offer specific time slots.
+**How to use:** Call this tool to retrieve current availability, then offer 2–3 options to the lead.`,
+  book_appointment: `## book_appointment
+**When to use:** After the lead has chosen a specific time slot from the options you offered.
+**How to use:**
+1. Confirm the chosen time.
+2. Call the tool with the slot ID and the lead's name and email.
+3. Tell them they'll receive a calendar invite shortly.`,
+  mark_dnc: `## mark_dnc
+**When to use:** When the lead explicitly asks to be removed from the calling list, or says "don't call me again."
+**How to use:**
+1. Confirm: "I understand, I'll make sure you're not contacted again."
+2. Call the tool.`,
+  transfer_to_number: `## transfer_to_number
+**When to use:** When the lead asks to speak with a human, or when the conversation requires escalation beyond what you can handle.
+**How to use:**
+1. Tell the lead "Let me connect you with someone who can help."
+2. Call the tool — the call will be transferred immediately.`,
+};
+
+const LEAD_CONTEXT_BLOCK = `# Lead context
+Here's what we know about this lead from previous calls. Use this to avoid repeating yourself and pick up where the last conversation left off.
+
+{{lead_context}}
+
+If \`{{lead_context}}\` is empty, this is the first call with this lead — introduce yourself and the company normally.`;
+
+const TOOL_ERROR_HANDLING_BLOCK = `# Tool error handling
+If any tool fails:
+1. Acknowledge: "I'm having trouble with that right now."
+2. Do not guess or make up information.
+3. Offer to follow up later or escalate.`;
+
+export type PromptInputs = {
+  personality: string;
+  environment: string;
+  tone: string;
+  goal: string;
+  guardrails: string;
+  toolsEnabled: ToolsEnabled;
+};
+
+/** Build the system prompt from the wizard inputs. */
+export function assemblePrompt(input: PromptInputs): string {
+  const sections: string[] = [
+    "# Personality\n" + (input.personality.trim() || "_Not specified._"),
+    "# Environment\n" + (input.environment.trim() || "_Not specified._"),
+    "# Tone\n" + (input.tone.trim() || "_Not specified._"),
+    "# Goal\n" + (input.goal.trim() || "_Not specified._"),
+    "# Guardrails\n" + (input.guardrails.trim() || "_None specified._"),
+  ];
+
+  const enabled = ALL_TOOLS.filter((key) => input.toolsEnabled[key]);
+  if (enabled.length > 0) {
+    sections.push(
+      "# Tools\n\n" + enabled.map((k) => TOOL_BLOCKS[k]).join("\n\n"),
+    );
+  }
+
+  sections.push(LEAD_CONTEXT_BLOCK);
+  sections.push(TOOL_ERROR_HANDLING_BLOCK);
+
+  return sections.join("\n\n");
+}
