@@ -117,6 +117,85 @@ export type Database = {
         };
         Relationships: [];
       };
+      callbacks: {
+        Row: {
+          campaign_id: string;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          lead_id: string;
+          originating_call_id: string | null;
+          result_call_id: string | null;
+          scheduled_at: string;
+          status: string;
+        };
+        Insert: {
+          campaign_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          lead_id: string;
+          originating_call_id?: string | null;
+          result_call_id?: string | null;
+          scheduled_at: string;
+          status?: string;
+        };
+        Update: {
+          campaign_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          lead_id?: string;
+          originating_call_id?: string | null;
+          result_call_id?: string | null;
+          scheduled_at?: string;
+          status?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "callbacks_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "callbacks_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
+            foreignKeyName: "callbacks_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "callbacks_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "callbacks_originating_call_id_fkey";
+            columns: ["originating_call_id"];
+            isOneToOne: false;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "callbacks_result_call_id_fkey";
+            columns: ["result_call_id"];
+            isOneToOne: false;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       calls: {
         Row: {
           agent_id: string | null;

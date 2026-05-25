@@ -151,7 +151,7 @@ export async function processElevenLabsPostCall(
   // future live path).
   const { data: call } = await supabase
     .from("calls")
-    .select("id, lead_id, cost_breakdown")
+    .select("id, lead_id, campaign_id, cost_breakdown")
     .eq("elevenlabs_conversation_id", conversationId)
     .maybeSingle();
   if (!call) return { ok: true, status: "unknown_conversation" };
@@ -215,13 +215,19 @@ export async function processElevenLabsPostCall(
   // Auto-fill empty lead fields from extracted data.
   await autoFillLeadFromExtraction(supabase, call.lead_id, payload);
 
-  // Placeholder next_call_at bump. Real retry rules land in Step 24.
-  await supabase
-    .from("leads")
-    .update({
-      next_call_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-    })
-    .eq("id", call.lead_id);
+  // Outcome-driven side effects: DNC insertion, callback row creation, and
+  // lead-status transitions. Per BUILD_PLAN §8 outcome table:
+  //   dnc / invalid_number / language_barrier → status=dnc, auto-DNC insert
+  //   callback                                → status=callback, callbacks row
+  //   everything else                         → handled by Step 24
+  await applyOutcomeSideEffects(supabase, {
+    callId: call.id,
+    leadId: call.lead_id,
+    campaignId: call.campaign_id,
+    outcome: outcomeFromDisposition,
+    callbackDatetime:
+      payload.analysis?.data_collection?.callback_datetime ?? null,
+  });
 
   return { ok: true, status: "applied" };
 }
@@ -262,4 +268,121 @@ async function autoFillLeadFromExtraction(
   if (Object.keys(patch).length > 0) {
     await supabase.from("leads").update(patch).eq("id", leadId);
   }
+}
+
+/**
+ * Map a "this conversation went badly" outcome onto the right DNC reason.
+ * Returns null when the outcome is something we don't auto-DNC.
+ */
+function dncReasonForOutcome(
+  outcome: CallOutcome,
+): "dnc_requested" | "invalid_number" | "language_barrier" | null {
+  if (outcome === "dnc") return "dnc_requested";
+  if (outcome === "invalid_number") return "invalid_number";
+  if (outcome === "language_barrier") return "language_barrier";
+  return null;
+}
+
+/**
+ * Apply the post-call side effects driven by the call outcome:
+ *
+ *   * `dnc` / `invalid_number` / `language_barrier` →
+ *     - insert the lead's phone into `dnc_entries` (silently skip if it's
+ *       already there — phone is unique workspace-wide)
+ *     - set lead.status = 'dnc' so the queue drops it on the next tick
+ *
+ *   * `callback` →
+ *     - insert a row in `callbacks` at `callback_datetime` (or now+1h if
+ *       the agent didn't capture a datetime — Step 24's retry engine
+ *       refines this)
+ *     - set lead.status = 'callback' and lead.next_call_at to the
+ *       scheduled time so the dialer picks it back up then
+ *
+ * Everything else (voicemail, no_answer, gatekeeper, not_interested,
+ * goal_met, ai_*, transferred_to_human) is the retry engine's job in
+ * Step 24. For those outcomes we leave lead.status alone here.
+ */
+async function applyOutcomeSideEffects(
+  supabase: SupabaseAdmin,
+  input: {
+    callId: string;
+    leadId: string;
+    campaignId: string;
+    outcome: CallOutcome;
+    callbackDatetime: string | null;
+  },
+): Promise<void> {
+  if (!input.outcome) return;
+
+  // The lead's phone + company are needed for both DNC inserts and (in
+  // theory) callback enrichment. One lookup either way.
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("business_phone, company")
+    .eq("id", input.leadId)
+    .single();
+  if (!lead) return;
+
+  // --- DNC ---
+  const dncReason = dncReasonForOutcome(input.outcome);
+  if (dncReason && lead.business_phone) {
+    // upsert with ignoreDuplicates so the unique-on-phone constraint
+    // doesn't error if the number is already on the list.
+    await supabase.from("dnc_entries").upsert(
+      {
+        phone: lead.business_phone,
+        company_snapshot: lead.company,
+        reason: dncReason,
+        source_call_id: input.callId,
+      },
+      { onConflict: "phone", ignoreDuplicates: true },
+    );
+    await supabase
+      .from("leads")
+      .update({ status: "dnc", next_call_at: null })
+      .eq("id", input.leadId);
+    return;
+  }
+
+  // --- callback ---
+  if (input.outcome === "callback") {
+    // If the agent didn't capture a datetime, fall back to "tomorrow same
+    // time" so we at least have a scheduled time. Step 24 will refine this
+    // when the retry engine lands.
+    const parsed = input.callbackDatetime
+      ? new Date(input.callbackDatetime)
+      : null;
+    const scheduledAt =
+      parsed && !isNaN(parsed.getTime())
+        ? parsed
+        : new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await supabase.from("callbacks").insert({
+      lead_id: input.leadId,
+      campaign_id: input.campaignId,
+      originating_call_id: input.callId,
+      scheduled_at: scheduledAt.toISOString(),
+      status: "pending",
+      // created_by left null — the agent auto-scheduled this.
+    });
+    await supabase
+      .from("leads")
+      .update({
+        status: "callback",
+        next_call_at: scheduledAt.toISOString(),
+      })
+      .eq("id", input.leadId);
+    return;
+  }
+
+  // Anything else: leave lead.status alone. Step 24's retry engine handles
+  // voicemail / no_answer / gatekeeper / not_interested / goal_met / etc.
+  // Until then, keep the placeholder push so the lead doesn't redial
+  // immediately.
+  await supabase
+    .from("leads")
+    .update({
+      next_call_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    })
+    .eq("id", input.leadId);
 }
