@@ -23,13 +23,7 @@ export default async function AgentsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") redirect("/leads");
-
+  // RLS limits the rows to the caller's own agents (or all, for admins).
   const { data: agents } = await supabase
     .from("agents")
     .select("id, name, voice_id, ai_model, elevenlabs_agent_id, created_at")

@@ -14,12 +14,12 @@ export function SettingsNav({ isAdmin }: { isAdmin: boolean }) {
           { label: "Users", href: "/settings/users" },
           { label: "Custom fields", href: "/settings/custom-fields" },
           { label: "Twilio numbers", href: "/settings/twilio-numbers" },
-          { label: "Agents", href: "/settings/agents" },
           { label: "Integrations", href: "/settings/integrations" },
         ]
       : []),
     { label: "Lists", href: "/settings/lists" },
     { label: "Knowledge bases", href: "/settings/knowledge-bases" },
+    { label: "Agents", href: "/settings/agents" },
   ];
 
   return (

@@ -630,6 +630,7 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      elevenlabs_voice_ids: { Args: never; Returns: string };
       is_admin: { Args: { uid: string }; Returns: boolean };
     };
     Enums: {

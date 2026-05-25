@@ -37,13 +37,7 @@ export default async function CampaignsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") redirect("/leads");
-
+  // RLS scopes the rows to the caller's own (or all, for admins).
   const [{ data: rawCampaigns }, { data: agents }, { data: goals }] =
     await Promise.all([
       supabase

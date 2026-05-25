@@ -8,8 +8,8 @@ export type CampaignResult = { error: string | null; campaignId?: string };
 
 const CAMPAIGNS_PATH = "/campaigns";
 
-/** Confirm the caller is an admin — campaigns are admin-managed. */
-async function requireAdmin(): Promise<{
+/** Confirm the caller is signed in. RLS handles owner-or-admin scoping. */
+async function requireAuth(): Promise<{
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string | null;
   error: string | null;
@@ -19,19 +19,6 @@ async function requireAdmin(): Promise<{
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { supabase, userId: null, error: "You are not signed in." };
-
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") {
-    return {
-      supabase,
-      userId: user.id,
-      error: "Only admins can manage campaigns.",
-    };
-  }
   return { supabase, userId: user.id, error: null };
 }
 
@@ -60,8 +47,8 @@ export async function createCampaign(
   if (!input.agentId) return { error: "Pick an agent." };
   if (!input.goalId) return { error: "Pick a goal." };
 
-  const { supabase, userId, error: adminError } = await requireAdmin();
-  if (adminError) return { error: adminError };
+  const { supabase, userId, error: authError } = await requireAuth();
+  if (authError) return { error: authError };
 
   const { data: created, error } = await supabase
     .from("campaigns")
@@ -92,8 +79,8 @@ export async function updateCampaign(
   if (!input.agentId) return { error: "Pick an agent." };
   if (!input.goalId) return { error: "Pick a goal." };
 
-  const { supabase, error: adminError } = await requireAdmin();
-  if (adminError) return { error: adminError };
+  const { supabase, error: authError } = await requireAuth();
+  if (authError) return { error: authError };
 
   const { error } = await supabase
     .from("campaigns")
@@ -117,8 +104,8 @@ export async function updateCampaign(
  * Step 18b; for now delete is the only removal mechanism.
  */
 export async function deleteCampaign(id: string): Promise<CampaignResult> {
-  const { supabase, error: adminError } = await requireAdmin();
-  if (adminError) return { error: adminError };
+  const { supabase, error: authError } = await requireAuth();
+  if (authError) return { error: authError };
 
   const { error } = await supabase.from("campaigns").delete().eq("id", id);
   if (error) return { error: "Could not delete the campaign." };

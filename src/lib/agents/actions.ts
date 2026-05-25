@@ -38,15 +38,6 @@ export async function createAgent(input: {
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") {
-    return { error: "Only admins can build agents." };
-  }
-
   const { data: created, error } = await supabase
     .from("agents")
     .insert({
@@ -120,15 +111,6 @@ export async function updateAgent(
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") {
-    return { error: "Only admins can edit agents." };
-  }
-
   const { data: existing } = await supabase
     .from("agents")
     .select("elevenlabs_agent_id")
@@ -190,15 +172,6 @@ export async function deleteAgent(id: string): Promise<AgentResult> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
-
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") {
-    return { error: "Only admins can delete agents." };
-  }
 
   const { data: existing } = await supabase
     .from("agents")
