@@ -89,6 +89,25 @@ export function buildCallsQuery(
   const campaignId = str(params.campaign);
   if (UUID_RE.test(campaignId)) query = query.eq("campaign_id", campaignId);
 
+  const agentId = str(params.agent);
+  if (UUID_RE.test(agentId)) query = query.eq("agent_id", agentId);
+
+  // goal_met = "yes" | "no" | "" (any). The column is a non-null boolean
+  // so we always have something to compare against.
+  const goalMet = str(params.goal_met);
+  if (goalMet === "yes") query = query.eq("goal_met", true);
+  if (goalMet === "no") query = query.eq("goal_met", false);
+
+  // Duration range, in seconds.
+  const minDur = Number(str(params.min_dur));
+  const maxDur = Number(str(params.max_dur));
+  if (Number.isFinite(minDur) && minDur > 0) {
+    query = query.gte("duration_seconds", minDur);
+  }
+  if (Number.isFinite(maxDur) && maxDur > 0) {
+    query = query.lte("duration_seconds", maxDur);
+  }
+
   const dateFilters: [string, string, string][] = [
     ["from", "to", "started_at"],
   ];
@@ -103,23 +122,34 @@ export function buildCallsQuery(
 }
 
 /**
- * Resolve the `q=` search to a list of matching lead IDs. Returns `null`
- * when no search was specified (so the caller doesn't add a filter at all).
+ * Resolve any lead-side filters (search + owner) to a list of matching lead
+ * IDs that the main calls query should intersect with. Returns `null` when
+ * neither filter is active (so the caller doesn't add a filter at all).
+ *
+ * Necessary because PostgREST can't filter parent rows on a `to-one` embed
+ * without an `!inner` join.
  */
-export async function resolveSearchLeadIds(
+export async function resolveLeadFilterIds(
   supabase: SupabaseServerClient,
   params: SearchParams,
 ): Promise<string[] | null> {
   const search = str(params.q)
     .replace(/[%,()\\*]/g, "")
     .trim();
-  if (!search) return null;
-  const { data } = await supabase
-    .from("leads")
-    .select("id")
-    .or(
+  const ownerId = str(params.owner);
+  const hasSearch = search.length > 0;
+  const hasOwner = UUID_RE.test(ownerId);
+  if (!hasSearch && !hasOwner) return null;
+
+  let query = supabase.from("leads").select("id").limit(5000);
+  if (hasSearch) {
+    query = query.or(
       `company.ilike.%${search}%,business_phone.ilike.%${search}%,business_email.ilike.%${search}%`,
-    )
-    .limit(5000);
+    );
+  }
+  if (hasOwner) {
+    query = query.eq("owner_id", ownerId);
+  }
+  const { data } = await query;
   return (data ?? []).map((l) => l.id);
 }
