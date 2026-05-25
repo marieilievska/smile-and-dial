@@ -13,23 +13,34 @@ import {
 } from "@/components/ui/select";
 
 type Campaign = { id: string; name: string };
+type Agent = { id: string; name: string };
+type Owner = { id: string; name: string };
 
 /**
  * URL-driven filter bar for the Calls table. Submits via a normal GET form
  * so the server component re-renders with the new searchParams. Picking
- * "All …" clears the param entirely by submitting empty values.
+ * "Any" clears the param by submitting an empty value.
  */
 export function CallsFilters({
   campaigns,
+  agents,
+  owners,
   initial,
 }: {
   campaigns: Campaign[];
+  agents: Agent[];
+  owners: Owner[];
   initial: {
     q: string;
     direction: string;
     status: string;
     outcome: string;
     campaign: string;
+    agent: string;
+    owner: string;
+    goal_met: string;
+    min_dur: string;
+    max_dur: string;
     from: string;
     to: string;
   };
@@ -41,6 +52,9 @@ export function CallsFilters({
   const [status, setStatus] = useState(initial.status);
   const [outcome, setOutcome] = useState(initial.outcome);
   const [campaign, setCampaign] = useState(initial.campaign);
+  const [agent, setAgent] = useState(initial.agent);
+  const [owner, setOwner] = useState(initial.owner);
+  const [goalMet, setGoalMet] = useState(initial.goal_met);
 
   return (
     <form
@@ -185,6 +199,121 @@ export function CallsFilters({
           </SelectContent>
         </Select>
         <input type="hidden" name="campaign" value={campaign} />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label
+          htmlFor="calls-agent"
+          className="text-foreground text-sm font-medium"
+        >
+          Agent
+        </label>
+        <Select
+          value={agent || "__any__"}
+          onValueChange={(value) => setAgent(value === "__any__" ? "" : value)}
+        >
+          <SelectTrigger id="calls-agent" className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__any__">Any</SelectItem>
+            {agents.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <input type="hidden" name="agent" value={agent} />
+      </div>
+
+      {owners.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <label
+            htmlFor="calls-owner"
+            className="text-foreground text-sm font-medium"
+          >
+            Owner
+          </label>
+          <Select
+            value={owner || "__any__"}
+            onValueChange={(value) =>
+              setOwner(value === "__any__" ? "" : value)
+            }
+          >
+            <SelectTrigger id="calls-owner" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__any__">Any</SelectItem>
+              {owners.map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <input type="hidden" name="owner" value={owner} />
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-2">
+        <label
+          htmlFor="calls-goal-met"
+          className="text-foreground text-sm font-medium"
+        >
+          Goal met
+        </label>
+        <Select
+          value={goalMet || "__any__"}
+          onValueChange={(value) =>
+            setGoalMet(value === "__any__" ? "" : value)
+          }
+        >
+          <SelectTrigger id="calls-goal-met" className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__any__">Any</SelectItem>
+            <SelectItem value="yes">Yes</SelectItem>
+            <SelectItem value="no">No</SelectItem>
+          </SelectContent>
+        </Select>
+        <input type="hidden" name="goal_met" value={goalMet} />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label
+          htmlFor="calls-min-dur"
+          className="text-foreground text-sm font-medium"
+        >
+          Min duration (s)
+        </label>
+        <Input
+          id="calls-min-dur"
+          name="min_dur"
+          type="number"
+          min="0"
+          defaultValue={initial.min_dur}
+          className="w-28"
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label
+          htmlFor="calls-max-dur"
+          className="text-foreground text-sm font-medium"
+        >
+          Max duration (s)
+        </label>
+        <Input
+          id="calls-max-dur"
+          name="max_dur"
+          type="number"
+          min="0"
+          defaultValue={initial.max_dur}
+          className="w-28"
+        />
       </div>
 
       <div className="flex flex-col gap-2">

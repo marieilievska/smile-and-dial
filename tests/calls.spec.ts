@@ -61,6 +61,9 @@ test.describe("Calls page", () => {
         direction: opts.direction ?? "outbound",
         status: opts.status ?? "completed",
         outcome: opts.outcome ?? null,
+        // Keep goal_met in sync with the outcome — same invariant the
+        // post-call webhook maintains in real life.
+        goal_met: opts.outcome === "goal_met",
         duration_seconds: opts.durationSeconds ?? 45,
         talk_time_seconds: 30,
         started_at: (opts.startedAt ?? new Date()).toISOString(),
@@ -183,6 +186,12 @@ test.describe("Calls page", () => {
   });
 
   test.afterAll(async () => {
+    // Clean up any saved views the saved-view test created.
+    await admin
+      .from("saved_views")
+      .delete()
+      .eq("page", "calls")
+      .like("name", `E2E Saved ${stamp}%`);
     if (callIds.length > 0) {
       await admin.from("calls").delete().in("id", callIds);
     }
@@ -270,5 +279,83 @@ test.describe("Calls page", () => {
   }) => {
     await page.goto("/calls?q=__no_such_company__");
     await expect(page.getByText("No calls yet")).toBeVisible();
+  });
+
+  test("the goal_met filter narrows to the goal-met call", async ({ page }) => {
+    // Scope by stamp so prior test runs' goal_met calls don't drown us out.
+    await page.goto(`/calls?goal_met=yes&q=${stamp}`);
+    await expect(
+      page.getByRole("cell", { name: `E2E Calls Beta ${stamp}` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: `E2E Calls Alpha ${stamp}` }),
+    ).toHaveCount(0);
+  });
+
+  test("min/max duration narrows the rows", async ({ page }) => {
+    await page.goto(`/calls?campaign=${campaignId}&min_dur=30&max_dur=90`);
+    // Of our two main-campaign seeds (18s + 60s), only the 60s callback fits.
+    await expect(
+      page.getByRole("cell", { name: `E2E Calls Gamma ${stamp}` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: `E2E Calls Alpha ${stamp}` }),
+    ).toHaveCount(0);
+  });
+
+  test("toggling a column off via the Columns popover hides its header", async ({
+    page,
+  }) => {
+    await page.goto(
+      `/calls?q=${encodeURIComponent(`E2E Calls Alpha ${stamp}`)}`,
+    );
+    // The "Cost" column is in the default set — visible.
+    await expect(
+      page.getByRole("columnheader", { name: "Cost" }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Columns" }).click();
+    await page.getByLabel("Cost").click();
+    // Click outside to close the popover so subsequent assertions aren't
+    // racing the dropdown animation.
+    await page.keyboard.press("Escape");
+
+    await expect(page.getByRole("columnheader", { name: "Cost" })).toHaveCount(
+      0,
+    );
+    // The URL now reflects the column choice.
+    await expect(page).toHaveURL(/cols=/);
+  });
+
+  test("admin can save the current view and apply it later", async ({
+    page,
+  }) => {
+    const viewName = `E2E Saved ${stamp}`;
+    // Land on a specific filter so the save has interesting params.
+    await page.goto(`/calls?direction=inbound`);
+
+    await page.getByRole("button", { name: "Views" }).click();
+    await page.getByRole("button", { name: "Save current view" }).click();
+    await page.getByLabel("View name").fill(viewName);
+    await page.getByRole("button", { name: "Save view" }).click();
+    await expect(page.getByText("View saved.")).toBeVisible();
+
+    // Apply the view from a different starting URL. Hard-reload so we see
+    // the freshly-revalidated server-rendered views list.
+    await page.goto("/calls");
+    await page.reload();
+    await page.getByRole("button", { name: "Views" }).click();
+    const viewButton = page.getByRole("button", {
+      name: viewName,
+      exact: true,
+    });
+    await expect(viewButton).toBeVisible({ timeout: 10_000 });
+    await viewButton.click();
+    await expect(page).toHaveURL(/direction=inbound/);
+
+    // Clean up: delete the view from the popover.
+    await page.getByRole("button", { name: "Views" }).click();
+    await page.getByRole("button", { name: `Delete view ${viewName}` }).click();
+    await expect(page.getByText("View deleted.")).toBeVisible();
   });
 });

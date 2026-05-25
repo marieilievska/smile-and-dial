@@ -1,8 +1,7 @@
-import { ChevronLeft, ChevronRight, Phone, PhoneIncoming } from "lucide-react";
+import { ChevronLeft, ChevronRight, Phone } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -18,43 +17,16 @@ import { CallsFilters } from "./calls-filters";
 import {
   buildCallsQuery,
   parseSort,
-  resolveSearchLeadIds,
+  resolveLeadFilterIds,
   str,
 } from "./calls-query";
 import { callsHref, type SearchParams } from "./calls-url";
+import { CALL_COLUMNS, DEFAULT_COLUMN_KEYS, type DisplayCall } from "./columns";
+import { ColumnPicker } from "./column-picker";
+import { SavedViews } from "./saved-views";
 import { SortableHeader } from "./sortable-header";
 
 const PAGE_SIZE = 25;
-
-// Outcomes that count as a "connection" for color/styling purposes — same
-// definition the connect-rate monitor uses.
-const NON_CONNECT_OUTCOMES = new Set([
-  "voicemail",
-  "no_answer",
-  "busy",
-  "failed",
-  "invalid_number",
-]);
-
-function fmtDuration(seconds: number | null | undefined): string {
-  if (!seconds || seconds <= 0) return "—";
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-function fmtCost(breakdown: unknown): string {
-  if (!breakdown || typeof breakdown !== "object") return "—";
-  const total = (breakdown as { total?: unknown }).total;
-  if (typeof total !== "number") return "—";
-  return `$${total.toFixed(2)}`;
-}
-
-function fmtDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  const d = new Date(value);
-  return d.toLocaleString();
-}
 
 export default async function CallsPage({
   searchParams,
@@ -71,158 +43,185 @@ export default async function CallsPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Campaigns drive the filter dropdown. RLS scopes this for members.
-  const { data: campaigns } = await supabase
-    .from("campaigns")
-    .select("id, name")
-    .order("name");
+  // Admins see the Owner filter; members only see their own calls anyway.
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  const isAdmin = me?.role === "admin";
 
-  const searchLeadIds = await resolveSearchLeadIds(supabase, params);
+  const [
+    { data: campaigns },
+    { data: agents },
+    { data: owners },
+    { data: viewsRaw },
+  ] = await Promise.all([
+    supabase.from("campaigns").select("id, name").order("name"),
+    supabase.from("agents").select("id, name").order("name"),
+    isAdmin
+      ? supabase.from("profiles").select("id, full_name, email").order("email")
+      : Promise.resolve({
+          data: [] as { id: string; full_name: string | null; email: string }[],
+        }),
+    supabase
+      .from("saved_views")
+      .select("id, name, params")
+      .eq("page", "calls")
+      .order("created_at", { ascending: false }),
+  ]);
+
+  const ownerOptions: { id: string; name: string }[] = (owners ?? []).map(
+    (o) => ({
+      id: o.id,
+      name: o.full_name || o.email || "—",
+    }),
+  );
+
+  const leadFilterIds = await resolveLeadFilterIds(supabase, params);
   const offset = (page - 1) * PAGE_SIZE;
   const { data, count } = await buildCallsQuery(
     supabase,
     params,
-    searchLeadIds ?? undefined,
+    leadFilterIds ?? undefined,
   )
     .order(sort, { ascending: dir === "asc" })
     .order("id", { ascending: true })
     .range(offset, offset + PAGE_SIZE - 1);
 
-  const rows = data ?? [];
+  const rawCalls = data ?? [];
   const total = count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // Owner names for the rows: gather distinct owner_ids across visible
+  // leads. Members get a single owner (themselves) so this is cheap.
+  const ownerIds = [
+    ...new Set(
+      rawCalls
+        .map((c) => c.lead?.owner_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const ownerNameById = new Map<string, string>();
+  if (ownerIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", ownerIds);
+    for (const p of profiles ?? []) {
+      ownerNameById.set(p.id, p.full_name || p.email || "—");
+    }
+  }
+
+  // Which calls have a callback row? Loaded in one query so the "has_callback"
+  // column / filter never needs a per-row probe.
+  const callIds = rawCalls.map((c) => c.id);
+  const hasCallback = new Set<string>();
+  if (callIds.length > 0) {
+    const { data: cbs } = await supabase
+      .from("callbacks")
+      .select("originating_call_id")
+      .in("originating_call_id", callIds);
+    for (const cb of cbs ?? []) {
+      if (cb.originating_call_id) hasCallback.add(cb.originating_call_id);
+    }
+  }
+
+  const calls: DisplayCall[] = rawCalls.map((c) => ({
+    id: c.id,
+    direction: c.direction as DisplayCall["direction"],
+    status: c.status,
+    outcome: c.outcome,
+    goal_met: c.goal_met,
+    started_at: c.started_at,
+    ended_at: c.ended_at,
+    duration_seconds: c.duration_seconds,
+    talk_time_seconds: c.talk_time_seconds,
+    recording_path: c.recording_path,
+    score: c.score,
+    cost_breakdown: c.cost_breakdown,
+    hasCallback: hasCallback.has(c.id),
+    company: c.lead?.company ?? null,
+    business_phone: c.lead?.business_phone ?? null,
+    campaignName: c.campaign?.name ?? "—",
+    agentName: c.agent?.name ?? "—",
+    ownerName: c.lead?.owner_id
+      ? (ownerNameById.get(c.lead.owner_id) ?? "—")
+      : "—",
+  }));
+
+  // Visible columns (URL param `cols` overrides the default set).
+  const colsParam = str(params.cols);
+  const visibleKeys = colsParam
+    ? new Set(colsParam.split(","))
+    : new Set(DEFAULT_COLUMN_KEYS);
+  const columns = CALL_COLUMNS.filter((c) => visibleKeys.has(c.key));
+
   return (
     <div className="flex flex-col gap-6 p-8">
-      <div>
-        <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          Calls
-        </h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Every outbound and inbound call. Filter and sort to drill in.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-foreground text-2xl font-bold tracking-tight">
+            Calls
+          </h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Every outbound and inbound call. Filter and sort to drill in.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <SavedViews views={viewsRaw ?? []} />
+          <ColumnPicker />
+        </div>
       </div>
 
       <CallsFilters
         campaigns={campaigns ?? []}
+        agents={agents ?? []}
+        owners={ownerOptions}
         initial={{
           q: str(params.q),
           direction: str(params.direction),
           status: str(params.status),
           outcome: str(params.outcome),
           campaign: str(params.campaign),
+          agent: str(params.agent),
+          owner: str(params.owner),
+          goal_met: str(params.goal_met),
+          min_dur: str(params.min_dur),
+          max_dur: str(params.max_dur),
           from: str(params.from),
           to: str(params.to),
         }}
       />
 
-      {rows.length > 0 ? (
+      {calls.length > 0 ? (
         <>
           <div className="border-border overflow-hidden rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-10" />
-                  <TableHead>Company</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Campaign</TableHead>
-                  <TableHead>Agent</TableHead>
-                  <SortableHeader
-                    label="Started"
-                    sortKey="started_at"
-                    currentSort={sort}
-                    currentDir={dir}
-                    params={params}
-                  />
-                  <SortableHeader
-                    label="Duration"
-                    sortKey="duration_seconds"
-                    currentSort={sort}
-                    currentDir={dir}
-                    params={params}
-                  />
-                  <SortableHeader
-                    label="Talk"
-                    sortKey="talk_time_seconds"
-                    currentSort={sort}
-                    currentDir={dir}
-                    params={params}
-                  />
-                  <SortableHeader
-                    label="Status"
-                    sortKey="status"
-                    currentSort={sort}
-                    currentDir={dir}
-                    params={params}
-                  />
-                  <SortableHeader
-                    label="Outcome"
-                    sortKey="outcome"
-                    currentSort={sort}
-                    currentDir={dir}
-                    params={params}
-                  />
-                  <TableHead>Cost</TableHead>
+                  {columns.map((col) =>
+                    col.sortKey ? (
+                      <SortableHeader
+                        key={col.key}
+                        label={col.label}
+                        sortKey={col.sortKey}
+                        currentSort={sort}
+                        currentDir={dir}
+                        params={params}
+                      />
+                    ) : (
+                      <TableHead key={col.key}>{col.label}</TableHead>
+                    ),
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((c) => (
+                {calls.map((c) => (
                   <TableRow key={c.id}>
-                    <TableCell>
-                      {c.direction === "inbound" ? (
-                        <PhoneIncoming
-                          className="text-muted-foreground size-4"
-                          aria-label="Inbound"
-                        />
-                      ) : (
-                        <Phone
-                          className="text-muted-foreground size-4"
-                          aria-label="Outbound"
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {c.lead?.company ?? "—"}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {c.lead?.business_phone ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {c.campaign?.name ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {c.agent?.name ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {fmtDateTime(c.started_at)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {fmtDuration(c.duration_seconds)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {fmtDuration(c.talk_time_seconds)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{c.status}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      {c.outcome ? (
-                        <Badge
-                          variant={
-                            c.outcome && NON_CONNECT_OUTCOMES.has(c.outcome)
-                              ? "outline"
-                              : "default"
-                          }
-                        >
-                          {c.outcome}
-                        </Badge>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {fmtCost(c.cost_breakdown)}
-                    </TableCell>
+                    {columns.map((col) => (
+                      <TableCell key={col.key}>{col.cell(c)}</TableCell>
+                    ))}
                   </TableRow>
                 ))}
               </TableBody>
