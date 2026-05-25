@@ -1,0 +1,14 @@
+-- Nightly cron that calls `expire_resting_leads()`.
+--
+-- INTENTIONALLY DORMANT. We keep the schedule out of the schema until the
+-- dialer is actually running (which itself is gated behind the Step 21b
+-- cron, also dormant). Flip on by uncommenting the block below and
+-- running this migration.
+
+-- create extension if not exists pg_cron;
+--
+-- select cron.schedule(
+--   'expire-resting-leads-nightly',
+--   '0 3 * * *', -- every day at 03:00 UTC
+--   $$ select public.expire_resting_leads(); $$
+-- );

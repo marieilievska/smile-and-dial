@@ -4,6 +4,7 @@ import { createHmac } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import type { Database } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -192,6 +193,15 @@ export async function processTwilioStatus(input: {
     .update(update)
     .eq("id", call.id);
   if (updateError) return { ok: false, reason: "could_not_update_call" };
+
+  // If we just stamped a terminal status with an inferred outcome
+  // (busy / no-answer / failed), fire the retry engine so the lead's
+  // next_call_at / retry_counter / status get updated. ElevenLabs's
+  // post-call webhook may also fire for the same call; the engine is
+  // idempotent and whichever wins the compare-and-swap races first.
+  if (update.outcome) {
+    await applyRetryForCall(call.id);
+  }
 
   return { ok: true, status: "applied" };
 }

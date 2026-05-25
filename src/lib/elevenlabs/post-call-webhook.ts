@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import type { Database } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -375,14 +376,10 @@ async function applyOutcomeSideEffects(
     return;
   }
 
-  // Anything else: leave lead.status alone. Step 24's retry engine handles
-  // voicemail / no_answer / gatekeeper / not_interested / goal_met / etc.
-  // Until then, keep the placeholder push so the lead doesn't redial
-  // immediately.
-  await supabase
-    .from("leads")
-    .update({
-      next_call_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-    })
-    .eq("id", input.leadId);
+  // Everything else routes through the retry engine: voicemail / no_answer
+  // / gatekeeper / not_interested / ai_receptionist / goal_met / etc. The
+  // engine is the single source of truth for retry_counter / retry_position
+  // / status / next_call_at / resting_until and is idempotent on the call,
+  // so it's safe even if the Twilio webhook beat us to it.
+  await applyRetryForCall(input.callId);
 }
