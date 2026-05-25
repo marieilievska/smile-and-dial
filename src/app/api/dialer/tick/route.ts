@@ -42,8 +42,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Optional `?lead_ids=<csv>` narrows the tick to those leads. Used by
+  // Playwright so tick events fired by one test can't accidentally dial
+  // another test's seeded leads. Production cron calls always omit this.
+  const leadIdsParam = request.nextUrl.searchParams.get("lead_ids");
+  const leadIds = leadIdsParam
+    ? leadIdsParam.split(",").filter(Boolean)
+    : undefined;
+
   try {
-    const summary = await runDialerTick();
+    const summary = await runDialerTick({ leadIds });
     return NextResponse.json(summary);
   } catch (error) {
     return NextResponse.json(

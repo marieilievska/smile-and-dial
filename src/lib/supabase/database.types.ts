@@ -427,6 +427,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      elevenlabs_webhook_events: {
+        Row: {
+          conversation_id: string;
+          raw_payload: Json | null;
+          received_at: string;
+        };
+        Insert: {
+          conversation_id: string;
+          raw_payload?: Json | null;
+          received_at?: string;
+        };
+        Update: {
+          conversation_id?: string;
+          raw_payload?: Json | null;
+          received_at?: string;
+        };
+        Relationships: [];
+      };
       goals: {
         Row: {
           created_at: string;

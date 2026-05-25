@@ -172,10 +172,13 @@ test.describe("Dialer tick", () => {
     expect(before.data?.call_attempts).toBe(0);
     expect(before.data?.last_call_at).toBeNull();
 
-    // Fire one tick. The session cookies in storageState authenticate us as
-    // the e2e admin; the route also accepts an x-dialer-secret header but
-    // we don't need it here.
-    const response = await page.request.post("/api/dialer/tick");
+    // Fire one tick, scoped to JUST our seeded lead so we don't accidentally
+    // dial leads created by parallel tests in other workers. The route also
+    // accepts an x-dialer-secret header but we don't need it here since
+    // storageState authenticates us as the e2e admin.
+    const response = await page.request.post(
+      `/api/dialer/tick?lead_ids=${leadId}`,
+    );
     expect(response.ok()).toBe(true);
     const summary = await response.json();
     expect(summary.candidates).toBeGreaterThanOrEqual(1);
