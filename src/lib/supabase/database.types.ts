@@ -39,6 +39,63 @@ export type Database = {
   };
   public: {
     Tables: {
+      agents: {
+        Row: {
+          ai_model: string | null;
+          created_at: string;
+          elevenlabs_agent_id: string | null;
+          id: string;
+          knowledge_base_ids: string[];
+          name: string;
+          owner_id: string;
+          prompt_environment: string | null;
+          prompt_goal: string | null;
+          prompt_guardrails: string | null;
+          prompt_personality: string | null;
+          prompt_tone: string | null;
+          system_prompt: string | null;
+          tools_enabled: Json;
+          updated_at: string;
+          voice_id: string | null;
+        };
+        Insert: {
+          ai_model?: string | null;
+          created_at?: string;
+          elevenlabs_agent_id?: string | null;
+          id?: string;
+          knowledge_base_ids?: string[];
+          name: string;
+          owner_id: string;
+          prompt_environment?: string | null;
+          prompt_goal?: string | null;
+          prompt_guardrails?: string | null;
+          prompt_personality?: string | null;
+          prompt_tone?: string | null;
+          system_prompt?: string | null;
+          tools_enabled?: Json;
+          updated_at?: string;
+          voice_id?: string | null;
+        };
+        Update: {
+          ai_model?: string | null;
+          created_at?: string;
+          elevenlabs_agent_id?: string | null;
+          id?: string;
+          knowledge_base_ids?: string[];
+          name?: string;
+          owner_id?: string;
+          prompt_environment?: string | null;
+          prompt_goal?: string | null;
+          prompt_guardrails?: string | null;
+          prompt_personality?: string | null;
+          prompt_tone?: string | null;
+          system_prompt?: string | null;
+          tools_enabled?: Json;
+          updated_at?: string;
+          voice_id?: string | null;
+        };
+        Relationships: [];
+      };
       app_settings: {
         Row: {
           elevenlabs_api_key: string | null;
