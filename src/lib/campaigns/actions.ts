@@ -168,7 +168,11 @@ export async function pauseCampaign(id: string): Promise<CampaignResult> {
 
   const { error } = await supabase
     .from("campaigns")
-    .update({ status: "paused" })
+    .update({
+      status: "paused",
+      paused_at: new Date().toISOString(),
+      paused_reason: "manual",
+    })
     .eq("id", id);
   if (error) return { error: "Could not pause the campaign." };
 
@@ -183,7 +187,11 @@ export async function resumeCampaign(id: string): Promise<CampaignResult> {
 
   const { error } = await supabase
     .from("campaigns")
-    .update({ status: "active" })
+    .update({
+      status: "active",
+      paused_at: null,
+      paused_reason: null,
+    })
     .eq("id", id);
   if (error) return { error: "Could not resume the campaign." };
 

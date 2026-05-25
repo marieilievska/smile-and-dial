@@ -342,6 +342,8 @@ export type Database = {
           monthly_spend_cap: number | null;
           name: string;
           owner_id: string;
+          paused_at: string | null;
+          paused_reason: string | null;
           status: string;
           transfer_destination_phone: string | null;
           twilio_number_id: string | null;
@@ -364,6 +366,8 @@ export type Database = {
           monthly_spend_cap?: number | null;
           name: string;
           owner_id: string;
+          paused_at?: string | null;
+          paused_reason?: string | null;
           status?: string;
           transfer_destination_phone?: string | null;
           twilio_number_id?: string | null;
@@ -386,6 +390,8 @@ export type Database = {
           monthly_spend_cap?: number | null;
           name?: string;
           owner_id?: string;
+          paused_at?: string | null;
+          paused_reason?: string | null;
           status?: string;
           transfer_destination_phone?: string | null;
           twilio_number_id?: string | null;
@@ -842,6 +848,39 @@ export type Database = {
         };
         Relationships: [];
       };
+      notifications: {
+        Row: {
+          created_at: string;
+          id: string;
+          kind: string;
+          message: string;
+          read_at: string | null;
+          ref_id: string | null;
+          ref_table: string | null;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          kind: string;
+          message: string;
+          read_at?: string | null;
+          ref_id?: string | null;
+          ref_table?: string | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          message?: string;
+          read_at?: string | null;
+          ref_id?: string | null;
+          ref_table?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: {
           active: boolean;
@@ -1039,6 +1078,7 @@ export type Database = {
         Args: { hours_end: string; hours_start: string; lead_timezone: string };
         Returns: boolean;
       };
+      monitor_campaign_spend_caps: { Args: never; Returns: number };
       pre_call_check: {
         Args: { in_campaign_id: string; in_lead_id: string };
         Returns: string;
