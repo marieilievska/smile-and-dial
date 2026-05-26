@@ -21,5 +21,6 @@ export async function signIn(page: Page, user: TestUser = adminUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/leads$/);
+  // Post-login lands on /today (the dashboard) by default.
+  await expect(page).toHaveURL(/\/today$/);
 }

@@ -43,7 +43,8 @@ test.describe("set-password flow", () => {
       await page.getByLabel("Confirm password").fill("e2e-new-password-123");
       await page.getByRole("button", { name: "Set password" }).click();
 
-      await expect(page).toHaveURL(/\/leads$/);
+      // Set-password now lands on /today (the dashboard) after success.
+      await expect(page).toHaveURL(/\/today$/);
     } finally {
       await admin.auth.admin.deleteUser(userId);
     }

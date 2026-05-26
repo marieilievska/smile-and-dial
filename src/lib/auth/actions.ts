@@ -24,7 +24,7 @@ export async function login(
     return { error: "Incorrect email or password." };
   }
 
-  redirect("/leads");
+  redirect("/today");
 }
 
 /** Server action: sign out of this session and return to the login page. */
@@ -68,5 +68,5 @@ export async function setPassword(
     return { error: "Could not set your password. Please try again." };
   }
 
-  redirect("/leads");
+  redirect("/today");
 }

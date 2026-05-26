@@ -3,6 +3,7 @@ import {
   Ban,
   BarChart3,
   DollarSign,
+  LayoutDashboard,
   Megaphone,
   Phone,
   PhoneCall,
@@ -20,8 +21,10 @@ export type NavItem = {
   adminOnly?: boolean;
 };
 
-/** Primary sidebar navigation. Order matches BUILD_PLAN.md Section 5. */
+/** Primary sidebar navigation. "Today" is the default landing page —
+ *  the rest of the order follows BUILD_PLAN.md Section 5. */
 export const navItems: NavItem[] = [
+  { label: "Today", href: "/today", icon: LayoutDashboard },
   { label: "Leads", href: "/leads", icon: Users },
   { label: "Calls", href: "/calls", icon: Phone },
   { label: "Callbacks", href: "/callbacks", icon: PhoneCall },
