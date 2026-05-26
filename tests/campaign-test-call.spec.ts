@@ -92,8 +92,9 @@ test.describe("Campaign test call", () => {
     await page
       .getByRole("button", { name: `Edit ${`E2E TestCall Campaign ${stamp}`}` })
       .click();
-    // Switch to Test tab.
-    await page.getByRole("tab", { name: "Test" }).click();
+    // The edit dialog is now a drawer with collapsible sections. Expand
+    // the Test section.
+    await page.getByTestId("campaign-section-test").locator("summary").click();
     await expect(page.getByText("Ready to start")).toBeVisible();
 
     // Start the mock call.

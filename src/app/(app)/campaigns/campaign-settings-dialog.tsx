@@ -1,19 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Pencil, Plus } from "lucide-react";
+import { ChevronDown, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -24,7 +15,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { createCampaign, updateCampaign } from "@/lib/campaigns/actions";
 import { setCampaignLists } from "@/lib/campaigns/list-attachments-actions";
@@ -192,8 +191,8 @@ export function CampaignSettingsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
         {isEdit ? (
           <Button
             variant="ghost"
@@ -209,31 +208,23 @@ export function CampaignSettingsDialog({
             New campaign
           </Button>
         )}
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit campaign" : "New campaign"}</DialogTitle>
-          <DialogDescription>
+      </SheetTrigger>
+      <SheetContent
+        side="right"
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[640px]"
+      >
+        <SheetHeader className="border-border border-b">
+          <SheetTitle>{isEdit ? "Edit campaign" : "New campaign"}</SheetTitle>
+          <SheetDescription>
             A campaign ties a list of leads to an agent, a number, and a goal.
-          </DialogDescription>
-        </DialogHeader>
+          </SheetDescription>
+        </SheetHeader>
 
-        <Tabs defaultValue="general" className="flex flex-col gap-4">
-          <TabsList className="flex flex-wrap">
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="agent">Agent</TabsTrigger>
-            <TabsTrigger value="telephony">Telephony</TabsTrigger>
-            <TabsTrigger value="tools">Tools</TabsTrigger>
-            <TabsTrigger value="kb">Knowledge base</TabsTrigger>
-            <TabsTrigger value="goal">Goal</TabsTrigger>
-            <TabsTrigger value="lists">Lists</TabsTrigger>
-            {isEdit ? <TabsTrigger value="test">Test</TabsTrigger> : null}
-          </TabsList>
-
-          <TabsContent
-            value="general"
-            className="flex flex-col gap-4 outline-none"
-          >
+        {/* Scrollable middle — every section is a collapsible <details>
+            so the user can scan section headers and only open the one
+            they want to edit. General is open by default. */}
+        <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-6">
+          <CampaignSection title="General" defaultOpen>
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-name">Name</Label>
               <Input
@@ -274,12 +265,9 @@ export function CampaignSettingsDialog({
                 />
               </div>
             </div>
-          </TabsContent>
+          </CampaignSection>
 
-          <TabsContent
-            value="agent"
-            className="flex flex-col gap-4 outline-none"
-          >
+          <CampaignSection title="Agent">
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-agent">Agent</Label>
               {agents.length > 0 ? (
@@ -301,12 +289,9 @@ export function CampaignSettingsDialog({
                 </p>
               )}
             </div>
-          </TabsContent>
+          </CampaignSection>
 
-          <TabsContent
-            value="telephony"
-            className="flex flex-col gap-4 outline-none"
-          >
+          <CampaignSection title="Telephony">
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-twilio">Twilio number</Label>
               {eligibleNumbers.length > 0 ? (
@@ -390,12 +375,9 @@ export function CampaignSettingsDialog({
                 />
               </div>
             </div>
-          </TabsContent>
+          </CampaignSection>
 
-          <TabsContent
-            value="tools"
-            className="flex flex-col gap-4 outline-none"
-          >
+          <CampaignSection title="Tools">
             <p className="text-muted-foreground text-sm">
               Calendly and Close integrations land in Phase 8. The agent tools
               they enable (book appointment, send email) become configurable
@@ -419,9 +401,9 @@ export function CampaignSettingsDialog({
                 tool.
               </p>
             </div>
-          </TabsContent>
+          </CampaignSection>
 
-          <TabsContent value="kb" className="flex flex-col gap-4 outline-none">
+          <CampaignSection title="Knowledge base">
             <p className="text-muted-foreground text-sm">
               Knowledge bases are configured on the agent. This campaign
               inherits the selected agent&rsquo;s knowledge bases.
@@ -439,12 +421,9 @@ export function CampaignSettingsDialog({
                 The selected agent has no knowledge bases attached.
               </p>
             )}
-          </TabsContent>
+          </CampaignSection>
 
-          <TabsContent
-            value="lists"
-            className="flex flex-col gap-3 outline-none"
-          >
+          <CampaignSection title="Lists">
             <p className="text-muted-foreground text-sm">
               Lists attached to this campaign get dialed when it runs. A list
               can be attached to only one active campaign at a time.
@@ -473,12 +452,9 @@ export function CampaignSettingsDialog({
                 an existing attachment first.
               </p>
             )}
-          </TabsContent>
+          </CampaignSection>
 
-          <TabsContent
-            value="goal"
-            className="flex flex-col gap-4 outline-none"
-          >
+          <CampaignSection title="Goal">
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-goal">Goal</Label>
               {goals.length > 0 ? (
@@ -500,13 +476,10 @@ export function CampaignSettingsDialog({
                 </p>
               )}
             </div>
-          </TabsContent>
+          </CampaignSection>
 
           {isEdit ? (
-            <TabsContent
-              value="test"
-              className="flex flex-col gap-4 outline-none"
-            >
+            <CampaignSection title="Test">
               {/*
                 liveMode is hard-wired to false for now — live ElevenLabs
                 browser calls are a safety-rail item. Flip this to
@@ -514,16 +487,45 @@ export function CampaignSettingsDialog({
                 convai SDK wiring lands.
               */}
               <TestCallTab liveMode={false} />
-            </TabsContent>
+            </CampaignSection>
           ) : null}
-        </Tabs>
+        </div>
 
-        <DialogFooter>
+        {/* Sticky footer so Save changes is always reachable, no matter
+            which section is expanded or how far the user scrolled. */}
+        <SheetFooter className="border-border border-t">
           <Button onClick={submit} disabled={pending}>
             {pending ? "Saving…" : isEdit ? "Save changes" : "Create campaign"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** Collapsible section inside the campaign-settings drawer. Same native
+ *  <details> pattern used by the lead detail modal — no library, no
+ *  state to manage, fully keyboard- and screen-reader-friendly. */
+function CampaignSection({
+  title,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details
+      open={defaultOpen}
+      data-testid={`campaign-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
+      className="border-border group rounded-lg border"
+    >
+      <summary className="hover:bg-muted/50 flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2 transition-colors">
+        <span className="text-foreground text-sm font-semibold">{title}</span>
+        <ChevronDown className="text-muted-foreground size-4 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="flex flex-col gap-4 px-3 pt-3 pb-4">{children}</div>
+    </details>
   );
 }
