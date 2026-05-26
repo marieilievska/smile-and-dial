@@ -128,6 +128,7 @@ export type Database = {
           result_call_id: string | null;
           scheduled_at: string;
           status: string;
+          voicemail_attempts: number;
         };
         Insert: {
           campaign_id: string;
@@ -139,6 +140,7 @@ export type Database = {
           result_call_id?: string | null;
           scheduled_at: string;
           status?: string;
+          voicemail_attempts?: number;
         };
         Update: {
           campaign_id?: string;
@@ -150,6 +152,7 @@ export type Database = {
           result_call_id?: string | null;
           scheduled_at?: string;
           status?: string;
+          voicemail_attempts?: number;
         };
         Relationships: [
           {

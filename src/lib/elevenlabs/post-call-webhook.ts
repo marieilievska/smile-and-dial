@@ -313,7 +313,14 @@ async function applyOutcomeSideEffects(
     callbackDatetime: string | null;
   },
 ): Promise<void> {
-  if (!input.outcome) return;
+  // If THIS webhook didn't change the outcome, still drive the retry
+  // engine — the call row may already have an outcome set by Twilio
+  // (busy/no-answer/failed) or by a manual override. The engine's
+  // CAS lock handles double-firing.
+  if (!input.outcome) {
+    await applyRetryForCall(input.callId);
+    return;
+  }
 
   // The lead's phone + company are needed for both DNC inserts and (in
   // theory) callback enrichment. One lookup either way.
