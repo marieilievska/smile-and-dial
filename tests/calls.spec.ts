@@ -358,4 +358,72 @@ test.describe("Calls page", () => {
     await page.getByRole("button", { name: `Delete view ${viewName}` }).click();
     await expect(page.getByText("View deleted.")).toBeVisible();
   });
+
+  test("clicking a row opens the call detail modal", async ({ page }) => {
+    // Seed a richer call so the modal has summary + transcript to render.
+    const detailLead = await admin
+      .from("leads")
+      .insert({
+        owner_id: ownerId,
+        list_id: listId,
+        company: `E2E Calls Detail ${stamp}`,
+        business_phone: `+1444${tail}19`,
+      })
+      .select("id")
+      .single();
+    const richCallId = (
+      await admin
+        .from("calls")
+        .insert({
+          lead_id: detailLead.data!.id,
+          campaign_id: campaignId,
+          agent_id: agentId,
+          twilio_number_id: twilioNumberId,
+          direction: "outbound",
+          status: "completed",
+          outcome: "callback",
+          goal_met: false,
+          duration_seconds: 92,
+          talk_time_seconds: 71,
+          started_at: new Date().toISOString(),
+          ended_at: new Date(Date.now() + 92_000).toISOString(),
+          summary: "Lead wants a callback next Tuesday at 2pm.",
+          transcript_json: [
+            { role: "agent", text: "Hi, this is Sara at Referrizer." },
+            { role: "user", text: "Sure, call me back Tuesday at 2." },
+          ],
+          extracted_data: { disposition: "callback" },
+          cost_breakdown: { total: 0.07 },
+        })
+        .select("id")
+        .single()
+    ).data!.id;
+    leadIds.push(detailLead.data!.id);
+    callIds.push(richCallId);
+
+    await page.goto(
+      `/calls?q=${encodeURIComponent(`E2E Calls Detail ${stamp}`)}`,
+    );
+    // Click the row.
+    await page.getByRole("cell", { name: `E2E Calls Detail ${stamp}` }).click();
+    // URL updates with ?call=…
+    await expect(page).toHaveURL(/call=/);
+    // The summary text renders inside the dialog.
+    await expect(
+      page.getByText("Lead wants a callback next Tuesday at 2pm."),
+    ).toBeVisible();
+    // The transcript turn text is there too.
+    await expect(
+      page.getByText("Hi, this is Sara at Referrizer."),
+    ).toBeVisible();
+    // And the "Open lead" button links to the right lead detail.
+    await expect(page.getByRole("link", { name: "Open lead" })).toHaveAttribute(
+      "href",
+      `/leads?lead=${detailLead.data!.id}`,
+    );
+
+    // Close the sheet — the URL drops the call param.
+    await page.keyboard.press("Escape");
+    await expect(page).not.toHaveURL(/call=/);
+  });
 });
