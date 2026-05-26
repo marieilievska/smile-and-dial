@@ -38,10 +38,10 @@ export function AuthShell({
         <p className="text-muted-foreground text-xs">
           Internal platform · Need help?{" "}
           <Link
-            href="mailto:platform@referrizer.com"
+            href="mailto:marketing@referrizer.com"
             className="text-foreground underline-offset-2 hover:underline"
           >
-            platform@referrizer.com
+            marketing@referrizer.com
           </Link>
         </p>
       </div>

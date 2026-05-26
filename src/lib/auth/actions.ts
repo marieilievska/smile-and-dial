@@ -35,6 +35,49 @@ export async function signOut() {
   redirect("/login");
 }
 
+export type ForgotPasswordState =
+  | { kind: "idle" }
+  | { kind: "error"; error: string }
+  | { kind: "sent" }
+  | null;
+
+/** Server action: send a Supabase password-reset email. We never
+ *  reveal whether the address exists (Supabase intentionally returns
+ *  ok regardless to prevent account enumeration), so the success
+ *  state is identical for any address. */
+export async function forgotPassword(
+  _prevState: ForgotPasswordState,
+  formData: FormData,
+): Promise<ForgotPasswordState> {
+  const email = String(formData.get("email") ?? "").trim();
+  if (!email) {
+    return { kind: "error", error: "Email is required." };
+  }
+
+  const supabase = await createClient();
+
+  // The reset link arrives via email and lands on /auth/confirm, which
+  // exchanges the token for a session, then redirects to
+  // /auth/set-password — the same page the invite flow uses.
+  const origin = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/confirm?next=/auth/set-password`,
+  });
+
+  if (error) {
+    // Network / 5xx — show a generic error. Otherwise treat as sent
+    // even if Supabase says no-such-user, to avoid enumeration.
+    if (error.status && error.status >= 500) {
+      return {
+        kind: "error",
+        error: "Something went wrong. Try again in a minute.",
+      };
+    }
+  }
+
+  return { kind: "sent" };
+}
+
 export type SetPasswordState = { error: string } | null;
 
 /**

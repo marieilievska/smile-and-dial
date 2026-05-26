@@ -25,7 +25,7 @@ export default function AuthErrorPage() {
             <Link href="/login">Back to sign in</Link>
           </Button>
           <Button asChild variant="ghost" size="sm">
-            <Link href="mailto:platform@referrizer.com">
+            <Link href="mailto:marketing@referrizer.com">
               Email the platform admin
             </Link>
           </Button>
