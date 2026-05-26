@@ -829,6 +829,7 @@ export type Database = {
           created_at: string;
           description: string | null;
           id: string;
+          is_inbound_default: boolean;
           name: string;
           owner_id: string;
         };
@@ -836,6 +837,7 @@ export type Database = {
           created_at?: string;
           description?: string | null;
           id?: string;
+          is_inbound_default?: boolean;
           name: string;
           owner_id: string;
         };
@@ -843,6 +845,7 @@ export type Database = {
           created_at?: string;
           description?: string | null;
           id?: string;
+          is_inbound_default?: boolean;
           name?: string;
           owner_id?: string;
         };
@@ -1102,6 +1105,10 @@ export type Database = {
     Functions: {
       elevenlabs_voice_ids: { Args: never; Returns: string };
       expire_resting_leads: { Args: never; Returns: number };
+      get_or_create_inbound_list: {
+        Args: { in_owner: string };
+        Returns: string;
+      };
       is_admin: { Args: { uid: string }; Returns: boolean };
       is_phone_on_dnc: { Args: { phone_to_check: string }; Returns: boolean };
       is_within_calling_hours: {

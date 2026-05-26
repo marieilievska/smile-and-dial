@@ -28,6 +28,8 @@ import {
   updateLeadField,
 } from "@/lib/leads/lead-actions";
 
+import { MergeInboundDialog } from "./merge-inbound-dialog";
+
 type SaveResult = { error: string | null };
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -68,6 +70,10 @@ export type LeadMeta = {
   status: string;
   lastOutcome: string | null;
   listName: string;
+  /** True when the lead lives in the owner's system-managed Inbound list,
+   *  meaning it was auto-created by the inbound webhook. Used to surface
+   *  the "Merge into existing lead" button. */
+  isInbound: boolean;
   retryCounter: number;
   restingUntil: string | null;
   nextCallAt: string | null;
@@ -152,6 +158,16 @@ export function LeadDetailModal({
           <DialogTitle>{leadCompany || "Lead details"}</DialogTitle>
           <DialogDescription>{STATUS_TEXT[status]}</DialogDescription>
         </DialogHeader>
+
+        {meta.isInbound ? (
+          <div className="border-border bg-muted/30 flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+            <p className="text-muted-foreground text-sm">
+              Auto-created from an inbound call. Merge into an existing lead if
+              this caller already has a record.
+            </p>
+            <MergeInboundDialog sourceLeadId={leadId} />
+          </div>
+        ) : null}
 
         <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
           <div className="flex flex-col gap-6">

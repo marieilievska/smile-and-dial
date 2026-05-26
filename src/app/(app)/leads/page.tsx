@@ -139,7 +139,7 @@ export default async function LeadsPage({
       await Promise.all([
         supabase
           .from("leads")
-          .select("*, list:lists(name)")
+          .select("*, list:lists(name, is_inbound_default)")
           .eq("id", leadParam)
           .is("deleted_at", null)
           .maybeSingle(),
@@ -178,6 +178,7 @@ export default async function LeadsPage({
           status: lead.status,
           lastOutcome: lead.last_outcome,
           listName: lead.list?.name ?? "—",
+          isInbound: lead.list?.is_inbound_default ?? false,
           retryCounter: lead.retry_counter,
           restingUntil: lead.resting_until,
           nextCallAt: lead.next_call_at,
