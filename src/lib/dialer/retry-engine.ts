@@ -125,14 +125,38 @@ export async function applyRetryForCall(
     return { ok: true, status: "outcome_handled_elsewhere" };
   }
 
+  // Pull the lead so we can check status for callback-voicemail special-
+  // case logic.
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("retry_counter, retry_position, status")
+    .eq("id", call.lead_id)
+    .single();
+
   const update: LeadUpdate = { updated_at: new Date().toISOString() };
 
+  // Callback voicemail special case (BUILD_PLAN §8): when the lead is in
+  // callback status and the call landed on voicemail, escalate the active
+  // callback rather than the unified retry cycle.
+  if (call.outcome === "voicemail" && lead?.status === "callback") {
+    const escalated = await escalateCallbackVoicemail(
+      supabase,
+      call.lead_id,
+      update,
+    );
+    if (escalated) {
+      const { error: leadError } = await supabase
+        .from("leads")
+        .update(update)
+        .eq("id", call.lead_id);
+      if (leadError) return { ok: false, reason: "could_not_update_lead" };
+      return { ok: true, status: "applied" };
+    }
+    // Fall through to the standard cycle if no active callback was found
+    // (defensive — lead.status went stale somehow).
+  }
+
   if (RETRY_OUTCOMES.has(call.outcome)) {
-    const { data: lead } = await supabase
-      .from("leads")
-      .select("retry_counter, retry_position")
-      .eq("id", call.lead_id)
-      .single();
     const position = ((lead?.retry_position ?? 0) % 3) as 0 | 1 | 2;
     const delayDays = RETRY_DELAY_DAYS[position];
     update.retry_counter = (lead?.retry_counter ?? 0) + 1;
@@ -174,4 +198,71 @@ export async function applyRetryForCall(
   if (leadError) return { ok: false, reason: "could_not_update_lead" };
 
   return { ok: true, status: "applied" };
+}
+
+/**
+ * Escalate a callback voicemail per BUILD_PLAN §8:
+ *   1st VM → push next_call_at by 30 min
+ *   2nd VM → schedule next day same time-of-day
+ *   3rd VM → mark callback `missed`, move lead to resting for 15 days
+ *
+ * Reads + bumps `callbacks.voicemail_attempts` on the most recent pending
+ * callback for the lead. Mutates the passed `update` patch in place. Returns
+ * true when an active callback was found (and escalation was applied);
+ * false when no pending callback exists (caller falls back to the standard
+ * retry cycle).
+ */
+async function escalateCallbackVoicemail(
+  supabase: SupabaseAdmin,
+  leadId: string,
+  update: LeadUpdate,
+): Promise<boolean> {
+  const { data: callback } = await supabase
+    .from("callbacks")
+    .select("id, scheduled_at, voicemail_attempts")
+    .eq("lead_id", leadId)
+    .eq("status", "pending")
+    .order("scheduled_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!callback) return false;
+
+  const attempts = (callback.voicemail_attempts ?? 0) + 1;
+
+  if (attempts >= 3) {
+    // 3rd voicemail → callback missed, lead to resting for 15 days.
+    await supabase
+      .from("callbacks")
+      .update({ status: "missed", voicemail_attempts: attempts })
+      .eq("id", callback.id);
+    const restingUntil = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+    update.status = "resting";
+    update.resting_until = restingUntil.toISOString();
+    update.next_call_at = restingUntil.toISOString();
+    update.retry_counter = 0;
+    update.retry_position = 0;
+    return true;
+  }
+
+  // 1st voicemail: +30 min. 2nd: next day same time.
+  const next =
+    attempts === 1
+      ? new Date(Date.now() + 30 * 60 * 1000)
+      : new Date(
+          new Date(callback.scheduled_at).getTime() + 24 * 60 * 60 * 1000,
+        );
+
+  await supabase
+    .from("callbacks")
+    .update({
+      voicemail_attempts: attempts,
+      scheduled_at: next.toISOString(),
+    })
+    .eq("id", callback.id);
+
+  // Lead stays in 'callback' status; just bump next_call_at to match.
+  update.status = "callback";
+  update.next_call_at = next.toISOString();
+  update.resting_until = null;
+  return true;
 }
