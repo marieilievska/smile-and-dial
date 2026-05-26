@@ -1,4 +1,5 @@
 import {
+  Activity,
   Ban,
   BarChart3,
   DollarSign,
@@ -29,5 +30,11 @@ export const navItems: NavItem[] = [
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "DNC", href: "/dnc", icon: Ban },
   { label: "Costs", href: "/costs", icon: DollarSign },
+  {
+    label: "System Health",
+    href: "/system-health",
+    icon: Activity,
+    adminOnly: true,
+  },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
