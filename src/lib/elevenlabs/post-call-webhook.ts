@@ -5,6 +5,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
+import { mergeLeadSummary } from "@/lib/openai/summary-merger";
 import type { Database } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -229,6 +230,33 @@ export async function processElevenLabsPostCall(
     callbackDatetime:
       payload.analysis?.data_collection?.callback_datetime ?? null,
   });
+
+  // Step 39: roll the per-call summary into the lead's running ai_summary.
+  // Mock by default; OPENAI_LIVE=live calls gpt-4o-mini. The merger logs
+  // its own cost into cost_breakdown.openai on the call.
+  const latestSummary = payload.analysis?.summary ?? null;
+  if (latestSummary) {
+    const { cost } = await mergeLeadSummary({
+      leadId: call.lead_id,
+      latestSummary,
+    });
+    if (cost > 0) {
+      // Bump cost_breakdown.openai on this call and update total.
+      const cb = (mergedCost ?? {}) as Record<string, number>;
+      const next = {
+        ...cb,
+        openai: (cb.openai ?? 0) + cost,
+        total: (cb.total ?? 0) + cost,
+      };
+      await supabase
+        .from("calls")
+        .update({
+          cost_breakdown:
+            next as unknown as Database["public"]["Tables"]["calls"]["Update"]["cost_breakdown"],
+        })
+        .eq("id", call.id);
+    }
+  }
 
   return { ok: true, status: "applied" };
 }
