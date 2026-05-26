@@ -50,29 +50,21 @@ test.describe("Campaigns", () => {
   test("an admin can create, edit, and delete a campaign", async ({ page }) => {
     await page.goto("/campaigns");
 
-    // Create.
+    // Create — 2-step minimal dialog.
     await page.getByRole("button", { name: "New campaign" }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("Name", { exact: true }).fill(campaignName);
 
-    // Pick our seeded agent.
-    await dialog.getByRole("tab", { name: "Agent" }).click();
-    const agentCombobox = dialog.getByRole("combobox", { name: "Agent" });
-    await agentCombobox.click();
-    // Scope the option to the open listbox so we don't accidentally
-    // match an option inside a different (background) Select component.
+    // Step 1: name + agent + goal.
+    await dialog.getByLabel("Name", { exact: true }).fill(campaignName);
+    await dialog.getByRole("combobox", { name: "Agent" }).click();
     await page
       .getByRole("listbox")
       .getByRole("option", { name: agentName, exact: true })
       .click();
-    // Wait for the Select to actually commit before submitting — the
-    // listbox dismounting is our signal that internal state has settled.
-    await expect(page.getByRole("listbox")).toHaveCount(0);
-    await expect(agentCombobox).toContainText(agentName);
+    // Default goal "Schedule appointment" is fine — leave it.
+    await dialog.getByRole("button", { name: "Continue" }).click();
 
-    // The seeded default goal ("Schedule appointment") is fine as-is. Wait
-    // for the success toast first so we know the server action committed,
-    // then assert the table has the new row.
+    // Step 2: skip list attachments and create.
     await dialog.getByRole("button", { name: "Create campaign" }).click();
     await expect(page.getByText("Campaign created.")).toBeVisible({
       timeout: 10_000,
