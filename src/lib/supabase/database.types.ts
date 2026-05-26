@@ -96,6 +96,96 @@ export type Database = {
         };
         Relationships: [];
       };
+      api_idempotency_keys: {
+        Row: {
+          api_key_id: string;
+          created_at: string;
+          id: string;
+          idempotency_key: string;
+          lead_id: string | null;
+          response: Json;
+        };
+        Insert: {
+          api_key_id: string;
+          created_at?: string;
+          id?: string;
+          idempotency_key: string;
+          lead_id?: string | null;
+          response: Json;
+        };
+        Update: {
+          api_key_id?: string;
+          created_at?: string;
+          id?: string;
+          idempotency_key?: string;
+          lead_id?: string | null;
+          response?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "api_idempotency_keys_api_key_id_fkey";
+            columns: ["api_key_id"];
+            isOneToOne: false;
+            referencedRelation: "api_keys";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "api_idempotency_keys_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "api_idempotency_keys_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      api_keys: {
+        Row: {
+          created_at: string;
+          id: string;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at: string | null;
+          name: string;
+          owner_id: string;
+          revoked_at: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at?: string | null;
+          name: string;
+          owner_id: string;
+          revoked_at?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          key_hash?: string;
+          key_prefix?: string;
+          last_used_at?: string | null;
+          name?: string;
+          owner_id?: string;
+          revoked_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       app_settings: {
         Row: {
           calendly_access_token: string | null;
