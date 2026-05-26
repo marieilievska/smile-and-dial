@@ -10,6 +10,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 import { CalendlyForm } from "./calendly-form";
+import { CloseForm } from "./close-form";
 import { ElevenLabsForm } from "./elevenlabs-form";
 
 export default async function IntegrationsPage() {
@@ -30,7 +31,7 @@ export default async function IntegrationsPage() {
     supabase
       .from("app_settings")
       .select(
-        "elevenlabs_api_key, elevenlabs_voice_ids, calendly_connected_at, calendly_last_sync_at",
+        "elevenlabs_api_key, elevenlabs_voice_ids, calendly_connected_at, calendly_last_sync_at, close_connected_at",
       )
       .eq("id", 1)
       .maybeSingle(),
@@ -63,6 +64,22 @@ export default async function IntegrationsPage() {
           <ElevenLabsForm
             hasApiKey={Boolean(settings?.elevenlabs_api_key)}
             voiceIds={settings?.elevenlabs_voice_ids ?? ""}
+          />
+        </CardContent>
+      </Card>
+
+      <Card className="mt-6 max-w-2xl">
+        <CardHeader>
+          <CardTitle>Close</CardTitle>
+          <CardDescription>
+            Email gateway. Connect to enable the send_email agent tool and to
+            receive email_replied notifications when a lead writes back.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CloseForm
+            connected={Boolean(settings?.close_connected_at)}
+            connectedAt={settings?.close_connected_at ?? null}
           />
         </CardContent>
       </Card>

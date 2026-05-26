@@ -194,6 +194,8 @@ export type Database = {
           calendly_organization_uri: string | null;
           calendly_refresh_token: string | null;
           calendly_user_uri: string | null;
+          close_api_key: string | null;
+          close_connected_at: string | null;
           elevenlabs_api_key: string | null;
           elevenlabs_voice_ids: string | null;
           id: number;
@@ -206,6 +208,8 @@ export type Database = {
           calendly_organization_uri?: string | null;
           calendly_refresh_token?: string | null;
           calendly_user_uri?: string | null;
+          close_api_key?: string | null;
+          close_connected_at?: string | null;
           elevenlabs_api_key?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
@@ -218,6 +222,8 @@ export type Database = {
           calendly_organization_uri?: string | null;
           calendly_refresh_token?: string | null;
           calendly_user_uri?: string | null;
+          close_api_key?: string | null;
+          close_connected_at?: string | null;
           elevenlabs_api_key?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
@@ -752,6 +758,154 @@ export type Database = {
           received_at?: string;
         };
         Relationships: [];
+      };
+      email_templates: {
+        Row: {
+          body: string;
+          created_at: string;
+          id: string;
+          last_used_at: string | null;
+          name: string;
+          owner_id: string;
+          subject: string;
+          updated_at: string;
+        };
+        Insert: {
+          body: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          name: string;
+          owner_id: string;
+          subject: string;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          name?: string;
+          owner_id?: string;
+          subject?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "email_templates_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      emails: {
+        Row: {
+          body: string | null;
+          call_id: string | null;
+          campaign_id: string | null;
+          close_message_id: string | null;
+          created_at: string;
+          direction: string;
+          from_address: string | null;
+          id: string;
+          lead_id: string;
+          owner_id: string;
+          raw: Json | null;
+          status: string;
+          subject: string | null;
+          template_id: string | null;
+          to_address: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          body?: string | null;
+          call_id?: string | null;
+          campaign_id?: string | null;
+          close_message_id?: string | null;
+          created_at?: string;
+          direction: string;
+          from_address?: string | null;
+          id?: string;
+          lead_id: string;
+          owner_id: string;
+          raw?: Json | null;
+          status?: string;
+          subject?: string | null;
+          template_id?: string | null;
+          to_address?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string | null;
+          call_id?: string | null;
+          campaign_id?: string | null;
+          close_message_id?: string | null;
+          created_at?: string;
+          direction?: string;
+          from_address?: string | null;
+          id?: string;
+          lead_id?: string;
+          owner_id?: string;
+          raw?: Json | null;
+          status?: string;
+          subject?: string | null;
+          template_id?: string | null;
+          to_address?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "emails_call_id_fkey";
+            columns: ["call_id"];
+            isOneToOne: false;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "emails_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "emails_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
+            foreignKeyName: "emails_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "emails_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "emails_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "emails_template_id_fkey";
+            columns: ["template_id"];
+            isOneToOne: false;
+            referencedRelation: "email_templates";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       goals: {
         Row: {
