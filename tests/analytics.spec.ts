@@ -303,30 +303,41 @@ test.describe("Analytics page", () => {
     if (listId) await admin.from("lists").delete().eq("id", listId);
   });
 
-  test("KPI tiles aggregate across the selected window", async ({ page }) => {
+  test("hero KPI shows Appointments Booked across the selected window", async ({
+    page,
+  }) => {
     const from = daysAgoStr(29);
     const to = todayStr();
     await page.goto(
-      `/analytics?preset=custom&from=${from}&to=${to}&list=${listId}`,
+      `/analytics?preset=custom&from=${from}&to=${to}&list=${listId}&compare=0`,
     );
-    // 5 calls in the last-30 window (3 from A, 2 from B).
-    const total = page
-      .locator('[data-testid="kpi-tile"][data-label="Total calls"]')
-      .first();
-    await expect(total).toContainText("5");
-    // 3 DMs reached: goal_met + callback + dnc.
-    const dms = page.locator(
-      '[data-testid="kpi-tile"][data-label="DMs reached"]',
+    // 1 Goal Met out of 5 calls in the seeded mix.
+    const hero = page.locator(
+      '[data-testid="hero-kpi"][data-label="Appointments Booked"]',
     );
-    await expect(dms).toContainText("3");
-    // 1 Goal Met.
-    const goal = page.locator(
-      '[data-testid="kpi-tile"][data-label="Goal Met"]',
-    );
-    await expect(goal).toContainText("1");
-    // Funnel renders.
+    await expect(hero).toContainText("1");
+    // Supporting KPIs render with computed values.
+    await expect(
+      page.locator('[data-testid="kpi-tile"][data-label="Conversations"]'),
+    ).toContainText("3");
+    await expect(
+      page.locator('[data-testid="kpi-tile"][data-label="Goal Met Rate"]'),
+    ).toContainText("33.3%");
+    // Mock-data badge appears on Cost per Appointment (none of the LIVE
+    // env vars are set in tests).
+    await expect(
+      page
+        .locator('[data-testid="kpi-tile"][data-label="Cost per Appointment"]')
+        .getByTestId("kpi-badge"),
+    ).toContainText("Mock data");
+    // Trend chart renders.
+    await expect(page.getByTestId("bookings-over-time")).toBeVisible();
+    // Funnel still renders below.
     await expect(page.getByTestId("funnel")).toBeVisible();
-    await expect(page.getByTestId("calls-over-time")).toBeVisible();
+    // Inventory strip is present.
+    await expect(page.getByTestId("inventory-strip")).toContainText(
+      "Also in this period:",
+    );
   });
 
   test("campaign slicer narrows the dashboard", async ({ page }) => {
@@ -335,15 +346,11 @@ test.describe("Analytics page", () => {
     await page.goto(
       `/analytics?preset=custom&from=${from}&to=${to}&list=${listId}&campaign=${campaignAId}`,
     );
-    const total = page
-      .locator('[data-testid="kpi-tile"][data-label="Total calls"]')
-      .first();
-    // Only the 3 calls in Campaign A.
-    await expect(total).toContainText("3");
-    const goal = page.locator(
-      '[data-testid="kpi-tile"][data-label="Goal Met"]',
+    const hero = page.locator(
+      '[data-testid="hero-kpi"][data-label="Appointments Booked"]',
     );
-    await expect(goal).toContainText("1");
+    // Only the 1 Goal Met from Campaign A in the last-30 window.
+    await expect(hero).toContainText("1");
   });
 
   test("compare-periods toggle adds delta badges", async ({ page }) => {
@@ -352,7 +359,12 @@ test.describe("Analytics page", () => {
     await page.goto(
       `/analytics?preset=custom&from=${from}&to=${to}&list=${listId}&compare=1`,
     );
-    // At least one delta badge is visible on the tiles.
+    // The hero KPI now shows "vs prior period" text from the delta line.
+    const hero = page.locator(
+      '[data-testid="hero-kpi"][data-label="Appointments Booked"]',
+    );
+    await expect(hero).toContainText("vs prior period");
+    // Supporting KPI deltas also render.
     const badges = page.getByTestId("kpi-delta");
     expect(await badges.count()).toBeGreaterThan(0);
   });

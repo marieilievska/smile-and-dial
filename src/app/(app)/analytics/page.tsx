@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -11,8 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  bookingsByDay,
   buildFunnel,
-  callsByDay,
   computeKpis,
   fetchCallsForRange,
   outcomeDistribution,
@@ -24,12 +25,9 @@ import {
 } from "@/lib/analytics/stats";
 import { createClient } from "@/lib/supabase/server";
 
-import {
-  CallsOverTime,
-  CampaignLeaderboard,
-  FunnelChart,
-  OutcomeBreakdown,
-} from "./charts";
+import { BookingsOverTime } from "./bookings-over-time";
+import { CampaignLeaderboard, FunnelChart, OutcomeBreakdown } from "./charts";
+import { HeroKpi } from "./hero-kpi";
 import { KpiTile } from "./kpi-tile";
 
 const PRESETS = [
@@ -58,12 +56,20 @@ function fmtSeconds(seconds: number): string {
 
 function fmtPct(value: number): string {
   if (!Number.isFinite(value)) return "—";
-  return `${(value * 100).toFixed(0)}%`;
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 function fmtUsd(value: number): string {
   if (!Number.isFinite(value)) return "—";
   return `$${value.toFixed(2)}`;
+}
+
+function isMockMode(): boolean {
+  return (
+    process.env.TWILIO_LIVE !== "live" &&
+    process.env.ELEVENLABS_LIVE !== "live" &&
+    process.env.OPENAI_LIVE !== "live"
+  );
 }
 
 export default async function AnalyticsPage({
@@ -96,11 +102,12 @@ export default async function AnalyticsPage({
     : undefined;
   const ownerId = UUID_RE.test(str(params.user)) ? str(params.user) : undefined;
   const listId = UUID_RE.test(str(params.list)) ? str(params.list) : undefined;
-  const compare = str(params.compare) === "1";
+  // Compare-to-prior-period is on by default — the hero metric needs a
+  // baseline to feel meaningful. Pass ?compare=0 to turn off.
+  const compare = str(params.compare) !== "0";
 
   const slicers: Slicers = { from, to, campaignId, ownerId, listId };
 
-  // Pull rows for the current and (optionally) prior periods in parallel.
   const [rows, priorRows, { data: campaigns }, { data: lists }, { data: me }] =
     await Promise.all([
       fetchCallsForRange(supabase, slicers),
@@ -130,13 +137,32 @@ export default async function AnalyticsPage({
 
   const kpis = computeKpis(rows);
   const prior = compare ? computeKpis(priorRows) : null;
+  const dailyBookings = bookingsByDay(rows, slicers);
   const funnel = buildFunnel(rows);
   const outcomeBuckets = outcomeDistribution(rows);
-  const timeSeries = callsByDay(rows, slicers);
   const campaignNames = new Map(
     (campaigns ?? []).map((c) => [c.id, c.name] as const),
   );
   const ranking = rankCampaigns(rows, campaignNames);
+
+  // Build cross-page drill-down URLs that preserve the slicer state.
+  const drillQs = new URLSearchParams();
+  if (from) drillQs.set("from", from);
+  if (to) drillQs.set("to", to);
+  if (campaignId) drillQs.set("campaign", campaignId);
+  if (listId) drillQs.set("list", listId);
+  if (ownerId) drillQs.set("user", ownerId);
+  const goalMetCallsHref = `/calls?${new URLSearchParams({
+    ...Object.fromEntries(drillQs),
+    outcome: "goal_met",
+  }).toString()}`;
+  const costsHref = `/costs?${new URLSearchParams({
+    ...Object.fromEntries(drillQs),
+    view: "per_campaign",
+    preset: "custom",
+  }).toString()}`;
+
+  const mockMode = isMockMode();
 
   return (
     <div className="flex flex-col gap-6 p-8">
@@ -145,7 +171,8 @@ export default async function AnalyticsPage({
           Analytics
         </h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          {from} → {to} · {kpis.totalCalls.toLocaleString()} calls
+          Appointments and pipeline performance · {from} → {to} ·{" "}
+          {kpis.totalCalls.toLocaleString()} calls
           {compare ? " · comparing to prior period" : ""}
         </p>
       </div>
@@ -252,12 +279,12 @@ export default async function AnalyticsPage({
         <div className="flex flex-col gap-2">
           <Label htmlFor="ana-compare">Compare</Label>
           <Select name="compare" defaultValue={compare ? "1" : "0"}>
-            <SelectTrigger id="ana-compare" className="w-44">
+            <SelectTrigger id="ana-compare" className="w-48">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="0">No comparison</SelectItem>
               <SelectItem value="1">vs prior period</SelectItem>
+              <SelectItem value="0">No comparison</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -267,18 +294,23 @@ export default async function AnalyticsPage({
         </Button>
       </form>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-        <KpiTile
-          label="Total calls"
-          value={kpis.totalCalls.toLocaleString()}
-          pctDelta={
-            prior ? pctDelta(kpis.totalCalls, prior.totalCalls) : undefined
-          }
+      {/* Layer 1 — Executive summary: NSM + 3 supporting KPIs */}
+      <Link href={goalMetCallsHref} className="block">
+        <HeroKpi
+          label="Appointments Booked"
+          value={kpis.goalMet.toLocaleString()}
+          priorValue={prior?.goalMet ?? null}
+          deltaPct={prior ? pctDelta(kpis.goalMet, prior.goalMet) : undefined}
+          sparkline={dailyBookings}
+          helper="Calls where the AI agent successfully booked a meeting"
         />
+      </Link>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <KpiTile
           label="Conversations"
           value={kpis.conversations.toLocaleString()}
-          hint=">60s talk time outcomes"
+          hint="Calls where we reached someone"
           pctDelta={
             prior
               ? pctDelta(kpis.conversations, prior.conversations)
@@ -286,84 +318,31 @@ export default async function AnalyticsPage({
           }
         />
         <KpiTile
-          label="DMs reached"
-          value={kpis.dmsReached.toLocaleString()}
-          pctDelta={
-            prior ? pctDelta(kpis.dmsReached, prior.dmsReached) : undefined
-          }
-        />
-        <KpiTile
-          label="Connect rate"
-          value={fmtPct(kpis.connectRate)}
-          pctDelta={
-            prior ? pctDelta(kpis.connectRate, prior.connectRate) : undefined
-          }
-        />
-        <KpiTile
-          label="Goal Met"
-          value={kpis.goalMet.toLocaleString()}
-          pctDelta={prior ? pctDelta(kpis.goalMet, prior.goalMet) : undefined}
-        />
-        <KpiTile
-          label="Goal Met rate"
+          label="Goal Met Rate"
           value={fmtPct(kpis.goalMetRate)}
-          hint="of conversations"
+          hint="Of conversations that booked"
           pctDelta={
             prior ? pctDelta(kpis.goalMetRate, prior.goalMetRate) : undefined
           }
         />
-        <KpiTile
-          label="Avg call duration"
-          value={fmtSeconds(kpis.avgDurationSeconds)}
-          pctDelta={
-            prior
-              ? pctDelta(kpis.avgDurationSeconds, prior.avgDurationSeconds)
-              : undefined
-          }
-        />
-        <KpiTile
-          label="Avg cost / call"
-          value={fmtUsd(kpis.avgCostPerCall)}
-          pctDelta={
-            prior
-              ? pctDelta(kpis.avgCostPerCall, prior.avgCostPerCall)
-              : undefined
-          }
-        />
-        <KpiTile
-          label="Cost / Goal Met"
-          value={fmtUsd(kpis.costPerGoalMet)}
-          pctDelta={
-            prior
-              ? pctDelta(kpis.costPerGoalMet, prior.costPerGoalMet)
-              : undefined
-          }
-        />
-        <KpiTile
-          label="Callbacks scheduled"
-          value={kpis.callbacksScheduled.toLocaleString()}
-          pctDelta={
-            prior
-              ? pctDelta(kpis.callbacksScheduled, prior.callbacksScheduled)
-              : undefined
-          }
-        />
-        <KpiTile
-          label="DNC additions"
-          value={kpis.dncAdditions.toLocaleString()}
-          pctDelta={
-            prior ? pctDelta(kpis.dncAdditions, prior.dncAdditions) : undefined
-          }
-        />
-        <KpiTile
-          label="Total spend"
-          value={fmtUsd(kpis.totalSpend)}
-          pctDelta={
-            prior ? pctDelta(kpis.totalSpend, prior.totalSpend) : undefined
-          }
-        />
+        <Link href={costsHref} className="block">
+          <KpiTile
+            label="Cost per Appointment"
+            value={kpis.goalMet === 0 ? "—" : fmtUsd(kpis.costPerGoalMet)}
+            hint="All-in: Twilio + 11Labs + OpenAI"
+            pctDelta={
+              prior && kpis.goalMet > 0 && prior.goalMet > 0
+                ? pctDelta(kpis.costPerGoalMet, prior.costPerGoalMet)
+                : undefined
+            }
+            badge={mockMode ? { label: "Mock data", tone: "warn" } : null}
+          />
+        </Link>
       </div>
 
+      <BookingsOverTime daily={dailyBookings} />
+
+      {/* Layer 2 — Clarification */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <section className="border-border bg-card rounded-lg border p-4">
           <h2 className="text-foreground text-sm font-semibold">
@@ -377,6 +356,16 @@ export default async function AnalyticsPage({
 
         <section className="border-border bg-card rounded-lg border p-4">
           <h2 className="text-foreground text-sm font-semibold">
+            Top campaigns
+          </h2>
+          <p className="text-muted-foreground mt-1 mb-3 text-xs">
+            Sorted by Goal Met. Click a row to see the underlying calls.
+          </p>
+          <CampaignLeaderboard rows={ranking} />
+        </section>
+
+        <section className="border-border bg-card col-span-1 rounded-lg border p-4 lg:col-span-2">
+          <h2 className="text-foreground text-sm font-semibold">
             Outcome distribution
           </h2>
           <p className="text-muted-foreground mt-1 mb-3 text-xs">
@@ -384,27 +373,26 @@ export default async function AnalyticsPage({
           </p>
           <OutcomeBreakdown buckets={outcomeBuckets} total={kpis.totalCalls} />
         </section>
-
-        <section className="border-border bg-card col-span-1 rounded-lg border p-4 lg:col-span-2">
-          <h2 className="text-foreground text-sm font-semibold">
-            Calls over time
-          </h2>
-          <p className="text-muted-foreground mt-1 mb-3 text-xs">
-            Daily call volume across the selected range.
-          </p>
-          <CallsOverTime buckets={timeSeries} />
-        </section>
-
-        <section className="border-border bg-card col-span-1 rounded-lg border p-4 lg:col-span-2">
-          <h2 className="text-foreground text-sm font-semibold">
-            Best performing campaigns
-          </h2>
-          <p className="text-muted-foreground mt-1 mb-3 text-xs">
-            Sorted by Goal Met. Cost per Goal Met shown where available.
-          </p>
-          <CampaignLeaderboard rows={ranking} />
-        </section>
       </div>
+
+      {/* Inventory strip — replaces the 5 lower-priority equal-weight tiles */}
+      <p
+        data-testid="inventory-strip"
+        className="text-muted-foreground text-sm"
+      >
+        <span className="text-foreground font-medium">
+          Also in this period:
+        </span>{" "}
+        {kpis.dmsReached.toLocaleString()} DMs reached ·{" "}
+        {kpis.callbacksScheduled.toLocaleString()} callbacks scheduled ·{" "}
+        {kpis.dncAdditions.toLocaleString()} DNC additions ·{" "}
+        {fmtSeconds(kpis.avgDurationSeconds)} avg call ·{" "}
+        {fmtUsd(kpis.avgCostPerCall)} avg cost per call ·{" "}
+        {fmtUsd(kpis.totalSpend)} total spend
+        {mockMode ? (
+          <span className="text-muted-foreground/80"> (mock data)</span>
+        ) : null}
+      </p>
     </div>
   );
 }

@@ -196,6 +196,26 @@ export function buildFunnel(rows: CallRow[]): FunnelStep[] {
   ];
 }
 
+/** Daily count of `goal_met=true` calls — the trend series for the
+ *  Appointments Booked hero chart and sparkline. Same date-pre-seeding
+ *  trick as callsByDay so the chart never has gaps. */
+export function bookingsByDay(rows: CallRow[], slicers: Slicers): number[] {
+  const buckets = new Map<string, number>();
+  const start = new Date(`${slicers.from}T00:00:00Z`);
+  const end = new Date(`${slicers.to}T00:00:00Z`);
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    buckets.set(d.toISOString().slice(0, 10), 0);
+  }
+  for (const r of rows) {
+    if (!r.goal_met) continue;
+    const day = r.created_at.slice(0, 10);
+    buckets.set(day, (buckets.get(day) ?? 0) + 1);
+  }
+  return [...buckets.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, v]) => v);
+}
+
 export function callsByDay(rows: CallRow[], slicers: Slicers): TimeBucket[] {
   const buckets = new Map<string, { count: number; spend: number }>();
   // Pre-seed every day in the range so the chart never has gaps.

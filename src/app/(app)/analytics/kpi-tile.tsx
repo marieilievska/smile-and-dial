@@ -7,11 +7,13 @@ export function KpiTile({
   value,
   hint,
   pctDelta,
+  badge,
 }: {
   label: string;
   value: string;
   hint?: string;
   pctDelta?: number | null;
+  badge?: { label: string; tone: "info" | "warn" } | null;
 }) {
   return (
     <div
@@ -19,9 +21,23 @@ export function KpiTile({
       data-label={label}
       className="border-border bg-card flex flex-col gap-1 rounded-lg border p-4"
     >
-      <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-        {label}
-      </p>
+      <div className="flex items-center gap-2">
+        <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+          {label}
+        </p>
+        {badge ? (
+          <span
+            data-testid="kpi-badge"
+            className={
+              badge.tone === "warn"
+                ? "rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium tracking-wide text-amber-800 uppercase dark:bg-amber-950 dark:text-amber-200"
+                : "bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase"
+            }
+          >
+            {badge.label}
+          </span>
+        ) : null}
+      </div>
       <p className="text-foreground text-2xl font-semibold">{value}</p>
       {hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
       {pctDelta !== undefined ? <DeltaBadge value={pctDelta} /> : null}
