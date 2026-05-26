@@ -326,10 +326,30 @@ async function applyOutcomeSideEffects(
   // theory) callback enrichment. One lookup either way.
   const { data: lead } = await supabase
     .from("leads")
-    .select("business_phone, company")
+    .select("business_phone, company, owner_id")
     .eq("id", input.leadId)
     .single();
   if (!lead) return;
+
+  // --- Goal Met notification (Step 40) ---
+  // Insert into notifications for the lead's owner so the bell badges them.
+  // Idempotency: spend-cap / connect-rate monitors guard against dupes via
+  // their cron windows; here we rely on the post-call webhook's CAS check
+  // upstream — once per call.
+  if (input.outcome === "goal_met" && lead.owner_id) {
+    const messageBits = [
+      "Goal Met:",
+      lead.company || "this lead",
+      "moved to scheduled.",
+    ];
+    await supabase.from("notifications").insert({
+      user_id: lead.owner_id,
+      kind: "goal_met",
+      message: messageBits.join(" "),
+      ref_table: "calls",
+      ref_id: input.callId,
+    });
+  }
 
   // --- DNC ---
   const dncReason = dncReasonForOutcome(input.outcome);
