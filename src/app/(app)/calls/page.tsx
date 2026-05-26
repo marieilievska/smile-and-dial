@@ -21,6 +21,8 @@ import {
   str,
 } from "./calls-query";
 import { callsHref, type SearchParams } from "./calls-url";
+import { CallDetailModal } from "./call-detail-modal";
+import { CallRow } from "./call-row";
 import { CALL_COLUMNS, DEFAULT_COLUMN_KEYS, type DisplayCall } from "./columns";
 import { ColumnPicker } from "./column-picker";
 import { SavedViews } from "./saved-views";
@@ -218,11 +220,11 @@ export default async function CallsPage({
               </TableHeader>
               <TableBody>
                 {calls.map((c) => (
-                  <TableRow key={c.id}>
+                  <CallRow key={c.id} callId={c.id}>
                     {columns.map((col) => (
                       <TableCell key={col.key}>{col.cell(c)}</TableCell>
                     ))}
-                  </TableRow>
+                  </CallRow>
                 ))}
               </TableBody>
             </Table>
@@ -271,6 +273,8 @@ export default async function CallsPage({
           </p>
         </div>
       )}
+
+      <CallDetailModal />
     </div>
   );
 }
