@@ -15,10 +15,13 @@ import { Badge } from "@/components/ui/badge";
 import {
   fetch7dCallTrend,
   fetchActionQueue,
+  fetchActiveCalls,
   fetchHeroCounts,
   type ActionItem,
 } from "@/lib/today/queries";
 import { createClient } from "@/lib/supabase/server";
+
+import { LiveCallsWidget } from "./live-calls-widget";
 
 function fmtPct(value: number): string {
   if (!Number.isFinite(value)) return "—";
@@ -72,10 +75,11 @@ export default async function TodayPage() {
     .single();
   const isAdmin = profile?.role === "admin";
 
-  const [counts, queue, trend] = await Promise.all([
+  const [counts, queue, trend, activeCalls] = await Promise.all([
     fetchHeroCounts(supabase, { isAdmin, ownerId: user.id }),
     fetchActionQueue(supabase, { isAdmin, ownerId: user.id }),
     fetch7dCallTrend(supabase),
+    fetchActiveCalls(supabase, 5),
   ]);
 
   // Greeting: first-name only, no exclamation mark, time-of-day appropriate.
@@ -192,16 +196,24 @@ export default async function TodayPage() {
           )}
         </section>
 
-        {/* At-a-glance: 7-day call trend */}
-        <section className="border-border bg-card rounded-lg border p-4">
-          <h2 className="text-foreground text-sm font-semibold">
-            Calls this week
-          </h2>
-          <p className="text-muted-foreground mt-1 mb-3 text-xs">
-            Daily call volume across the last 7 days.
-          </p>
-          <Sparkline7d trend={trend} />
-        </section>
+        {/* Right column: live calls (operational, top) + this-week
+            trend (reference, below). */}
+        <div className="flex flex-col gap-6">
+          <LiveCallsWidget
+            rows={activeCalls.rows}
+            total={activeCalls.total}
+            mockMode={mockMode}
+          />
+          <section className="border-border bg-card rounded-lg border p-4">
+            <h2 className="text-foreground text-sm font-semibold">
+              Calls this week
+            </h2>
+            <p className="text-muted-foreground mt-1 mb-3 text-xs">
+              Daily call volume across the last 7 days.
+            </p>
+            <Sparkline7d trend={trend} />
+          </section>
+        </div>
       </div>
 
       {/* Footer connect-rate hint — keeps the inventory feel without

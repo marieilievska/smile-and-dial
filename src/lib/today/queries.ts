@@ -269,6 +269,60 @@ export async function fetchActionQueue(
   return items.slice(0, 8);
 }
 
+export type ActiveCall = {
+  id: string;
+  status: "queued" | "dialing" | "ringing" | "in_progress";
+  started_at: string | null;
+  duration_seconds: number | null;
+  leadCompany: string | null;
+  campaignName: string | null;
+};
+
+/** Calls currently in flight — anything not yet in a terminal state.
+ *  In mock mode this is usually empty (the mock dialer inserts calls
+ *  directly as status='completed'); in live mode this is the live view
+ *  of what the AI is doing right now. */
+export async function fetchActiveCalls(
+  supabase: SupabaseClient,
+  limit = 5,
+): Promise<{ rows: ActiveCall[]; total: number }> {
+  // Get the active rows + a separate exact count so the widget can show
+  // "+N more" without pulling everything.
+  const [{ data: rows }, { count }] = await Promise.all([
+    supabase
+      .from("calls")
+      .select(
+        "id, status, started_at, duration_seconds, lead:leads(company), campaign:campaigns(name)",
+      )
+      .in("status", ["queued", "dialing", "ringing", "in_progress"])
+      .order("started_at", { ascending: false, nullsFirst: false })
+      .limit(limit),
+    supabase
+      .from("calls")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["queued", "dialing", "ringing", "in_progress"]),
+  ]);
+  type RawRow = {
+    id: string;
+    status: ActiveCall["status"];
+    started_at: string | null;
+    duration_seconds: number | null;
+    lead: { company: string | null } | null;
+    campaign: { name: string | null } | null;
+  };
+  const mapped: ActiveCall[] = ((rows ?? []) as unknown as RawRow[]).map(
+    (r) => ({
+      id: r.id,
+      status: r.status,
+      started_at: r.started_at,
+      duration_seconds: r.duration_seconds,
+      leadCompany: r.lead?.company ?? null,
+      campaignName: r.campaign?.name ?? null,
+    }),
+  );
+  return { rows: mapped, total: count ?? 0 };
+}
+
 /** Daily call counts for the last 7 days. */
 export async function fetch7dCallTrend(
   supabase: SupabaseClient,

@@ -159,6 +159,40 @@ test.describe("Today page", () => {
     ).toContainText("Mock data");
     // Action queue is present.
     await expect(page.getByTestId("action-queue")).toBeVisible();
+    // Live calls widget renders (empty in mock mode).
+    const liveCalls = page.getByTestId("live-calls-widget");
+    await expect(liveCalls).toBeVisible();
+    await expect(liveCalls).toContainText("No active calls.");
+  });
+
+  test("active call appears in the Live calls widget", async ({ page }) => {
+    // Seed a call in 'in_progress' status — i.e. live.
+    const { data: call } = await admin
+      .from("calls")
+      .insert({
+        lead_id: leadId,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "in_progress",
+        started_at: new Date(Date.now() - 30_000).toISOString(),
+      })
+      .select("id")
+      .single();
+    const liveCallId = call!.id;
+
+    try {
+      await page.goto("/today");
+      const liveCalls = page.getByTestId("live-calls-widget");
+      await expect(liveCalls).toBeVisible();
+      await expect(liveCalls).toContainText(`E2E Today Lead ${stamp}`);
+      // Row carries the status pill.
+      const row = liveCalls.getByTestId("live-call-row").first();
+      await expect(row).toContainText("On call");
+    } finally {
+      await admin.from("calls").delete().eq("id", liveCallId);
+    }
   });
 
   test("overdue callback appears in the action queue with Urgent badge", async ({
