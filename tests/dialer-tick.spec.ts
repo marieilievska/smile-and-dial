@@ -94,6 +94,10 @@ test.describe("Dialer tick", () => {
         agent_id: agentId,
         goal_id: goalId,
         twilio_number_id: twilioNumberId,
+        // Use a 24h calling window so the test doesn't depend on whether
+        // NY local time happens to be between 09:00 and 21:00 right now.
+        calling_hours_start: "00:00:00",
+        calling_hours_end: "23:59:59",
       })
       .select("id")
       .single();

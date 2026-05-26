@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
+  CalendarClock,
   ExternalLink,
   Mic,
   PhoneIncoming,
   Phone as PhoneIcon,
+  Save,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -13,6 +15,24 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -22,9 +42,12 @@ import {
 } from "@/components/ui/sheet";
 import {
   getCallDetail,
+  overrideCallOutcome,
+  scheduleManualCallback,
   type CallDetail,
   type TranscriptTurn,
 } from "@/lib/calls/actions";
+import { OVERRIDABLE_OUTCOMES, outcomeLabel } from "@/lib/calls/outcomes";
 
 function fmtDateTime(value: string | null | undefined): string {
   if (!value) return "—";
@@ -286,7 +309,25 @@ export function CallDetailModal() {
               </Section>
             ) : null}
 
+            <Section title="Outcome">
+              <OutcomeOverride
+                callId={call.id}
+                currentOutcome={call.outcome}
+                onSaved={(next) => {
+                  // Optimistically reflect the new outcome in the modal so
+                  // the user sees the change without waiting for refetch.
+                  setLoaded((prev) =>
+                    prev && prev.id === call.id
+                      ? { ...prev, outcome: next, outcomeSource: "manual" }
+                      : prev,
+                  );
+                  router.refresh();
+                }}
+              />
+            </Section>
+
             <div className="flex flex-wrap items-center gap-2">
+              <ScheduleCallbackDialog callId={call.id} />
               {call.leadId ? (
                 <Button asChild variant="outline">
                   <Link href={`/leads?lead=${call.leadId}`}>
@@ -311,5 +352,113 @@ function Metric({ label, value }: { label: string; value: string }) {
       </span>
       <span className="text-foreground text-sm">{value}</span>
     </div>
+  );
+}
+
+function OutcomeOverride({
+  callId,
+  currentOutcome,
+  onSaved,
+}: {
+  callId: string;
+  currentOutcome: string | null;
+  onSaved: (next: string) => void;
+}) {
+  const [value, setValue] = useState(currentOutcome ?? "");
+  const [pending, startTransition] = useTransition();
+  const dirty = value !== "" && value !== (currentOutcome ?? "");
+
+  function save() {
+    if (!dirty) return;
+    startTransition(async () => {
+      const result = await overrideCallOutcome({ callId, outcome: value });
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Outcome updated.");
+        onSaved(value);
+      }
+    });
+  }
+
+  return (
+    <div className="flex items-end gap-2">
+      <div className="flex-1">
+        <Select value={value} onValueChange={setValue}>
+          <SelectTrigger id="call-outcome-override" aria-label="Outcome">
+            <SelectValue placeholder="Pick an outcome" />
+          </SelectTrigger>
+          <SelectContent>
+            {OVERRIDABLE_OUTCOMES.map((o) => (
+              <SelectItem key={o} value={o}>
+                {outcomeLabel(o)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <Button onClick={save} disabled={!dirty || pending}>
+        <Save className="size-4" />
+        {pending ? "Saving…" : "Save outcome"}
+      </Button>
+    </div>
+  );
+}
+
+function ScheduleCallbackDialog({ callId }: { callId: string }) {
+  const [open, setOpen] = useState(false);
+  const [when, setWhen] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  function save() {
+    if (!when) return;
+    startTransition(async () => {
+      const result = await scheduleManualCallback({
+        callId,
+        scheduledAt: new Date(when).toISOString(),
+      });
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Callback scheduled.");
+        setOpen(false);
+        setWhen("");
+      }
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <CalendarClock className="size-4" />
+          Schedule callback
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Schedule a callback</DialogTitle>
+          <DialogDescription>
+            The dialer will redial this lead at the scheduled time, respecting
+            the campaign&apos;s calling hours and pre-call checks.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="callback-when">When</Label>
+          <Input
+            id="callback-when"
+            type="datetime-local"
+            value={when}
+            onChange={(event) => setWhen(event.target.value)}
+            required
+          />
+        </div>
+        <DialogFooter>
+          <Button onClick={save} disabled={!when || pending}>
+            {pending ? "Scheduling…" : "Schedule"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

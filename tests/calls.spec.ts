@@ -192,7 +192,15 @@ test.describe("Calls page", () => {
       .delete()
       .eq("page", "calls")
       .like("name", `E2E Saved ${stamp}%`);
+    // Clean up callbacks + system_events created by the override + schedule
+    // callback tests.
     if (callIds.length > 0) {
+      await admin.from("callbacks").delete().in("originating_call_id", callIds);
+      await admin
+        .from("system_events")
+        .delete()
+        .eq("ref_table", "calls")
+        .in("ref_id", callIds);
       await admin.from("calls").delete().in("id", callIds);
     }
     if (leadIds.length > 0) {
@@ -425,5 +433,129 @@ test.describe("Calls page", () => {
     // Close the sheet — the URL drops the call param.
     await page.keyboard.press("Escape");
     await expect(page).not.toHaveURL(/call=/);
+  });
+
+  test("overriding the outcome updates the call and writes a system_events row", async ({
+    page,
+  }) => {
+    // Seed a call we can override.
+    const overrideLead = await admin
+      .from("leads")
+      .insert({
+        owner_id: ownerId,
+        list_id: listId,
+        company: `E2E Calls Override ${stamp}`,
+        business_phone: `+1444${tail}29`,
+      })
+      .select("id")
+      .single();
+    const overrideCallId = (
+      await admin
+        .from("calls")
+        .insert({
+          lead_id: overrideLead.data!.id,
+          campaign_id: campaignId,
+          agent_id: agentId,
+          twilio_number_id: twilioNumberId,
+          direction: "outbound",
+          status: "completed",
+          outcome: "voicemail",
+          outcome_source: "twilio",
+        })
+        .select("id")
+        .single()
+    ).data!.id;
+    leadIds.push(overrideLead.data!.id);
+    callIds.push(overrideCallId);
+
+    await page.goto(`/calls?call=${overrideCallId}`);
+    // Scope to the sheet so the page's Outcome filter doesn't collide with
+    // the modal's Outcome override.
+    const sheet = page.getByRole("dialog");
+    await sheet.getByLabel("Outcome").click();
+    await page.getByRole("option", { name: "Not interested" }).click();
+    await sheet.getByRole("button", { name: "Save outcome" }).click();
+    await expect(page.getByText("Outcome updated.")).toBeVisible();
+
+    const { data: c } = await admin
+      .from("calls")
+      .select("outcome, outcome_source")
+      .eq("id", overrideCallId)
+      .single();
+    expect(c?.outcome).toBe("not_interested");
+    expect(c?.outcome_source).toBe("manual");
+
+    // Audit trail captured the change.
+    const { data: events } = await admin
+      .from("system_events")
+      .select("kind, payload, actor_user_id")
+      .eq("ref_id", overrideCallId);
+    expect((events ?? []).length).toBeGreaterThanOrEqual(1);
+    const ev = events![0];
+    expect(ev.kind).toBe("outcome_override");
+    expect(ev.actor_user_id).toBe(ownerId);
+    expect(ev.payload).toMatchObject({
+      from: "voicemail",
+      to: "not_interested",
+    });
+  });
+
+  test("scheduling a callback from the modal writes a callbacks row", async ({
+    page,
+  }) => {
+    // Seed a call we can schedule a callback on.
+    const cbLead = await admin
+      .from("leads")
+      .insert({
+        owner_id: ownerId,
+        list_id: listId,
+        company: `E2E Calls Callback ${stamp}`,
+        business_phone: `+1444${tail}39`,
+      })
+      .select("id")
+      .single();
+    const cbCallId = (
+      await admin
+        .from("calls")
+        .insert({
+          lead_id: cbLead.data!.id,
+          campaign_id: campaignId,
+          agent_id: agentId,
+          twilio_number_id: twilioNumberId,
+          direction: "outbound",
+          status: "completed",
+          outcome: "gatekeeper",
+        })
+        .select("id")
+        .single()
+    ).data!.id;
+    leadIds.push(cbLead.data!.id);
+    callIds.push(cbCallId);
+
+    await page.goto(`/calls?call=${cbCallId}`);
+    await page.getByRole("button", { name: "Schedule callback" }).click();
+    // Pick a time a couple of hours in the future. The native datetime-local
+    // input wants "yyyy-MM-ddTHH:mm".
+    const future = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const localISO = `${future.getFullYear()}-${String(
+      future.getMonth() + 1,
+    ).padStart(2, "0")}-${String(future.getDate()).padStart(2, "0")}T${String(
+      future.getHours(),
+    ).padStart(2, "0")}:${String(future.getMinutes()).padStart(2, "0")}`;
+    await page.getByLabel("When").fill(localISO);
+    await page.getByRole("button", { name: "Schedule", exact: true }).click();
+    await expect(page.getByText("Callback scheduled.")).toBeVisible();
+
+    const { data: cb } = await admin
+      .from("callbacks")
+      .select("status, scheduled_at, created_by, originating_call_id")
+      .eq("originating_call_id", cbCallId)
+      .single();
+    expect(cb?.status).toBe("pending");
+    expect(cb?.created_by).toBe(ownerId);
+    expect(cb?.originating_call_id).toBe(cbCallId);
+    // Scheduled within a minute of the picked time.
+    const scheduled = new Date(cb!.scheduled_at).getTime();
+    expect(Math.abs(scheduled - future.getTime())).toBeLessThan(60_000);
   });
 });

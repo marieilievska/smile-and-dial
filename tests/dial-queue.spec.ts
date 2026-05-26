@@ -94,6 +94,10 @@ test.describe("Dial queue", () => {
         calls_per_hour_cap: 30,
         calls_per_day_cap: 300,
         concurrency_cap_per_user: 2,
+        // 24h window so the test doesn't depend on NY local time of day.
+        // The outside-hours subtest sets its own restrictive window.
+        calling_hours_start: "00:00:00",
+        calling_hours_end: "23:59:59",
       })
       .select("id")
       .single();

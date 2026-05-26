@@ -1,5 +1,7 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+
 import { createClient } from "@/lib/supabase/server";
 
 export type TranscriptTurn = {
@@ -147,4 +149,110 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
       agentName: data.agent?.name ?? "—",
     },
   };
+}
+
+export type ActionResult = { error: string | null };
+
+/**
+ * Manually override a call's outcome from the detail modal. Updates
+ * `calls.outcome` and stamps `outcome_source='manual'`, then writes an
+ * `outcome_override` row to `system_events` so we have an audit trail of
+ * who changed what to what.
+ *
+ * Intentionally does NOT re-trigger the retry engine or any downstream
+ * side effects (DNC insert, callback creation). Overrides change the
+ * historical record; if a user also wants to act on the new outcome,
+ * they take that action separately (Call Now button, manual DNC, etc.).
+ */
+export async function overrideCallOutcome(input: {
+  callId: string;
+  outcome: string;
+}): Promise<ActionResult> {
+  const { OVERRIDABLE_OUTCOMES } = await import("./outcomes");
+  if (!OVERRIDABLE_OUTCOMES.includes(input.outcome as never)) {
+    return { error: "Pick a valid outcome." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: existing } = await supabase
+    .from("calls")
+    .select("outcome")
+    .eq("id", input.callId)
+    .maybeSingle();
+  if (!existing) return { error: "Call not found." };
+  const previousOutcome = existing.outcome;
+
+  const { error: callError } = await supabase
+    .from("calls")
+    .update({
+      outcome: input.outcome,
+      outcome_source: "manual",
+      goal_met: input.outcome === "goal_met",
+    })
+    .eq("id", input.callId);
+  if (callError) return { error: "Could not update the call." };
+
+  // Audit log. RLS requires actor_user_id == auth.uid().
+  await supabase.from("system_events").insert({
+    kind: "outcome_override",
+    actor_user_id: user.id,
+    ref_table: "calls",
+    ref_id: input.callId,
+    payload: {
+      from: previousOutcome,
+      to: input.outcome,
+    },
+  });
+
+  revalidatePath("/calls");
+  return { error: null };
+}
+
+/**
+ * Schedule a callback for a call from the detail modal. Inserts a
+ * `callbacks` row with `created_by` = the current user (vs. the
+ * post-call webhook's auto-creates which leave created_by null).
+ */
+export async function scheduleManualCallback(input: {
+  callId: string;
+  scheduledAt: string;
+}): Promise<ActionResult> {
+  const when = new Date(input.scheduledAt);
+  if (Number.isNaN(when.getTime())) {
+    return { error: "Pick a valid date and time." };
+  }
+  if (when.getTime() <= Date.now()) {
+    return { error: "Pick a time in the future." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: call } = await supabase
+    .from("calls")
+    .select("lead_id, campaign_id")
+    .eq("id", input.callId)
+    .maybeSingle();
+  if (!call) return { error: "Call not found." };
+
+  const { error } = await supabase.from("callbacks").insert({
+    lead_id: call.lead_id,
+    campaign_id: call.campaign_id,
+    originating_call_id: input.callId,
+    scheduled_at: when.toISOString(),
+    status: "pending",
+    created_by: user.id,
+  });
+  if (error) return { error: "Could not schedule the callback." };
+
+  revalidatePath("/calls");
+  return { error: null };
 }
