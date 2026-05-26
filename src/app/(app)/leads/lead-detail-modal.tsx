@@ -28,6 +28,7 @@ import {
   updateLeadField,
 } from "@/lib/leads/lead-actions";
 
+import { CallNowDialog } from "./call-now-dialog";
 import { MergeInboundDialog } from "./merge-inbound-dialog";
 
 type SaveResult = { error: string | null };
@@ -107,6 +108,7 @@ export function LeadDetailModal({
   customValues,
   meta,
   events,
+  availableCampaigns,
 }: {
   leadId: string;
   leadCompany: string | null;
@@ -115,6 +117,7 @@ export function LeadDetailModal({
   customValues: Record<string, unknown>;
   meta: LeadMeta;
   events: LeadEvent[];
+  availableCampaigns: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -155,8 +158,16 @@ export function LeadDetailModal({
     >
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>{leadCompany || "Lead details"}</DialogTitle>
-          <DialogDescription>{STATUS_TEXT[status]}</DialogDescription>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <DialogTitle>{leadCompany || "Lead details"}</DialogTitle>
+              <DialogDescription>{STATUS_TEXT[status]}</DialogDescription>
+            </div>
+            <CallNowDialog
+              leadId={leadId}
+              availableCampaigns={availableCampaigns}
+            />
+          </div>
         </DialogHeader>
 
         {meta.isInbound ? (

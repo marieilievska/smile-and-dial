@@ -133,6 +133,7 @@ export default async function LeadsPage({
     customValues: Record<string, unknown>;
     meta: LeadMeta;
     events: LeadEvent[];
+    availableCampaigns: { id: string; name: string }[];
   } | null = null;
   if (/^[0-9a-f-]{36}$/i.test(leadParam)) {
     const [{ data: lead }, { data: defs }, { data: values }] =
@@ -159,7 +160,25 @@ export default async function LeadsPage({
         const value = row[f.key];
         fieldValues[f.key] = value == null ? "" : String(value);
       }
+      // Active campaigns attached to this lead's list — what the user
+      // can pick from in the Call Now dialog.
+      const { data: campaignRows } = await supabase
+        .from("list_campaign_attachments")
+        .select("campaign:campaigns(id, name, status)")
+        .eq("list_id", lead.list_id)
+        .is("detached_at", null);
+      type Joined = {
+        campaign: { id: string; name: string; status: string } | null;
+      };
+      const availableCampaigns = ((campaignRows ?? []) as unknown as Joined[])
+        .map((r) => r.campaign)
+        .filter(
+          (c): c is { id: string; name: string; status: string } =>
+            Boolean(c) && c!.status === "active",
+        )
+        .map((c) => ({ id: c.id, name: c.name }));
       leadDetail = {
+        availableCampaigns,
         id: lead.id,
         company: lead.company,
         fieldValues,
@@ -361,6 +380,7 @@ export default async function LeadsPage({
           customValues={leadDetail.customValues}
           meta={leadDetail.meta}
           events={leadDetail.events}
+          availableCampaigns={leadDetail.availableCampaigns}
         />
       ) : null}
     </div>
