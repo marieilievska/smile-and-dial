@@ -70,7 +70,7 @@ export function MergeInboundDialog({ sourceLeadId }: { sourceLeadId: string }) {
       toast.success("Merged into the destination lead.");
       setOpen(false);
       // Navigate to the destination lead's detail view.
-      router.push(`/leads?lead=${selectedId}`);
+      router.push(`/leads/${selectedId}`);
     });
   }
 

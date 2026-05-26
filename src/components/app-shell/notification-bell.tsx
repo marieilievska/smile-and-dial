@@ -28,7 +28,7 @@ export type NotificationItem = {
 
 const KIND_HREF: Record<string, (n: NotificationItem) => string | null> = {
   goal_met: (n) => (n.ref_id ? `/calls?call=${n.ref_id}` : null),
-  email_replied: (n) => (n.ref_id ? `/leads?lead=${n.ref_id}` : null),
+  email_replied: (n) => (n.ref_id ? `/leads/${n.ref_id}` : null),
   campaign_paused: (n) => (n.ref_id ? `/campaigns` : null),
   spend_cap_hit: () => `/campaigns`,
   number_flagged: () => `/settings/twilio-numbers`,

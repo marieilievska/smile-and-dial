@@ -181,7 +181,7 @@ test.describe("Call Now from lead modal", () => {
   test("calls the lead when pre-call check passes", async ({ page }) => {
     const leadId = await seedLead("10", `+1222${tail}10`);
 
-    await page.goto(`/leads?lead=${leadId}`);
+    await page.goto(`/leads/${leadId}`);
     await page.getByRole("button", { name: "Call now" }).click();
     // Campaign Select already has our campaign as the only option.
     await page.getByRole("button", { name: "Call", exact: true }).click();
@@ -218,7 +218,7 @@ test.describe("Call Now from lead modal", () => {
       .from("dnc_entries")
       .insert({ phone, reason: "manual", company_snapshot: "test" });
 
-    await page.goto(`/leads?lead=${leadId}`);
+    await page.goto(`/leads/${leadId}`);
     await page.getByRole("button", { name: "Call now" }).click();
     await page.getByRole("button", { name: "Call", exact: true }).click();
     await expect(

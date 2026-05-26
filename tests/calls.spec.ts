@@ -427,7 +427,7 @@ test.describe("Calls page", () => {
     // And the "Open lead" button links to the right lead detail.
     await expect(page.getByRole("link", { name: "Open lead" })).toHaveAttribute(
       "href",
-      `/leads?lead=${detailLead.data!.id}`,
+      `/leads/${detailLead.data!.id}`,
     );
 
     // Close the sheet — the URL drops the call param.

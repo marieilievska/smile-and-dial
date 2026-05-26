@@ -330,7 +330,7 @@ export function CallDetailModal() {
               <ScheduleCallbackDialog callId={call.id} />
               {call.leadId ? (
                 <Button asChild variant="outline">
-                  <Link href={`/leads?lead=${call.leadId}`}>
+                  <Link href={`/leads/${call.leadId}`}>
                     <ExternalLink className="size-4" />
                     Open lead
                   </Link>

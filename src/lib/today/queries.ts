@@ -174,7 +174,7 @@ export async function fetchActionQueue(
       id: `cb-${row.id}`,
       kind: "overdue_callback",
       message: `Call back ${company} (${ageMin}m overdue)`,
-      href: row.lead?.id ? `/leads?lead=${row.lead.id}` : "/callbacks",
+      href: row.lead?.id ? `/leads/${row.lead.id}` : "/callbacks",
       urgency: "high",
       at: row.scheduled_at,
     });
@@ -195,7 +195,7 @@ export async function fetchActionQueue(
       id: `goal-${row.id}`,
       kind: "needs_status_update",
       message: `${row.company ?? "Lead"} hit Goal Met — log attended or no_show`,
-      href: `/leads?lead=${row.id}`,
+      href: `/leads/${row.id}`,
       urgency: "normal",
       at: now.toISOString(),
     });
@@ -214,7 +214,7 @@ export async function fetchActionQueue(
       id: `email-${row.id}`,
       kind: "email_reply",
       message: `${row.company ?? "Lead"} replied via email`,
-      href: `/leads?lead=${row.id}`,
+      href: `/leads/${row.id}`,
       urgency: "normal",
       at: now.toISOString(),
     });

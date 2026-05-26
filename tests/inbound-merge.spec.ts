@@ -125,8 +125,8 @@ test.describe("Merge inbound lead", () => {
     // assertion if seeding failed.
     if (call) callIds.push(call.id);
 
-    // Open the inbound lead's modal.
-    await page.goto(`/leads?lead=${source!.id}`);
+    // Open the inbound lead's full detail route.
+    await page.goto(`/leads/${source!.id}`);
     // Inbound banner is present.
     await expect(
       page.getByText("Auto-created from an inbound call."),
@@ -148,8 +148,8 @@ test.describe("Merge inbound lead", () => {
       page.getByText("Merged into the destination lead."),
     ).toBeVisible();
 
-    // URL navigates to the destination.
-    await expect(page).toHaveURL(new RegExp(`lead=${dest!.id}`));
+    // URL navigates to the destination's full detail route.
+    await expect(page).toHaveURL(new RegExp(`/leads/${dest!.id}$`));
 
     // The destination picked up the source's empty fields.
     const { data: destAfter } = await admin

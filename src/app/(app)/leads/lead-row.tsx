@@ -1,14 +1,13 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 import { TableRow } from "@/components/ui/table";
 
-/**
- * A leads-table row that opens the lead detail modal when clicked. The
- * selected lead is tracked in the URL (`?lead=<id>`) so the modal survives
- * a refresh and can be linked to directly.
- */
+/** A leads-table row that navigates to the full lead detail route at
+ *  /leads/<id> when clicked. The lead page is a real route now (Close-
+ *  style) instead of a query-param modal — so browser back works, the
+ *  URL is shareable, and the page can scroll independently. */
 export function LeadRow({
   leadId,
   children,
@@ -17,12 +16,9 @@ export function LeadRow({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   function open() {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("lead", leadId);
-    router.push(`/leads?${params.toString()}`);
+    router.push(`/leads/${leadId}`);
   }
 
   return (

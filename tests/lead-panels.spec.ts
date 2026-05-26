@@ -44,28 +44,28 @@ test.describe("Lead detail panels", () => {
     await admin.from("lists").delete().eq("id", listId);
   });
 
-  test("the modal shows AI summary, pipeline context, and activity", async ({
+  test("the page shows AI summary, pipeline context, and activity", async ({
     page,
   }) => {
     await page.goto(`/leads?q=${encodeURIComponent(company)}`);
     await page.getByRole("cell", { name: company, exact: true }).click();
 
-    const dialog = page.getByRole("dialog");
+    // Now navigates to the full /leads/<id> route (Close-style).
+    await expect(page).toHaveURL(/\/leads\/[0-9a-f-]{36}$/);
 
-    // AI summary block is above the fold.
-    await expect(dialog.getByTestId("ai-summary-block")).toBeVisible();
-    await expect(dialog.getByTestId("ai-summary-block")).toContainText(summary);
+    // AI summary block is in the center column.
+    await expect(page.getByTestId("ai-summary-block")).toBeVisible();
+    await expect(page.getByTestId("ai-summary-block")).toContainText(summary);
 
     // At-a-glance strip shows the list and the pipeline status badge
     // ("Ready to call" — humanized "ready_to_call").
-    await expect(dialog.getByText(listName)).toBeVisible();
-    await expect(dialog.getByText("Ready to call").first()).toBeVisible();
+    await expect(page.getByText(listName)).toBeVisible();
+    await expect(page.getByText("Ready to call").first()).toBeVisible();
 
-    // Activity is now a collapsible section — expand to verify the
-    // created-lead event is present.
-    const activitySection = dialog.getByTestId("lead-section-activity");
-    await expect(activitySection).toBeVisible();
-    await activitySection.locator("summary").click();
-    await expect(activitySection.getByText("Lead created")).toBeVisible();
+    // Activity column on the right is always visible — with no seeded
+    // calls/emails/events, it shows the empty-state copy.
+    const activityColumn = page.getByTestId("lead-activity-column");
+    await expect(activityColumn).toBeVisible();
+    await expect(activityColumn).toContainText("No activity yet");
   });
 });

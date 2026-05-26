@@ -63,44 +63,46 @@ test.describe("Lead detail modal", () => {
     await page.goto(`/leads?q=${encodeURIComponent(company)}`);
     await page.getByRole("cell", { name: company, exact: true }).click();
 
-    // The modal opens with the lead's fields.
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByText(company)).toBeVisible();
+    // Clicking a row navigates to the lead's full detail route now
+    // (Close-style /leads/<id>) instead of opening a modal.
+    await expect(page).toHaveURL(/\/leads\/[0-9a-f-]{36}$/);
+    await expect(page.getByRole("heading", { name: company })).toBeVisible();
 
     // City lives inside the collapsed "Location & web" section — expand it.
-    await dialog
+    await page
       .getByTestId("lead-section-location-&-web")
       .locator("summary")
       .click();
-    const cityInput = dialog.getByLabel("City");
+    const cityInput = page.getByLabel("City");
     await cityInput.fill(newCity);
     await cityInput.blur();
 
     // Custom field section also starts collapsed; expand and edit.
-    await dialog
+    await page
       .getByTestId("lead-section-custom-fields")
       .locator("summary")
       .click();
-    const customInput = dialog.getByLabel(fieldName);
+    const customInput = page.getByLabel(fieldName);
     await customInput.fill(customValue);
     await customInput.blur();
 
-    await expect(dialog.getByText("Saved")).toBeVisible();
+    await expect(page.getByText("Saved")).toBeVisible();
 
-    // Close the modal; the table reflects the saved city.
-    await page.keyboard.press("Escape");
+    // Back to the leads list; the table reflects the saved city.
+    await page.getByRole("link", { name: "All leads" }).click();
+    await expect(page).toHaveURL(/\/leads(\?|$)/);
     await expect(
       page.getByRole("cell", { name: newCity, exact: true }),
     ).toBeVisible();
 
-    // Reopening the lead shows the saved custom value (expand the
-    // Custom fields section again — it starts collapsed each open).
+    // Reopening the lead shows the saved custom value (section starts
+    // collapsed on each navigation).
     await page.getByRole("cell", { name: company, exact: true }).click();
-    const reopened = page.getByRole("dialog");
-    await reopened
+    await expect(page).toHaveURL(/\/leads\/[0-9a-f-]{36}$/);
+    await page
       .getByTestId("lead-section-custom-fields")
       .locator("summary")
       .click();
-    await expect(reopened.getByLabel(fieldName)).toHaveValue(customValue);
+    await expect(page.getByLabel(fieldName)).toHaveValue(customValue);
   });
 });
