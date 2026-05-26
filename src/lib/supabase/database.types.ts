@@ -947,6 +947,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      system_events: {
+        Row: {
+          actor_user_id: string | null;
+          created_at: string;
+          id: string;
+          kind: string;
+          payload: Json | null;
+          ref_id: string | null;
+          ref_table: string | null;
+        };
+        Insert: {
+          actor_user_id?: string | null;
+          created_at?: string;
+          id?: string;
+          kind: string;
+          payload?: Json | null;
+          ref_id?: string | null;
+          ref_table?: string | null;
+        };
+        Update: {
+          actor_user_id?: string | null;
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          payload?: Json | null;
+          ref_id?: string | null;
+          ref_table?: string | null;
+        };
+        Relationships: [];
+      };
       twilio_numbers: {
         Row: {
           attached_campaign_id: string | null;
