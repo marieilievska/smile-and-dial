@@ -57,30 +57,48 @@ test.describe("Campaigns", () => {
 
     // Pick our seeded agent.
     await dialog.getByRole("tab", { name: "Agent" }).click();
-    await dialog.getByRole("combobox", { name: "Agent" }).click();
-    await page.getByRole("option", { name: agentName }).click();
+    const agentCombobox = dialog.getByRole("combobox", { name: "Agent" });
+    await agentCombobox.click();
+    // Scope the option to the open listbox so we don't accidentally
+    // match an option inside a different (background) Select component.
+    await page
+      .getByRole("listbox")
+      .getByRole("option", { name: agentName, exact: true })
+      .click();
+    // Wait for the Select to actually commit before submitting — the
+    // listbox dismounting is our signal that internal state has settled.
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await expect(agentCombobox).toContainText(agentName);
 
-    // The seeded default goal ("Schedule appointment") is fine as-is.
+    // The seeded default goal ("Schedule appointment") is fine as-is. Wait
+    // for the success toast first so we know the server action committed,
+    // then assert the table has the new row.
     await dialog.getByRole("button", { name: "Create campaign" }).click();
+    await expect(page.getByText("Campaign created.")).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(
       page.getByRole("cell", { name: campaignName, exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
 
     // Edit.
     await page.getByRole("button", { name: `Edit ${campaignName}` }).click();
     const editDialog = page.getByRole("dialog");
     await editDialog.getByLabel("Name", { exact: true }).fill(renamed);
     await editDialog.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByText("Campaign updated.")).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(
       page.getByRole("cell", { name: renamed, exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
 
     // Delete.
     await page.getByRole("button", { name: `Delete ${renamed}` }).click();
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(
       page.getByRole("cell", { name: renamed, exact: true }),
-    ).toHaveCount(0);
+    ).toHaveCount(0, { timeout: 10_000 });
   });
 
   test("pause, resume, clone, and end a campaign", async ({ page }) => {
