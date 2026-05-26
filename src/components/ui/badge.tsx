@@ -32,9 +32,17 @@ function Badge({
   className,
   variant = "default",
   asChild = false,
+  dot = false,
+  children,
   ...props
 }: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+  VariantProps<typeof badgeVariants> & {
+    asChild?: boolean;
+    /** Prepend a small colored circle. Close-style status pills use this
+     *  to add a quick visual scan-cue ahead of the label. The dot inherits
+     *  the variant's text color via `currentColor`. */
+    dot?: boolean;
+  }) {
   const Comp = asChild ? Slot.Root : "span";
 
   return (
@@ -43,7 +51,16 @@ function Badge({
       data-variant={variant}
       className={cn(badgeVariants({ variant }), className)}
       {...props}
-    />
+    >
+      {dot ? (
+        <span
+          aria-hidden
+          data-slot="badge-dot"
+          className="size-1.5 rounded-full bg-current"
+        />
+      ) : null}
+      {children}
+    </Comp>
   );
 }
 

@@ -97,6 +97,7 @@ export default async function ApiPage() {
                     <TableCell>
                       <Badge
                         variant={k.revoked_at ? "destructive" : "secondary"}
+                        dot
                       >
                         {k.revoked_at ? "revoked" : "active"}
                       </Badge>

@@ -134,7 +134,11 @@ export const CALL_COLUMNS: CallColumn[] = [
     key: "status",
     label: "Status",
     sortKey: "status",
-    cell: (c) => <Badge variant="secondary">{c.status}</Badge>,
+    cell: (c) => (
+      <Badge variant="secondary" dot>
+        {c.status}
+      </Badge>
+    ),
   },
   {
     key: "outcome",

@@ -72,7 +72,7 @@ export default async function UsersPage() {
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={u.active ? "success" : "secondary"}>
+                  <Badge variant={u.active ? "success" : "secondary"} dot>
                     {u.active ? "Active" : "Inactive"}
                   </Badge>
                 </TableCell>

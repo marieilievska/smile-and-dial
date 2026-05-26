@@ -81,7 +81,9 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     label: "Status",
     sortKey: "status",
     cell: (l) => (
-      <Badge variant={statusVariant(l.status)}>{humanize(l.status)}</Badge>
+      <Badge variant={statusVariant(l.status)} dot>
+        {humanize(l.status)}
+      </Badge>
     ),
     text: (l) => humanize(l.status),
   },

@@ -215,7 +215,7 @@ export function LeadDetailModal({
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
                 <DialogTitle>{leadCompany || "Lead details"}</DialogTitle>
-                <Badge variant={statusVariant(meta.status)}>
+                <Badge variant={statusVariant(meta.status)} dot>
                   {humanize(meta.status)}
                 </Badge>
               </div>

@@ -245,6 +245,7 @@ export default async function SystemHealthPage({
                               ? "default"
                               : "secondary"
                         }
+                        dot
                       >
                         {sev}
                       </Badge>

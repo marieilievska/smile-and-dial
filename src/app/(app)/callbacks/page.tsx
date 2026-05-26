@@ -244,6 +244,7 @@ export default async function CallbacksPage({
                             ? "secondary"
                             : "outline"
                       }
+                      dot
                     >
                       {STATUS_LABEL[cb.status] ?? cb.status}
                     </Badge>

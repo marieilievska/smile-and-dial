@@ -216,7 +216,7 @@ export default async function CampaignsPage() {
                       {campaign.name}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={statusVariant(campaign.status)}>
+                      <Badge variant={statusVariant(campaign.status)} dot>
                         {humanize(campaign.status)}
                       </Badge>
                     </TableCell>
