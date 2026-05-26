@@ -67,12 +67,20 @@ test.describe("Lead detail modal", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText(company)).toBeVisible();
 
-    // Edit a standard field; it saves when it loses focus.
+    // City lives inside the collapsed "Location & web" section — expand it.
+    await dialog
+      .getByTestId("lead-section-location-&-web")
+      .locator("summary")
+      .click();
     const cityInput = dialog.getByLabel("City");
     await cityInput.fill(newCity);
     await cityInput.blur();
 
-    // Edit the custom field too.
+    // Custom field section also starts collapsed; expand and edit.
+    await dialog
+      .getByTestId("lead-section-custom-fields")
+      .locator("summary")
+      .click();
     const customInput = dialog.getByLabel(fieldName);
     await customInput.fill(customValue);
     await customInput.blur();
@@ -85,10 +93,14 @@ test.describe("Lead detail modal", () => {
       page.getByRole("cell", { name: newCity, exact: true }),
     ).toBeVisible();
 
-    // Reopening the lead shows the saved custom value.
+    // Reopening the lead shows the saved custom value (expand the
+    // Custom fields section again — it starts collapsed each open).
     await page.getByRole("cell", { name: company, exact: true }).click();
-    await expect(page.getByRole("dialog").getByLabel(fieldName)).toHaveValue(
-      customValue,
-    );
+    const reopened = page.getByRole("dialog");
+    await reopened
+      .getByTestId("lead-section-custom-fields")
+      .locator("summary")
+      .click();
+    await expect(reopened.getByLabel(fieldName)).toHaveValue(customValue);
   });
 });

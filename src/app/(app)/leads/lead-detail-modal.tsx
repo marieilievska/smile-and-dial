@@ -1,10 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Clock } from "lucide-react";
+import { ChevronDown, Clock } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -34,8 +35,12 @@ import { MergeInboundDialog } from "./merge-inbound-dialog";
 type SaveResult = { error: string | null };
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-/** Standard lead fields shown in the modal, with their input type. */
-const STANDARD_FIELDS: { key: string; label: string; type: string }[] = [
+type StandardField = { key: string; label: string; type: string };
+
+/** Standard lead fields, grouped by how often the user actually touches
+ *  them. Contact fields are open by default; Location & web and Google
+ *  data are collapsed because most users don't edit them daily. */
+const CONTACT_FIELDS: StandardField[] = [
   { key: "company", label: "Company", type: "text" },
   { key: "business_phone", label: "Business phone", type: "tel" },
   { key: "business_email", label: "Business email", type: "email" },
@@ -43,10 +48,16 @@ const STANDARD_FIELDS: { key: string; label: string; type: string }[] = [
   { key: "owner_phone", label: "Owner phone", type: "tel" },
   { key: "manager_name", label: "Manager name", type: "text" },
   { key: "employee_name", label: "Employee name", type: "text" },
-  { key: "website", label: "Website", type: "url" },
-  { key: "category", label: "Category", type: "text" },
+];
+
+const LOCATION_FIELDS: StandardField[] = [
   { key: "city", label: "City", type: "text" },
   { key: "state", label: "State", type: "text" },
+  { key: "website", label: "Website", type: "url" },
+  { key: "category", label: "Category", type: "text" },
+];
+
+const GOOGLE_FIELDS: StandardField[] = [
   { key: "google_place_id", label: "Google place ID", type: "text" },
   { key: "google_rating", label: "Google rating", type: "number" },
   { key: "google_reviews", label: "Google reviews", type: "number" },
@@ -100,6 +111,29 @@ function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "—";
 }
 
+/** Map lead status to a Badge variant so the pill telegraphs urgency
+ *  without needing to read the label. */
+function statusVariant(
+  status: string,
+): "default" | "secondary" | "destructive" | "outline" {
+  switch (status) {
+    case "ready_to_call":
+    case "callback":
+    case "scheduled":
+      return "default";
+    case "goal_met":
+    case "attended":
+    case "sale":
+    case "closed":
+      return "secondary";
+    case "dnc":
+    case "no_show":
+      return "destructive";
+    default:
+      return "outline";
+  }
+}
+
 export function LeadDetailModal({
   leadId,
   leadCompany,
@@ -149,6 +183,23 @@ export function LeadDetailModal({
   const saveCustom = (customFieldId: string) => (value: string | boolean) =>
     persist(() => updateLeadCustomValue({ leadId, customFieldId, value }));
 
+  function renderFields(fields: StandardField[]) {
+    return (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {fields.map((field) => (
+          <AutosaveField
+            key={field.key}
+            id={`lead-${field.key}`}
+            label={field.label}
+            type={field.type}
+            initial={fieldValues[field.key] ?? ""}
+            onSave={saveField(field.key)}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <Dialog
       open
@@ -156,11 +207,18 @@ export function LeadDetailModal({
         if (!next) close();
       }}
     >
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl">
+      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
+        {/* HERO — company + status pill + Call Now. The most important
+            facts and the most likely action sit at the very top. */}
         <DialogHeader>
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <DialogTitle>{leadCompany || "Lead details"}</DialogTitle>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <DialogTitle>{leadCompany || "Lead details"}</DialogTitle>
+                <Badge variant={statusVariant(meta.status)}>
+                  {humanize(meta.status)}
+                </Badge>
+              </div>
               <DialogDescription>{STATUS_TEXT[status]}</DialogDescription>
             </div>
             <CallNowDialog
@@ -180,100 +238,112 @@ export function LeadDetailModal({
           </div>
         ) : null}
 
-        <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-          <div className="flex flex-col gap-6">
+        {/* AI SUMMARY — prominent because it's the one thing the user
+            needs before deciding to call. */}
+        <section
+          data-testid="ai-summary-block"
+          className="border-border bg-muted/20 flex flex-col gap-2 rounded-lg border p-3"
+        >
+          <h3 className="text-foreground text-xs font-semibold tracking-wide uppercase">
+            AI summary
+          </h3>
+          {meta.aiSummary ? (
+            <p className="text-foreground text-sm whitespace-pre-line">
+              {meta.aiSummary}
+            </p>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No summary yet — generated after the first call.
+            </p>
+          )}
+        </section>
+
+        {/* AT-A-GLANCE strip — same data as the old "Campaign & list"
+            block but pulled up into one compact row. */}
+        <dl className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+          <InfoRow label="List" value={meta.listName} />
+          <InfoRow label="Last outcome" value={humanize(meta.lastOutcome)} />
+          <InfoRow label="Next call" value={formatDateTime(meta.nextCallAt)} />
+          <InfoRow
+            label="Retry"
+            value={meta.retryCounter > 0 ? `#${meta.retryCounter}` : "—"}
+          />
+        </dl>
+
+        {/* Collapsible detail sections. Contact is open by default; the
+            rest are tucked away. */}
+        <CollapsibleSection title="Contact" defaultOpen>
+          {renderFields(CONTACT_FIELDS)}
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Location & web">
+          {renderFields(LOCATION_FIELDS)}
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Google data">
+          {renderFields(GOOGLE_FIELDS)}
+        </CollapsibleSection>
+
+        {customFields.length > 0 ? (
+          <CollapsibleSection title="Custom fields">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {STANDARD_FIELDS.map((field) => (
-                <AutosaveField
-                  key={field.key}
-                  id={`lead-${field.key}`}
-                  label={field.label}
-                  type={field.type}
-                  initial={fieldValues[field.key] ?? ""}
-                  onSave={saveField(field.key)}
+              {customFields.map((field) => (
+                <CustomFieldEditor
+                  key={field.id}
+                  field={field}
+                  initial={customValues[field.id]}
+                  onSave={saveCustom(field.id)}
                 />
               ))}
             </div>
+          </CollapsibleSection>
+        ) : null}
 
-            {customFields.length > 0 ? (
-              <Section title="Custom fields">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {customFields.map((field) => (
-                    <CustomFieldEditor
-                      key={field.id}
-                      field={field}
-                      initial={customValues[field.id]}
-                      onSave={saveCustom(field.id)}
-                    />
-                  ))}
-                </div>
-              </Section>
-            ) : null}
+        <CollapsibleSection title="Pipeline state">
+          <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+            <InfoRow
+              label="Resting until"
+              value={formatDateTime(meta.restingUntil)}
+            />
+            <InfoRow label="Retry counter" value={String(meta.retryCounter)} />
+          </dl>
+        </CollapsibleSection>
 
-            <Section title="AI summary">
-              {meta.aiSummary ? (
-                <p className="text-muted-foreground text-sm whitespace-pre-line">
-                  {meta.aiSummary}
-                </p>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  No summary yet — this is generated after the lead is called.
-                </p>
-              )}
-            </Section>
-
-            <Section title="Campaign & list">
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <InfoRow label="List" value={meta.listName} />
-                <InfoRow label="Status" value={humanize(meta.status)} />
-                <InfoRow
-                  label="Last outcome"
-                  value={humanize(meta.lastOutcome)}
-                />
-                <InfoRow
-                  label="Retry counter"
-                  value={String(meta.retryCounter)}
-                />
-                <InfoRow
-                  label="Resting until"
-                  value={formatDateTime(meta.restingUntil)}
-                />
-                <InfoRow
-                  label="Next call"
-                  value={formatDateTime(meta.nextCallAt)}
-                />
-              </dl>
-            </Section>
-          </div>
-
-          <div className="lg:border-border lg:border-l lg:pl-6">
-            <Section title="Activity">
-              <ActivityTimeline events={events} />
-            </Section>
-          </div>
-        </div>
+        <CollapsibleSection title="Activity">
+          <ActivityTimeline events={events} />
+        </CollapsibleSection>
       </DialogContent>
     </Dialog>
   );
 }
 
-/** A titled block inside the modal. */
-function Section({
+/** Collapsible disclosure built on the native <details> element — no JS
+ *  state, no library, fully keyboard- and screen-reader-friendly. */
+function CollapsibleSection({
   title,
+  defaultOpen,
   children,
 }: {
   title: string;
+  defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-3">
-      <h3 className="text-foreground text-sm font-semibold">{title}</h3>
-      {children}
-    </section>
+    <details
+      open={defaultOpen}
+      data-testid={`lead-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
+      className="border-border group rounded-lg border"
+    >
+      <summary className="hover:bg-muted/50 flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2 transition-colors">
+        <span className="text-foreground text-sm font-semibold">{title}</span>
+        <ChevronDown className="text-muted-foreground size-4 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="px-3 pt-3 pb-4">{children}</div>
+    </details>
   );
 }
 
-/** A label/value pair in the read-only Campaign & list section. */
+/** A label/value pair in the read-only at-a-glance strip. */
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col">

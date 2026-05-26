@@ -52,17 +52,20 @@ test.describe("Lead detail panels", () => {
 
     const dialog = page.getByRole("dialog");
 
-    // AI summary section shows the rolling summary.
-    await expect(dialog.getByText("AI summary")).toBeVisible();
-    await expect(dialog.getByText(summary)).toBeVisible();
+    // AI summary block is above the fold.
+    await expect(dialog.getByTestId("ai-summary-block")).toBeVisible();
+    await expect(dialog.getByTestId("ai-summary-block")).toContainText(summary);
 
-    // Campaign & list section shows the list and pipeline status.
-    await expect(dialog.getByText("Campaign & list")).toBeVisible();
+    // At-a-glance strip shows the list and the pipeline status badge
+    // ("Ready to call" — humanized "ready_to_call").
     await expect(dialog.getByText(listName)).toBeVisible();
-    await expect(dialog.getByText("Ready to call")).toBeVisible();
+    await expect(dialog.getByText("Ready to call").first()).toBeVisible();
 
-    // Activity timeline shows the lead-created event.
-    await expect(dialog.getByText("Activity")).toBeVisible();
-    await expect(dialog.getByText("Lead created")).toBeVisible();
+    // Activity is now a collapsible section — expand to verify the
+    // created-lead event is present.
+    const activitySection = dialog.getByTestId("lead-section-activity");
+    await expect(activitySection).toBeVisible();
+    await activitySection.locator("summary").click();
+    await expect(activitySection.getByText("Lead created")).toBeVisible();
   });
 });
