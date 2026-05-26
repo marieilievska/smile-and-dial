@@ -29,6 +29,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { createCampaign, updateCampaign } from "@/lib/campaigns/actions";
 import { setCampaignLists } from "@/lib/campaigns/list-attachments-actions";
 
+import { TestCallTab } from "./test-call-tab";
+
 type Option = { id: string; name: string };
 
 export type TwilioOption = {
@@ -225,6 +227,7 @@ export function CampaignSettingsDialog({
             <TabsTrigger value="kb">Knowledge base</TabsTrigger>
             <TabsTrigger value="goal">Goal</TabsTrigger>
             <TabsTrigger value="lists">Lists</TabsTrigger>
+            {isEdit ? <TabsTrigger value="test">Test</TabsTrigger> : null}
           </TabsList>
 
           <TabsContent
@@ -498,6 +501,21 @@ export function CampaignSettingsDialog({
               )}
             </div>
           </TabsContent>
+
+          {isEdit ? (
+            <TabsContent
+              value="test"
+              className="flex flex-col gap-4 outline-none"
+            >
+              {/*
+                liveMode is hard-wired to false for now — live ElevenLabs
+                browser calls are a safety-rail item. Flip this to
+                process.env.NEXT_PUBLIC_ELEVENLABS_LIVE === "live" once the
+                convai SDK wiring lands.
+              */}
+              <TestCallTab liveMode={false} />
+            </TabsContent>
+          ) : null}
         </Tabs>
 
         <DialogFooter>
