@@ -98,24 +98,151 @@ export type Database = {
       };
       app_settings: {
         Row: {
+          calendly_access_token: string | null;
+          calendly_connected_at: string | null;
+          calendly_last_sync_at: string | null;
+          calendly_organization_uri: string | null;
+          calendly_refresh_token: string | null;
+          calendly_user_uri: string | null;
           elevenlabs_api_key: string | null;
           elevenlabs_voice_ids: string | null;
           id: number;
           updated_at: string;
         };
         Insert: {
+          calendly_access_token?: string | null;
+          calendly_connected_at?: string | null;
+          calendly_last_sync_at?: string | null;
+          calendly_organization_uri?: string | null;
+          calendly_refresh_token?: string | null;
+          calendly_user_uri?: string | null;
           elevenlabs_api_key?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
           updated_at?: string;
         };
         Update: {
+          calendly_access_token?: string | null;
+          calendly_connected_at?: string | null;
+          calendly_last_sync_at?: string | null;
+          calendly_organization_uri?: string | null;
+          calendly_refresh_token?: string | null;
+          calendly_user_uri?: string | null;
           elevenlabs_api_key?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
           updated_at?: string;
         };
         Relationships: [];
+      };
+      calendly_event_types: {
+        Row: {
+          active: boolean;
+          duration_minutes: number | null;
+          event_uri: string;
+          id: string;
+          name: string;
+          scheduling_url: string | null;
+          synced_at: string;
+        };
+        Insert: {
+          active?: boolean;
+          duration_minutes?: number | null;
+          event_uri: string;
+          id?: string;
+          name: string;
+          scheduling_url?: string | null;
+          synced_at?: string;
+        };
+        Update: {
+          active?: boolean;
+          duration_minutes?: number | null;
+          event_uri?: string;
+          id?: string;
+          name?: string;
+          scheduling_url?: string | null;
+          synced_at?: string;
+        };
+        Relationships: [];
+      };
+      calendly_events: {
+        Row: {
+          cancel_url: string | null;
+          created_at: string;
+          event_type_uri: string | null;
+          event_uri: string;
+          id: string;
+          invitee_email: string | null;
+          invitee_name: string | null;
+          invitee_phone: string | null;
+          invitee_uri: string;
+          lead_id: string | null;
+          owner_id: string;
+          raw: Json | null;
+          reschedule_url: string | null;
+          scheduled_at: string | null;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          cancel_url?: string | null;
+          created_at?: string;
+          event_type_uri?: string | null;
+          event_uri: string;
+          id?: string;
+          invitee_email?: string | null;
+          invitee_name?: string | null;
+          invitee_phone?: string | null;
+          invitee_uri: string;
+          lead_id?: string | null;
+          owner_id: string;
+          raw?: Json | null;
+          reschedule_url?: string | null;
+          scheduled_at?: string | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          cancel_url?: string | null;
+          created_at?: string;
+          event_type_uri?: string | null;
+          event_uri?: string;
+          id?: string;
+          invitee_email?: string | null;
+          invitee_name?: string | null;
+          invitee_phone?: string | null;
+          invitee_uri?: string;
+          lead_id?: string | null;
+          owner_id?: string;
+          raw?: Json | null;
+          reschedule_url?: string | null;
+          scheduled_at?: string | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "calendly_events_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "calendly_events_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calendly_events_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       callbacks: {
         Row: {
@@ -673,6 +800,7 @@ export type Database = {
           ai_summary: string | null;
           business_email: string | null;
           business_phone: string | null;
+          calendly_event_uri: string | null;
           call_attempts: number;
           category: string | null;
           city: string | null;
@@ -707,6 +835,7 @@ export type Database = {
           ai_summary?: string | null;
           business_email?: string | null;
           business_phone?: string | null;
+          calendly_event_uri?: string | null;
           call_attempts?: number;
           category?: string | null;
           city?: string | null;
@@ -741,6 +870,7 @@ export type Database = {
           ai_summary?: string | null;
           business_email?: string | null;
           business_phone?: string | null;
+          calendly_event_uri?: string | null;
           call_attempts?: number;
           category?: string | null;
           city?: string | null;

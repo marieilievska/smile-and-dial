@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 
+import { CalendlyForm } from "./calendly-form";
 import { ElevenLabsForm } from "./elevenlabs-form";
 
 export default async function IntegrationsPage() {
@@ -25,11 +26,19 @@ export default async function IntegrationsPage() {
     .single();
   if (me?.role !== "admin") redirect("/leads");
 
-  const { data: settings } = await supabase
-    .from("app_settings")
-    .select("elevenlabs_api_key, elevenlabs_voice_ids")
-    .eq("id", 1)
-    .maybeSingle();
+  const [{ data: settings }, { count: eventTypeCount }] = await Promise.all([
+    supabase
+      .from("app_settings")
+      .select(
+        "elevenlabs_api_key, elevenlabs_voice_ids, calendly_connected_at, calendly_last_sync_at",
+      )
+      .eq("id", 1)
+      .maybeSingle(),
+    supabase
+      .from("calendly_event_types")
+      .select("id", { count: "exact", head: true })
+      .eq("active", true),
+  ]);
 
   return (
     <div className="p-8">
@@ -54,6 +63,23 @@ export default async function IntegrationsPage() {
           <ElevenLabsForm
             hasApiKey={Boolean(settings?.elevenlabs_api_key)}
             voiceIds={settings?.elevenlabs_voice_ids ?? ""}
+          />
+        </CardContent>
+      </Card>
+
+      <Card className="mt-6 max-w-2xl">
+        <CardHeader>
+          <CardTitle>Calendly</CardTitle>
+          <CardDescription>
+            Connect Calendly to enable agent appointment booking and to
+            auto-flip leads into the goal pipeline when an invitee schedules.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CalendlyForm
+            connected={Boolean(settings?.calendly_connected_at)}
+            lastSyncAt={settings?.calendly_last_sync_at ?? null}
+            eventTypeCount={eventTypeCount ?? 0}
           />
         </CardContent>
       </Card>
