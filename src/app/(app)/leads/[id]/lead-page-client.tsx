@@ -123,8 +123,10 @@ export function LeadPageClient({
         </div>
       ) : null}
 
-      {/* TWO-ZONE BODY */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      {/* TWO-ZONE BODY — left column is narrower (form fields don't
+            need much width); right column gets the bulk for the AI
+            summary and activity feed where every extra inch helps. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
         {/* LEFT */}
         <div className="flex flex-col gap-3">
           <CollapsibleSection title="Basics" defaultOpen>
