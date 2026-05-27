@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  ArrowLeft,
-  Loader2,
-  MapPin,
-  Phone,
-  Plus,
-  Sparkles,
-} from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -32,12 +25,14 @@ import {
   type StandardField,
 } from "../lead-detail-parts";
 import { MergeInboundDialog } from "../merge-inbound-dialog";
+import { EditableCompanyName } from "./editable-company-name";
 import { SinceLastViewed } from "./since-last-viewed";
 
-/** v3 — two-zone layout. Left column carries every field surface (all
- *  structured + custom + at-a-glance facts). Right column stacks the
- *  AI summary on top of the activity feed in the same column. Mirrors
- *  Close: identity + actions up top, fields left, AI + history right. */
+/** v3 — two-zone layout. Left = every field surface + at-a-glance.
+ *  Right = AI summary stacked above the activity feed. The hero shows
+ *  the company name (inline-editable) + status pill + Call now;
+ *  redundant phone/city/last-call lines are dropped since the form
+ *  fields below carry that information already. */
 export function LeadPageClient({
   leadId,
   leadCompany,
@@ -98,48 +93,24 @@ export function LeadPageClient({
         </Button>
       </div>
 
-      {/* Hero — identity left, action cluster right. */}
-      <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-foreground text-3xl font-semibold tracking-tight">
-              {leadCompany || "Lead details"}
-            </h1>
-            <Badge variant={statusVariant(meta.status)} dot>
-              {humanize(meta.status)}
-            </Badge>
-          </div>
-          <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            {meta.businessPhone ? (
-              <a
-                href={`tel:${meta.businessPhone}`}
-                className="text-foreground inline-flex items-center gap-1.5 font-mono text-sm transition-colors hover:text-[color:var(--coral)]"
-              >
-                <Phone className="size-3.5" />
-                {meta.businessPhone}
-              </a>
-            ) : null}
-            {meta.city || meta.state ? (
-              <span className="inline-flex items-center gap-1.5">
-                <MapPin className="size-3.5" />
-                {[meta.city, meta.state].filter(Boolean).join(", ")}
-              </span>
-            ) : null}
-            <span>Last contacted {lastContactedPhrase(meta.lastCallAt)}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <CallNowDialog
-            leadId={leadId}
-            availableCampaigns={availableCampaigns}
-            open={callDialogOpen}
-            onOpenChange={setCallDialogOpen}
+      {/* Hero — editable company name + status pill on the left,
+          single primary action (Call now) on the right. */}
+      <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+          <EditableCompanyName
+            initial={leadCompany}
+            onSave={saveField("company")}
           />
-          <Button variant="outline" size="sm" disabled title="Coming soon">
-            <Plus className="size-4" />
-            Note
-          </Button>
+          <Badge variant={statusVariant(meta.status)} dot>
+            {humanize(meta.status)}
+          </Badge>
         </div>
+        <CallNowDialog
+          leadId={leadId}
+          availableCampaigns={availableCampaigns}
+          open={callDialogOpen}
+          onOpenChange={setCallDialogOpen}
+        />
       </header>
 
       {meta.isInbound ? (
@@ -152,9 +123,7 @@ export function LeadPageClient({
         </div>
       ) : null}
 
-      {/* TWO-ZONE BODY
-            LEFT  — every field + at-a-glance facts (collapsible blocks).
-            RIGHT — AI summary on top, activity below in the same column. */}
+      {/* TWO-ZONE BODY */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         {/* LEFT */}
         <div className="flex flex-col gap-3">
@@ -182,8 +151,6 @@ export function LeadPageClient({
             </CollapsibleSection>
           ) : null}
 
-          {/* At-a-glance pipeline facts — moved into the left column
-              under fields per the v3 layout. */}
           <CollapsibleSection title="Pipeline" defaultOpen>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <PipelineRow label="List" value={meta.listName} />
@@ -248,8 +215,7 @@ export function LeadPageClient({
   );
 }
 
-/** Compact label/value pair for the Pipeline block. Tighter than the
- *  modal's old InfoRow — fits 2 columns at lg width comfortably. */
+/** Compact label/value pair for the Pipeline block. */
 function PipelineRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -291,18 +257,4 @@ function AutosaveIndicator({
       {text}
     </div>
   );
-}
-
-function lastContactedPhrase(iso: string | null): string {
-  if (!iso) return "never";
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const min = Math.max(1, Math.floor((now - then) / 60000));
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 2) return "yesterday";
-  if (day < 14) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString();
 }

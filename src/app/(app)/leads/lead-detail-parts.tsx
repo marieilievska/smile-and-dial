@@ -31,8 +31,9 @@ export type StandardField = { key: string; label: string; type: string };
 
 /** Standard lead fields grouped by edit frequency. Contact = most-edited;
  *  Location and Google are reference data that rarely changes. */
+/** Company name is shown (and edited inline) in the hero, so it's
+ *  intentionally not in CONTACT_FIELDS — that would be redundant. */
 export const CONTACT_FIELDS: StandardField[] = [
-  { key: "company", label: "Company", type: "text" },
   { key: "business_phone", label: "Business phone", type: "tel" },
   { key: "business_email", label: "Business email", type: "email" },
   { key: "owner_name", label: "Owner name", type: "text" },
