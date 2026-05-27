@@ -4,7 +4,6 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -19,9 +18,16 @@ const PAGE_SIZES = [25, 50, 100] as const;
  *  page-numbered controls with ellipses. Replaces the v1 Prev/Next pair.
  *  All controls are URL-bound — page size lives in ?per.
  *
+ *  Round 8 — visual rebuild. Buttons no longer use the shadcn Button
+ *  primitive (which gave them a chunky, mismatched feel); they're now
+ *  hand-tuned anchor / button elements sharing a single h-9 height,
+ *  pill rounded-md, and a coherent hover/active palette:
+ *   - default: text-foreground, hover:bg-muted/60
+ *   - current page: bg-foreground text-background (high contrast)
+ *   - disabled: muted-foreground, no hover
+ *
  *  Reusable across list pages: pass `basePath` so it builds the right
- *  URLs (defaults to /leads for backward compatibility with the page
- *  it was first built for). */
+ *  URLs (defaults to /leads for backward compatibility). */
 export function SmartPagination({
   page,
   pageSize,
@@ -55,6 +61,8 @@ export function SmartPagination({
   }
 
   const pageNumbers = computePageNumbers(page, totalPages);
+  const prevDisabled = page <= 1;
+  const nextDisabled = page >= totalPages;
 
   return (
     <div
@@ -77,7 +85,7 @@ export function SmartPagination({
           <Select value={String(pageSize)} onValueChange={setPageSize}>
             <SelectTrigger
               size="sm"
-              className="h-7 w-[68px]"
+              className="h-8 w-[68px]"
               aria-label="Rows per page"
             >
               <SelectValue />
@@ -93,73 +101,101 @@ export function SmartPagination({
         </div>
       </div>
 
-      <div className="flex items-center gap-1">
-        <Button
-          asChild={page > 1}
-          variant="ghost"
-          size="sm"
-          disabled={page <= 1}
-          aria-label="Previous page"
+      {/* Pagination cluster — a single visual unit with consistent
+          spacing. Prev / page numbers / Next all share h-9 and the
+          same rounded-md shape so they read as related controls. */}
+      <nav
+        aria-label="Pagination"
+        className="border-border bg-background flex items-center gap-0.5 rounded-lg border p-1"
+      >
+        <PageButton
+          href={prevDisabled ? null : hrefForPage(page - 1)}
+          ariaLabel="Previous page"
         >
-          {page > 1 ? (
-            <Link href={hrefForPage(page - 1)}>
-              <ChevronLeft className="size-4" />
-              Prev
-            </Link>
-          ) : (
-            <span>
-              <ChevronLeft className="size-4" />
-              Prev
-            </span>
-          )}
-        </Button>
+          <ChevronLeft className="size-4" />
+          <span className="hidden sm:inline">Prev</span>
+        </PageButton>
         {pageNumbers.map((p, i) =>
           p === "…" ? (
             <span
               key={`gap-${i}`}
-              className="text-muted-foreground px-1.5 text-xs"
+              className="text-muted-foreground inline-flex h-9 min-w-9 items-center justify-center text-sm"
+              aria-hidden
             >
               …
             </span>
           ) : (
-            <Button
+            <PageButton
               key={p}
-              asChild={p !== page}
-              variant={p === page ? "default" : "ghost"}
-              size="sm"
-              className="h-7 min-w-7 px-2 text-xs"
-              aria-current={p === page ? "page" : undefined}
-              aria-label={`Page ${p}`}
+              href={p === page ? null : hrefForPage(p)}
+              ariaLabel={`Page ${p}`}
+              active={p === page}
             >
-              {p === page ? (
-                <span>{p}</span>
-              ) : (
-                <Link href={hrefForPage(p)}>{p}</Link>
-              )}
-            </Button>
+              <span className="tabular-nums">{p}</span>
+            </PageButton>
           ),
         )}
-        <Button
-          asChild={page < totalPages}
-          variant="ghost"
-          size="sm"
-          disabled={page >= totalPages}
-          aria-label="Next page"
+        <PageButton
+          href={nextDisabled ? null : hrefForPage(page + 1)}
+          ariaLabel="Next page"
         >
-          {page < totalPages ? (
-            <Link href={hrefForPage(page + 1)}>
-              Next
-              <ChevronRight className="size-4" />
-            </Link>
-          ) : (
-            <span>
-              Next
-              <ChevronRight className="size-4" />
-            </span>
-          )}
-        </Button>
-      </div>
+          <span className="hidden sm:inline">Next</span>
+          <ChevronRight className="size-4" />
+        </PageButton>
+      </nav>
     </div>
+  );
+}
+
+/** Single page-number / arrow button inside the pagination cluster.
+ *
+ *  - Pass `href` to render an anchor (active, clickable state).
+ *  - Pass `href={null}` for the disabled state (current page or out
+ *    of range) — renders a non-interactive span.
+ *  - Pass `active` to flip to the high-contrast filled treatment. */
+function PageButton({
+  href,
+  ariaLabel,
+  active = false,
+  children,
+}: {
+  href: string | null;
+  ariaLabel: string;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  const base =
+    "inline-flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors";
+  if (active) {
+    return (
+      <span
+        aria-current="page"
+        aria-label={ariaLabel}
+        className={`${base} bg-foreground text-background`}
+      >
+        {children}
+      </span>
+    );
+  }
+  if (!href) {
+    return (
+      <span
+        aria-label={ariaLabel}
+        aria-disabled="true"
+        className={`${base} text-muted-foreground/60`}
+      >
+        {children}
+      </span>
+    );
+  }
+  return (
+    <Link
+      href={href}
+      aria-label={ariaLabel}
+      className={`${base} text-foreground hover:bg-muted/70`}
+    >
+      {children}
+    </Link>
   );
 }
 
