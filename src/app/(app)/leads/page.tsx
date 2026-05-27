@@ -211,7 +211,7 @@ export default async function LeadsPage({
         <SelectAllBanner total={total} />
         {leads.length > 0 ? (
           <div className="border-border overflow-x-auto rounded-lg border">
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10">
