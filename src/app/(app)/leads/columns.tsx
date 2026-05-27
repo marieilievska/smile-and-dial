@@ -26,6 +26,9 @@ export type LeadColumn = {
   cell: (lead: DisplayLead) => React.ReactNode;
   /** Plain-text value for the CSV export. */
   text: (lead: DisplayLead) => string;
+  /** Optional Tailwind width hint applied to both the header and the
+   *  body cell so columns line up consistently across rows. */
+  width?: string;
 };
 
 function humanize(value: string | null): string {
@@ -65,6 +68,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "company",
     label: "Company",
     sortKey: "company",
+    width: "min-w-[220px] w-[28%]",
     /** Primary identity cell: company name (strong) on top, phone
      *  (mono, muted) underneath. One column carries the identity so
      *  rows scan as "lead cards" rather than wide flat strips. */
@@ -85,6 +89,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
   {
     key: "phone",
     label: "Phone",
+    width: "w-[140px]",
     cell: (l) => (
       <span className="font-mono text-xs">{l.business_phone || "—"}</span>
     ),
@@ -93,8 +98,11 @@ export const LEAD_COLUMNS: LeadColumn[] = [
   {
     key: "email",
     label: "Email",
+    width: "w-[200px]",
     cell: (l) => (
-      <span className="text-muted-foreground">{l.business_email || "—"}</span>
+      <span className="text-muted-foreground truncate">
+        {l.business_email || "—"}
+      </span>
     ),
     text: (l) => l.business_email ?? "",
   },
@@ -102,6 +110,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "status",
     label: "Status",
     sortKey: "status",
+    width: "w-[140px]",
     cell: (l) => (
       <Badge variant={statusVariant(l.status)} dot>
         {humanize(l.status)}
@@ -112,6 +121,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
   {
     key: "last_outcome",
     label: "Last outcome",
+    width: "w-[150px]",
     cell: (l) => (
       <span className="text-muted-foreground">{humanize(l.last_outcome)}</span>
     ),
@@ -120,13 +130,17 @@ export const LEAD_COLUMNS: LeadColumn[] = [
   {
     key: "list",
     label: "List",
-    cell: (l) => <span className="text-muted-foreground">{l.listName}</span>,
+    width: "w-[180px]",
+    cell: (l) => (
+      <span className="text-muted-foreground block truncate">{l.listName}</span>
+    ),
     text: (l) => l.listName,
   },
   {
     key: "city",
     label: "City",
     sortKey: "city",
+    width: "w-[120px]",
     cell: (l) => <span className="text-muted-foreground">{l.city || "—"}</span>,
     text: (l) => l.city ?? "",
   },
@@ -134,6 +148,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "state",
     label: "State",
     sortKey: "state",
+    width: "w-[80px]",
     cell: (l) => (
       <span className="text-muted-foreground">{l.state || "—"}</span>
     ),
@@ -143,6 +158,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "conversations",
     label: "Conversations",
     sortKey: "conversations",
+    width: "w-[130px]",
     cell: (l) => (
       <span className="text-muted-foreground">{l.conversations}</span>
     ),
@@ -152,6 +168,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "call_attempts",
     label: "Attempts",
     sortKey: "call_attempts",
+    width: "w-[100px]",
     cell: (l) => (
       <span className="text-muted-foreground">{l.call_attempts}</span>
     ),
@@ -161,6 +178,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "last_call",
     label: "Last call",
     sortKey: "last_call_at",
+    width: "w-[110px]",
     cell: (l) => (
       <span className="text-muted-foreground">
         {formatDate(l.last_call_at)}
@@ -172,6 +190,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "next_call",
     label: "Next call",
     sortKey: "next_call_at",
+    width: "w-[110px]",
     cell: (l) => (
       <span className="text-muted-foreground">
         {formatDate(l.next_call_at)}
@@ -182,7 +201,12 @@ export const LEAD_COLUMNS: LeadColumn[] = [
   {
     key: "owner",
     label: "Owner",
-    cell: (l) => <span className="text-muted-foreground">{l.ownerName}</span>,
+    width: "w-[140px]",
+    cell: (l) => (
+      <span className="text-muted-foreground block truncate">
+        {l.ownerName}
+      </span>
+    ),
     text: (l) => l.ownerName,
   },
 ];

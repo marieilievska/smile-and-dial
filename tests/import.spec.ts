@@ -81,20 +81,19 @@ test.describe("CSV import", () => {
     await expect(page.getByText("Import complete")).toBeVisible();
 
     // The valid lead shows up on the Leads page.
-    // v2 — search is debounced URL-bound (no Search button); the
+    // v3 — search moved to the global top bar; submits on Enter. The
     // primary cell stacks company + phone so cell match isn't exact.
     await page.goto("/leads");
-    await page
-      .getByPlaceholder("Search company, phone, or email")
-      .fill(company);
+    const search = page.getByRole("search").getByLabel("Search leads");
+    await search.fill(company);
+    await search.press("Enter");
     await expect(
       page.getByRole("cell", { name: company }).first(),
     ).toBeVisible();
 
     // The mobile-number lead was blocked and never imported.
-    await page
-      .getByPlaceholder("Search company, phone, or email")
-      .fill(mobileCompany);
+    await search.fill(mobileCompany);
+    await search.press("Enter");
     await expect(page.getByRole("cell", { name: mobileCompany })).toHaveCount(
       0,
     );
