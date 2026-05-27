@@ -17,15 +17,21 @@ const PAGE_SIZES = [25, 50, 100] as const;
 
 /** Bottom pagination control: "Showing N–M of total" + rows-per-page +
  *  page-numbered controls with ellipses. Replaces the v1 Prev/Next pair.
- *  All controls are URL-bound — page size lives in ?per. */
+ *  All controls are URL-bound — page size lives in ?per.
+ *
+ *  Reusable across list pages: pass `basePath` so it builds the right
+ *  URLs (defaults to /leads for backward compatibility with the page
+ *  it was first built for). */
 export function SmartPagination({
   page,
   pageSize,
   total,
+  basePath = "/leads",
 }: {
   page: number;
   pageSize: number;
   total: number;
+  basePath?: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -38,14 +44,14 @@ export function SmartPagination({
   function hrefForPage(next: number): string {
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(next));
-    return `/leads?${params.toString()}`;
+    return `${basePath}?${params.toString()}`;
   }
 
   function setPageSize(next: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("per", next);
     params.delete("page");
-    router.replace(`/leads?${params.toString()}`);
+    router.replace(`${basePath}?${params.toString()}`);
   }
 
   const pageNumbers = computePageNumbers(page, totalPages);

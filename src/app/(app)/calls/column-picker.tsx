@@ -40,7 +40,7 @@ export function ColumnPicker() {
       ordered.every((k, i) => k === DEFAULT_COLUMN_KEYS[i]);
     if (isDefault) params.delete("cols");
     else params.set("cols", ordered.join(","));
-    router.push(`/calls?${params.toString()}`);
+    router.replace(`/calls?${params.toString()}`);
   }
 
   return (

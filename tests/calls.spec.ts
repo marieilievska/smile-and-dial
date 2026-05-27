@@ -278,15 +278,20 @@ test.describe("Calls page", () => {
       `/calls?campaign=${campaignId}&sort=duration_seconds&dir=asc`,
     );
     // Alpha is 18s (voicemail), Gamma is 60s (callback). Alpha first.
-    const firstCompanyCell = page.locator("tbody tr td").nth(1);
-    await expect(firstCompanyCell).toHaveText(`E2E Calls Alpha ${stamp}`);
+    // v2 — Company is the first column now (Direction folded into the
+    // primary cell), and the cell stacks company + phone + campaign so
+    // we use toContainText instead of an exact match.
+    const firstCompanyCell = page.locator("tbody tr td").first();
+    await expect(firstCompanyCell).toContainText(`E2E Calls Alpha ${stamp}`);
   });
 
   test("an empty-state message renders when no calls match", async ({
     page,
   }) => {
     await page.goto("/calls?q=__no_such_company__");
-    await expect(page.getByText("No calls yet")).toBeVisible();
+    // v2 splits empty states: filter-restricted reads "No calls match"
+    // (the zero-calls-in-the-system variant still uses "No calls yet").
+    await expect(page.getByText("No calls match")).toBeVisible();
   });
 
   test("the goal_met filter narrows to the goal-met call", async ({ page }) => {
