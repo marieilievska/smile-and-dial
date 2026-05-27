@@ -48,3 +48,4 @@ next-env.d.ts
 /playwright/.cache/
 /playwright/.auth/
 .playwright-mcp/
+*.png
