@@ -269,6 +269,65 @@ export async function fetchActionQueue(
   return items.slice(0, 8);
 }
 
+/** Hour-by-hour appointment trend for today's hero sparkline + a pace
+ *  comparison: "by this time yesterday we had N appointments". */
+export type AppointmentPace = {
+  /** 24-bucket array — appointments booked in each hour today (0..23). */
+  hourly: number[];
+  /** Appointments yesterday up to the same wall-clock minute. */
+  yesterdayByNow: number;
+  /** Total appointments yesterday across the whole day (closing total). */
+  yesterdayTotal: number;
+};
+
+export async function fetchAppointmentPace(
+  supabase: SupabaseClient,
+): Promise<AppointmentPace> {
+  const now = new Date();
+  const todayStartDate = new Date(now);
+  todayStartDate.setHours(0, 0, 0, 0);
+  const yesterdayStartDate = new Date(todayStartDate);
+  yesterdayStartDate.setDate(yesterdayStartDate.getDate() - 1);
+  const yesterdayEndDate = new Date(todayStartDate);
+  yesterdayEndDate.setMilliseconds(-1);
+
+  // "By now yesterday" = wall-clock from yesterday's midnight up to the
+  // same hour:minute as right now.
+  const yesterdaySameTime = new Date(yesterdayStartDate);
+  yesterdaySameTime.setHours(now.getHours(), now.getMinutes(), 0, 0);
+
+  const [{ data: todayApps }, { data: yestApps }] = await Promise.all([
+    supabase
+      .from("calls")
+      .select("created_at")
+      .eq("goal_met", true)
+      .gte("created_at", todayStartDate.toISOString()),
+    supabase
+      .from("calls")
+      .select("created_at")
+      .eq("goal_met", true)
+      .gte("created_at", yesterdayStartDate.toISOString())
+      .lte("created_at", yesterdayEndDate.toISOString()),
+  ]);
+
+  const hourly = new Array<number>(24).fill(0);
+  for (const r of todayApps ?? []) {
+    const h = new Date(r.created_at).getHours();
+    if (h >= 0 && h < 24) hourly[h] += 1;
+  }
+
+  const yesterdayRows = yestApps ?? [];
+  const yesterdayByNow = yesterdayRows.filter(
+    (r) => new Date(r.created_at).getTime() <= yesterdaySameTime.getTime(),
+  ).length;
+
+  return {
+    hourly,
+    yesterdayByNow,
+    yesterdayTotal: yesterdayRows.length,
+  };
+}
+
 export type ActiveCall = {
   id: string;
   status: "queued" | "dialing" | "ringing" | "in_progress";

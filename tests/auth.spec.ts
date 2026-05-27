@@ -10,7 +10,7 @@ test.describe("authentication", () => {
 
     await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByLabel("Email")).toBeVisible();
-    await expect(page.getByLabel("Password")).toBeVisible();
+    await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
   });
 
   test("a user can sign in and reach the app", async ({ page }) => {
@@ -24,7 +24,9 @@ test.describe("authentication", () => {
   test("invalid credentials show an error", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel("Email").fill("wrong@example.com");
-    await page.getByLabel("Password").fill("definitely-not-correct");
+    await page
+      .getByLabel("Password", { exact: true })
+      .fill("definitely-not-correct");
     await page.getByRole("button", { name: "Sign in" }).click();
 
     await expect(page.getByRole("alert")).toBeVisible();

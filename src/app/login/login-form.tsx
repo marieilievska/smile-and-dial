@@ -1,17 +1,13 @@
 "use client";
 
+import { AlertCircle } from "lucide-react";
+import Link from "next/link";
 import { useActionState } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { login, type LoginState } from "@/lib/auth/actions";
 
 export function LoginForm() {
@@ -21,45 +17,69 @@ export function LoginForm() {
   );
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Sign in</CardTitle>
-        <CardDescription>
-          Enter your email and password to continue.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form action={formAction} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-            />
-          </div>
-          <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-8">
+      {/* Heading — drops the Card wrapper, lets the form be the form */}
+      <div className="flex flex-col gap-2">
+        <h2 className="text-foreground text-2xl font-semibold tracking-tight">
+          Sign in to continue
+        </h2>
+        <p className="text-muted-foreground text-sm">
+          Use the email your admin invited you with.
+        </p>
+      </div>
+
+      <form action={formAction} className="flex flex-col gap-5">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="email">Email</Label>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            autoFocus
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-baseline justify-between">
             <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
+            <Link
+              href="/auth/forgot-password"
+              className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
+            >
+              Forgot password?
+            </Link>
           </div>
-          {state?.error ? (
-            <p role="alert" className="text-destructive text-sm">
-              {state.error}
-            </p>
-          ) : null}
-          <Button type="submit" className="mt-2" disabled={pending}>
+          <PasswordInput
+            id="password"
+            name="password"
+            autoComplete="current-password"
+            required
+          />
+        </div>
+
+        {state?.error ? (
+          <div
+            role="alert"
+            className="border-destructive/30 bg-destructive/5 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2 text-sm"
+          >
+            <AlertCircle className="mt-0.5 size-4 shrink-0" />
+            <p>{state.error}</p>
+          </div>
+        ) : null}
+
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <p className="text-muted-foreground text-xs">
+            <kbd className="bg-muted text-foreground border-border rounded border px-1 py-0.5 font-mono text-[10px]">
+              ↵
+            </kbd>{" "}
+            Enter to sign in
+          </p>
+          <Button type="submit" disabled={pending}>
             {pending ? "Signing in…" : "Sign in"}
           </Button>
-        </form>
-      </CardContent>
-    </Card>
+        </div>
+      </form>
+    </div>
   );
 }

@@ -135,37 +135,30 @@ test.describe("Today page", () => {
     await expect(page).toHaveURL(/\/today(\?|$)/);
   });
 
-  test("Today page renders greeting + three hero KPIs", async ({ page }) => {
+  test("Today page renders greeting + hero pace + live calls band", async ({
+    page,
+  }) => {
     await page.goto("/today");
     // Greeting line.
     await expect(
       page.getByRole("heading", { name: /good (morning|afternoon|evening)/i }),
     ).toBeVisible();
-    // Three hero KPIs.
-    await expect(
-      page.locator('[data-testid="hero-kpi"][data-label="Calls today"]'),
-    ).toBeVisible();
-    await expect(
-      page.locator('[data-testid="hero-kpi"][data-label="Appointments today"]'),
-    ).toBeVisible();
-    await expect(
-      page.locator('[data-testid="hero-kpi"][data-label="Pending callbacks"]'),
-    ).toBeVisible();
-    // Mock-data badge on Appointments (since no LIVE flags are set).
-    await expect(
-      page
-        .locator('[data-testid="hero-kpi"][data-label="Appointments today"]')
-        .getByTestId("hero-kpi-badge"),
-    ).toContainText("Mock data");
-    // Action queue is present.
+    // Hero pace block (single big number — Appointments today).
+    await expect(page.getByTestId("hero-pace")).toBeVisible();
+    // Pace strip (supporting metrics).
+    await expect(page.getByTestId("pace-strip")).toContainText("calls");
+    await expect(page.getByTestId("pace-strip")).toContainText("connect rate");
+    // Action queue section visible.
     await expect(page.getByTestId("action-queue")).toBeVisible();
-    // Live calls widget renders (empty in mock mode).
-    const liveCalls = page.getByTestId("live-calls-widget");
-    await expect(liveCalls).toBeVisible();
-    await expect(liveCalls).toContainText("No active calls.");
+    // Live calls band renders (idle copy in mock mode with no active calls).
+    const band = page.getByTestId("live-calls-band");
+    await expect(band).toBeVisible();
+    await expect(band).toContainText("Idle");
+    // Mock-data pill on the band when no LIVE flags are set.
+    await expect(band).toContainText("Mock data");
   });
 
-  test("active call appears in the Live calls widget", async ({ page }) => {
+  test("active call appears in the Live calls band", async ({ page }) => {
     // Seed a call in 'in_progress' status — i.e. live.
     const { data: call } = await admin
       .from("calls")
@@ -184,11 +177,14 @@ test.describe("Today page", () => {
 
     try {
       await page.goto("/today");
-      const liveCalls = page.getByTestId("live-calls-widget");
-      await expect(liveCalls).toBeVisible();
-      await expect(liveCalls).toContainText(`E2E Today Lead ${stamp}`);
-      // Row carries the status pill.
-      const row = liveCalls.getByTestId("live-call-row").first();
+      const band = page.getByTestId("live-calls-band");
+      await expect(band).toBeVisible();
+      // The "N calls in progress" header replaces the idle copy.
+      await expect(band).toContainText("call in progress");
+      // The lead appears in the list.
+      await expect(band).toContainText(`E2E Today Lead ${stamp}`);
+      // A row carries the status label.
+      const row = band.getByTestId("live-call-row").first();
       await expect(row).toContainText("On call");
     } finally {
       await admin.from("calls").delete().eq("id", liveCallId);
@@ -223,10 +219,9 @@ test.describe("Today page", () => {
         .locator('[data-testid="action-queue-item"][data-urgency="high"]')
         .first(),
     ).toBeVisible();
-    // Pending callbacks hero now shows ≥1.
-    const pendingHero = page.locator(
-      '[data-testid="hero-kpi"][data-label="Pending callbacks"]',
-    );
-    await expect(pendingHero).toContainText("1");
+    // Pending callbacks now sit in the pace strip — assert the strip
+    // mentions the pending callbacks label with at least 1.
+    const strip = page.getByTestId("pace-strip");
+    await expect(strip).toContainText("pending callbacks");
   });
 });
