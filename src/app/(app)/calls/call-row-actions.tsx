@@ -1,18 +1,18 @@
 "use client";
 
-import { ExternalLink, PhoneCall, Play } from "lucide-react";
+import { PhoneCall, Play } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 
 /** Hover-only action cluster at the right edge of every call row.
  *
- *  v2 (round 5) — dropped the kebab dropdown entirely. The row itself
- *  is the click target for opening the detail modal, so a separate
- *  "Open detail" menu item was redundant. The two leftover lead-level
- *  actions (open the lead, call them again) are now visible buttons
- *  that match the Listen affordance — same hover-only behavior, same
- *  ghost button styling.
+ *  v3 (round 7) — dropped the "Open lead" button. The lead's company
+ *  name in the primary cell is now a real <Link>, so clicking the
+ *  company name navigates to the lead and middle-click / cmd-click
+ *  opens it in a new tab. That left Listen + Call lead as the only
+ *  hover affordances, which keeps the sticky action cell narrow and
+ *  uncluttered.
  *
  *  Each handler stops click propagation so the row-level "open the
  *  detail modal" navigation doesn't also fire when the user is
@@ -38,12 +38,6 @@ export function CallRowActions({
     const params = new URLSearchParams(searchParams.toString());
     params.set("call", callId);
     router.push(`/calls?${params.toString()}`, { scroll: false });
-  }
-
-  function openLead(event: React.MouseEvent) {
-    event.stopPropagation();
-    if (!leadId) return;
-    router.push(`/leads/${leadId}`);
   }
 
   function callBack(event: React.MouseEvent) {
@@ -73,30 +67,17 @@ export function CallRowActions({
         </Button>
       ) : null}
       {leadId ? (
-        <>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={openLead}
-            className="h-7 px-2"
-            title="Open the lead's detail page"
-          >
-            <ExternalLink className="size-3.5" />
-            Open lead
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={callBack}
-            className="h-7 px-2 text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]"
-            title="Call this lead again"
-          >
-            <PhoneCall className="size-3.5" />
-            Call lead
-          </Button>
-        </>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={callBack}
+          className="h-7 px-2 text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]"
+          title="Call this lead again"
+        >
+          <PhoneCall className="size-3.5" />
+          Call lead
+        </Button>
       ) : null}
     </div>
   );

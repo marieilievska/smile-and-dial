@@ -1,4 +1,5 @@
 import { Mic, Phone, PhoneIncoming } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { outcomeLabel } from "@/lib/labels";
@@ -115,9 +116,26 @@ export const CALL_COLUMNS: CallColumn[] = [
             aria-label={c.direction === "inbound" ? "Inbound" : "Outbound"}
           />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="text-foreground truncate text-sm font-medium">
-              {c.company || "Unknown lead"}
-            </span>
+            {/* Company name is the lead deep-link. Plain <Link>s give
+                us middle-click → new tab and cmd/ctrl-click → new tab
+                for free. The row's open() handler in call-row.tsx
+                bails when the click target is inside an <a>, so this
+                Link doesn't need onClick={stopPropagation} — which is
+                important because columns.tsx is consumed by a server
+                component and onClick on server JSX is a runtime
+                error in Next 16. */}
+            {c.leadId ? (
+              <Link
+                href={`/leads/${c.leadId}`}
+                className="text-foreground truncate text-sm font-medium underline-offset-2 hover:text-[color:var(--coral)] hover:underline"
+              >
+                {c.company || "Unknown lead"}
+              </Link>
+            ) : (
+              <span className="text-foreground truncate text-sm font-medium">
+                {c.company || "Unknown lead"}
+              </span>
+            )}
             <span className="text-muted-foreground truncate text-[11px]">
               {c.business_phone ? (
                 <span className="font-mono">{c.business_phone}</span>

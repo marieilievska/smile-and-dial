@@ -417,8 +417,15 @@ test.describe("Calls page", () => {
     await page.goto(
       `/calls?q=${encodeURIComponent(`E2E Calls Detail ${stamp}`)}`,
     );
-    // Click the row.
-    await page.getByRole("cell", { name: `E2E Calls Detail ${stamp}` }).click();
+    // Click the row — but on a cell that ISN'T the company name (which
+    // is now a real <Link> to the lead, so clicking it would navigate
+    // away instead of opening the modal). The Started cell works.
+    await page
+      .getByRole("row")
+      .filter({ hasText: `E2E Calls Detail ${stamp}` })
+      .locator("td")
+      .nth(1)
+      .click();
     // URL updates with ?call=…
     await expect(page).toHaveURL(/call=/);
     // The summary text renders inside the dialog.
@@ -429,11 +436,12 @@ test.describe("Calls page", () => {
     await expect(
       page.getByText("Hi, this is Sara at Referrizer."),
     ).toBeVisible();
-    // And the "Open lead" button links to the right lead detail.
-    await expect(page.getByRole("link", { name: "Open lead" })).toHaveAttribute(
-      "href",
-      `/leads/${detailLead.data!.id}`,
-    );
+    // The lead's company name (which is the modal title) links to
+    // the lead detail page.
+    const sheet = page.getByRole("dialog");
+    await expect(
+      sheet.getByRole("link", { name: `E2E Calls Detail ${stamp}` }),
+    ).toHaveAttribute("href", `/leads/${detailLead.data!.id}`);
 
     // Close the sheet — the URL drops the call param.
     await page.keyboard.press("Escape");
