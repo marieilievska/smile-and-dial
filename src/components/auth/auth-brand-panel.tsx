@@ -41,14 +41,8 @@ export function AuthBrandPanel({
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="relative flex size-2">
-              <span
-                className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-80"
-                style={{ backgroundColor: "var(--coral)" }}
-              />
-              <span
-                className="relative inline-flex size-2 rounded-full"
-                style={{ backgroundColor: "var(--coral)" }}
-              />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-80" />
+              <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
             </span>
             <p className="text-xs font-medium tracking-wide uppercase opacity-80">
               3 calls in progress
@@ -129,18 +123,14 @@ function FauxCallRow({
     >
       <span className="relative flex size-1.5 shrink-0">
         {pulsing ? (
-          <span
-            className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-80"
-            style={{ backgroundColor: "var(--coral)" }}
-          />
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-80" />
         ) : null}
         <span
           className={
             pulsing
-              ? "relative inline-flex size-1.5 rounded-full"
+              ? "relative inline-flex size-1.5 rounded-full bg-emerald-400"
               : "relative inline-flex size-1.5 rounded-full bg-amber-400"
           }
-          style={pulsing ? { backgroundColor: "var(--coral)" } : undefined}
         />
       </span>
       <span className="w-12 text-[10px] tracking-wider uppercase opacity-60">
