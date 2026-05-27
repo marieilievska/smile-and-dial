@@ -17,7 +17,7 @@ export function EditableCompanyName({
 }) {
   const [value, setValue] = useState(initial ?? "");
   const saved = useRef(initial ?? "");
-  const ref = useRef<HTMLSpanElement>(null);
+  const ref = useRef<HTMLHeadingElement>(null);
 
   function commit() {
     const next = value.trim();
@@ -39,17 +39,17 @@ export function EditableCompanyName({
       suppressContentEditableWarning
       spellCheck={false}
       data-testid="editable-company-name"
-      onInput={(e) => setValue((e.target as HTMLSpanElement).innerText)}
+      onInput={(e) => setValue((e.target as HTMLHeadingElement).innerText)}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
-          (e.target as HTMLSpanElement).blur();
+          (e.target as HTMLHeadingElement).blur();
         }
         if (e.key === "Escape") {
           if (ref.current) ref.current.textContent = saved.current;
           setValue(saved.current);
-          (e.target as HTMLSpanElement).blur();
+          (e.target as HTMLHeadingElement).blur();
         }
       }}
       className="text-foreground hover:bg-muted/40 focus:bg-muted/20 focus:ring-ring/30 -mx-2 max-w-full rounded-md px-2 py-0.5 text-3xl font-semibold tracking-tight transition-colors outline-none focus:ring-2"
