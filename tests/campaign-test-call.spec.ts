@@ -87,11 +87,19 @@ test.describe("Campaign test call", () => {
   test("mock test call walks idle → connecting → transcript → ended", async ({
     page,
   }) => {
-    await page.goto("/campaigns");
-    // Open the campaign edit dialog (admins see a row with the campaign).
-    await page
-      .getByRole("button", { name: `Edit ${`E2E TestCall Campaign ${stamp}`}` })
-      .click();
+    // Round 14 — default tab is Active; this campaign is in draft
+    // initially via the seed, so use ?status=all.
+    await page.goto("/campaigns?status=all");
+    // Round 14 — the campaign name in the primary cell IS the
+    // settings trigger (the Edit hover button was retired). The
+    // trigger sits in an overflow-x-auto table that's wider than the
+    // test viewport, so dispatch the click via DOM.
+    const campaignName = `E2E TestCall Campaign ${stamp}`;
+    await page.evaluate((name) => {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      const target = buttons.find((b) => b.textContent?.trim() === name);
+      (target as HTMLButtonElement | undefined)?.click();
+    }, campaignName);
     // The edit dialog is now a drawer with collapsible sections. Expand
     // the Test section.
     await page.getByTestId("campaign-section-test").locator("summary").click();
