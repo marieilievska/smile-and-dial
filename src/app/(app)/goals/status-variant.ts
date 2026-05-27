@@ -1,25 +1,30 @@
 import type { GoalStatus } from "@/lib/goals/goal-statuses";
 
-/** Goal-pipeline status palette, matching the semantic system used on
- *  Calls / Callbacks / Leads:
- *   - goal_met   → coral    (active hand-off, needs follow-up)
- *   - attended   → coral    (active follow-up in progress)
- *   - no_show    → destructive (rebooking needed)
- *   - sale       → success  (win!)
- *   - closed     → secondary (audit done) */
+/** Goal-pipeline status palette — the single source of truth for how
+ *  each pipeline status reads visually across the app (table, board,
+ *  lead detail badge, leads-list pill).
+ *
+ *  Semantics:
+ *   - goal_met   → coral        (active hand-off, needs human follow-up)
+ *   - attended   → success      (positive milestone — they actually showed)
+ *   - no_show    → warning      (didn't attend; needs rebooking attention,
+ *                                but not lost)
+ *   - sale       → success      (the win)
+ *   - closed     → destructive  (closed lost — didn't convert) */
 export function goalStatusVariant(
   status: GoalStatus,
-): "coral" | "success" | "destructive" | "secondary" {
+): "coral" | "success" | "warning" | "destructive" {
   switch (status) {
     case "goal_met":
-    case "attended":
       return "coral";
+    case "attended":
+      return "success";
     case "no_show":
-      return "destructive";
+      return "warning";
     case "sale":
       return "success";
     case "closed":
-      return "secondary";
+      return "destructive";
   }
 }
 
@@ -28,7 +33,9 @@ export const GOAL_STATUS_LABELS: Record<GoalStatus, string> = {
   attended: "Attended",
   no_show: "No show",
   sale: "Sale",
-  closed: "Closed",
+  // "Closed lost" is unambiguous (vs. plain "Closed", which an SDR
+  // could read as "successfully closed out"). Renamed in round 11.
+  closed: "Closed lost",
 };
 
 /** The "natural next step" for each status. Drives the primary

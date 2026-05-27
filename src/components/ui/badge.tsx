@@ -15,6 +15,10 @@ const badgeVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
         success: "bg-success/10 text-success",
+        // Amber/yellow attention pill. Used for "needs human follow-up
+        // but not destructive" states — e.g. no-shows on the goals
+        // pipeline, where the lead didn't attend but isn't lost.
+        warning: "bg-warning/10 text-warning",
         // Coral is luminosity-close to white, so a 10% fill is nearly
         // invisible. Mix with white via color-mix to get a stable
         // ~18%-strength pink tint that reads as a real pill at any

@@ -13,7 +13,10 @@ export const LEAD_STATUS_LABELS: Record<string, string> = {
   goal_met: "Goal met",
   attended: "Attended",
   no_show: "No show",
-  closed: "Closed",
+  // Renamed round 11: "Closed" was ambiguous (could read as "closed
+  // successfully"); SDRs reliably read "Closed lost" as the terminal
+  // negative outcome.
+  closed: "Closed lost",
   sale: "Sale",
   dnc: "DNC",
   email_replied: "Email replied",
