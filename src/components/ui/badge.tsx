@@ -15,8 +15,12 @@ const badgeVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
         success: "bg-success/10 text-success",
+        // Coral is luminosity-close to white, so a 10% fill is nearly
+        // invisible. Mix with white via color-mix to get a stable
+        // ~18%-strength pink tint that reads as a real pill at any
+        // theme. Border picks up the same hue at a higher mix.
         coral:
-          "bg-[color:var(--coral)]/10 text-[color:var(--coral)] dark:bg-[color:var(--coral)]/15",
+          "[background-color:color-mix(in_oklab,var(--coral)_18%,transparent)] [color:color-mix(in_oklab,var(--coral)_85%,black)] dark:[background-color:color-mix(in_oklab,var(--coral)_22%,transparent)] dark:[color:var(--coral)]",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:
