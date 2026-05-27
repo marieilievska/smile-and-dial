@@ -39,7 +39,15 @@ export function LiveCallsBand({
   return (
     <section
       data-testid="live-calls-band"
-      className="border-border from-card via-card to-muted/30 relative overflow-hidden rounded-2xl border bg-gradient-to-br p-6 shadow-sm"
+      data-state={idle ? "idle" : "active"}
+      style={
+        !idle
+          ? {
+              borderColor: "color-mix(in oklab, var(--coral) 35%, transparent)",
+            }
+          : undefined
+      }
+      className="border-border from-card via-card to-muted/30 animate-in fade-in slide-in-from-bottom-2 fill-mode-both relative overflow-hidden rounded-2xl border bg-gradient-to-br p-6 shadow-sm delay-75 duration-500"
     >
       {/* Header line — status + count */}
       <div className="flex items-center justify-between gap-3">
@@ -57,8 +65,14 @@ export function LiveCallsBand({
           ) : (
             <>
               <span aria-hidden className="relative flex size-2.5 shrink-0">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
-                <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
+                <span
+                  className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
+                  style={{ backgroundColor: "var(--coral)" }}
+                />
+                <span
+                  className="relative inline-flex size-2.5 rounded-full"
+                  style={{ backgroundColor: "var(--coral)" }}
+                />
               </span>
               <p className="text-foreground text-base font-medium">
                 {total} {total === 1 ? "call" : "calls"} in progress
@@ -92,13 +106,21 @@ export function LiveCallsBand({
                 {/* Per-call pulse dot, animates only when in_progress */}
                 <span aria-hidden className="relative flex size-2 shrink-0">
                   {call.status === "in_progress" ? (
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-70" />
+                    <span
+                      className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-70"
+                      style={{ backgroundColor: "var(--coral)" }}
+                    />
                   ) : null}
                   <span
                     className={
                       call.status === "in_progress"
-                        ? "relative inline-flex size-2 rounded-full bg-emerald-500"
+                        ? "relative inline-flex size-2 rounded-full"
                         : "relative inline-flex size-2 rounded-full bg-amber-500"
+                    }
+                    style={
+                      call.status === "in_progress"
+                        ? { backgroundColor: "var(--coral)" }
+                        : undefined
                     }
                   />
                 </span>

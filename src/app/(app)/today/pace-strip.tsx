@@ -1,13 +1,15 @@
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 
-/** Tight horizontal band of supporting metrics. Replaces the v1 footer
- *  sentence ("Today so far: 20% connect rate…") with something that
- *  reads at a glance instead of word-by-word. */
+/** Horizontal band of 4 supporting metrics. Stacked label-above-value
+ *  layout reads as a band of stats, not a runtogether sentence.
+ *
+ *  v2 — label moved above the number, numbers are larger and use
+ *  font-medium (not semibold), dividers are softer and shorter. */
 export function PaceStrip({ items }: { items: PaceItem[] }) {
   return (
     <section
       data-testid="pace-strip"
-      className="border-border bg-card flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border px-5 py-3"
+      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-2 gap-x-4 gap-y-5 rounded-xl border px-6 py-5 delay-200 duration-500 sm:grid-cols-4"
     >
       {items.map((item, i) => (
         <PaceEntry key={item.label} item={item} divider={i > 0} />
@@ -26,17 +28,21 @@ export type PaceItem = {
 function PaceEntry({ item, divider }: { item: PaceItem; divider: boolean }) {
   return (
     <div
-      className={`flex items-baseline gap-2 ${
-        divider ? "border-border md:border-l md:pl-6" : ""
+      className={`flex flex-col gap-1 ${
+        divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""
       }`}
     >
-      <p className="text-foreground text-lg font-semibold tabular-nums">
-        {item.value}
+      <p className="text-muted-foreground text-[10px] font-medium tracking-[0.16em] uppercase">
+        {item.label}
       </p>
-      <p className="text-muted-foreground text-xs">{item.label}</p>
-      {item.delta !== undefined && item.delta !== null ? (
-        <DeltaPill value={item.delta} />
-      ) : null}
+      <div className="flex items-baseline gap-2">
+        <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
+          {item.value}
+        </p>
+        {item.delta !== undefined && item.delta !== null ? (
+          <DeltaPill value={item.delta} />
+        ) : null}
+      </div>
     </div>
   );
 }

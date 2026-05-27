@@ -1,13 +1,16 @@
 import {
   CalendarClock,
-  CheckCircle2,
   MailOpen,
   PauseCircle,
   PhoneMissed,
   PhoneOff,
+  Sparkles,
   Target,
 } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+
+import { Button } from "@/components/ui/button";
 
 import {
   fetchActionQueue,
@@ -136,6 +139,27 @@ export default async function TodayPage() {
   });
   const mockMode = isMockMode();
 
+  // AI-aware subtitle — server-computed one-liner that reflects what's
+  // actually happening right now. Priority: overdue callbacks → live
+  // calls → pace vs yesterday → idle quiet.
+  const paceDelta = counts.appointmentsToday - pace.yesterdayByNow;
+  let subtitle: string;
+  if (counts.overdueCallbacks > 0) {
+    subtitle = `${counts.overdueCallbacks} overdue callback${counts.overdueCallbacks === 1 ? "" : "s"} — let's clear those first.`;
+  } else if (activeCalls.total > 0) {
+    subtitle = `${activeCalls.total} AI call${activeCalls.total === 1 ? "" : "s"} running right now. Nice momentum.`;
+  } else if (pace.yesterdayByNow === 0 && counts.appointmentsToday === 0) {
+    subtitle = "Quiet so far. The AI is dialing in the background.";
+  } else if (paceDelta >= 2) {
+    subtitle = `Ahead of yesterday's pace by ${paceDelta} — strong day so far.`;
+  } else if (paceDelta <= -2) {
+    subtitle = `Behind yesterday by ${Math.abs(paceDelta)} — let's pick it up.`;
+  } else if (counts.appointmentsToday > 0) {
+    subtitle = `${counts.appointmentsToday} appointment${counts.appointmentsToday === 1 ? "" : "s"} booked — keeping pace with yesterday.`;
+  } else {
+    subtitle = "The AI is handling things. You're free to step away.";
+  }
+
   // Pace strip — supporting metrics with deltas.
   const paceItems: PaceItem[] = [
     {
@@ -169,12 +193,23 @@ export default async function TodayPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 p-8 lg:p-12">
-      {/* Greeting + date — generous typography sets the tone */}
-      <header className="flex flex-col gap-1">
-        <h1 className="text-foreground text-3xl font-semibold tracking-tight">
+      {/* Greeting + AI-aware subtitle + date — generous typography sets the tone */}
+      <header
+        data-testid="today-greeting"
+        className="animate-in fade-in slide-in-from-bottom-1 flex flex-col gap-1.5 duration-500"
+      >
+        <h1 className="text-foreground text-3xl font-semibold tracking-tight md:text-4xl">
           {greeting}
         </h1>
-        <p className="text-muted-foreground text-sm">{dateStr}</p>
+        <p
+          data-testid="today-subtitle"
+          className="text-foreground/80 text-base md:text-lg"
+        >
+          {subtitle}
+        </p>
+        <p className="text-muted-foreground text-xs tracking-wide uppercase">
+          {dateStr}
+        </p>
       </header>
 
       {/* Live calls band — the AI heartbeat. Pulses while active. */}
@@ -196,7 +231,10 @@ export default async function TodayPage() {
       <PaceStrip items={paceItems} />
 
       {/* Action queue — cards, not rows */}
-      <section data-testid="action-queue" className="flex flex-col gap-4">
+      <section
+        data-testid="action-queue"
+        className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-4 delay-300 duration-500"
+      >
         <div className="flex items-baseline justify-between">
           <h2 className="text-foreground text-lg font-semibold tracking-tight">
             Up next
@@ -234,23 +272,31 @@ export default async function TodayPage() {
 }
 
 function EmptyState({ mockMode, idle }: { mockMode: boolean; idle: boolean }) {
+  const detail = mockMode
+    ? "Mock mode running quietly. Real action items show up here when calls land."
+    : idle
+      ? "The dialer is idle and nothing needs your attention."
+      : "The AI is handling things in the background. You're free to step away.";
+
   return (
     <div
       data-testid="action-queue-empty"
-      className="border-border bg-muted/20 flex flex-col items-center gap-3 rounded-2xl border border-dashed py-12 text-center"
+      className="border-border/70 bg-muted/10 flex flex-col items-center gap-4 rounded-2xl border border-dashed px-6 py-14 text-center"
     >
-      <div className="flex size-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-        <CheckCircle2 className="size-6" />
+      <div className="text-muted-foreground/80 inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.18em] uppercase">
+        <Sparkles className="size-3" />
+        All clear
       </div>
-      <div className="flex flex-col gap-1">
-        <p className="text-foreground text-base font-medium">All clear.</p>
-        <p className="text-muted-foreground text-sm">
-          {mockMode
-            ? "Mock mode running quietly. Real action items show up here when calls land."
-            : idle
-              ? "The dialer is idle and nothing needs your attention."
-              : "The AI is handling things in the background. You're free to step away."}
-        </p>
+      <p className="text-foreground/90 max-w-md text-base leading-relaxed">
+        {detail}
+      </p>
+      <div className="mt-1 flex items-center gap-2">
+        <Button asChild size="sm" variant="outline">
+          <Link href="/calls">View call activity</Link>
+        </Button>
+        <Button asChild size="sm" variant="ghost">
+          <Link href="/leads">Browse leads</Link>
+        </Button>
       </div>
     </div>
   );

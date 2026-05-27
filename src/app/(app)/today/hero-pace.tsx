@@ -1,7 +1,11 @@
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 
 /** The page's one big number. Appointments today, with an inline
- *  sparkline of hourly bookings and a pace-vs-yesterday comparison. */
+ *  sparkline of hourly bookings and a pace-vs-yesterday comparison.
+ *
+ *  v2 — typography is larger (7xl, medium weight), spacing is more
+ *  generous (p-10, gap-3), and the sparkline's "now" bar uses coral so
+ *  the eye lands on the present moment. */
 export function HeroPace({
   current,
   yesterdayByNow,
@@ -26,14 +30,14 @@ export function HeroPace({
   return (
     <section
       data-testid="hero-pace"
-      className="border-border bg-card rounded-2xl border p-8"
+      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both rounded-2xl border p-8 delay-100 duration-500 md:p-10"
     >
-      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div className="flex flex-col gap-2">
-          <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
+      <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between md:gap-8">
+        <div className="flex flex-col gap-3">
+          <p className="text-muted-foreground text-[10px] font-medium tracking-[0.18em] uppercase">
             Appointments today
           </p>
-          <p className="text-foreground text-6xl leading-none font-semibold tracking-tight tabular-nums">
+          <p className="text-foreground text-6xl leading-none font-medium tracking-tight tabular-nums md:text-7xl">
             {current}
           </p>
           <PaceLine
@@ -106,8 +110,9 @@ function PaceLine({
   );
 }
 
-/** Inline 24-bar hourly sparkline. Current hour gets a small accent so
- *  the eye lands on "now". */
+/** Inline 24-bar hourly sparkline. Current hour gets a coral accent so
+ *  the eye lands on "now". Past hours use the primary (navy) at varying
+ *  opacity; future hours sit faintly in the background. */
 function HourlySparkline({ hourly }: { hourly: number[] }) {
   const width = 320;
   const height = 80;
@@ -120,7 +125,7 @@ function HourlySparkline({ hourly }: { hourly: number[] }) {
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className="text-primary h-20 w-full md:w-80"
+      className="h-20 w-full md:w-80"
       role="img"
       aria-label="Appointments booked per hour today"
     >
@@ -130,6 +135,14 @@ function HourlySparkline({ hourly }: { hourly: number[] }) {
         const y = padding + (innerH - bh);
         const isFuture = h > currentHour;
         const isNow = h === currentHour;
+        // Now bar uses coral (var(--coral)). Past hours use primary
+        // (navy). Future hours fade into the background.
+        const fill = isNow
+          ? "var(--coral)"
+          : isFuture
+            ? "var(--muted-foreground)"
+            : "var(--primary)";
+        const opacity = isFuture ? 0.18 : count === 0 ? 0.18 : isNow ? 1 : 0.55;
         return (
           <rect
             key={h}
@@ -137,8 +150,8 @@ function HourlySparkline({ hourly }: { hourly: number[] }) {
             y={y}
             width={Math.max(1, barW - 2)}
             height={Math.max(2, bh)}
-            fill="currentColor"
-            opacity={isFuture ? 0.1 : count === 0 ? 0.15 : isNow ? 1 : 0.7}
+            fill={fill}
+            opacity={opacity}
             rx={2}
           />
         );
@@ -149,7 +162,7 @@ function HourlySparkline({ hourly }: { hourly: number[] }) {
         x2={width - padding}
         y2={height - padding}
         stroke="currentColor"
-        strokeOpacity={0.15}
+        strokeOpacity={0.12}
       />
     </svg>
   );
