@@ -150,8 +150,20 @@ export default async function LeadDetailPage({
     retryCounter: lead.retry_counter ?? 0,
     restingUntil: lead.resting_until,
     nextCallAt: lead.next_call_at,
+    lastCallAt: lead.last_call_at ?? null,
+    businessPhone: lead.business_phone ?? null,
+    city: lead.city ?? null,
+    state: lead.state ?? null,
     aiSummary: lead.ai_summary,
   };
+
+  // Lightweight projection of the feed for the "since-you-last-looked"
+  // chip. Just timestamps + a short one-line description; keeps the
+  // server/client payload small.
+  const feedItemsForChip = feedItems.map((item) => ({
+    at: item.at,
+    description: describeFeedItem(item),
+  }));
 
   return (
     <LeadPageClient
@@ -163,6 +175,47 @@ export default async function LeadDetailPage({
       meta={meta}
       availableCampaigns={availableCampaigns}
       activityFeed={<LeadActivityFeed items={feedItems} />}
+      feedItemsForChip={feedItemsForChip}
     />
   );
+}
+
+/** One-liner summary of a feed item for the since-last-viewed chip.
+ *  Mirrors the activity-feed's headline strings but flattened so we
+ *  can pass plain strings into a client component without dragging
+ *  the FeedLine component along. */
+function describeFeedItem(item: FeedItem): string {
+  if (item.kind === "call") {
+    const direction = item.direction === "inbound" ? "Inbound call" : "Call";
+    if (item.outcome) {
+      const humanized =
+        item.outcome.charAt(0).toUpperCase() +
+        item.outcome.slice(1).replace(/_/g, " ");
+      return `${direction} · ${humanized}`;
+    }
+    return direction;
+  }
+  if (item.kind === "email") {
+    return item.direction === "received" ? "Email received" : "Email sent";
+  }
+  // event kinds — small set the user cares about.
+  switch (item.eventKind) {
+    case "call_now":
+      return "Manual Call Now placed";
+    case "outcome_override":
+      return "Outcome overridden";
+    case "callback_changed":
+      return "Callback rescheduled";
+    case "goal_transition":
+      return "Pipeline status changed";
+    case "calendly_scheduled":
+      return "Calendly appointment booked";
+    case "close_email_received":
+      return "Email reply received";
+    default:
+      return (
+        item.eventKind.charAt(0).toUpperCase() +
+        item.eventKind.slice(1).replace(/_/g, " ")
+      );
+  }
 }

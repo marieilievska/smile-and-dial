@@ -70,11 +70,9 @@ test.describe("Lead detail modal", () => {
     await expect(page).toHaveURL(/\/leads\/[0-9a-f-]{36}$/);
     await expect(page.getByRole("heading", { name: company })).toBeVisible();
 
-    // City lives inside the collapsed "Location & web" section — expand it.
-    await page
-      .getByTestId("lead-section-location-&-web")
-      .locator("summary")
-      .click();
+    // City lives inside the collapsed "Address" section (renamed from
+    // "Location & web" in v2) — expand it.
+    await page.getByTestId("lead-section-address").locator("summary").click();
     const cityInput = page.getByLabel("City");
     await cityInput.fill(newCity);
     await cityInput.blur();

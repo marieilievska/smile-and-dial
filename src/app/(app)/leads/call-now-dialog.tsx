@@ -27,15 +27,29 @@ import { callNow } from "@/lib/dialer/call-now";
 /** "Call Now" button on the lead detail modal (Step 34 / BUILD_PLAN §5.1).
  *  Opens a small Select of active campaigns attached to this lead's list,
  *  then fires `callNow`. Pre-call checks still apply — a rejection comes
- *  back as a specific reason message. */
+ *  back as a specific reason message.
+ *
+ *  Open state is optionally controllable so callers (e.g. the lead
+ *  detail page reacting to a ?action=call deep-link from the row's Call
+ *  quick-action) can open the dialog programmatically without faking
+ *  a click on the trigger button. */
 export function CallNowDialog({
   leadId,
   availableCampaigns,
+  open: openProp,
+  onOpenChange,
 }: {
   leadId: string;
   availableCampaigns: { id: string; name: string }[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [openSelf, setOpenSelf] = useState(false);
+  const open = openProp ?? openSelf;
+  const setOpen = (next: boolean) => {
+    if (onOpenChange) onOpenChange(next);
+    else setOpenSelf(next);
+  };
   const [campaignId, setCampaignId] = useState<string>(
     availableCampaigns[0]?.id ?? "",
   );
@@ -59,7 +73,11 @@ export function CallNowDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" disabled={disabled}>
+        <Button
+          variant="default"
+          disabled={disabled}
+          className="bg-[color:var(--coral)] text-white hover:bg-[color:var(--coral)]/90"
+        >
           <PhoneCall className="size-4" />
           Call now
         </Button>

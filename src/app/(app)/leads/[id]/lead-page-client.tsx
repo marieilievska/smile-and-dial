@@ -1,7 +1,16 @@
 "use client";
 
-import { ArrowLeft } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  MapPin,
+  Phone,
+  Plus,
+  Sparkles,
+} from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +24,6 @@ import {
   GOOGLE_FIELDS,
   InfoRow,
   LOCATION_FIELDS,
-  STATUS_TEXT,
   formatDateTime,
   humanize,
   statusVariant,
@@ -25,10 +33,25 @@ import {
   type StandardField,
 } from "../lead-detail-parts";
 import { MergeInboundDialog } from "../merge-inbound-dialog";
+import { SinceLastViewed } from "./since-last-viewed";
 
 /** Three-zone interactive shell for /leads/<id>. Server component
  *  fetches the data; this component owns the autosave state and the
- *  collapsible sections. */
+ *  collapsible sections.
+ *
+ *  v2 refinements (D1–D7):
+ *   D1+D2 — Hero shows company, status, phone, city/state, last-called
+ *           snapshot, and a coral Call-now primary action.
+ *   D3   — AI summary card lifted with a coral Sparkles icon + card
+ *           surface so it reads as the page's main signal.
+ *   D4   — Section labels renamed to user-side terms.
+ *   D5   — On viewports < 1280px the activity feed collapses into a
+ *           native <details> block under the AI summary instead of a
+ *           narrow side column.
+ *   D6   — "Since you last looked" chip above the activity feed,
+ *           localStorage-driven (see SinceLastViewed).
+ *   D7   — Autosave status moves out of the hero into a floating
+ *           bottom-right chip that animates in/out. */
 export function LeadPageClient({
   leadId,
   leadCompany,
@@ -38,6 +61,7 @@ export function LeadPageClient({
   meta,
   availableCampaigns,
   activityFeed,
+  feedItemsForChip,
 }: {
   leadId: string;
   leadCompany: string | null;
@@ -49,8 +73,25 @@ export function LeadPageClient({
   /** Rendered server-side; passed as children so this client component
    *  doesn't need to import the feed's data shape. */
   activityFeed: React.ReactNode;
+  /** Flat list of feed item timestamps + descriptions for the
+   *  "since-you-last-looked" chip. Lighter than passing the whole
+   *  FeedItem[] across the server/client boundary. */
+  feedItemsForChip: { at: string; description: string }[];
 }) {
   const { status, saveField, saveCustom } = useLeadSaver(leadId);
+  const searchParams = useSearchParams();
+  // D1+D2 deep-link: rows on /leads send users here with ?action=call
+  // when they click the row's Call quick-action. We auto-open the
+  // CallNowDialog once and then forget about it.
+  const [callDialogOpen, setCallDialogOpen] = useState(false);
+  useEffect(() => {
+    if (searchParams.get("action") === "call") {
+      // Reading a URL search param into local state on mount — the URL
+      // is the external system here, not React state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCallDialogOpen(true);
+    }
+  }, [searchParams]);
 
   function renderFields(fields: StandardField[]) {
     return (
@@ -71,8 +112,7 @@ export function LeadPageClient({
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      {/* Breadcrumb back to /leads — keeps the route navigable without
-          hijacking the browser back button. */}
+      {/* Breadcrumb back to /leads */}
       <div>
         <Button asChild variant="ghost" size="sm" className="-ml-3">
           <Link href="/leads">
@@ -82,25 +122,51 @@ export function LeadPageClient({
         </Button>
       </div>
 
-      {/* HERO — company + status pill + Call Now. Three-zone layout
-          starts below; the hero spans full width above. */}
-      <div className="flex items-start justify-between gap-3">
+      {/* D1+D2 — Hero. Identity left (company + status, then phone +
+          city/state + last-called sub-line), action cluster right
+          (Call now primary, then secondary actions). */}
+      <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-3">
-            <h1 className="text-foreground text-2xl font-bold tracking-tight">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-foreground text-3xl font-semibold tracking-tight">
               {leadCompany || "Lead details"}
             </h1>
             <Badge variant={statusVariant(meta.status)} dot>
               {humanize(meta.status)}
             </Badge>
           </div>
-          <p className="text-muted-foreground text-sm">{STATUS_TEXT[status]}</p>
+          <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            {meta.businessPhone ? (
+              <a
+                href={`tel:${meta.businessPhone}`}
+                className="text-foreground inline-flex items-center gap-1.5 font-mono text-sm transition-colors hover:text-[color:var(--coral)]"
+              >
+                <Phone className="size-3.5" />
+                {meta.businessPhone}
+              </a>
+            ) : null}
+            {meta.city || meta.state ? (
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="size-3.5" />
+                {[meta.city, meta.state].filter(Boolean).join(", ")}
+              </span>
+            ) : null}
+            <span>Last contacted {lastContactedPhrase(meta.lastCallAt)}</span>
+          </div>
         </div>
-        <CallNowDialog
-          leadId={leadId}
-          availableCampaigns={availableCampaigns}
-        />
-      </div>
+        <div className="flex items-center gap-2">
+          <CallNowDialog
+            leadId={leadId}
+            availableCampaigns={availableCampaigns}
+            open={callDialogOpen}
+            onOpenChange={setCallDialogOpen}
+          />
+          <Button variant="outline" size="sm" disabled title="Coming soon">
+            <Plus className="size-4" />
+            Note
+          </Button>
+        </div>
+      </header>
 
       {meta.isInbound ? (
         <div className="border-border bg-muted/30 flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
@@ -112,20 +178,19 @@ export function LeadPageClient({
         </div>
       ) : null}
 
-      {/* Three-zone body — left (structured fields) | center (summary +
-          at-a-glance) | right (activity feed). On smaller screens this
-          stacks vertically. */}
+      {/* Three-zone body — left (structured fields) | center (AI summary
+          + at-a-glance) | right (activity feed at lg+, collapses into
+          a <details> in the center column at smaller widths). */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(280px,1fr)_minmax(0,2fr)_minmax(280px,1.2fr)]">
-        {/* LEFT — structured field sections, collapsible. Contact open
-            by default. */}
+        {/* LEFT — structured field sections. Basics open by default. */}
         <div className="flex flex-col gap-3">
-          <CollapsibleSection title="Contact" defaultOpen>
+          <CollapsibleSection title="Basics" defaultOpen>
             {renderFields(CONTACT_FIELDS)}
           </CollapsibleSection>
-          <CollapsibleSection title="Location & web">
+          <CollapsibleSection title="Address">
             {renderFields(LOCATION_FIELDS)}
           </CollapsibleSection>
-          <CollapsibleSection title="Google data">
+          <CollapsibleSection title="Online presence">
             {renderFields(GOOGLE_FIELDS)}
           </CollapsibleSection>
           {customFields.length > 0 ? (
@@ -144,15 +209,19 @@ export function LeadPageClient({
           ) : null}
         </div>
 
-        {/* CENTER — AI summary + at-a-glance + pipeline state. The
-            summary is the hero so the operator sees the AI's read on
-            the lead before deciding to call. */}
+        {/* CENTER — AI summary (D3) + at-a-glance facts. Activity feed
+            collapses into a <details> here on screens below lg. */}
         <div className="flex flex-col gap-4">
           <section
             data-testid="ai-summary-block"
-            className="border-border bg-muted/20 flex flex-col gap-2 rounded-lg border p-4"
+            className="bg-card flex flex-col gap-3 rounded-xl border p-5"
+            style={{
+              borderColor:
+                "color-mix(in oklab, var(--coral) 25%, var(--border))",
+            }}
           >
-            <h2 className="text-foreground text-xs font-semibold tracking-wide uppercase">
+            <h2 className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
+              <Sparkles className="size-4" style={{ color: "var(--coral)" }} />
               AI summary
             </h2>
             {meta.aiSummary ? (
@@ -182,19 +251,88 @@ export function LeadPageClient({
               value={formatDateTime(meta.restingUntil)}
             />
           </dl>
+
+          {/* D5 — Activity surface on screens below lg. The lg side
+              column stays the canonical surface; here we collapse it
+              into a <details> so it doesn't crowd out the AI summary. */}
+          <details
+            className="border-border bg-card rounded-lg border lg:hidden"
+            data-testid="activity-collapsible"
+          >
+            <summary className="hover:bg-muted/40 cursor-pointer list-none rounded-lg px-4 py-3 text-sm font-semibold">
+              Activity
+            </summary>
+            <div className="flex flex-col gap-3 px-4 pt-1 pb-4">
+              <SinceLastViewed leadId={leadId} items={feedItemsForChip} />
+              {activityFeed}
+            </div>
+          </details>
         </div>
 
-        {/* RIGHT — activity feed. Chronological merge of calls +
-            emails + system_events. Renders the React node passed in
-            from the server component. */}
+        {/* RIGHT — Activity column at lg+ only. */}
         <section
           data-testid="lead-activity-column"
-          className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4"
+          className="border-border bg-card hidden flex-col gap-3 rounded-lg border p-4 lg:flex"
         >
           <h2 className="text-foreground text-sm font-semibold">Activity</h2>
+          <SinceLastViewed leadId={leadId} items={feedItemsForChip} />
           {activityFeed}
         </section>
       </div>
+
+      {/* D7 — Autosave indicator. Floats in the bottom-right when
+          actively saving or just-saved; absent otherwise. */}
+      <AutosaveIndicator status={status} />
     </div>
   );
+}
+
+/** Tiny floating chip that telegraphs autosave state. Pinned bottom-
+ *  right of the viewport, fades in while saving / saved, hidden when
+ *  idle so the hero isn't paying a status-text tax. */
+function AutosaveIndicator({
+  status,
+}: {
+  status: "idle" | "saving" | "saved" | "error";
+}) {
+  if (status === "idle") return null;
+  const text = {
+    saving: "Saving…",
+    saved: "Saved",
+    error: "Couldn't save",
+  }[status];
+  const tone =
+    status === "error"
+      ? "border-destructive/40 text-destructive bg-destructive/5"
+      : "border-border bg-card text-foreground";
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="autosave-indicator"
+      data-state={status}
+      className={`animate-in fade-in slide-in-from-bottom-1 fixed right-4 bottom-4 z-30 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium shadow-sm ${tone}`}
+    >
+      {status === "saving" ? (
+        <Loader2 className="text-muted-foreground size-3 animate-spin" />
+      ) : null}
+      {text}
+    </div>
+  );
+}
+
+/** Render "Last contacted Nh ago" / "yesterday" / "Mar 4" / "never" for
+ *  the hero sub-line. */
+function lastContactedPhrase(iso: string | null): string {
+  if (!iso) return "never";
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const min = Math.max(1, Math.floor((now - then) / 60000));
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 2) return "yesterday";
+  if (day < 14) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString();
 }

@@ -76,6 +76,15 @@ export type LeadMeta = {
   retryCounter: number;
   restingUntil: string | null;
   nextCallAt: string | null;
+  /** ISO timestamp of the lead's most recent call, used by the hero
+   *  to surface "Last contacted Nh ago" without needing to query the
+   *  activity feed first. */
+  lastCallAt: string | null;
+  /** Surfaced in the hero so the operator can read/copy the phone
+   *  without scrolling into the Contact section. */
+  businessPhone: string | null;
+  city: string | null;
+  state: string | null;
   aiSummary: string | null;
 };
 
@@ -94,27 +103,21 @@ export function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "—";
 }
 
-/** Map lead status to a Badge variant so the pill telegraphs urgency
- *  without needing to read the label. */
+/** Map lead status to a Badge variant. Mirrors the leads-table palette
+ *  (close/leads-list-2026 PR) so the pill is identical on the list and
+ *  the detail page: Active = coral, Won = emerald (success), Closed-
+ *  out = muted secondary, DNC = destructive. */
 export function statusVariant(
   status: string,
-): "default" | "secondary" | "destructive" | "outline" {
-  switch (status) {
-    case "ready_to_call":
-    case "callback":
-    case "scheduled":
-      return "default";
-    case "goal_met":
-    case "attended":
-    case "sale":
-    case "closed":
-      return "secondary";
-    case "dnc":
-    case "no_show":
-      return "destructive";
-    default:
-      return "outline";
+): "coral" | "success" | "destructive" | "secondary" {
+  if (["ready_to_call", "callback", "scheduled"].includes(status)) {
+    return "coral";
   }
+  if (["goal_met", "attended", "sale", "closed"].includes(status)) {
+    return "success";
+  }
+  if (status === "dnc") return "destructive";
+  return "secondary";
 }
 
 /** Wraps a save call so the surrounding component can show a single
