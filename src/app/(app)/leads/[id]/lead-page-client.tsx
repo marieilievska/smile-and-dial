@@ -22,7 +22,6 @@ import {
   CONTACT_FIELDS,
   CustomFieldEditor,
   GOOGLE_FIELDS,
-  InfoRow,
   LOCATION_FIELDS,
   formatDateTime,
   humanize,
@@ -35,23 +34,10 @@ import {
 import { MergeInboundDialog } from "../merge-inbound-dialog";
 import { SinceLastViewed } from "./since-last-viewed";
 
-/** Three-zone interactive shell for /leads/<id>. Server component
- *  fetches the data; this component owns the autosave state and the
- *  collapsible sections.
- *
- *  v2 refinements (D1–D7):
- *   D1+D2 — Hero shows company, status, phone, city/state, last-called
- *           snapshot, and a coral Call-now primary action.
- *   D3   — AI summary card lifted with a coral Sparkles icon + card
- *           surface so it reads as the page's main signal.
- *   D4   — Section labels renamed to user-side terms.
- *   D5   — On viewports < 1280px the activity feed collapses into a
- *           native <details> block under the AI summary instead of a
- *           narrow side column.
- *   D6   — "Since you last looked" chip above the activity feed,
- *           localStorage-driven (see SinceLastViewed).
- *   D7   — Autosave status moves out of the hero into a floating
- *           bottom-right chip that animates in/out. */
+/** v3 — two-zone layout. Left column carries every field surface (all
+ *  structured + custom + at-a-glance facts). Right column stacks the
+ *  AI summary on top of the activity feed in the same column. Mirrors
+ *  Close: identity + actions up top, fields left, AI + history right. */
 export function LeadPageClient({
   leadId,
   leadCompany,
@@ -70,24 +56,14 @@ export function LeadPageClient({
   customValues: Record<string, unknown>;
   meta: LeadMeta;
   availableCampaigns: { id: string; name: string }[];
-  /** Rendered server-side; passed as children so this client component
-   *  doesn't need to import the feed's data shape. */
   activityFeed: React.ReactNode;
-  /** Flat list of feed item timestamps + descriptions for the
-   *  "since-you-last-looked" chip. Lighter than passing the whole
-   *  FeedItem[] across the server/client boundary. */
   feedItemsForChip: { at: string; description: string }[];
 }) {
   const { status, saveField, saveCustom } = useLeadSaver(leadId);
   const searchParams = useSearchParams();
-  // D1+D2 deep-link: rows on /leads send users here with ?action=call
-  // when they click the row's Call quick-action. We auto-open the
-  // CallNowDialog once and then forget about it.
   const [callDialogOpen, setCallDialogOpen] = useState(false);
   useEffect(() => {
     if (searchParams.get("action") === "call") {
-      // Reading a URL search param into local state on mount — the URL
-      // is the external system here, not React state.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setCallDialogOpen(true);
     }
@@ -111,7 +87,7 @@ export function LeadPageClient({
   }
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-8">
       {/* Breadcrumb back to /leads */}
       <div>
         <Button asChild variant="ghost" size="sm" className="-ml-3">
@@ -122,9 +98,7 @@ export function LeadPageClient({
         </Button>
       </div>
 
-      {/* D1+D2 — Hero. Identity left (company + status, then phone +
-          city/state + last-called sub-line), action cluster right
-          (Call now primary, then secondary actions). */}
+      {/* Hero — identity left, action cluster right. */}
       <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-3">
@@ -178,11 +152,11 @@ export function LeadPageClient({
         </div>
       ) : null}
 
-      {/* Three-zone body — left (structured fields) | center (AI summary
-          + at-a-glance) | right (activity feed at lg+, collapses into
-          a <details> in the center column at smaller widths). */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(280px,1fr)_minmax(0,2fr)_minmax(280px,1.2fr)]">
-        {/* LEFT — structured field sections. Basics open by default. */}
+      {/* TWO-ZONE BODY
+            LEFT  — every field + at-a-glance facts (collapsible blocks).
+            RIGHT — AI summary on top, activity below in the same column. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        {/* LEFT */}
         <div className="flex flex-col gap-3">
           <CollapsibleSection title="Basics" defaultOpen>
             {renderFields(CONTACT_FIELDS)}
@@ -207,10 +181,33 @@ export function LeadPageClient({
               </div>
             </CollapsibleSection>
           ) : null}
+
+          {/* At-a-glance pipeline facts — moved into the left column
+              under fields per the v3 layout. */}
+          <CollapsibleSection title="Pipeline" defaultOpen>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+              <PipelineRow label="List" value={meta.listName} />
+              <PipelineRow
+                label="Last outcome"
+                value={humanize(meta.lastOutcome)}
+              />
+              <PipelineRow
+                label="Next call"
+                value={formatDateTime(meta.nextCallAt)}
+              />
+              <PipelineRow
+                label="Retry"
+                value={meta.retryCounter > 0 ? `#${meta.retryCounter}` : "—"}
+              />
+              <PipelineRow
+                label="Resting until"
+                value={formatDateTime(meta.restingUntil)}
+              />
+            </dl>
+          </CollapsibleSection>
         </div>
 
-        {/* CENTER — AI summary (D3) + at-a-glance facts. Activity feed
-            collapses into a <details> here on screens below lg. */}
+        {/* RIGHT — AI summary then activity, stacked. */}
         <div className="flex flex-col gap-4">
           <section
             data-testid="ai-summary-block"
@@ -235,61 +232,36 @@ export function LeadPageClient({
             )}
           </section>
 
-          <dl className="grid grid-cols-2 gap-3 text-sm">
-            <InfoRow label="List" value={meta.listName} />
-            <InfoRow label="Last outcome" value={humanize(meta.lastOutcome)} />
-            <InfoRow
-              label="Next call"
-              value={formatDateTime(meta.nextCallAt)}
-            />
-            <InfoRow
-              label="Retry"
-              value={meta.retryCounter > 0 ? `#${meta.retryCounter}` : "—"}
-            />
-            <InfoRow
-              label="Resting until"
-              value={formatDateTime(meta.restingUntil)}
-            />
-          </dl>
-
-          {/* D5 — Activity surface on screens below lg. The lg side
-              column stays the canonical surface; here we collapse it
-              into a <details> so it doesn't crowd out the AI summary. */}
-          <details
-            className="border-border bg-card rounded-lg border lg:hidden"
-            data-testid="activity-collapsible"
+          <section
+            data-testid="lead-activity-column"
+            className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4"
           >
-            <summary className="hover:bg-muted/40 cursor-pointer list-none rounded-lg px-4 py-3 text-sm font-semibold">
-              Activity
-            </summary>
-            <div className="flex flex-col gap-3 px-4 pt-1 pb-4">
-              <SinceLastViewed leadId={leadId} items={feedItemsForChip} />
-              {activityFeed}
-            </div>
-          </details>
+            <h2 className="text-foreground text-sm font-semibold">Activity</h2>
+            <SinceLastViewed leadId={leadId} items={feedItemsForChip} />
+            {activityFeed}
+          </section>
         </div>
-
-        {/* RIGHT — Activity column at lg+ only. */}
-        <section
-          data-testid="lead-activity-column"
-          className="border-border bg-card hidden flex-col gap-3 rounded-lg border p-4 lg:flex"
-        >
-          <h2 className="text-foreground text-sm font-semibold">Activity</h2>
-          <SinceLastViewed leadId={leadId} items={feedItemsForChip} />
-          {activityFeed}
-        </section>
       </div>
 
-      {/* D7 — Autosave indicator. Floats in the bottom-right when
-          actively saving or just-saved; absent otherwise. */}
       <AutosaveIndicator status={status} />
     </div>
   );
 }
 
-/** Tiny floating chip that telegraphs autosave state. Pinned bottom-
- *  right of the viewport, fades in while saving / saved, hidden when
- *  idle so the hero isn't paying a status-text tax. */
+/** Compact label/value pair for the Pipeline block. Tighter than the
+ *  modal's old InfoRow — fits 2 columns at lg width comfortably. */
+function PipelineRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <dt className="text-muted-foreground text-[10px] font-medium tracking-[0.1em] uppercase">
+        {label}
+      </dt>
+      <dd className="text-foreground text-sm">{value}</dd>
+    </div>
+  );
+}
+
+/** Bottom-right floating chip with the autosave state. */
 function AutosaveIndicator({
   status,
 }: {
@@ -321,8 +293,6 @@ function AutosaveIndicator({
   );
 }
 
-/** Render "Last contacted Nh ago" / "yesterday" / "Mar 4" / "never" for
- *  the hero sub-line. */
 function lastContactedPhrase(iso: string | null): string {
   if (!iso) return "never";
   const then = new Date(iso).getTime();
