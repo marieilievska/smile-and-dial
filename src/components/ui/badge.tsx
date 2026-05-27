@@ -15,6 +15,8 @@ const badgeVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
         success: "bg-success/10 text-success",
+        coral:
+          "bg-[color:var(--coral)]/10 text-[color:var(--coral)] dark:bg-[color:var(--coral)]/15",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:
@@ -32,9 +34,17 @@ function Badge({
   className,
   variant = "default",
   asChild = false,
+  dot = false,
+  children,
   ...props
 }: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+  VariantProps<typeof badgeVariants> & {
+    asChild?: boolean;
+    /** Prepend a small colored circle. Close-style status pills use this
+     *  to add a quick visual scan-cue ahead of the label. The dot inherits
+     *  the variant's text color via `currentColor`. */
+    dot?: boolean;
+  }) {
   const Comp = asChild ? Slot.Root : "span";
 
   return (
@@ -43,7 +53,16 @@ function Badge({
       data-variant={variant}
       className={cn(badgeVariants({ variant }), className)}
       {...props}
-    />
+    >
+      {dot ? (
+        <span
+          aria-hidden
+          data-slot="badge-dot"
+          className="size-1.5 rounded-full bg-current"
+        />
+      ) : null}
+      {children}
+    </Comp>
   );
 }
 

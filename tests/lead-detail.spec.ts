@@ -61,34 +61,51 @@ test.describe("Lead detail modal", () => {
 
   test("editing a standard and a custom field autosaves", async ({ page }) => {
     await page.goto(`/leads?q=${encodeURIComponent(company)}`);
-    await page.getByRole("cell", { name: company, exact: true }).click();
+    // v2 — the primary cell stacks company name + phone, so its
+    // accessible name now includes the phone. Drop exact:true.
+    await page.getByRole("cell", { name: company }).first().click();
 
-    // The modal opens with the lead's fields.
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByText(company)).toBeVisible();
+    // Clicking a row navigates to the lead's full detail route now
+    // (Close-style /leads/<id>) instead of opening a modal.
+    await expect(page).toHaveURL(/\/leads\/[0-9a-f-]{36}$/);
+    await expect(page.getByRole("heading", { name: company })).toBeVisible();
 
-    // Edit a standard field; it saves when it loses focus.
-    const cityInput = dialog.getByLabel("City");
+    // City lives inside the collapsed "Address" section (renamed from
+    // "Location & web" in v2) — expand it.
+    await page.getByTestId("lead-section-address").locator("summary").click();
+    const cityInput = page.getByLabel("City");
     await cityInput.fill(newCity);
     await cityInput.blur();
 
-    // Edit the custom field too.
-    const customInput = dialog.getByLabel(fieldName);
+    // Custom field section also starts collapsed; expand and edit.
+    await page
+      .getByTestId("lead-section-custom-fields")
+      .locator("summary")
+      .click();
+    const customInput = page.getByLabel(fieldName);
     await customInput.fill(customValue);
     await customInput.blur();
 
-    await expect(dialog.getByText("Saved")).toBeVisible();
+    await expect(page.getByText("Saved")).toBeVisible();
 
-    // Close the modal; the table reflects the saved city.
-    await page.keyboard.press("Escape");
-    await expect(
-      page.getByRole("cell", { name: newCity, exact: true }),
-    ).toBeVisible();
-
-    // Reopening the lead shows the saved custom value.
-    await page.getByRole("cell", { name: company, exact: true }).click();
-    await expect(page.getByRole("dialog").getByLabel(fieldName)).toHaveValue(
-      customValue,
+    // Back to the leads list; the table reflects the saved city. City
+    // isn't a default column in v2 — opt it in via ?cols=.
+    await page.goto(
+      "/leads?cols=company,status,city&q=" + encodeURIComponent(company),
     );
+    await expect(page).toHaveURL(/\/leads/);
+    await expect(page.getByRole("cell", { name: newCity })).toBeVisible();
+
+    // Reopening the lead shows the saved custom value (section starts
+    // collapsed on each navigation).
+    // v2 — the primary cell stacks company name + phone, so its
+    // accessible name now includes the phone. Drop exact:true.
+    await page.getByRole("cell", { name: company }).first().click();
+    await expect(page).toHaveURL(/\/leads\/[0-9a-f-]{36}$/);
+    await page
+      .getByTestId("lead-section-custom-fields")
+      .locator("summary")
+      .click();
+    await expect(page.getByLabel(fieldName)).toHaveValue(customValue);
   });
 });

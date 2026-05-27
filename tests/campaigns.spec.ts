@@ -50,37 +50,47 @@ test.describe("Campaigns", () => {
   test("an admin can create, edit, and delete a campaign", async ({ page }) => {
     await page.goto("/campaigns");
 
-    // Create.
+    // Create — 2-step minimal dialog.
     await page.getByRole("button", { name: "New campaign" }).click();
     const dialog = page.getByRole("dialog");
+
+    // Step 1: name + agent + goal.
     await dialog.getByLabel("Name", { exact: true }).fill(campaignName);
-
-    // Pick our seeded agent.
-    await dialog.getByRole("tab", { name: "Agent" }).click();
     await dialog.getByRole("combobox", { name: "Agent" }).click();
-    await page.getByRole("option", { name: agentName }).click();
+    await page
+      .getByRole("listbox")
+      .getByRole("option", { name: agentName, exact: true })
+      .click();
+    // Default goal "Schedule appointment" is fine — leave it.
+    await dialog.getByRole("button", { name: "Continue" }).click();
 
-    // The seeded default goal ("Schedule appointment") is fine as-is.
+    // Step 2: skip list attachments and create.
     await dialog.getByRole("button", { name: "Create campaign" }).click();
+    await expect(page.getByText("Campaign created.")).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(
       page.getByRole("cell", { name: campaignName, exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
 
     // Edit.
     await page.getByRole("button", { name: `Edit ${campaignName}` }).click();
     const editDialog = page.getByRole("dialog");
     await editDialog.getByLabel("Name", { exact: true }).fill(renamed);
     await editDialog.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByText("Campaign updated.")).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(
       page.getByRole("cell", { name: renamed, exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
 
     // Delete.
     await page.getByRole("button", { name: `Delete ${renamed}` }).click();
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(
       page.getByRole("cell", { name: renamed, exact: true }),
-    ).toHaveCount(0);
+    ).toHaveCount(0, { timeout: 10_000 });
   });
 
   test("pause, resume, clone, and end a campaign", async ({ page }) => {

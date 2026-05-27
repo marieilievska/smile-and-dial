@@ -19,7 +19,10 @@ export async function signIn(page: Page, user: TestUser = adminUser) {
 
   await page.goto("/login");
   await page.getByLabel("Email").fill(user.email);
-  await page.getByLabel("Password").fill(user.password);
+  // Exact match — the password input shares its short accessible name
+  // with the show/hide eye toggle ("Show password" / "Hide password").
+  await page.getByLabel("Password", { exact: true }).fill(user.password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/leads$/);
+  // Post-login lands on /today (the dashboard) by default.
+  await expect(page).toHaveURL(/\/today$/);
 }

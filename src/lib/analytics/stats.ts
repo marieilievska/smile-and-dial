@@ -1,0 +1,336 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/** Outcomes that imply we actually spoke to a decision-maker. */
+const DM_REACHED_OUTCOMES = new Set([
+  "goal_met",
+  "not_interested",
+  "callback",
+  "dnc",
+  "transferred_to_human",
+]);
+
+/** Outcomes that count as a real conversation (alive on the call). */
+const CONVERSATION_OUTCOMES = new Set([
+  "goal_met",
+  "not_interested",
+  "callback",
+  "dnc",
+  "transferred_to_human",
+  "gatekeeper",
+  "language_barrier",
+]);
+
+/** Outcomes where Twilio actually connected the call. */
+const CONNECTED_OUTCOMES = new Set([
+  ...CONVERSATION_OUTCOMES,
+  "voicemail",
+  "hung_up_immediately",
+  "ai_receptionist",
+  "ai_error",
+]);
+
+export type CallRow = {
+  id: string;
+  campaign_id: string;
+  lead_id: string;
+  direction: "inbound" | "outbound";
+  outcome: string | null;
+  goal_met: boolean;
+  duration_seconds: number | null;
+  talk_time_seconds: number | null;
+  cost_breakdown: unknown;
+  started_at: string | null;
+  created_at: string;
+};
+
+export type Slicers = {
+  campaignId?: string;
+  ownerId?: string;
+  /** Filter calls whose lead is in this list. */
+  listId?: string;
+  /** ISO date inclusive (YYYY-MM-DD). */
+  from: string;
+  /** ISO date inclusive (YYYY-MM-DD). */
+  to: string;
+};
+
+export type Kpis = {
+  totalCalls: number;
+  conversations: number;
+  dmsReached: number;
+  connected: number;
+  connectRate: number; // 0..1
+  goalMet: number;
+  goalMetRate: number; // 0..1, vs conversations
+  avgDurationSeconds: number;
+  avgCostPerCall: number;
+  costPerGoalMet: number;
+  callbacksScheduled: number;
+  dncAdditions: number;
+  totalSpend: number;
+};
+
+export type OutcomeBucket = { outcome: string; count: number };
+
+export type FunnelStep = { label: string; count: number };
+
+export type TimeBucket = { day: string; count: number; spend: number };
+
+function pickCostTotal(value: unknown): number {
+  if (!value || typeof value !== "object") return 0;
+  const total = (value as { total?: unknown }).total;
+  return typeof total === "number" && Number.isFinite(total) ? total : 0;
+}
+
+function startOfDay(day: string): string {
+  return `${day}T00:00:00.000Z`;
+}
+function endOfDay(day: string): string {
+  return `${day}T23:59:59.999Z`;
+}
+
+/** Pull every call row that matches the slicers — single round-trip. The page
+ *  filters and aggregates in JS so we can compute KPIs + charts + funnel +
+ *  compare-period deltas from one fetch. */
+export async function fetchCallsForRange(
+  supabase: SupabaseClient,
+  slicers: Slicers,
+): Promise<CallRow[]> {
+  let query = supabase
+    .from("calls")
+    .select(
+      "id, campaign_id, lead_id, direction, outcome, goal_met, duration_seconds, " +
+        "talk_time_seconds, cost_breakdown, started_at, created_at",
+    )
+    .gte("created_at", startOfDay(slicers.from))
+    .lte("created_at", endOfDay(slicers.to))
+    .order("created_at", { ascending: true });
+  if (slicers.campaignId) query = query.eq("campaign_id", slicers.campaignId);
+
+  const { data } = await query;
+  let rows = (data ?? []) as unknown as CallRow[];
+
+  // owner / list filters live on `leads`, not `calls`. Post-filter by
+  // intersecting the lead ids — same round-trip count as before.
+  if (slicers.ownerId || slicers.listId) {
+    const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
+    if (leadIds.length === 0) return [];
+    let leadQuery = supabase.from("leads").select("id").in("id", leadIds);
+    if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
+    if (slicers.ownerId) leadQuery = leadQuery.eq("owner_id", slicers.ownerId);
+    const { data: leads } = await leadQuery;
+    const ok = new Set((leads ?? []).map((l) => l.id));
+    rows = rows.filter((r) => ok.has(r.lead_id));
+  }
+
+  return rows;
+}
+
+export function computeKpis(rows: CallRow[]): Kpis {
+  const totalCalls = rows.length;
+  let conversations = 0;
+  let dmsReached = 0;
+  let connected = 0;
+  let goalMet = 0;
+  let durationSum = 0;
+  let durationCount = 0;
+  let spend = 0;
+  for (const r of rows) {
+    if (r.outcome && CONNECTED_OUTCOMES.has(r.outcome)) connected += 1;
+    if (r.outcome && CONVERSATION_OUTCOMES.has(r.outcome)) conversations += 1;
+    if (r.outcome && DM_REACHED_OUTCOMES.has(r.outcome)) dmsReached += 1;
+    if (r.goal_met) goalMet += 1;
+    if (r.duration_seconds != null) {
+      durationSum += r.duration_seconds;
+      durationCount += 1;
+    }
+    spend += pickCostTotal(r.cost_breakdown);
+  }
+  return {
+    totalCalls,
+    conversations,
+    dmsReached,
+    connected,
+    connectRate: totalCalls === 0 ? 0 : connected / totalCalls,
+    goalMet,
+    goalMetRate: conversations === 0 ? 0 : goalMet / conversations,
+    avgDurationSeconds: durationCount === 0 ? 0 : durationSum / durationCount,
+    avgCostPerCall: totalCalls === 0 ? 0 : spend / totalCalls,
+    costPerGoalMet: goalMet === 0 ? 0 : spend / goalMet,
+    callbacksScheduled: rows.filter((r) => r.outcome === "callback").length,
+    dncAdditions: rows.filter((r) => r.outcome === "dnc").length,
+    totalSpend: spend,
+  };
+}
+
+export function outcomeDistribution(rows: CallRow[]): OutcomeBucket[] {
+  const buckets = new Map<string, number>();
+  for (const r of rows) {
+    const key = r.outcome ?? "no_outcome";
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+  return [...buckets.entries()]
+    .map(([outcome, count]) => ({ outcome, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+export function buildFunnel(rows: CallRow[]): FunnelStep[] {
+  let dialed = 0;
+  let connected = 0;
+  let conversation = 0;
+  let dmsReached = 0;
+  let goalMet = 0;
+  for (const r of rows) {
+    dialed += 1;
+    if (r.outcome && CONNECTED_OUTCOMES.has(r.outcome)) connected += 1;
+    if (r.outcome && CONVERSATION_OUTCOMES.has(r.outcome)) conversation += 1;
+    if (r.outcome && DM_REACHED_OUTCOMES.has(r.outcome)) dmsReached += 1;
+    if (r.goal_met) goalMet += 1;
+  }
+  return [
+    { label: "Dialed", count: dialed },
+    { label: "Connected", count: connected },
+    { label: "Conversation", count: conversation },
+    { label: "DMs Reached", count: dmsReached },
+    { label: "Goal Met", count: goalMet },
+  ];
+}
+
+/** Daily count of `goal_met=true` calls — the trend series for the
+ *  Appointments Booked hero chart and sparkline. Same date-pre-seeding
+ *  trick as callsByDay so the chart never has gaps. */
+export function bookingsByDay(rows: CallRow[], slicers: Slicers): number[] {
+  const buckets = new Map<string, number>();
+  const start = new Date(`${slicers.from}T00:00:00Z`);
+  const end = new Date(`${slicers.to}T00:00:00Z`);
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    buckets.set(d.toISOString().slice(0, 10), 0);
+  }
+  for (const r of rows) {
+    if (!r.goal_met) continue;
+    const day = r.created_at.slice(0, 10);
+    buckets.set(day, (buckets.get(day) ?? 0) + 1);
+  }
+  return [...buckets.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, v]) => v);
+}
+
+export function callsByDay(rows: CallRow[], slicers: Slicers): TimeBucket[] {
+  const buckets = new Map<string, { count: number; spend: number }>();
+  // Pre-seed every day in the range so the chart never has gaps.
+  const start = new Date(`${slicers.from}T00:00:00Z`);
+  const end = new Date(`${slicers.to}T00:00:00Z`);
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    buckets.set(d.toISOString().slice(0, 10), { count: 0, spend: 0 });
+  }
+  for (const r of rows) {
+    const day = r.created_at.slice(0, 10);
+    const b = buckets.get(day) ?? { count: 0, spend: 0 };
+    b.count += 1;
+    b.spend += pickCostTotal(r.cost_breakdown);
+    buckets.set(day, b);
+  }
+  return [...buckets.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([day, v]) => ({ day, count: v.count, spend: v.spend }));
+}
+
+export type CampaignRank = {
+  campaignId: string;
+  campaignName: string;
+  goalMet: number;
+  spend: number;
+  costPerGoalMet: number;
+};
+
+export function rankCampaigns(
+  rows: CallRow[],
+  names: Map<string, string>,
+): CampaignRank[] {
+  const acc = new Map<string, { goalMet: number; spend: number }>();
+  for (const r of rows) {
+    const v = acc.get(r.campaign_id) ?? { goalMet: 0, spend: 0 };
+    if (r.goal_met) v.goalMet += 1;
+    v.spend += pickCostTotal(r.cost_breakdown);
+    acc.set(r.campaign_id, v);
+  }
+  return [...acc.entries()]
+    .map(([campaignId, v]) => ({
+      campaignId,
+      campaignName: names.get(campaignId) ?? "—",
+      goalMet: v.goalMet,
+      spend: v.spend,
+      costPerGoalMet: v.goalMet === 0 ? 0 : v.spend / v.goalMet,
+    }))
+    .sort((a, b) => b.goalMet - a.goalMet);
+}
+
+/** Compute the previous comparable window of the same length, ending the day
+ *  before `from`. Returns the dates as YYYY-MM-DD. */
+export function previousPeriod(slicers: Slicers): { from: string; to: string } {
+  const start = new Date(`${slicers.from}T00:00:00Z`);
+  const end = new Date(`${slicers.to}T00:00:00Z`);
+  const lengthDays =
+    Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  const prevEnd = new Date(start);
+  prevEnd.setUTCDate(prevEnd.getUTCDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setUTCDate(prevStart.getUTCDate() - (lengthDays - 1));
+  return {
+    from: prevStart.toISOString().slice(0, 10),
+    to: prevEnd.toISOString().slice(0, 10),
+  };
+}
+
+/** Resolve a preset to {from,to}. Returns today + today as a safe default. */
+export function resolveDatePreset(
+  preset: string,
+  custom: { from?: string; to?: string },
+): { from: string; to: string } {
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const daysAgo = (n: number) => {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
+  switch (preset) {
+    case "today":
+      return { from: todayStr, to: todayStr };
+    case "yesterday":
+      return { from: daysAgo(1), to: daysAgo(1) };
+    case "last7":
+      return { from: daysAgo(6), to: todayStr };
+    case "last30":
+      return { from: daysAgo(29), to: todayStr };
+    case "this_month": {
+      const first = `${todayStr.slice(0, 7)}-01`;
+      return { from: first, to: todayStr };
+    }
+    case "last_month": {
+      const firstThis = new Date(`${todayStr.slice(0, 7)}-01T00:00:00Z`);
+      const lastPrev = new Date(firstThis);
+      lastPrev.setUTCDate(lastPrev.getUTCDate() - 1);
+      const firstPrev = new Date(lastPrev);
+      firstPrev.setUTCDate(1);
+      return {
+        from: firstPrev.toISOString().slice(0, 10),
+        to: lastPrev.toISOString().slice(0, 10),
+      };
+    }
+    case "custom":
+      return {
+        from: custom.from ?? daysAgo(29),
+        to: custom.to ?? todayStr,
+      };
+    default:
+      return { from: daysAgo(29), to: todayStr };
+  }
+}
+
+/** Tiny delta helper for compare-periods tiles. */
+export function pctDelta(current: number, previous: number): number | null {
+  if (previous === 0) return current === 0 ? 0 : null;
+  return (current - previous) / previous;
+}

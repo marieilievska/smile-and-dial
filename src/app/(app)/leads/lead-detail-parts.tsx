@@ -1,18 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Clock } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { ChevronDown, Clock } from "lucide-react";
 import { toast } from "sonner";
 
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -28,28 +20,42 @@ import {
   updateLeadField,
 } from "@/lib/leads/lead-actions";
 
-type SaveResult = { error: string | null };
-type SaveStatus = "idle" | "saving" | "saved" | "error";
+/** Helpers shared by the lead detail modal and the full /leads/[id]
+ *  route. Anything that touches lead field state or save lifecycle
+ *  lives here so the two surfaces never drift out of sync. */
 
-/** Standard lead fields shown in the modal, with their input type. */
-const STANDARD_FIELDS: { key: string; label: string; type: string }[] = [
-  { key: "company", label: "Company", type: "text" },
+export type SaveResult = { error: string | null };
+export type SaveStatus = "idle" | "saving" | "saved" | "error";
+
+export type StandardField = { key: string; label: string; type: string };
+
+/** Standard lead fields grouped by edit frequency. Contact = most-edited;
+ *  Location and Google are reference data that rarely changes. */
+/** Company name is shown (and edited inline) in the hero, so it's
+ *  intentionally not in CONTACT_FIELDS — that would be redundant. */
+export const CONTACT_FIELDS: StandardField[] = [
   { key: "business_phone", label: "Business phone", type: "tel" },
   { key: "business_email", label: "Business email", type: "email" },
   { key: "owner_name", label: "Owner name", type: "text" },
   { key: "owner_phone", label: "Owner phone", type: "tel" },
   { key: "manager_name", label: "Manager name", type: "text" },
   { key: "employee_name", label: "Employee name", type: "text" },
-  { key: "website", label: "Website", type: "url" },
-  { key: "category", label: "Category", type: "text" },
+];
+
+export const LOCATION_FIELDS: StandardField[] = [
   { key: "city", label: "City", type: "text" },
   { key: "state", label: "State", type: "text" },
+  { key: "website", label: "Website", type: "url" },
+  { key: "category", label: "Category", type: "text" },
+];
+
+export const GOOGLE_FIELDS: StandardField[] = [
   { key: "google_place_id", label: "Google place ID", type: "text" },
   { key: "google_rating", label: "Google rating", type: "number" },
   { key: "google_reviews", label: "Google reviews", type: "number" },
 ];
 
-const STATUS_TEXT: Record<SaveStatus, string> = {
+export const STATUS_TEXT: Record<SaveStatus, string> = {
   idle: "Changes save automatically.",
   saving: "Saving…",
   saved: "Saved",
@@ -63,65 +69,63 @@ export type CustomFieldDef = {
   options: string[];
 };
 
-/** Read-only pipeline context shown alongside the editable fields. */
 export type LeadMeta = {
   status: string;
   lastOutcome: string | null;
   listName: string;
+  isInbound: boolean;
   retryCounter: number;
   restingUntil: string | null;
   nextCallAt: string | null;
+  /** ISO timestamp of the lead's most recent call, used by the hero
+   *  to surface "Last contacted Nh ago" without needing to query the
+   *  activity feed first. */
+  lastCallAt: string | null;
+  /** Surfaced in the hero so the operator can read/copy the phone
+   *  without scrolling into the Contact section. */
+  businessPhone: string | null;
+  city: string | null;
+  state: string | null;
   aiSummary: string | null;
 };
 
-/**
- * One entry in the lead's activity timeline. Today only the "created" event
- * exists; later phases append calls, callbacks, DNC changes, and edits.
- */
 export type LeadEvent = {
   id: string;
   label: string;
   at: string;
 };
 
-function humanize(value: string | null): string {
+export function humanize(value: string | null): string {
   if (!value) return "—";
   return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
 }
 
-function formatDateTime(value: string | null): string {
+export function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "—";
 }
 
-export function LeadDetailModal({
-  leadId,
-  leadCompany,
-  fieldValues,
-  customFields,
-  customValues,
-  meta,
-  events,
-}: {
-  leadId: string;
-  leadCompany: string | null;
-  fieldValues: Record<string, string>;
-  customFields: CustomFieldDef[];
-  customValues: Record<string, unknown>;
-  meta: LeadMeta;
-  events: LeadEvent[];
-}) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+/** Map lead status to a Badge variant. Mirrors the leads-table palette
+ *  (close/leads-list-2026 PR) so the pill is identical on the list and
+ *  the detail page: Active = coral, Won = emerald (success), Closed-
+ *  out = muted secondary, DNC = destructive. */
+export function statusVariant(
+  status: string,
+): "coral" | "success" | "destructive" | "secondary" {
+  if (["ready_to_call", "callback", "scheduled"].includes(status)) {
+    return "coral";
+  }
+  if (["goal_met", "attended", "sale", "closed"].includes(status)) {
+    return "success";
+  }
+  if (status === "dnc") return "destructive";
+  return "secondary";
+}
+
+/** Wraps a save call so the surrounding component can show a single
+ *  saving/saved/error status. */
+export function useLeadSaver(leadId: string) {
   const [status, setStatus] = useState<SaveStatus>("idle");
 
-  function close() {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("lead");
-    const qs = params.toString();
-    router.push(qs ? `/leads?${qs}` : "/leads");
-  }
-
-  /** Wrap a save call so the modal shows a single saving/saved status. */
   async function persist(run: () => Promise<SaveResult>): Promise<SaveResult> {
     setStatus("saving");
     const result = await run();
@@ -140,114 +144,37 @@ export function LeadDetailModal({
   const saveCustom = (customFieldId: string) => (value: string | boolean) =>
     persist(() => updateLeadCustomValue({ leadId, customFieldId, value }));
 
-  return (
-    <Dialog
-      open
-      onOpenChange={(next) => {
-        if (!next) close();
-      }}
-    >
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>{leadCompany || "Lead details"}</DialogTitle>
-          <DialogDescription>{STATUS_TEXT[status]}</DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-          <div className="flex flex-col gap-6">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {STANDARD_FIELDS.map((field) => (
-                <AutosaveField
-                  key={field.key}
-                  id={`lead-${field.key}`}
-                  label={field.label}
-                  type={field.type}
-                  initial={fieldValues[field.key] ?? ""}
-                  onSave={saveField(field.key)}
-                />
-              ))}
-            </div>
-
-            {customFields.length > 0 ? (
-              <Section title="Custom fields">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {customFields.map((field) => (
-                    <CustomFieldEditor
-                      key={field.id}
-                      field={field}
-                      initial={customValues[field.id]}
-                      onSave={saveCustom(field.id)}
-                    />
-                  ))}
-                </div>
-              </Section>
-            ) : null}
-
-            <Section title="AI summary">
-              {meta.aiSummary ? (
-                <p className="text-muted-foreground text-sm whitespace-pre-line">
-                  {meta.aiSummary}
-                </p>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  No summary yet — this is generated after the lead is called.
-                </p>
-              )}
-            </Section>
-
-            <Section title="Campaign & list">
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <InfoRow label="List" value={meta.listName} />
-                <InfoRow label="Status" value={humanize(meta.status)} />
-                <InfoRow
-                  label="Last outcome"
-                  value={humanize(meta.lastOutcome)}
-                />
-                <InfoRow
-                  label="Retry counter"
-                  value={String(meta.retryCounter)}
-                />
-                <InfoRow
-                  label="Resting until"
-                  value={formatDateTime(meta.restingUntil)}
-                />
-                <InfoRow
-                  label="Next call"
-                  value={formatDateTime(meta.nextCallAt)}
-                />
-              </dl>
-            </Section>
-          </div>
-
-          <div className="lg:border-border lg:border-l lg:pl-6">
-            <Section title="Activity">
-              <ActivityTimeline events={events} />
-            </Section>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
+  return { status, saveField, saveCustom };
 }
 
-/** A titled block inside the modal. */
-function Section({
+/** Collapsible disclosure built on the native <details> element — no JS
+ *  state, no library, fully keyboard- and screen-reader-friendly. */
+export function CollapsibleSection({
   title,
+  defaultOpen,
   children,
 }: {
   title: string;
+  defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-3">
-      <h3 className="text-foreground text-sm font-semibold">{title}</h3>
-      {children}
-    </section>
+    <details
+      open={defaultOpen}
+      data-testid={`lead-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
+      className="border-border group rounded-lg border"
+    >
+      <summary className="hover:bg-muted/50 flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2 transition-colors">
+        <span className="text-foreground text-sm font-semibold">{title}</span>
+        <ChevronDown className="text-muted-foreground size-4 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="px-3 pt-3 pb-4">{children}</div>
+    </details>
   );
 }
 
-/** A label/value pair in the read-only Campaign & list section. */
-function InfoRow({ label, value }: { label: string; value: string }) {
+/** A label/value pair in read-only strips. */
+export function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col">
       <dt className="text-muted-foreground text-xs">{label}</dt>
@@ -256,8 +183,10 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** The lead's activity timeline, newest first. */
-function ActivityTimeline({ events }: { events: LeadEvent[] }) {
+/** The lead's activity timeline, newest first. (Legacy — kept for the
+ *  modal. The full route uses LeadActivityFeed which merges multiple
+ *  sources.) */
+export function ActivityTimeline({ events }: { events: LeadEvent[] }) {
   if (events.length === 0) {
     return <p className="text-muted-foreground text-sm">No activity yet.</p>;
   }
@@ -285,7 +214,7 @@ function ActivityTimeline({ events }: { events: LeadEvent[] }) {
 }
 
 /** A text/number/date input that saves itself when it loses focus. */
-function AutosaveField({
+export function AutosaveField({
   id,
   label,
   type,
@@ -325,7 +254,7 @@ function AutosaveField({
 }
 
 /** Renders the right editor for a custom field's type. */
-function CustomFieldEditor({
+export function CustomFieldEditor({
   field,
   initial,
   onSave,
@@ -376,7 +305,6 @@ function CustomFieldEditor({
   );
 }
 
-/** A yes/no custom field that saves the moment it is toggled. */
 function BooleanField({
   id,
   label,
@@ -410,7 +338,6 @@ function BooleanField({
   );
 }
 
-/** A dropdown custom field that saves the moment a choice is made. */
 function SelectField({
   id,
   label,

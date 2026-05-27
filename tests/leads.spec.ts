@@ -71,16 +71,19 @@ test.describe("leads table", () => {
       page.getByRole("heading", { level: 1, name: "Leads" }),
     ).toBeVisible();
     await expect(page.getByRole("cell", { name: company })).toBeVisible();
-    await expect(page.getByText(/Page 1 of/)).toBeVisible();
+    // Smart pagination v2 surfaces "Showing N–M of Total" instead of
+    // "Page X of Y" — easier to orient on big lists.
+    await expect(page.getByTestId("smart-pagination")).toContainText("Showing");
   });
 
   test("search filters the leads table", async ({ page }) => {
     await page.goto("/leads");
 
-    await page
-      .getByPlaceholder("Search company, phone, or email")
-      .fill(company);
-    await page.getByRole("button", { name: "Search" }).click();
+    // Search moved to the global top bar in v3 and submits on Enter
+    // (route.replace to /leads?q=…).
+    const search = page.getByRole("search").getByLabel("Search leads");
+    await search.fill(company);
+    await search.press("Enter");
 
     await expect(page.getByRole("cell", { name: company })).toBeVisible();
     await expect(page.getByRole("cell", { name: otherCompany })).toHaveCount(0);

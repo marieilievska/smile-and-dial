@@ -7,8 +7,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 type SelectionValue = {
   selected: Set<string>;
   allIds: string[];
+  /** When true, the user clicked "Select all N matching" — the selection
+   *  spans every match across pages, not just the visible page. The set
+   *  in `selected` is the materialized list (capped). */
+  matchAll: boolean;
   toggle: (id: string) => void;
   toggleAll: () => void;
+  setMatchAllSelection: (ids: string[]) => void;
   clear: () => void;
 };
 
@@ -27,6 +32,7 @@ export function SelectionProvider({
   children: React.ReactNode;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [matchAll, setMatchAll] = useState(false);
 
   // Reset the selection when the visible leads change.
   const allKey = allIds.join(",");
@@ -34,6 +40,7 @@ export function SelectionProvider({
   if (seenKey !== allKey) {
     setSeenKey(allKey);
     setSelected(new Set());
+    setMatchAll(false);
   }
 
   function toggle(id: string) {
@@ -43,21 +50,41 @@ export function SelectionProvider({
       else next.add(id);
       return next;
     });
+    // Any individual toggle escapes match-all mode — the user is now
+    // hand-picking, not sweeping.
+    if (matchAll) setMatchAll(false);
   }
 
   function toggleAll() {
     setSelected((prev) =>
       prev.size === allIds.length ? new Set() : new Set(allIds),
     );
+    // Toggling page-level select-all leaves match-all mode if it was
+    // engaged; user can re-engage via the banner.
+    setMatchAll(false);
+  }
+
+  function setMatchAllSelection(ids: string[]) {
+    setSelected(new Set(ids));
+    setMatchAll(true);
   }
 
   function clear() {
     setSelected(new Set());
+    setMatchAll(false);
   }
 
   return (
     <SelectionContext.Provider
-      value={{ selected, allIds, toggle, toggleAll, clear }}
+      value={{
+        selected,
+        allIds,
+        matchAll,
+        toggle,
+        toggleAll,
+        setMatchAllSelection,
+        clear,
+      }}
     >
       {children}
     </SelectionContext.Provider>

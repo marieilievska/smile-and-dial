@@ -15,6 +15,7 @@ export function SettingsNav({ isAdmin }: { isAdmin: boolean }) {
           { label: "Custom fields", href: "/settings/custom-fields" },
           { label: "Twilio numbers", href: "/settings/twilio-numbers" },
           { label: "Integrations", href: "/settings/integrations" },
+          { label: "API", href: "/settings/api" },
         ]
       : []),
     { label: "Lists", href: "/settings/lists" },

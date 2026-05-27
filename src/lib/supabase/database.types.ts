@@ -96,26 +96,458 @@ export type Database = {
         };
         Relationships: [];
       };
+      api_idempotency_keys: {
+        Row: {
+          api_key_id: string;
+          created_at: string;
+          id: string;
+          idempotency_key: string;
+          lead_id: string | null;
+          response: Json;
+        };
+        Insert: {
+          api_key_id: string;
+          created_at?: string;
+          id?: string;
+          idempotency_key: string;
+          lead_id?: string | null;
+          response: Json;
+        };
+        Update: {
+          api_key_id?: string;
+          created_at?: string;
+          id?: string;
+          idempotency_key?: string;
+          lead_id?: string | null;
+          response?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "api_idempotency_keys_api_key_id_fkey";
+            columns: ["api_key_id"];
+            isOneToOne: false;
+            referencedRelation: "api_keys";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "api_idempotency_keys_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "api_idempotency_keys_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      api_keys: {
+        Row: {
+          created_at: string;
+          id: string;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at: string | null;
+          name: string;
+          owner_id: string;
+          revoked_at: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          key_hash: string;
+          key_prefix: string;
+          last_used_at?: string | null;
+          name: string;
+          owner_id: string;
+          revoked_at?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          key_hash?: string;
+          key_prefix?: string;
+          last_used_at?: string | null;
+          name?: string;
+          owner_id?: string;
+          revoked_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       app_settings: {
         Row: {
+          calendly_access_token: string | null;
+          calendly_connected_at: string | null;
+          calendly_last_sync_at: string | null;
+          calendly_organization_uri: string | null;
+          calendly_refresh_token: string | null;
+          calendly_user_uri: string | null;
+          close_api_key: string | null;
+          close_connected_at: string | null;
           elevenlabs_api_key: string | null;
           elevenlabs_voice_ids: string | null;
           id: number;
           updated_at: string;
         };
         Insert: {
+          calendly_access_token?: string | null;
+          calendly_connected_at?: string | null;
+          calendly_last_sync_at?: string | null;
+          calendly_organization_uri?: string | null;
+          calendly_refresh_token?: string | null;
+          calendly_user_uri?: string | null;
+          close_api_key?: string | null;
+          close_connected_at?: string | null;
           elevenlabs_api_key?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
           updated_at?: string;
         };
         Update: {
+          calendly_access_token?: string | null;
+          calendly_connected_at?: string | null;
+          calendly_last_sync_at?: string | null;
+          calendly_organization_uri?: string | null;
+          calendly_refresh_token?: string | null;
+          calendly_user_uri?: string | null;
+          close_api_key?: string | null;
+          close_connected_at?: string | null;
           elevenlabs_api_key?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
           updated_at?: string;
         };
         Relationships: [];
+      };
+      calendly_event_types: {
+        Row: {
+          active: boolean;
+          duration_minutes: number | null;
+          event_uri: string;
+          id: string;
+          name: string;
+          scheduling_url: string | null;
+          synced_at: string;
+        };
+        Insert: {
+          active?: boolean;
+          duration_minutes?: number | null;
+          event_uri: string;
+          id?: string;
+          name: string;
+          scheduling_url?: string | null;
+          synced_at?: string;
+        };
+        Update: {
+          active?: boolean;
+          duration_minutes?: number | null;
+          event_uri?: string;
+          id?: string;
+          name?: string;
+          scheduling_url?: string | null;
+          synced_at?: string;
+        };
+        Relationships: [];
+      };
+      calendly_events: {
+        Row: {
+          cancel_url: string | null;
+          created_at: string;
+          event_type_uri: string | null;
+          event_uri: string;
+          id: string;
+          invitee_email: string | null;
+          invitee_name: string | null;
+          invitee_phone: string | null;
+          invitee_uri: string;
+          lead_id: string | null;
+          owner_id: string;
+          raw: Json | null;
+          reschedule_url: string | null;
+          scheduled_at: string | null;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          cancel_url?: string | null;
+          created_at?: string;
+          event_type_uri?: string | null;
+          event_uri: string;
+          id?: string;
+          invitee_email?: string | null;
+          invitee_name?: string | null;
+          invitee_phone?: string | null;
+          invitee_uri: string;
+          lead_id?: string | null;
+          owner_id: string;
+          raw?: Json | null;
+          reschedule_url?: string | null;
+          scheduled_at?: string | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          cancel_url?: string | null;
+          created_at?: string;
+          event_type_uri?: string | null;
+          event_uri?: string;
+          id?: string;
+          invitee_email?: string | null;
+          invitee_name?: string | null;
+          invitee_phone?: string | null;
+          invitee_uri?: string;
+          lead_id?: string | null;
+          owner_id?: string;
+          raw?: Json | null;
+          reschedule_url?: string | null;
+          scheduled_at?: string | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "calendly_events_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "calendly_events_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calendly_events_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      callbacks: {
+        Row: {
+          campaign_id: string;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          lead_id: string;
+          originating_call_id: string | null;
+          result_call_id: string | null;
+          scheduled_at: string;
+          status: string;
+          voicemail_attempts: number;
+        };
+        Insert: {
+          campaign_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          lead_id: string;
+          originating_call_id?: string | null;
+          result_call_id?: string | null;
+          scheduled_at: string;
+          status?: string;
+          voicemail_attempts?: number;
+        };
+        Update: {
+          campaign_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          lead_id?: string;
+          originating_call_id?: string | null;
+          result_call_id?: string | null;
+          scheduled_at?: string;
+          status?: string;
+          voicemail_attempts?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "callbacks_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "callbacks_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
+            foreignKeyName: "callbacks_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "callbacks_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "callbacks_originating_call_id_fkey";
+            columns: ["originating_call_id"];
+            isOneToOne: false;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "callbacks_result_call_id_fkey";
+            columns: ["result_call_id"];
+            isOneToOne: false;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      calls: {
+        Row: {
+          agent_id: string | null;
+          answered_at: string | null;
+          campaign_id: string;
+          cost_breakdown: Json | null;
+          created_at: string;
+          direction: string;
+          duration_seconds: number | null;
+          elevenlabs_conversation_id: string | null;
+          ended_at: string | null;
+          extracted_data: Json | null;
+          goal_met: boolean;
+          id: string;
+          lead_id: string;
+          outcome: string | null;
+          outcome_source: string | null;
+          recording_path: string | null;
+          retry_applied_at: string | null;
+          score: number | null;
+          started_at: string | null;
+          status: string;
+          summary: string | null;
+          talk_time_seconds: number | null;
+          transcript_json: Json | null;
+          twilio_call_sid: string | null;
+          twilio_number_id: string | null;
+        };
+        Insert: {
+          agent_id?: string | null;
+          answered_at?: string | null;
+          campaign_id: string;
+          cost_breakdown?: Json | null;
+          created_at?: string;
+          direction: string;
+          duration_seconds?: number | null;
+          elevenlabs_conversation_id?: string | null;
+          ended_at?: string | null;
+          extracted_data?: Json | null;
+          goal_met?: boolean;
+          id?: string;
+          lead_id: string;
+          outcome?: string | null;
+          outcome_source?: string | null;
+          recording_path?: string | null;
+          retry_applied_at?: string | null;
+          score?: number | null;
+          started_at?: string | null;
+          status?: string;
+          summary?: string | null;
+          talk_time_seconds?: number | null;
+          transcript_json?: Json | null;
+          twilio_call_sid?: string | null;
+          twilio_number_id?: string | null;
+        };
+        Update: {
+          agent_id?: string | null;
+          answered_at?: string | null;
+          campaign_id?: string;
+          cost_breakdown?: Json | null;
+          created_at?: string;
+          direction?: string;
+          duration_seconds?: number | null;
+          elevenlabs_conversation_id?: string | null;
+          ended_at?: string | null;
+          extracted_data?: Json | null;
+          goal_met?: boolean;
+          id?: string;
+          lead_id?: string;
+          outcome?: string | null;
+          outcome_source?: string | null;
+          recording_path?: string | null;
+          retry_applied_at?: string | null;
+          score?: number | null;
+          started_at?: string | null;
+          status?: string;
+          summary?: string | null;
+          talk_time_seconds?: number | null;
+          transcript_json?: Json | null;
+          twilio_call_sid?: string | null;
+          twilio_number_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "calls_agent_id_fkey";
+            columns: ["agent_id"];
+            isOneToOne: false;
+            referencedRelation: "agents";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
+            foreignKeyName: "calls_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "calls_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_twilio_number_id_fkey";
+            columns: ["twilio_number_id"];
+            isOneToOne: false;
+            referencedRelation: "twilio_numbers";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       campaigns: {
         Row: {
@@ -136,6 +568,8 @@ export type Database = {
           monthly_spend_cap: number | null;
           name: string;
           owner_id: string;
+          paused_at: string | null;
+          paused_reason: string | null;
           status: string;
           transfer_destination_phone: string | null;
           twilio_number_id: string | null;
@@ -158,6 +592,8 @@ export type Database = {
           monthly_spend_cap?: number | null;
           name: string;
           owner_id: string;
+          paused_at?: string | null;
+          paused_reason?: string | null;
           status?: string;
           transfer_destination_phone?: string | null;
           twilio_number_id?: string | null;
@@ -180,6 +616,8 @@ export type Database = {
           monthly_spend_cap?: number | null;
           name?: string;
           owner_id?: string;
+          paused_at?: string | null;
+          paused_reason?: string | null;
           status?: string;
           transfer_destination_phone?: string | null;
           twilio_number_id?: string | null;
@@ -240,6 +678,234 @@ export type Database = {
           type?: string;
         };
         Relationships: [];
+      };
+      dnc_entries: {
+        Row: {
+          added_at: string;
+          added_by_user_id: string | null;
+          company_snapshot: string | null;
+          id: string;
+          phone: string;
+          reason: string;
+          source_call_id: string | null;
+        };
+        Insert: {
+          added_at?: string;
+          added_by_user_id?: string | null;
+          company_snapshot?: string | null;
+          id?: string;
+          phone: string;
+          reason: string;
+          source_call_id?: string | null;
+        };
+        Update: {
+          added_at?: string;
+          added_by_user_id?: string | null;
+          company_snapshot?: string | null;
+          id?: string;
+          phone?: string;
+          reason?: string;
+          source_call_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "dnc_entries_source_call_id_fkey";
+            columns: ["source_call_id"];
+            isOneToOne: false;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      dnc_removals: {
+        Row: {
+          id: string;
+          phone: string;
+          reason_text: string;
+          removed_at: string;
+          removed_by_user_id: string;
+        };
+        Insert: {
+          id?: string;
+          phone: string;
+          reason_text: string;
+          removed_at?: string;
+          removed_by_user_id: string;
+        };
+        Update: {
+          id?: string;
+          phone?: string;
+          reason_text?: string;
+          removed_at?: string;
+          removed_by_user_id?: string;
+        };
+        Relationships: [];
+      };
+      elevenlabs_webhook_events: {
+        Row: {
+          conversation_id: string;
+          raw_payload: Json | null;
+          received_at: string;
+        };
+        Insert: {
+          conversation_id: string;
+          raw_payload?: Json | null;
+          received_at?: string;
+        };
+        Update: {
+          conversation_id?: string;
+          raw_payload?: Json | null;
+          received_at?: string;
+        };
+        Relationships: [];
+      };
+      email_templates: {
+        Row: {
+          body: string;
+          created_at: string;
+          id: string;
+          last_used_at: string | null;
+          name: string;
+          owner_id: string;
+          subject: string;
+          updated_at: string;
+        };
+        Insert: {
+          body: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          name: string;
+          owner_id: string;
+          subject: string;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          name?: string;
+          owner_id?: string;
+          subject?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "email_templates_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      emails: {
+        Row: {
+          body: string | null;
+          call_id: string | null;
+          campaign_id: string | null;
+          close_message_id: string | null;
+          created_at: string;
+          direction: string;
+          from_address: string | null;
+          id: string;
+          lead_id: string;
+          owner_id: string;
+          raw: Json | null;
+          status: string;
+          subject: string | null;
+          template_id: string | null;
+          to_address: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          body?: string | null;
+          call_id?: string | null;
+          campaign_id?: string | null;
+          close_message_id?: string | null;
+          created_at?: string;
+          direction: string;
+          from_address?: string | null;
+          id?: string;
+          lead_id: string;
+          owner_id: string;
+          raw?: Json | null;
+          status?: string;
+          subject?: string | null;
+          template_id?: string | null;
+          to_address?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string | null;
+          call_id?: string | null;
+          campaign_id?: string | null;
+          close_message_id?: string | null;
+          created_at?: string;
+          direction?: string;
+          from_address?: string | null;
+          id?: string;
+          lead_id?: string;
+          owner_id?: string;
+          raw?: Json | null;
+          status?: string;
+          subject?: string | null;
+          template_id?: string | null;
+          to_address?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "emails_call_id_fkey";
+            columns: ["call_id"];
+            isOneToOne: false;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "emails_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "emails_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
+            foreignKeyName: "emails_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "emails_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "emails_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "emails_template_id_fkey";
+            columns: ["template_id"];
+            isOneToOne: false;
+            referencedRelation: "email_templates";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       goals: {
         Row: {
@@ -361,6 +1027,13 @@ export type Database = {
             foreignKeyName: "lead_custom_values_lead_id_fkey";
             columns: ["lead_id"];
             isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "lead_custom_values_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
             referencedRelation: "leads";
             referencedColumns: ["id"];
           },
@@ -371,6 +1044,7 @@ export type Database = {
           ai_summary: string | null;
           business_email: string | null;
           business_phone: string | null;
+          calendly_event_uri: string | null;
           call_attempts: number;
           category: string | null;
           city: string | null;
@@ -405,6 +1079,7 @@ export type Database = {
           ai_summary?: string | null;
           business_email?: string | null;
           business_phone?: string | null;
+          calendly_event_uri?: string | null;
           call_attempts?: number;
           category?: string | null;
           city?: string | null;
@@ -439,6 +1114,7 @@ export type Database = {
           ai_summary?: string | null;
           business_email?: string | null;
           business_phone?: string | null;
+          calendly_event_uri?: string | null;
           call_attempts?: number;
           category?: string | null;
           city?: string | null;
@@ -510,6 +1186,13 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
+            foreignKeyName: "list_campaign_attachments_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
             foreignKeyName: "list_campaign_attachments_list_id_fkey";
             columns: ["list_id"];
             isOneToOne: false;
@@ -523,6 +1206,7 @@ export type Database = {
           created_at: string;
           description: string | null;
           id: string;
+          is_inbound_default: boolean;
           name: string;
           owner_id: string;
         };
@@ -530,6 +1214,7 @@ export type Database = {
           created_at?: string;
           description?: string | null;
           id?: string;
+          is_inbound_default?: boolean;
           name: string;
           owner_id: string;
         };
@@ -537,8 +1222,42 @@ export type Database = {
           created_at?: string;
           description?: string | null;
           id?: string;
+          is_inbound_default?: boolean;
           name?: string;
           owner_id?: string;
+        };
+        Relationships: [];
+      };
+      notifications: {
+        Row: {
+          created_at: string;
+          id: string;
+          kind: string;
+          message: string;
+          read_at: string | null;
+          ref_id: string | null;
+          ref_table: string | null;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          kind: string;
+          message: string;
+          read_at?: string | null;
+          ref_id?: string | null;
+          ref_table?: string | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          message?: string;
+          read_at?: string | null;
+          ref_id?: string | null;
+          ref_table?: string | null;
+          user_id?: string;
         };
         Relationships: [];
       };
@@ -608,6 +1327,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      system_events: {
+        Row: {
+          actor_user_id: string | null;
+          created_at: string;
+          id: string;
+          kind: string;
+          payload: Json | null;
+          ref_id: string | null;
+          ref_table: string | null;
+        };
+        Insert: {
+          actor_user_id?: string | null;
+          created_at?: string;
+          id?: string;
+          kind: string;
+          payload?: Json | null;
+          ref_id?: string | null;
+          ref_table?: string | null;
+        };
+        Update: {
+          actor_user_id?: string | null;
+          created_at?: string;
+          id?: string;
+          kind?: string;
+          payload?: Json | null;
+          ref_id?: string | null;
+          ref_table?: string | null;
+        };
+        Relationships: [];
+      };
       twilio_numbers: {
         Row: {
           attached_campaign_id: string | null;
@@ -662,15 +1411,93 @@ export type Database = {
             referencedRelation: "campaigns";
             referencedColumns: ["id"];
           },
+          {
+            foreignKeyName: "twilio_numbers_attached_campaign_fk";
+            columns: ["attached_campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
         ];
+      };
+      twilio_status_events: {
+        Row: {
+          call_sid: string;
+          event_type: string;
+          raw_payload: Json | null;
+          received_at: string;
+        };
+        Insert: {
+          call_sid: string;
+          event_type: string;
+          raw_payload?: Json | null;
+          received_at?: string;
+        };
+        Update: {
+          call_sid?: string;
+          event_type?: string;
+          raw_payload?: Json | null;
+          received_at?: string;
+        };
+        Relationships: [];
       };
     };
     Views: {
-      [_ in never]: never;
+      dial_queue: {
+        Row: {
+          agent_id: string | null;
+          business_phone: string | null;
+          calling_hours_end: string | null;
+          calling_hours_start: string | null;
+          calls_per_day_cap: number | null;
+          calls_per_hour_cap: number | null;
+          campaign_id: string | null;
+          concurrency_cap_per_user: number | null;
+          daily_spend_cap: number | null;
+          lead_id: string | null;
+          lead_timezone: string | null;
+          monthly_spend_cap: number | null;
+          next_call_at: string | null;
+          owner_id: string | null;
+          twilio_number_id: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_agent_id_fkey";
+            columns: ["agent_id"];
+            isOneToOne: false;
+            referencedRelation: "agents";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "campaigns_twilio_number_id_fkey";
+            columns: ["twilio_number_id"];
+            isOneToOne: false;
+            referencedRelation: "twilio_numbers";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Functions: {
       elevenlabs_voice_ids: { Args: never; Returns: string };
+      expire_resting_leads: { Args: never; Returns: number };
+      get_or_create_inbound_list: {
+        Args: { in_owner: string };
+        Returns: string;
+      };
       is_admin: { Args: { uid: string }; Returns: boolean };
+      is_phone_on_dnc: { Args: { phone_to_check: string }; Returns: boolean };
+      is_within_calling_hours: {
+        Args: { hours_end: string; hours_start: string; lead_timezone: string };
+        Returns: boolean;
+      };
+      monitor_campaign_spend_caps: { Args: never; Returns: number };
+      monitor_twilio_connect_rates: { Args: never; Returns: number };
+      pre_call_check: {
+        Args: { in_campaign_id: string; in_lead_id: string };
+        Returns: string;
+      };
     };
     Enums: {
       [_ in never]: never;

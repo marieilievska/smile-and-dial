@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, ChevronsUpDown, LogOut } from "lucide-react";
+import { ChevronsUpDown, LogOut } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "@/lib/auth/actions";
+
+import { GlobalSearch } from "./global-search";
+import { NotificationBell, type NotificationItem } from "./notification-bell";
 
 function initialsOf(name: string) {
   const letters = name
@@ -28,16 +31,24 @@ export function TopBar({
   name,
   email,
   role,
+  notifications,
+  unreadCount,
 }: {
   name: string;
   email: string;
   role: string;
+  notifications: NotificationItem[];
+  unreadCount: number;
 }) {
   return (
-    <header className="border-border bg-card flex h-16 shrink-0 items-center justify-end gap-1 border-b px-6">
-      <Button variant="ghost" size="icon" aria-label="Notifications">
-        <Bell className="size-4" />
-      </Button>
+    <header className="border-border bg-card flex h-16 shrink-0 items-center gap-3 border-b px-6">
+      <div className="flex-1">
+        <GlobalSearch />
+      </div>
+      <NotificationBell
+        initialItems={notifications}
+        initialUnreadCount={unreadCount}
+      />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="gap-2" aria-label="Open user menu">

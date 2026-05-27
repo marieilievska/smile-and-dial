@@ -29,7 +29,10 @@ export async function createSavedView(
   });
   if (error) return { error: "Could not save the view." };
 
+  // Revalidate every page that has its own views — cheap and avoids the
+  // caller having to thread a path through.
   revalidatePath("/leads");
+  revalidatePath("/calls");
   return { error: null };
 }
 
@@ -45,5 +48,6 @@ export async function deleteSavedView(id: string): Promise<SavedViewResult> {
   if (error) return { error: "Could not delete the view." };
 
   revalidatePath("/leads");
+  revalidatePath("/calls");
   return { error: null };
 }

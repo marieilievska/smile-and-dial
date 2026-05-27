@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Bookmark, Plus, Trash2 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { BookmarkPlus } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -16,127 +16,80 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { createSavedView, deleteSavedView } from "@/lib/saved-views/actions";
+import { createSavedView } from "@/lib/saved-views/actions";
 
 export type SavedView = { id: string; name: string; params: string };
 
-export function SavedViews({ views }: { views: SavedView[] }) {
-  const router = useRouter();
+/** "Save current view" trigger. The list of saved views moved to the
+ *  sidebar (close/saved-views-sidebar PR α), so this toolbar control
+ *  shrinks to just the create affordance.
+ *
+ *  Renders only when there's something to save — at least one filter,
+ *  search term, sort, or column override on the URL. */
+export function SaveCurrentViewButton() {
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
-  const [popoverOpen, setPopoverOpen] = useState(false);
-  const [saveOpen, setSaveOpen] = useState(false);
+  const [open, setOpen] = useState(false);
 
-  function applyView(params: string) {
-    setPopoverOpen(false);
-    router.push(params ? `/leads?${params}` : "/leads");
-  }
-
-  function remove(id: string) {
-    startTransition(async () => {
-      const result = await deleteSavedView(id);
-      if (result.error) toast.error(result.error);
-      else toast.success("View deleted.");
-    });
-  }
+  const params = searchParams.toString();
+  // Don't show on the bare /leads URL — nothing to save yet.
+  if (!params) return null;
 
   function saveCurrent(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = String(new FormData(event.currentTarget).get("name") ?? "");
-    const current = searchParams.toString();
     startTransition(async () => {
-      const result = await createSavedView("leads", name, current);
+      const result = await createSavedView("leads", name, params);
       if (result.error) {
         toast.error(result.error);
       } else {
-        toast.success("View saved.");
-        setSaveOpen(false);
+        toast.success("View saved. It appears in the sidebar under Leads.");
+        setOpen(false);
       }
     });
   }
 
   return (
-    <>
-      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="outline">
-            <Bookmark className="size-4" />
-            Views
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-64">
-          <div className="flex flex-col gap-1">
-            {views.length > 0 ? (
-              views.map((view) => (
-                <div key={view.id} className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => applyView(view.params)}
-                    className="hover:bg-muted flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm"
-                  >
-                    {view.name}
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Delete view ${view.name}`}
-                    disabled={pending}
-                    onClick={() => remove(view.id)}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-              ))
-            ) : (
-              <p className="text-muted-foreground px-2 py-1.5 text-sm">
-                No saved views yet
-              </p>
-            )}
-            <div className="border-border mt-1 border-t pt-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start"
-                onClick={() => {
-                  setPopoverOpen(false);
-                  setSaveOpen(true);
-                }}
-              >
-                <Plus className="size-4" />
-                Save current view
-              </Button>
-            </div>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        title="Save the current search, filters, sort, and columns as a sidebar view"
+      >
+        <BookmarkPlus className="size-4" />
+        Save view
+      </Button>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Save this view</DialogTitle>
+          <DialogDescription>
+            Save the current search, filters, sort, and columns as a named view
+            in the sidebar. One click to come back to it.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={saveCurrent} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="view-name">View name</Label>
+            <Input
+              id="view-name"
+              name="name"
+              required
+              autoFocus
+              placeholder="e.g. Open callbacks in NY/NJ"
+            />
           </div>
-        </PopoverContent>
-      </Popover>
-
-      <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Save view</DialogTitle>
-            <DialogDescription>
-              Save the current search, filters, sorting, and columns as a named
-              view.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={saveCurrent} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="view-name">View name</Label>
-              <Input id="view-name" name="name" required />
-            </div>
-            <DialogFooter>
-              <Button type="submit" disabled={pending}>
-                {pending ? "Saving…" : "Save view"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
+          <DialogFooter>
+            <Button type="submit" disabled={pending}>
+              {pending ? "Saving…" : "Save view"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
+
+// Re-export for backward compat with code that still imports SavedViews.
+export const SavedViews = SaveCurrentViewButton;

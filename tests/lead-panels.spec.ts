@@ -44,25 +44,30 @@ test.describe("Lead detail panels", () => {
     await admin.from("lists").delete().eq("id", listId);
   });
 
-  test("the modal shows AI summary, pipeline context, and activity", async ({
+  test("the page shows AI summary, pipeline context, and activity", async ({
     page,
   }) => {
     await page.goto(`/leads?q=${encodeURIComponent(company)}`);
-    await page.getByRole("cell", { name: company, exact: true }).click();
+    // v2 — primary cell stacks company + phone, so its accessible name
+    // now contains both.
+    await page.getByRole("cell", { name: company }).first().click();
 
-    const dialog = page.getByRole("dialog");
+    // Now navigates to the full /leads/<id> route (Close-style).
+    await expect(page).toHaveURL(/\/leads\/[0-9a-f-]{36}$/);
 
-    // AI summary section shows the rolling summary.
-    await expect(dialog.getByText("AI summary")).toBeVisible();
-    await expect(dialog.getByText(summary)).toBeVisible();
+    // AI summary block is in the center column.
+    await expect(page.getByTestId("ai-summary-block")).toBeVisible();
+    await expect(page.getByTestId("ai-summary-block")).toContainText(summary);
 
-    // Campaign & list section shows the list and pipeline status.
-    await expect(dialog.getByText("Campaign & list")).toBeVisible();
-    await expect(dialog.getByText(listName)).toBeVisible();
-    await expect(dialog.getByText("Ready to call")).toBeVisible();
+    // At-a-glance strip shows the list and the pipeline status badge
+    // ("Ready to call" — humanized "ready_to_call").
+    await expect(page.getByText(listName)).toBeVisible();
+    await expect(page.getByText("Ready to call").first()).toBeVisible();
 
-    // Activity timeline shows the lead-created event.
-    await expect(dialog.getByText("Activity")).toBeVisible();
-    await expect(dialog.getByText("Lead created")).toBeVisible();
+    // Activity column on the right is always visible — with no seeded
+    // calls/emails/events, it shows the empty-state copy.
+    const activityColumn = page.getByTestId("lead-activity-column");
+    await expect(activityColumn).toBeVisible();
+    await expect(activityColumn).toContainText("No activity yet");
   });
 });

@@ -64,8 +64,10 @@ test.describe("CSV export", () => {
     await page.goto(
       `/leads?q=${encodeURIComponent(search)}&cols=company,phone,city`,
     );
+    // v2 — the primary cell now shows company name + phone stacked, so
+    // its accessible name is "<company> <phone>". Drop exact:true.
     await expect(
-      page.getByRole("cell", { name: exportCo, exact: true }),
+      page.getByRole("cell", { name: exportCo }).first(),
     ).toBeVisible();
 
     const downloadPromise = page.waitForEvent("download");

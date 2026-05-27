@@ -23,7 +23,13 @@ function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
       data-slot="table-header"
-      className={cn("[&_tr]:border-b", className)}
+      className={cn(
+        // Subtle muted background separates the header row from data
+        // rows so the eye can park on the first scan-line — Close uses
+        // this trick to make dense tables readable.
+        "bg-muted/40 [&_tr]:border-b",
+        className,
+      )}
       {...props}
     />
   );
@@ -70,7 +76,10 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        // Close uses light-weight, slightly muted header text so the
+        // data below is what catches the eye. Smaller, tracking-tight,
+        // less prominent than body content.
+        "text-muted-foreground h-9 px-2 text-left align-middle text-xs font-medium tracking-tight whitespace-nowrap [&:has([role=checkbox])]:pr-0",
         className,
       )}
       {...props}
@@ -83,7 +92,10 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
     <td
       data-slot="table-cell"
       className={cn(
-        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        // Slightly tighter vertical (px-2 py-1.5 = 8/6) than the default
+        // (p-2 = 8/8) for a Close-style ~32px row height while keeping
+        // 14px body text comfortable.
+        "px-2 py-1.5 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
         className,
       )}
       {...props}

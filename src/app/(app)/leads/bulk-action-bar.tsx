@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Download, FolderInput, Trash2, UserCog, X } from "lucide-react";
+import { Ban, Download, FolderInput, Trash2, UserCog, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -39,6 +39,7 @@ import {
   bulkMoveToList,
   bulkReassignOwner,
 } from "@/lib/leads/bulk-actions";
+import { bulkAddLeadsToDnc } from "@/lib/dnc/actions";
 
 import { useSelection } from "./selection";
 
@@ -75,12 +76,32 @@ export function BulkActionBar({
     link.click();
   }
 
+  // v2 — sticky bottom bar (Linear-style). When 1+ leads are selected,
+  // a coral-accented bar slides up from the viewport bottom. It floats
+  // above the table so the user can scroll-pick-act without losing
+  // their selection bar.
   return (
-    <div className="border-border bg-muted/40 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
-      <span className="text-foreground text-sm font-medium">
+    <div
+      data-testid="bulk-action-bar"
+      className="animate-in slide-in-from-bottom-2 bg-card fixed inset-x-0 bottom-4 z-40 mx-auto flex w-fit max-w-[95vw] flex-wrap items-center gap-2 rounded-xl border px-3 py-2 shadow-lg duration-200"
+      style={{
+        borderColor: "color-mix(in oklab, var(--coral) 40%, transparent)",
+        boxShadow:
+          "0 8px 32px -8px color-mix(in oklab, var(--coral) 25%, transparent), 0 4px 12px -2px rgba(0,0,0,0.08)",
+      }}
+    >
+      <span
+        className="text-foreground inline-flex items-center gap-1.5 text-sm font-medium"
+        aria-live="polite"
+      >
+        <span
+          aria-hidden
+          className="size-1.5 rounded-full"
+          style={{ backgroundColor: "var(--coral)" }}
+        />
         {count} selected
       </span>
-      <div className="flex-1" />
+      <div className="bg-border/60 mx-1 h-5 w-px" />
 
       <PickApplyDialog
         triggerLabel="Move to list"
@@ -113,6 +134,24 @@ export function BulkActionBar({
           }}
         />
       ) : null}
+
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={async () => {
+          const result = await bulkAddLeadsToDnc({ leadIds: ids });
+          if (result.error) toast.error(result.error);
+          else {
+            toast.success(
+              `Added ${result.added ?? ids.length} ${result.added === 1 ? "number" : "numbers"} to DNC.`,
+            );
+            clear();
+          }
+        }}
+      >
+        <Ban className="size-4" />
+        Add to DNC
+      </Button>
 
       <Button variant="outline" size="sm" onClick={exportSelected}>
         <Download className="size-4" />

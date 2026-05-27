@@ -18,6 +18,7 @@ import {
   type CampaignData,
   type TwilioOption,
 } from "./campaign-settings-dialog";
+import { CreateCampaignDialog } from "./create-campaign-dialog";
 import { DeleteCampaignDialog } from "./delete-campaign-dialog";
 
 type Option = { id: string; name: string };
@@ -170,14 +171,10 @@ export default async function CampaignsPage() {
             Calling campaigns — each ties leads to an agent and a goal.
           </p>
         </div>
-        <CampaignSettingsDialog
-          mode="create"
+        <CreateCampaignDialog
           agents={agentOptions}
           goals={goalOptions}
-          twilioNumbers={numbersForCampaign(null)}
-          kbsByAgent={kbsByAgent}
           eligibleLists={eligibleListsFor(null)}
-          currentListIds={[]}
         />
       </div>
 
@@ -219,7 +216,7 @@ export default async function CampaignsPage() {
                       {campaign.name}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={statusVariant(campaign.status)}>
+                      <Badge variant={statusVariant(campaign.status)} dot>
                         {humanize(campaign.status)}
                       </Badge>
                     </TableCell>

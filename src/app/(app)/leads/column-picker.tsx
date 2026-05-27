@@ -35,9 +35,12 @@ export function ColumnPicker() {
       (c) => c.key,
     );
     const params = new URLSearchParams(searchParams.toString());
-    if (ordered.length === DEFAULT_COLUMN_KEYS.length) params.delete("cols");
+    const matchesDefault =
+      ordered.length === DEFAULT_COLUMN_KEYS.length &&
+      DEFAULT_COLUMN_KEYS.every((k) => next.has(k));
+    if (matchesDefault) params.delete("cols");
     else params.set("cols", ordered.join(","));
-    router.push(`/leads?${params.toString()}`);
+    router.replace(`/leads?${params.toString()}`);
   }
 
   return (

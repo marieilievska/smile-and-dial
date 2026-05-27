@@ -1,0 +1,14 @@
+-- pg_cron schedule for the spend cap monitor.
+--
+-- INTENTIONALLY DORMANT. Activate together with the dialer cron (Step 21b);
+-- there's no point checking spend if no calls are being placed, and running
+-- this in dev with mock cost data could surprise users by auto-pausing
+-- their campaigns. Uncomment when going live.
+
+-- create extension if not exists pg_cron;
+--
+-- select cron.schedule(
+--   'spend-cap-monitor-5m',
+--   '*/5 * * * *', -- every 5 minutes
+--   $$ select public.monitor_campaign_spend_caps(); $$
+-- );

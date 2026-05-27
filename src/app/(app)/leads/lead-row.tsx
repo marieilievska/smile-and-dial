@@ -1,14 +1,20 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 import { TableRow } from "@/components/ui/table";
 
-/**
- * A leads-table row that opens the lead detail modal when clicked. The
- * selected lead is tracked in the URL (`?lead=<id>`) so the modal survives
- * a refresh and can be linked to directly.
- */
+/** A leads-table row that navigates to the full lead detail route at
+ *  /leads/<id> when clicked.
+ *
+ *  v3 — dropped the `::before` pseudo-element hover rail. Pseudo-
+ *  elements on table rows interact badly with `table-layout: fixed`:
+ *  browsers can treat them as a phantom inline element that shifts
+ *  every body cell one slot to the right, which is what was producing
+ *  the "company name lands under the Status header" bug. The row
+ *  still gets a hover background; if we want the coral rail back, the
+ *  cleanest place is a `border-l-[3px] border-l-transparent
+ *  group-hover:border-l-[color:var(--coral)]` on the first <td>. */
 export function LeadRow({
   leadId,
   children,
@@ -17,12 +23,9 @@ export function LeadRow({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   function open() {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("lead", leadId);
-    router.push(`/leads?${params.toString()}`);
+    router.push(`/leads/${leadId}`);
   }
 
   return (
@@ -32,7 +35,7 @@ export function LeadRow({
         if (event.key === "Enter") open();
       }}
       tabIndex={0}
-      className="hover:bg-muted/50 cursor-pointer"
+      className="group hover:bg-muted/50 cursor-pointer"
     >
       {children}
     </TableRow>
