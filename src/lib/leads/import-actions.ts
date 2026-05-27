@@ -42,10 +42,17 @@ function phoneHeaderFrom(mapping: Record<string, string>): string {
  * Run a Twilio Lookup on every row's business phone and report how many
  * leads will import versus be skipped (mobile numbers for TCPA compliance,
  * or invalid/disconnected numbers). Shown to the user before they commit.
+ *
+ * Set `skipLookup` to true to bypass Twilio entirely — all rows pass
+ * through as importable, line types come back as "unknown", and the
+ * estimated cost is $0. The runtime pre-call check still protects
+ * against dialing mobile numbers later; this only opts out of import-
+ * time verification.
  */
 export async function analyzeImport(input: {
   mapping: Record<string, string>;
   rows: Record<string, string>[];
+  skipLookup?: boolean;
 }): Promise<ImportAnalysis> {
   const empty: ImportAnalysis = {
     total: input.rows.length,
@@ -63,6 +70,21 @@ export async function analyzeImport(input: {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ...empty, error: "You are not signed in." };
+
+  // Fast path: user opted out of Twilio verification — every row goes
+  // through as importable with an "unknown" line type and zero cost.
+  if (input.skipLookup) {
+    return {
+      total: input.rows.length,
+      importable: input.rows.length,
+      mobile: 0,
+      invalid: 0,
+      estCost: 0,
+      rowLineTypes: input.rows.map(() => "unknown" as LineType),
+      skipped: [],
+      error: null,
+    };
+  }
 
   const phoneHeader = phoneHeaderFrom(input.mapping);
   const rowLineTypes: LineType[] = [];
