@@ -1,25 +1,22 @@
 "use client";
 
-import { ExternalLink, MoreVertical, PhoneCall, Play } from "lucide-react";
+import { ExternalLink, PhoneCall, Play } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
 /** Hover-only action cluster at the right edge of every call row.
- *  Listen + Open lead + a kebab for less-common actions. Each handler
- *  stops click propagation so the row-level "open the detail modal"
- *  navigation doesn't also fire.
  *
- *  Listen opens the detail modal (same as clicking the row) — the
- *  modal already hosts the audio player. Open-lead deep-links to the
- *  full /leads/<id> route. */
+ *  v2 (round 5) — dropped the kebab dropdown entirely. The row itself
+ *  is the click target for opening the detail modal, so a separate
+ *  "Open detail" menu item was redundant. The two leftover lead-level
+ *  actions (open the lead, call them again) are now visible buttons
+ *  that match the Listen affordance — same hover-only behavior, same
+ *  ghost button styling.
+ *
+ *  Each handler stops click propagation so the row-level "open the
+ *  detail modal" navigation doesn't also fire when the user is
+ *  acting *on* the row instead of opening it. */
 export function CallRowActions({
   callId,
   leadId,
@@ -75,38 +72,32 @@ export function CallRowActions({
           Listen
         </Button>
       ) : null}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      {leadId ? (
+        <>
           <Button
             type="button"
-            size="icon-sm"
+            size="sm"
             variant="ghost"
-            aria-label="More call actions"
-            onClick={stop}
+            onClick={openLead}
+            className="h-7 px-2"
+            title="Open the lead's detail page"
           >
-            <MoreVertical className="size-4" />
+            <ExternalLink className="size-3.5" />
+            Open lead
           </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" onClick={stop}>
-          {leadId ? (
-            <>
-              <DropdownMenuItem onClick={openLead}>
-                <ExternalLink className="size-4" />
-                Open lead
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={callBack}>
-                <PhoneCall className="size-4" />
-                Call this lead again
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          ) : null}
-          <DropdownMenuItem onClick={listen}>
-            <Play className="size-4" />
-            Open detail
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={callBack}
+            className="h-7 px-2 text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]"
+            title="Call this lead again"
+          >
+            <PhoneCall className="size-3.5" />
+            Call lead
+          </Button>
+        </>
+      ) : null}
     </div>
   );
 }

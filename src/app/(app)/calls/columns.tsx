@@ -1,4 +1,4 @@
-import { CircleCheckBig, Mic, Phone, PhoneIncoming } from "lucide-react";
+import { Mic, Phone, PhoneIncoming } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { callStatusLabel, outcomeLabel } from "@/lib/labels";
@@ -225,20 +225,6 @@ export const CALL_COLUMNS: CallColumn[] = [
       ),
   },
   {
-    key: "goal_met",
-    label: "Goal",
-    width: "w-[70px]",
-    cell: (c) =>
-      c.goal_met ? (
-        <CircleCheckBig
-          className="size-4 text-emerald-600 dark:text-emerald-400"
-          aria-label="Goal met"
-        />
-      ) : (
-        <span className="text-muted-foreground">—</span>
-      ),
-  },
-  {
     key: "score",
     label: "Score",
     width: "w-[80px]",
@@ -276,8 +262,10 @@ export const CALL_COLUMNS: CallColumn[] = [
 
 /** Default visible columns trimmed further per round-2 feedback:
  *  Status is redundant with Outcome (most calls are "Completed"),
- *  Goal is redundant with the Outcome pill (which already reads
- *  "Goal met" in emerald). Both move to opt-in via the column picker. */
+ *  so it moves to opt-in via the column picker. The standalone Goal
+ *  column was dropped entirely in round 5 — the Outcome pill already
+ *  reads "Goal met" in emerald, so a checkmark column was duplicate
+ *  signal that just took up space. */
 export const DEFAULT_COLUMN_KEYS = [
   "company",
   "started_at",
