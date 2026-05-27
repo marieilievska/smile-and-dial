@@ -100,19 +100,24 @@ export function formatDateTime(value: string | null): string {
 }
 
 /** Map lead status to a Badge variant. Mirrors the leads-table palette
- *  (close/leads-list-2026 PR) so the pill is identical on the list and
- *  the detail page: Active = coral, Won = emerald (success), Closed-
- *  out = muted secondary, DNC = destructive. */
+ *  (defined in leads/columns.tsx) so the pill reads identically on
+ *  the list and the detail page.
+ *
+ *  Semantics (updated round 11):
+ *   - ready_to_call / callback / goal_met / scheduled → coral (active)
+ *   - attended / sale → success (positive milestone)
+ *   - no_show → warning (needs rebooking, not lost)
+ *   - dnc / closed → destructive (lost / hard-stop)
+ *   - everything else → secondary muted */
 export function statusVariant(
   status: string,
-): "coral" | "success" | "destructive" | "secondary" {
-  if (["ready_to_call", "callback", "scheduled"].includes(status)) {
+): "coral" | "success" | "warning" | "destructive" | "secondary" {
+  if (["ready_to_call", "callback", "scheduled", "goal_met"].includes(status)) {
     return "coral";
   }
-  if (["goal_met", "attended", "sale", "closed"].includes(status)) {
-    return "success";
-  }
-  if (status === "dnc") return "destructive";
+  if (["attended", "sale"].includes(status)) return "success";
+  if (status === "no_show") return "warning";
+  if (["dnc", "closed"].includes(status)) return "destructive";
   return "secondary";
 }
 

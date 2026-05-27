@@ -50,12 +50,18 @@ function dateText(value: string | null): string {
  *  variant via the dedicated `coral` value (see badge.tsx). */
 export function statusVariant(
   status: string,
-): "coral" | "success" | "destructive" | "secondary" {
-  if (["ready_to_call", "callback"].includes(status)) return "coral";
-  if (["sale", "goal_met", "attended", "closed"].includes(status)) {
-    return "success";
+): "coral" | "success" | "warning" | "destructive" | "secondary" {
+  // Active work — AI is still moving the lead forward.
+  if (["ready_to_call", "callback", "goal_met"].includes(status)) {
+    return "coral";
   }
-  if (status === "dnc") return "destructive";
+  // Positive milestones — they showed up, they bought.
+  if (["attended", "sale"].includes(status)) return "success";
+  // Needs rebooking attention but not lost.
+  if (status === "no_show") return "warning";
+  // Lost / hard-stop.
+  if (["dnc", "closed"].includes(status)) return "destructive";
+  // Email replied, resting, etc.
   return "secondary";
 }
 
