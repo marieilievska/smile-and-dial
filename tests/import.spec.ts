@@ -81,22 +81,22 @@ test.describe("CSV import", () => {
     await expect(page.getByText("Import complete")).toBeVisible();
 
     // The valid lead shows up on the Leads page.
+    // v2 — search is debounced URL-bound (no Search button); the
+    // primary cell stacks company + phone so cell match isn't exact.
     await page.goto("/leads");
     await page
       .getByPlaceholder("Search company, phone, or email")
       .fill(company);
-    await page.getByRole("button", { name: "Search" }).click();
     await expect(
-      page.getByRole("cell", { name: company, exact: true }),
+      page.getByRole("cell", { name: company }).first(),
     ).toBeVisible();
 
     // The mobile-number lead was blocked and never imported.
     await page
       .getByPlaceholder("Search company, phone, or email")
       .fill(mobileCompany);
-    await page.getByRole("button", { name: "Search" }).click();
-    await expect(
-      page.getByRole("cell", { name: mobileCompany, exact: true }),
-    ).toHaveCount(0);
+    await expect(page.getByRole("cell", { name: mobileCompany })).toHaveCount(
+      0,
+    );
   });
 });

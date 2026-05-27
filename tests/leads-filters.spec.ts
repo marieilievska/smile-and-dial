@@ -78,36 +78,42 @@ test.describe("leads filters, columns, and views", () => {
     await expect(page.getByRole("cell", { name: readyCompany })).toHaveCount(0);
   });
 
-  test("the column picker hides a column", async ({ page }) => {
+  test("the column picker adds and removes a column", async ({ page }) => {
     await page.goto("/leads");
-    await expect(
-      page.getByRole("columnheader", { name: "Email" }),
-    ).toBeVisible();
-
-    await page.getByRole("button", { name: "Columns" }).click();
-    await page.getByLabel("Email").click();
-
-    await expect(page.getByRole("columnheader", { name: "Email" })).toHaveCount(
+    // City sits behind the column picker by default in v2 (default
+    // columns trimmed to 7 — Company / Status / Last outcome / List /
+    // Last call / Next call / Owner).
+    await expect(page.getByRole("columnheader", { name: "City" })).toHaveCount(
       0,
     );
+
+    await page.getByRole("button", { name: "Columns" }).click();
+    await page.getByLabel("City").click();
+
+    await expect(
+      page.getByRole("columnheader", { name: "City" }),
+    ).toBeVisible();
   });
 
-  test("a view can be saved and deleted", async ({ page }) => {
+  test("a view can be saved (appears in the sidebar Views list)", async ({
+    page,
+  }) => {
     await page.goto("/leads?status=dnc");
 
-    await page.getByRole("button", { name: "Views" }).click();
-    await page.getByRole("button", { name: "Save current view" }).click();
+    // "Save view" lives in the toolbar; the saved-view *listing*
+    // graduated to the sidebar under Leads (close/saved-views-sidebar
+    // PR α). Saving here should make the view show up in the sidebar.
+    await page.getByRole("button", { name: "Save view" }).click();
     await page.getByLabel("View name").fill(viewName);
     await page.getByRole("button", { name: "Save view" }).click();
 
-    await page.getByRole("button", { name: "Views" }).click();
-    await expect(
-      page.getByRole("button", { name: viewName, exact: true }),
-    ).toBeVisible();
+    const sidebarView = page
+      .getByTestId("sidebar-saved-views-leads")
+      .getByRole("link", { name: viewName });
+    await expect(sidebarView).toBeVisible();
 
-    await page.getByRole("button", { name: `Delete view ${viewName}` }).click();
-    await expect(
-      page.getByRole("button", { name: viewName, exact: true }),
-    ).toHaveCount(0);
+    // Clicking the sidebar view applies its params.
+    await sidebarView.click();
+    await expect(page).toHaveURL(/status=dnc/);
   });
 });

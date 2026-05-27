@@ -61,7 +61,9 @@ test.describe("Lead detail modal", () => {
 
   test("editing a standard and a custom field autosaves", async ({ page }) => {
     await page.goto(`/leads?q=${encodeURIComponent(company)}`);
-    await page.getByRole("cell", { name: company, exact: true }).click();
+    // v2 — the primary cell stacks company name + phone, so its
+    // accessible name now includes the phone. Drop exact:true.
+    await page.getByRole("cell", { name: company }).first().click();
 
     // Clicking a row navigates to the lead's full detail route now
     // (Close-style /leads/<id>) instead of opening a modal.
@@ -88,16 +90,19 @@ test.describe("Lead detail modal", () => {
 
     await expect(page.getByText("Saved")).toBeVisible();
 
-    // Back to the leads list; the table reflects the saved city.
-    await page.getByRole("link", { name: "All leads" }).click();
-    await expect(page).toHaveURL(/\/leads(\?|$)/);
-    await expect(
-      page.getByRole("cell", { name: newCity, exact: true }),
-    ).toBeVisible();
+    // Back to the leads list; the table reflects the saved city. City
+    // isn't a default column in v2 — opt it in via ?cols=.
+    await page.goto(
+      "/leads?cols=company,status,city&q=" + encodeURIComponent(company),
+    );
+    await expect(page).toHaveURL(/\/leads/);
+    await expect(page.getByRole("cell", { name: newCity })).toBeVisible();
 
     // Reopening the lead shows the saved custom value (section starts
     // collapsed on each navigation).
-    await page.getByRole("cell", { name: company, exact: true }).click();
+    // v2 — the primary cell stacks company name + phone, so its
+    // accessible name now includes the phone. Drop exact:true.
+    await page.getByRole("cell", { name: company }).first().click();
     await expect(page).toHaveURL(/\/leads\/[0-9a-f-]{36}$/);
     await page
       .getByTestId("lead-section-custom-fields")

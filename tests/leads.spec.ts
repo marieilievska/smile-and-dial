@@ -71,16 +71,19 @@ test.describe("leads table", () => {
       page.getByRole("heading", { level: 1, name: "Leads" }),
     ).toBeVisible();
     await expect(page.getByRole("cell", { name: company })).toBeVisible();
-    await expect(page.getByText(/Page 1 of/)).toBeVisible();
+    // Smart pagination v2 surfaces "Showing N–M of Total" instead of
+    // "Page X of Y" — easier to orient on big lists.
+    await expect(page.getByTestId("smart-pagination")).toContainText("Showing");
   });
 
   test("search filters the leads table", async ({ page }) => {
     await page.goto("/leads");
 
+    // v2 search is debounced URL-bound — no Search button. Just type
+    // and the table re-queries 300ms later.
     await page
       .getByPlaceholder("Search company, phone, or email")
       .fill(company);
-    await page.getByRole("button", { name: "Search" }).click();
 
     await expect(page.getByRole("cell", { name: company })).toBeVisible();
     await expect(page.getByRole("cell", { name: otherCompany })).toHaveCount(0);

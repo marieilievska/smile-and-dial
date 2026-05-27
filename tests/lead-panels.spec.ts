@@ -48,7 +48,9 @@ test.describe("Lead detail panels", () => {
     page,
   }) => {
     await page.goto(`/leads?q=${encodeURIComponent(company)}`);
-    await page.getByRole("cell", { name: company, exact: true }).click();
+    // v2 — primary cell stacks company + phone, so its accessible name
+    // now contains both.
+    await page.getByRole("cell", { name: company }).first().click();
 
     // Now navigates to the full /leads/<id> route (Close-style).
     await expect(page).toHaveURL(/\/leads\/[0-9a-f-]{36}$/);

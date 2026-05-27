@@ -42,10 +42,18 @@ function dateText(value: string | null): string {
   return value ? new Date(value).toLocaleDateString() : "";
 }
 
-function statusVariant(
+/** Status palette tightened to navy + coral + emerald + one neutral.
+ *  Three buckets: Active (coral) for in-flight work, Won (emerald) for
+ *  good outcomes, Closed-out (muted) for everything else.
+ *
+ *  Returns the *Badge variant token name*; the matching styles live in
+ *  the Badge component. We also extend the Badge here with a coral
+ *  variant via the dedicated `coral` value (see badge.tsx). */
+export function statusVariant(
   status: string,
-): "success" | "destructive" | "secondary" {
-  if (["goal_met", "sale", "closed", "attended"].includes(status)) {
+): "coral" | "success" | "destructive" | "secondary" {
+  if (["ready_to_call", "callback"].includes(status)) return "coral";
+  if (["sale", "goal_met", "attended", "closed"].includes(status)) {
     return "success";
   }
   if (status === "dnc") return "destructive";
@@ -57,7 +65,21 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "company",
     label: "Company",
     sortKey: "company",
-    cell: (l) => <span className="font-medium">{l.company || "—"}</span>,
+    /** Primary identity cell: company name (strong) on top, phone
+     *  (mono, muted) underneath. One column carries the identity so
+     *  rows scan as "lead cards" rather than wide flat strips. */
+    cell: (l) => (
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-foreground truncate text-sm font-medium">
+          {l.company || "—"}
+        </span>
+        {l.business_phone ? (
+          <span className="text-muted-foreground truncate font-mono text-[11px]">
+            {l.business_phone}
+          </span>
+        ) : null}
+      </div>
+    ),
     text: (l) => l.company ?? "",
   },
   {
@@ -165,4 +187,19 @@ export const LEAD_COLUMNS: LeadColumn[] = [
   },
 ];
 
-export const DEFAULT_COLUMN_KEYS = LEAD_COLUMNS.map((c) => c.key);
+/** What shows by default: 6 columns instead of all 13. Phone and email
+ *  are folded into the primary `company` cell so they're not redundant.
+ *  The Column picker lets users add the rest. */
+export const DEFAULT_COLUMN_KEYS = [
+  "company",
+  "status",
+  "last_outcome",
+  "list",
+  "last_call",
+  "next_call",
+  "owner",
+];
+
+/** Every column key, used by the column picker so users can opt in to
+ *  the columns that aren't shown by default. */
+export const ALL_COLUMN_KEYS = LEAD_COLUMNS.map((c) => c.key);
