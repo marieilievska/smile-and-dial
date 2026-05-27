@@ -66,12 +66,12 @@ test.describe("leads filters, columns, and views", () => {
       .like("name", `E2E View ${stamp}%`);
   });
 
-  test("filtering by status narrows the table", async ({ page }) => {
+  test("filtering by stage narrows the table", async ({ page }) => {
     await page.goto("/leads");
 
     await page.getByRole("button", { name: "Filters" }).click();
-    await page.getByLabel("Status").click();
-    await page.getByRole("option", { name: "Dnc" }).click();
+    await page.getByLabel("Stage").click();
+    await page.getByRole("option", { name: "DNC" }).click();
     await page.getByRole("button", { name: "Apply filters" }).click();
 
     await expect(page.getByRole("cell", { name: dncCompany })).toBeVisible();

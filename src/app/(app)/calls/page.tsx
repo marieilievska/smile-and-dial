@@ -249,7 +249,16 @@ export default async function CallsPage({
                       </TableHead>
                     ),
                   )}
-                  <TableHead className="w-[100px]" aria-label="Row actions" />
+                  {/* Sticky-right actions header: stays pinned to the
+                      table's right edge when extra columns force the
+                      table to scroll horizontally, so users never have
+                      to scroll just to reach Listen / Open lead / Call
+                      lead. bg-card + shadow give it a subtle floating
+                      feel above the scrolling content. */}
+                  <TableHead
+                    className="bg-card sticky right-0 z-10 w-[230px] shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)]"
+                    aria-label="Row actions"
+                  />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -260,7 +269,7 @@ export default async function CallsPage({
                         {col.cell(c)}
                       </TableCell>
                     ))}
-                    <TableCell className="w-[100px] text-right">
+                    <TableCell className="bg-card group-hover:bg-muted/50 sticky right-0 z-10 w-[230px] text-right shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)] transition-colors">
                       <CallRowActions
                         callId={c.id}
                         leadId={c.leadId}

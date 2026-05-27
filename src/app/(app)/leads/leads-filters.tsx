@@ -154,13 +154,13 @@ export function LeadsFilters({
             </Select>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="filter-status">Status</Label>
+            <Label htmlFor="filter-status">Stage</Label>
             <Select value={status} onValueChange={setStatus}>
               <SelectTrigger id="filter-status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="any">Any status</SelectItem>
+                <SelectItem value="any">Any stage</SelectItem>
                 {STATUSES.map((s) => (
                   <SelectItem key={s} value={s}>
                     {leadStatusLabel(s)}

@@ -103,8 +103,11 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     text: (l) => l.business_email ?? "",
   },
   {
+    // Column key stays "status" so saved views / sort URLs keep working,
+    // but the user-facing label is "Stage" — the word "Status" collided
+    // with call status (queued/ringing/completed) and confused people.
     key: "status",
-    label: "Status",
+    label: "Stage",
     sortKey: "status",
     width: "w-[140px]",
     cell: (l) => (
