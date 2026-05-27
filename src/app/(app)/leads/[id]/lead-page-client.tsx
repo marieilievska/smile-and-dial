@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
+import { CallDetailModal } from "../../calls/call-detail-modal";
 import { CallNowDialog } from "../call-now-dialog";
 import {
   AutosaveField,
@@ -219,6 +220,12 @@ export function LeadPageClient({
       </div>
 
       <AutosaveIndicator status={status} />
+      {/* Round 13 — the call detail modal is mounted here so clicking
+          a call in the activity feed opens the audio + transcript
+          inline, without navigating away from the lead detail. The
+          modal reads ?call=<id> from the URL; its close handler
+          (updated round 13) returns to the current pathname. */}
+      <CallDetailModal />
     </div>
   );
 }

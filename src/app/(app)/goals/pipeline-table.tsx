@@ -145,7 +145,6 @@ export function PipelineTable({ leads }: { leads: PipelineLead[] }) {
                   <GoalStatusActions
                     leadId={lead.id}
                     currentStatus={lead.status}
-                    originatingCallId={lead.originating_call_id}
                   />
                 </TableCell>
               </TableRow>

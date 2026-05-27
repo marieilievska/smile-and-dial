@@ -174,7 +174,7 @@ export default async function LeadDetailPage({
       customValues={customValues}
       meta={meta}
       availableCampaigns={availableCampaigns}
-      activityFeed={<LeadActivityFeed items={feedItems} />}
+      activityFeed={<LeadActivityFeed items={feedItems} leadId={lead.id} />}
       feedItemsForChip={feedItemsForChip}
     />
   );

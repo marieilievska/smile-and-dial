@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -193,6 +193,10 @@ function Section({
 export function CallDetailModal() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Round 13 — the modal is now also mounted on /leads/<id>, so
+  // closing must return to whatever page it was opened from, not a
+  // hardcoded /calls.
+  const pathname = usePathname();
   const callId = searchParams.get("call");
   const [loaded, setLoaded] = useState<CallDetail | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -220,7 +224,11 @@ export function CallDetailModal() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("call");
     const qs = params.toString();
-    router.push(qs ? `/calls?${qs}` : "/calls");
+    // Stay on whatever page the modal was opened from (/calls,
+    // /leads/<id>, /callbacks → "View original call", etc.). Fall
+    // back to /calls if pathname isn't set (server-side render).
+    const base = pathname || "/calls";
+    router.push(qs ? `${base}?${qs}` : base);
   }
 
   function seekTo(seconds: number) {

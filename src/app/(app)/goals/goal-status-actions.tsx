@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarPlus, ExternalLink, MoveRight, PhoneCall } from "lucide-react";
+import { CalendarPlus, MoveRight, PhoneCall } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
@@ -10,7 +10,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { GOAL_STATUSES, type GoalStatus } from "@/lib/goals/goal-statuses";
@@ -30,18 +29,18 @@ import { GOAL_STATUS_LABELS, nextGoalStatus } from "./status-variant";
  *     since the natural next action is to redial.
  *   - Set status dropdown (ghost): all statuses, including backwards
  *     transitions and skipping ahead.
- *   - Open lead (ghost): deep link to /leads/<id>.
- *   - Original call (ghost): deep link to /calls?call=<id>.
- */
+ *
+ *  Round 13 — dropped "View original call" from the dropdown. The
+ *  table view already exposes that as a dedicated column, so duplicating
+ *  it inside the dropdown was just noise. The leadId prop is still
+ *  used by the no_show "Call again" button. */
 export function GoalStatusActions({
   leadId,
   currentStatus,
-  originatingCallId,
   variant = "row",
 }: {
   leadId: string;
   currentStatus: GoalStatus;
-  originatingCallId: string | null;
   /** `row` = hover-only on a table row; `card` = always visible on a
    *  kanban card. */
   variant?: "row" | "card";
@@ -136,20 +135,6 @@ export function GoalStatusActions({
               {GOAL_STATUS_LABELS[status]}
             </DropdownMenuItem>
           ))}
-          {originatingCallId ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={(event) => {
-                  event.stopPropagation();
-                  router.push(`/calls?call=${originatingCallId}`);
-                }}
-              >
-                <ExternalLink className="size-4" />
-                View original call
-              </DropdownMenuItem>
-            </>
-          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
