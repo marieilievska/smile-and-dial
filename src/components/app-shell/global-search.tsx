@@ -1,37 +1,48 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { Loader2, Phone, Search } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import { Input } from "@/components/ui/input";
 
-/** Top-bar search that targets the Leads page from anywhere in the app.
- *  Submitting (Enter) navigates to /leads?q=… so the user always lands
- *  on the searchable surface even if they're starting from /today or
- *  /settings.
+import {
+  fetchLeadSuggestions,
+  type LeadSuggestion,
+} from "./search-suggestions-action";
+
+/** Top-bar search with a live typeahead dropdown. As the user types
+ *  (debounced 200ms) we fetch up to 8 matching leads from the server
+ *  and render them in a popover under the input. Picking a suggestion
+ *  jumps straight to /leads/<id>. Pressing Enter falls back to the
+ *  full /leads?q=… search.
  *
- *  On /leads itself we keep the input in sync with the URL `?q=` so
- *  the value mirrors saved-view / chip / direct-URL state. */
+ *  Works from any page. On /leads itself the input value is kept in
+ *  sync with the URL `?q=` so saved-view clicks / chip removals etc.
+ *  mirror the visible value. */
 export function GlobalSearch() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const onLeadsPage = pathname?.startsWith("/leads");
+  const onLeadsPage = pathname?.startsWith("/leads") ?? false;
   const urlQ = onLeadsPage ? (searchParams.get("q") ?? "") : "";
-  const [value, setValue] = useState(urlQ);
 
-  // When the URL `q` changes externally (saved view click, filter chip
-  // removed, etc.) sync the visible value to it. Render-only check
-  // avoids the setState-in-effect lint trap.
+  const [value, setValue] = useState(urlQ);
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<LeadSuggestion[]>([]);
+  const [highlight, setHighlight] = useState(0);
+  const [pending, startTransition] = useTransition();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Mirror URL→input when the URL `q` changes externally.
   const [lastUrlQ, setLastUrlQ] = useState(urlQ);
   if (onLeadsPage && urlQ !== lastUrlQ) {
     setLastUrlQ(urlQ);
     setValue(urlQ);
   }
 
-  // If the user navigates off /leads, clear the sticky search term so
-  // the box doesn't keep showing a query that no longer applies.
+  // Clear when leaving /leads.
   useEffect(() => {
     if (!onLeadsPage) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -39,8 +50,46 @@ export function GlobalSearch() {
     }
   }, [onLeadsPage]);
 
-  function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  // Close the dropdown on outside click.
+  useEffect(() => {
+    function onDown(event: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, []);
+
+  function fetchAfterDebounce(next: string) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (next.trim().length < 2) {
+      setItems([]);
+      setOpen(false);
+      return;
+    }
+    debounceRef.current = setTimeout(() => {
+      startTransition(async () => {
+        const result = await fetchLeadSuggestions(next);
+        setItems(result.items);
+        setOpen(true);
+        setHighlight(0);
+      });
+    }, 200);
+  }
+
+  function onChange(next: string) {
+    setValue(next);
+    fetchAfterDebounce(next);
+  }
+
+  function gotoLead(id: string) {
+    setOpen(false);
+    router.push(`/leads/${id}`);
+  }
+
+  function submitFull() {
+    setOpen(false);
     const next = value.trim();
     if (onLeadsPage) {
       const params = new URLSearchParams(searchParams.toString());
@@ -54,23 +103,120 @@ export function GlobalSearch() {
     }
   }
 
+  function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (items.length > 0) {
+        setOpen(true);
+        setHighlight((h) => Math.min(h + 1, items.length - 1));
+      }
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlight((h) => Math.max(h - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (open && items[highlight]) {
+        gotoLead(items[highlight].id);
+      } else {
+        submitFull();
+      }
+    } else if (event.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
   return (
-    <form
+    <div
+      ref={wrapRef}
       role="search"
-      onSubmit={submit}
-      className="relative w-full max-w-md"
       data-testid="global-search"
+      className="relative w-full max-w-md"
     >
-      <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+      <Search className="text-muted-foreground absolute top-1/2 left-3 z-10 size-4 -translate-y-1/2" />
       <Input
         type="search"
         name="q"
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => {
+          if (items.length > 0) setOpen(true);
+        }}
+        onKeyDown={onKeyDown}
         placeholder="Search leads — company, phone, or email"
         aria-label="Search leads"
+        aria-autocomplete="list"
+        aria-expanded={open}
+        aria-controls="global-search-listbox"
         className="h-9 pl-9"
+        autoComplete="off"
       />
-    </form>
+      {pending ? (
+        <Loader2 className="text-muted-foreground absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin" />
+      ) : null}
+
+      {open ? (
+        <div
+          id="global-search-listbox"
+          role="listbox"
+          data-testid="global-search-dropdown"
+          className="border-border bg-popover absolute top-full right-0 left-0 z-50 mt-1.5 max-h-[420px] overflow-y-auto rounded-lg border shadow-lg"
+        >
+          {items.length === 0 ? (
+            <p className="text-muted-foreground px-3 py-3 text-sm">
+              No matching leads.
+            </p>
+          ) : (
+            <>
+              <ul className="flex flex-col py-1">
+                {items.map((item, i) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={i === highlight}
+                      onMouseEnter={() => setHighlight(i)}
+                      onClick={() => gotoLead(item.id)}
+                      className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
+                        i === highlight ? "bg-muted" : "hover:bg-muted/60"
+                      }`}
+                    >
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="text-foreground truncate text-sm font-medium">
+                          {item.company || "Untitled lead"}
+                        </span>
+                        <span className="text-muted-foreground flex items-center gap-2 truncate text-xs">
+                          {item.phone ? (
+                            <span className="inline-flex items-center gap-1 font-mono">
+                              <Phone className="size-3" />
+                              {item.phone}
+                            </span>
+                          ) : null}
+                          {item.city || item.state ? (
+                            <span>
+                              {[item.city, item.state]
+                                .filter(Boolean)
+                                .join(", ")}
+                            </span>
+                          ) : null}
+                        </span>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="border-border bg-muted/30 border-t px-3 py-2 text-xs">
+                <button
+                  type="button"
+                  onClick={submitFull}
+                  className="text-foreground inline-flex items-center gap-1.5 font-medium underline-offset-2 hover:underline"
+                >
+                  See all results for &ldquo;{value}&rdquo; →
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
