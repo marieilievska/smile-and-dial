@@ -1,8 +1,9 @@
 "use client";
 
-import { AlertCircle, Lock } from "lucide-react";
-import { useActionState } from "react";
+import { AlertCircle } from "lucide-react";
+import { useActionState, useState } from "react";
 
+import { PasswordStrength } from "@/components/auth/password-strength";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -13,6 +14,11 @@ export function SetPasswordForm() {
     SetPasswordState,
     FormData
   >(setPassword, null);
+
+  // Track the new-password value client-side so the strength meter can
+  // update on each keystroke. The server action still reads the real
+  // form value — this state is purely cosmetic.
+  const [pwd, setPwd] = useState("");
 
   return (
     <div className="flex flex-col gap-8">
@@ -35,11 +41,10 @@ export function SetPasswordForm() {
             required
             minLength={8}
             autoFocus
+            value={pwd}
+            onChange={(e) => setPwd(e.target.value)}
           />
-          <p className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
-            <Lock className="size-3" />
-            At least 8 characters
-          </p>
+          <PasswordStrength value={pwd} />
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="confirm">Confirm password</Label>

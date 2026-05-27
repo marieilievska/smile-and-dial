@@ -16,6 +16,12 @@ export default async function SetPasswordPage() {
     <AuthShell
       panelHeadline="Welcome aboard."
       panelSubcopy="Let's get you set up so you can start watching the AI work."
+      footer={
+        <p>
+          Pick something you can remember. You can change it later under
+          Settings → Account.
+        </p>
+      }
     >
       <SetPasswordForm />
     </AuthShell>

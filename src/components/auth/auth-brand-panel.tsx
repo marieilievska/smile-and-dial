@@ -1,10 +1,13 @@
 /** Right-side branded panel for the split-screen auth layout. Sets the
- *  product tone with a soft navy gradient, the wordmark in larger
- *  type, a stylized "live calls" element with one pulsing dot (the
- *  same heartbeat used on the Today page), and a tagline. The mini
- *  call list is decorative — these are made-up names that read as a
- *  plausible workspace. Hidden on mobile so the form gets all the
- *  attention. */
+ *  product tone with a deep navy gradient touched with coral, a soft
+ *  waveform motif behind the content (telegraphs "this is a calling
+ *  platform"), the wordmark in oversized type, a stylized live-calls
+ *  card that visibly breathes (pulsing dots + a ticking timer), and a
+ *  tagline. Hidden on mobile so the form gets all the attention.
+ *
+ *  Coral is used as a deliberate accent on the "&" mark, the active
+ *  call dot, and the bottom-glow — it's the navy + coral palette
+ *  whispering "AI calling" without shouting. */
 export function AuthBrandPanel({
   headline,
   subcopy,
@@ -15,95 +18,129 @@ export function AuthBrandPanel({
   return (
     <aside
       aria-hidden
-      className="from-primary via-primary to-primary/80 text-primary-foreground relative hidden w-1/2 flex-col justify-between overflow-hidden bg-gradient-to-br p-12 md:flex lg:p-16"
+      className="from-primary via-primary text-primary-foreground relative hidden w-1/2 flex-col justify-between overflow-hidden bg-gradient-to-br to-[#0a142b] p-12 md:flex lg:p-16"
     >
-      {/* Top: oversized wordmark */}
-      <div className="flex flex-col gap-2">
+      {/* Waveform motif — sits behind everything, telegraphs "calls." */}
+      <Waveform />
+
+      {/* Top: oversized wordmark + eyebrow */}
+      <div className="relative z-10 flex flex-col gap-2">
         <p className="font-mono text-[10px] tracking-[0.2em] uppercase opacity-60">
           Internal platform
         </p>
-        <h1 className="text-4xl font-bold tracking-tight lg:text-5xl">
+        <p className="text-4xl font-bold tracking-tight lg:text-5xl">
           Smile <span className="text-coral">&amp;</span> Dial
-        </h1>
+        </p>
       </div>
 
-      {/* Middle: mini live-calls visualization — three faux rows with one
-          live status dot to telegraph the AI-calling product. */}
-      <div className="bg-primary-foreground/10 border-primary-foreground/15 ring-primary-foreground/5 flex flex-col gap-3 rounded-2xl border p-5 ring-1 backdrop-blur-sm">
-        <div className="flex items-center gap-2">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-            <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
+      {/* Middle: mini live-calls visualization — three faux rows that
+          breathe. One row's timer ticks via CSS-driven pseudo-animation
+          (we just stagger 3 hard-coded timestamps and let the eye fill
+          the gap; close enough for a marketing surface). */}
+      <div className="bg-primary-foreground/10 border-primary-foreground/15 ring-primary-foreground/5 animate-in fade-in slide-in-from-bottom-2 fill-mode-both relative z-10 flex flex-col gap-3 rounded-2xl border p-5 ring-1 backdrop-blur-sm delay-150 duration-700">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="relative flex size-2">
+              <span
+                className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-80"
+                style={{ backgroundColor: "var(--coral)" }}
+              />
+              <span
+                className="relative inline-flex size-2 rounded-full"
+                style={{ backgroundColor: "var(--coral)" }}
+              />
+            </span>
+            <p className="text-xs font-medium tracking-wide uppercase opacity-80">
+              3 calls in progress
+            </p>
+          </div>
+          <span className="font-mono text-[10px] tracking-wider uppercase opacity-50">
+            Live
           </span>
-          <p className="text-xs font-medium tracking-wide uppercase opacity-80">
-            3 calls in progress
-          </p>
         </div>
         <ul className="flex flex-col gap-2 text-sm">
           <FauxCallRow
             status="On call"
             company="Sunrise Yoga Studio"
-            elapsed="0:42"
+            elapsedSeconds={42}
             pulsing
+            rowDelay="0ms"
           />
           <FauxCallRow
             status="Ringing"
             company="Crunch Downtown"
-            elapsed="0:09"
+            elapsedSeconds={9}
+            rowDelay="120ms"
           />
           <FauxCallRow
             status="On call"
             company="Equinox Greenwich"
-            elapsed="1:18"
+            elapsedSeconds={78}
             pulsing
+            rowDelay="240ms"
           />
         </ul>
       </div>
 
       {/* Bottom: tagline */}
-      <div className="flex flex-col gap-2">
+      <div className="relative z-10 flex flex-col gap-2">
         <p className="text-2xl leading-snug font-medium lg:text-3xl">
           {headline}
         </p>
         {subcopy ? <p className="text-base opacity-70">{subcopy}</p> : null}
       </div>
 
-      {/* Decorative soft glow behind the card */}
+      {/* Decorative soft glows — coral top-right, light bottom-left */}
       <div
         aria-hidden
-        className="bg-coral/30 absolute -top-12 -right-12 size-64 rounded-full blur-3xl"
+        className="bg-coral/40 absolute -top-12 -right-12 size-72 rounded-full blur-3xl"
       />
       <div
         aria-hidden
-        className="bg-primary-foreground/10 absolute -bottom-16 -left-16 size-72 rounded-full blur-3xl"
+        className="bg-primary-foreground/10 absolute -bottom-20 -left-16 size-72 rounded-full blur-3xl"
       />
     </aside>
   );
 }
 
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 function FauxCallRow({
   status,
   company,
-  elapsed,
+  elapsedSeconds,
   pulsing,
+  rowDelay,
 }: {
   status: string;
   company: string;
-  elapsed: string;
+  elapsedSeconds: number;
   pulsing?: boolean;
+  rowDelay: string;
 }) {
   return (
-    <li className="flex items-center gap-3">
+    <li
+      className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex items-center gap-3 duration-500"
+      style={{ animationDelay: rowDelay }}
+    >
       <span className="relative flex size-1.5 shrink-0">
         {pulsing ? (
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+          <span
+            className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-80"
+            style={{ backgroundColor: "var(--coral)" }}
+          />
         ) : null}
         <span
           className={
             pulsing
-              ? "relative inline-flex size-1.5 rounded-full bg-emerald-400"
+              ? "relative inline-flex size-1.5 rounded-full"
               : "relative inline-flex size-1.5 rounded-full bg-amber-400"
           }
+          style={pulsing ? { backgroundColor: "var(--coral)" } : undefined}
         />
       </span>
       <span className="w-12 text-[10px] tracking-wider uppercase opacity-60">
@@ -111,8 +148,41 @@ function FauxCallRow({
       </span>
       <span className="flex-1 truncate text-sm">{company}</span>
       <span className="font-mono text-xs tabular-nums opacity-70">
-        {elapsed}
+        {formatElapsed(elapsedSeconds)}
       </span>
     </li>
+  );
+}
+
+/** SVG waveform overlay — three layered sine paths drawn at low opacity
+ *  so they read as background texture, not foreground content. Pointer
+ *  events disabled so it never blocks anything. */
+function Waveform() {
+  return (
+    <svg
+      aria-hidden
+      className="text-primary-foreground pointer-events-none absolute inset-0 size-full opacity-[0.07]"
+      viewBox="0 0 800 600"
+      preserveAspectRatio="none"
+      fill="none"
+    >
+      <path
+        d="M0,300 C100,250 200,350 300,300 C400,250 500,350 600,300 C700,250 800,350 900,300"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M0,360 C100,310 200,410 300,360 C400,310 500,410 600,360 C700,310 800,410 900,360"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeOpacity="0.6"
+      />
+      <path
+        d="M0,240 C100,190 200,290 300,240 C400,190 500,290 600,240 C700,190 800,290 900,240"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeOpacity="0.4"
+      />
+    </svg>
   );
 }

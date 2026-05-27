@@ -7,6 +7,12 @@ export default function ForgotPasswordPage() {
     <AuthShell
       panelHeadline="Locked out for a sec?"
       panelSubcopy="Drop your email and we'll send a fresh link."
+      footer={
+        <p>
+          Reset links expire after an hour for safety. Didn&apos;t get one?
+          Check your spam folder, then try again.
+        </p>
+      }
     >
       <ForgotPasswordForm />
     </AuthShell>
