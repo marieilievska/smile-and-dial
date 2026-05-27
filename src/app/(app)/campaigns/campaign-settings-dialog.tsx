@@ -72,6 +72,7 @@ export function CampaignSettingsDialog({
   kbsByAgent,
   eligibleLists,
   currentListIds,
+  trigger,
 }: {
   mode: "create" | "edit";
   campaign?: CampaignData;
@@ -81,6 +82,11 @@ export function CampaignSettingsDialog({
   kbsByAgent: Record<string, Option[]>;
   eligibleLists: Option[];
   currentListIds: string[];
+  /** Override the default Edit / New campaign trigger. Lets the
+   *  campaigns table use the campaign name itself as the click
+   *  target so opening settings doesn't require hunting for an
+   *  Edit button. Falls back to the built-in trigger when omitted. */
+  trigger?: React.ReactNode;
 }) {
   const isEdit = mode === "edit";
   const [open, setOpen] = useState(false);
@@ -193,7 +199,9 @@ export function CampaignSettingsDialog({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        {isEdit ? (
+        {trigger ? (
+          trigger
+        ) : isEdit ? (
           <Button
             variant="ghost"
             size="sm"

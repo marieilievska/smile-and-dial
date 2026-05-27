@@ -44,8 +44,9 @@ export function DeleteCampaignDialog({
           variant="ghost"
           size="sm"
           aria-label={`Delete ${campaign.name}`}
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive h-7 px-2"
         >
-          <Trash2 className="size-4" />
+          <Trash2 className="size-3.5" />
           Delete
         </Button>
       </AlertDialogTrigger>
