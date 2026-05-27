@@ -4,8 +4,8 @@ import { AlertCircle, Lock } from "lucide-react";
 import { useActionState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { setPassword, type SetPasswordState } from "@/lib/auth/actions";
 
 export function SetPasswordForm() {
@@ -28,10 +28,9 @@ export function SetPasswordForm() {
       <form action={formAction} className="flex flex-col gap-5">
         <div className="flex flex-col gap-2">
           <Label htmlFor="password">New password</Label>
-          <Input
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             autoComplete="new-password"
             required
             minLength={8}
@@ -44,10 +43,9 @@ export function SetPasswordForm() {
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="confirm">Confirm password</Label>
-          <Input
+          <PasswordInput
             id="confirm"
             name="confirm"
-            type="password"
             autoComplete="new-password"
             required
             minLength={8}
