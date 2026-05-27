@@ -232,9 +232,11 @@ test.describe("Callbacks page", () => {
     });
 
     await page.goto(`/callbacks?campaign=${campaignId}`);
+    // Round 9 — the row's Reschedule trigger has visible text "Reschedule"
+    // (not aria-label "Reschedule callback" anymore). Scope to the row.
     await page
       .getByRole("row", { name: new RegExp(`E2E CB Lead ${stamp}-20`) })
-      .getByRole("button", { name: "Reschedule callback" })
+      .getByRole("button", { name: "Reschedule" })
       .click();
 
     // Pick a time 3 hours from now (in local time, the dialog's
@@ -245,7 +247,12 @@ test.describe("Callbacks page", () => {
       future.getDate(),
     )}T${pad(future.getHours())}:${pad(future.getMinutes())}`;
     await page.getByLabel("When").fill(local);
-    await page.getByRole("button", { name: "Reschedule", exact: true }).click();
+    // Confirm inside the dialog — page-wide "Reschedule" would now match
+    // both the row trigger and the dialog confirm.
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Reschedule", exact: true })
+      .click();
     await expect(page.getByText("Rescheduled.")).toBeVisible();
 
     const { data: cb } = await admin
@@ -275,12 +282,15 @@ test.describe("Callbacks page", () => {
     });
 
     await page.goto(`/callbacks?campaign=${campaignId}`);
+    // Round 9 — row trigger has visible text "Cancel" (not "Cancel
+    // callback"). Scope to the row; confirm inside the alertdialog.
     await page
       .getByRole("row", { name: new RegExp(`E2E CB Lead ${stamp}-30`) })
-      .getByRole("button", { name: "Cancel callback" })
+      .getByRole("button", { name: "Cancel" })
       .click();
     await page
-      .getByRole("button", { name: "Cancel callback", exact: true })
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Cancel callback" })
       .click();
     await expect(page.getByText("Callback cancelled.")).toBeVisible();
 
