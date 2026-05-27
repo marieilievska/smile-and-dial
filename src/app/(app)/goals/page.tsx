@@ -41,8 +41,10 @@ export default async function GoalsPage({
   const campaignFilter = UUID_RE.test(str(params.campaign))
     ? str(params.campaign)
     : "";
+  // Default to the board — it's the SDR's natural mental model for a
+  // pipeline. ?view=table opts in to the dense flat view.
   const view: "table" | "board" =
-    str(params.view) === "board" ? "board" : "table";
+    str(params.view) === "table" ? "table" : "board";
 
   const supabase = await createClient();
   const {

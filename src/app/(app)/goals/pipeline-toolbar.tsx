@@ -118,9 +118,11 @@ function StatusTabs({
 
 function ViewToggle({ current }: { current: "table" | "board" }) {
   const searchParams = useSearchParams();
+  // Board is the default — only the table view needs an explicit
+  // ?view=table param, so toggling back to board drops it.
   function hrefFor(view: "table" | "board"): string {
     const params = new URLSearchParams(searchParams.toString());
-    if (view === "table") params.delete("view");
+    if (view === "board") params.delete("view");
     else params.set("view", view);
     return `/goals?${params.toString()}`;
   }
@@ -131,16 +133,16 @@ function ViewToggle({ current }: { current: "table" | "board" }) {
       className="border-border bg-background inline-flex items-center gap-0.5 rounded-lg border p-1"
     >
       <ViewLink
-        href={hrefFor("table")}
-        active={current === "table"}
-        label="Table"
-        icon={<Rows3 className="size-4" />}
-      />
-      <ViewLink
         href={hrefFor("board")}
         active={current === "board"}
         label="Board"
         icon={<LayoutGrid className="size-4" />}
+      />
+      <ViewLink
+        href={hrefFor("table")}
+        active={current === "table"}
+        label="Table"
+        icon={<Rows3 className="size-4" />}
       />
     </div>
   );
