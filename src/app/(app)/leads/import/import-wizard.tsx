@@ -18,6 +18,7 @@ import Papa from "papaparse";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -37,6 +38,7 @@ import {
   type ImportResult,
 } from "@/lib/leads/import-fields";
 
+import { CreateCustomFieldInlineDialog } from "./create-custom-field-inline";
 import { CreateListInlineDialog } from "./create-list-inline";
 import { FileDropzone } from "./file-dropzone";
 import { StepIndicator, type StepKey } from "./step-indicator";
@@ -47,6 +49,9 @@ type Parsed = { headers: string[]; rows: Record<string, string>[] };
  *  '+ Create a new list…' instead of picking an existing list." We can't
  *  use null because the radix Select needs strings. */
 const CREATE_LIST_SENTINEL = "__create__";
+/** Same idea for the column-mapping select — "+ Create as new custom
+ *  field" — picks it, the wizard opens the inline create dialog. */
+const CREATE_FIELD_SENTINEL = "newcustom";
 
 function guessMapping(header: string): string {
   const norm = header.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -67,7 +72,7 @@ function plural(n: number, word: string): string {
 
 export function ImportWizard({
   lists: initialLists,
-  customFields,
+  customFields: initialCustomFields,
 }: {
   lists: { id: string; name: string }[];
   customFields: { id: string; name: string }[];
@@ -78,7 +83,19 @@ export function ImportWizard({
   const [lists, setLists] = useState(initialLists);
   const [listId, setListId] = useState("");
   const [createListOpen, setCreateListOpen] = useState(false);
+  const [customFields, setCustomFields] = useState(initialCustomFields);
+  // When the user picks "+ Create as new custom field" on a column,
+  // remember which header opened the dialog so we can map that exact
+  // column to the new field id on success — and revert the mapping if
+  // they cancel.
+  const [createFieldForHeader, setCreateFieldForHeader] = useState<
+    string | null
+  >(null);
+  const [previousMappingForHeader, setPreviousMappingForHeader] = useState<
+    string | null
+  >(null);
   const [dedup, setDedup] = useState<"skip" | "update">("skip");
+  const [skipLookup, setSkipLookup] = useState(false);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [analysis, setAnalysis] = useState<ImportAnalysis | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -113,8 +130,6 @@ export function ImportWizard({
 
   function onListPicked(value: string) {
     if (value === CREATE_LIST_SENTINEL) {
-      // Defer opening the dialog by one tick so the Select pop-over
-      // has a chance to close cleanly before the Dialog takes over.
       setTimeout(() => setCreateListOpen(true), 50);
       return;
     }
@@ -128,10 +143,49 @@ export function ImportWizard({
     setListId(id);
   }
 
+  function onMappingChange(header: string, value: string) {
+    if (value === CREATE_FIELD_SENTINEL) {
+      // Remember what was there before, then open the create-field
+      // dialog. We set mapping to the sentinel optimistically so the
+      // select shows "+ Create as new custom field" while the dialog
+      // is open; we revert on cancel.
+      setPreviousMappingForHeader(mapping[header] ?? "skip");
+      setCreateFieldForHeader(header);
+      setMapping((m) => ({ ...m, [header]: CREATE_FIELD_SENTINEL }));
+      return;
+    }
+    setMapping((m) => ({ ...m, [header]: value }));
+  }
+
+  function onCustomFieldCreated(id: string, name: string) {
+    if (!createFieldForHeader) return;
+    setCustomFields((current) =>
+      [...current, { id, name }].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+    setMapping((m) => ({ ...m, [createFieldForHeader]: `custom:${id}` }));
+    setCreateFieldForHeader(null);
+    setPreviousMappingForHeader(null);
+  }
+
+  function onCreateFieldCancelled() {
+    if (createFieldForHeader && previousMappingForHeader !== null) {
+      setMapping((m) => ({
+        ...m,
+        [createFieldForHeader]: previousMappingForHeader,
+      }));
+    }
+    setCreateFieldForHeader(null);
+    setPreviousMappingForHeader(null);
+  }
+
   function runAnalyze() {
     if (!parsed) return;
     startTransition(async () => {
-      const res = await analyzeImport({ mapping, rows: parsed.rows });
+      const res = await analyzeImport({
+        mapping,
+        rows: parsed.rows,
+        skipLookup,
+      });
       if (res.error) {
         toast.error(res.error);
         return;
@@ -203,6 +257,7 @@ export function ImportWizard({
         <ReviewStep
           analysis={analysis}
           fileName={fileName}
+          skippedLookup={skipLookup}
           pending={pending}
           onBack={() => setStep("map")}
           onImport={runImport}
@@ -223,11 +278,19 @@ export function ImportWizard({
           mapping={mapping}
           customFields={customFields}
           pending={pending}
-          onMappingChange={(header, value) =>
-            setMapping((m) => ({ ...m, [header]: value }))
-          }
+          skipLookup={skipLookup}
+          onMappingChange={onMappingChange}
           onBack={() => setStep("upload")}
           onContinue={runAnalyze}
+        />
+        <CreateCustomFieldInlineDialog
+          open={createFieldForHeader !== null}
+          initialName={createFieldForHeader ?? ""}
+          onOpenChange={(next) => {
+            if (!next) onCreateFieldCancelled();
+          }}
+          onCreated={onCustomFieldCreated}
+          onCancel={onCreateFieldCancelled}
         />
       </div>
     );
@@ -243,7 +306,7 @@ export function ImportWizard({
       : "";
 
   const costEstimate =
-    parsed != null ? parsed.rows.length * COST_PER_LOOKUP : 0;
+    parsed != null && !skipLookup ? parsed.rows.length * COST_PER_LOOKUP : 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -268,11 +331,19 @@ export function ImportWizard({
               Download a sample CSV
             </Link>
             {parsed ? (
-              <span className="inline-flex items-center gap-1">
-                <Info className="size-3.5" />
-                Est. Twilio Lookup cost: ${costEstimate.toFixed(2)} for{" "}
-                {parsed.rows.length.toLocaleString()} rows
-              </span>
+              skipLookup ? (
+                <span className="inline-flex items-center gap-1">
+                  <Info className="size-3.5" />
+                  Twilio Lookup skipped — $0 cost,{" "}
+                  {parsed.rows.length.toLocaleString()} rows will import as-is
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1">
+                  <Info className="size-3.5" />
+                  Est. Twilio Lookup cost: ${costEstimate.toFixed(2)} for{" "}
+                  {parsed.rows.length.toLocaleString()} rows
+                </span>
+              )
             ) : null}
           </div>
         </div>
@@ -343,6 +414,34 @@ export function ImportWizard({
           </p>
         </div>
 
+        {/* Skip-Twilio-Lookup toggle. When checked, analyzeImport
+            bypasses lookups so all rows pass through with no per-row
+            cost. The runtime pre-call check still protects against
+            actually dialing mobiles later — this just opts out of the
+            import-time verification. */}
+        <div className="border-border bg-muted/20 flex items-start gap-3 rounded-lg border px-4 py-3">
+          <Checkbox
+            id="skip-lookup"
+            checked={skipLookup}
+            onCheckedChange={(value) => setSkipLookup(value === true)}
+            className="mt-0.5"
+          />
+          <div className="flex flex-col gap-0.5">
+            <Label
+              htmlFor="skip-lookup"
+              className="cursor-pointer text-sm font-medium"
+            >
+              Skip Twilio number verification
+            </Label>
+            <p className="text-muted-foreground text-xs">
+              Use this when you already trust the data — internal lists,
+              re-imports of leads you&apos;ve called before, or imports where
+              speed matters more than catching mobile numbers up front. Saves
+              $0.005 per row.
+            </p>
+          </div>
+        </div>
+
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <p className="text-muted-foreground text-xs">
             {canContinue ? "Ready when you are." : blockedReason}
@@ -373,6 +472,7 @@ function MapStep({
   mapping,
   customFields,
   pending,
+  skipLookup,
   onMappingChange,
   onBack,
   onContinue,
@@ -382,6 +482,7 @@ function MapStep({
   mapping: Record<string, string>;
   customFields: { id: string; name: string }[];
   pending: boolean;
+  skipLookup: boolean;
   onMappingChange: (header: string, value: string) => void;
   onBack: () => void;
   onContinue: () => void;
@@ -392,9 +493,6 @@ function MapStep({
   ).length;
   const mappedCount = totalHeaders - skippedCount;
 
-  // First 3 non-empty preview values per CSV column, formatted as a
-  // muted "value · value · value" line under the header. Gives the user
-  // a quick "what's in this column" before they commit a mapping.
   function previewFor(header: string): string {
     const seen: string[] = [];
     for (const row of parsed.rows) {
@@ -418,7 +516,9 @@ function MapStep({
         </div>
         <p className="text-muted-foreground text-xs">
           We guess where each column belongs. Adjust anything that looks wrong —
-          &quot;Skip this column&quot; means it won&apos;t be imported.
+          &quot;Skip this column&quot; means it won&apos;t be imported. To add a
+          new custom field, pick &ldquo;+ Create as new custom field&rdquo; from
+          any column&apos;s dropdown.
         </p>
       </div>
 
@@ -492,7 +592,7 @@ function MapStep({
                         {field.name}
                       </SelectItem>
                     ))}
-                    <SelectItem value="newcustom">
+                    <SelectItem value={CREATE_FIELD_SENTINEL}>
                       + Create as new custom field
                     </SelectItem>
                   </SelectGroup>
@@ -508,7 +608,13 @@ function MapStep({
           Back
         </Button>
         <Button onClick={onContinue} disabled={pending}>
-          {pending ? "Checking numbers…" : "Review import"}
+          {pending
+            ? skipLookup
+              ? "Preparing import…"
+              : "Checking numbers…"
+            : skipLookup
+              ? "Review import"
+              : "Review import"}
           <ArrowRight className="size-4" />
         </Button>
       </div>
@@ -523,6 +629,7 @@ function MapStep({
 function ReviewStep({
   analysis,
   fileName,
+  skippedLookup,
   pending,
   onBack,
   onImport,
@@ -530,6 +637,7 @@ function ReviewStep({
 }: {
   analysis: ImportAnalysis;
   fileName: string;
+  skippedLookup: boolean;
   pending: boolean;
   onBack: () => void;
   onImport: () => void;
@@ -550,33 +658,49 @@ function ReviewStep({
         </p>
       </div>
 
-      <div className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-4 py-3 sm:grid-cols-3">
-        <ReviewStat
-          icon={<CheckCircle2 className="size-3.5" />}
-          tone="success"
-          label="Will import"
-          value={analysis.importable}
-        />
-        <ReviewStat
-          icon={<Smartphone className="size-3.5" />}
-          tone="muted"
-          label="Mobile numbers (skipped)"
-          value={analysis.mobile}
-          tooltip="Mobile lines can't be auto-dialed safely. Smile & Dial only calls landlines."
-        />
-        <ReviewStat
-          icon={<AlertTriangle className="size-3.5" />}
-          tone="muted"
-          label="Invalid numbers (skipped)"
-          value={analysis.invalid}
-          tooltip="Twilio couldn't verify these numbers — usually a typo or a disconnected line."
-        />
-      </div>
+      {skippedLookup ? (
+        <div
+          className="border-border bg-muted/20 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs"
+          role="status"
+        >
+          <Info className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
+          <p className="text-muted-foreground">
+            Twilio number verification was skipped. Every row will be imported
+            as-is. Mobile numbers, if any, still won&apos;t be auto-dialed — the
+            runtime pre-call check will catch them before each call.
+          </p>
+        </div>
+      ) : (
+        <div className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-4 py-3 sm:grid-cols-3">
+          <ReviewStat
+            icon={<CheckCircle2 className="size-3.5" />}
+            tone="success"
+            label="Will import"
+            value={analysis.importable}
+          />
+          <ReviewStat
+            icon={<Smartphone className="size-3.5" />}
+            tone="muted"
+            label="Mobile numbers (skipped)"
+            value={analysis.mobile}
+            tooltip="Mobile lines can't be auto-dialed safely. Smile & Dial only calls landlines."
+          />
+          <ReviewStat
+            icon={<AlertTriangle className="size-3.5" />}
+            tone="muted"
+            label="Invalid numbers (skipped)"
+            value={analysis.invalid}
+            tooltip="Twilio couldn't verify these numbers — usually a typo or a disconnected line."
+          />
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-muted-foreground inline-flex items-center gap-1 text-xs">
           <Info className="size-3.5" />
-          Twilio Lookup cost for this batch: ~${analysis.estCost.toFixed(2)}
+          {skippedLookup
+            ? "Twilio Lookup cost for this batch: $0 (skipped)"
+            : `Twilio Lookup cost for this batch: ~$${analysis.estCost.toFixed(2)}`}
         </p>
         {analysis.skipped.length > 0 ? (
           <Button variant="ghost" size="sm" onClick={onDownloadErrors}>

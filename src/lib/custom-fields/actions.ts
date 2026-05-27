@@ -43,6 +43,74 @@ function slugify(name: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
+/** Create a custom field and return its id. Mirrors `createCustomField`
+ *  but surfaces the new row's id so callers (e.g. the import wizard's
+ *  inline-create affordance) can auto-map the column to the new field
+ *  without a round-trip through Settings.
+ *
+ *  Mirrors the implicit "newcustom" path inside `importLeads` — that
+ *  one already inserts rows for non-admins, so this stays consistent.
+ *  Limits the type set to the four primitive types since picking
+ *  options for a "select" field requires more UI than the inline
+ *  dialog should carry. */
+export async function createCustomFieldInline(input: {
+  name: string;
+  type: "text" | "number" | "date" | "boolean";
+}): Promise<{ id: string | null; error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { id: null, error: "You are not signed in." };
+
+  const name = input.name.trim();
+  if (!name) return { id: null, error: "Enter a field name." };
+  const slug = slugify(name);
+  if (!slug) {
+    return { id: null, error: "Use a name with letters or numbers." };
+  }
+
+  // If a field with this slug already exists, reuse it instead of
+  // colliding — the user probably just wants to map the column to the
+  // existing field.
+  const { data: existing } = await supabase
+    .from("custom_field_defs")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (existing) {
+    return { id: existing.id, error: null };
+  }
+
+  const { count } = await supabase
+    .from("custom_field_defs")
+    .select("id", { count: "exact", head: true });
+
+  const { data, error } = await supabase
+    .from("custom_field_defs")
+    .insert({
+      name,
+      slug,
+      type: input.type,
+      required: false,
+      options: [],
+      sort_order: count ?? 0,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    if (error && /duplicate|unique/i.test(error.message)) {
+      return { id: null, error: "A field with that name already exists." };
+    }
+    return { id: null, error: "Could not create the field." };
+  }
+
+  revalidatePath("/settings/custom-fields");
+  revalidatePath("/leads/import");
+  return { id: data.id, error: null };
+}
+
 export async function createCustomField(
   input: CustomFieldInput,
 ): Promise<FieldActionResult> {
