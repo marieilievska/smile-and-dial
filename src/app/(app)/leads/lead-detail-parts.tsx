@@ -95,11 +95,6 @@ export type LeadEvent = {
   at: string;
 };
 
-export function humanize(value: string | null): string {
-  if (!value) return "—";
-  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
-}
-
 export function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "—";
 }

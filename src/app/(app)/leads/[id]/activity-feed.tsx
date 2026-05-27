@@ -9,6 +9,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { humanizeFallback, outcomeLabel } from "@/lib/labels";
+
 /** Activity feed for the lead detail route. Merges three sources into
  *  one chronological stream:
  *    - calls (outbound + inbound) with outcome + duration
@@ -66,10 +68,6 @@ function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-function humanize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
-}
-
 function callIcon(outcome: string | null, direction: string): LucideIcon {
   if (direction === "inbound") return PhoneIncoming;
   if (outcome === "voicemail") return Voicemail;
@@ -80,7 +78,7 @@ function callIcon(outcome: string | null, direction: string): LucideIcon {
 function describeCall(item: Extract<FeedItem, { kind: "call" }>): string {
   const directionLabel = item.direction === "inbound" ? "Inbound call" : "Call";
   if (item.outcome) {
-    return `${directionLabel} · ${humanize(item.outcome)}`;
+    return `${directionLabel} · ${outcomeLabel(item.outcome)}`;
   }
   return directionLabel;
 }
@@ -107,7 +105,7 @@ function describeEvent(item: Extract<FeedItem, { kind: "event" }>): string {
     case "spend_cap_hit":
       return "Campaign hit a spend cap";
     default:
-      return humanize(item.eventKind);
+      return humanizeFallback(item.eventKind);
   }
 }
 

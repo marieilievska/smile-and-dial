@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
 
 export type DisplayLead = {
   id: string;
@@ -30,11 +31,6 @@ export type LeadColumn = {
    *  body cell so columns line up consistently across rows. */
   width?: string;
 };
-
-function humanize(value: string | null): string {
-  if (!value) return "—";
-  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
-}
 
 function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleDateString() : "—";
@@ -113,19 +109,21 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     width: "w-[140px]",
     cell: (l) => (
       <Badge variant={statusVariant(l.status)} dot>
-        {humanize(l.status)}
+        {leadStatusLabel(l.status)}
       </Badge>
     ),
-    text: (l) => humanize(l.status),
+    text: (l) => leadStatusLabel(l.status),
   },
   {
     key: "last_outcome",
     label: "Last outcome",
     width: "w-[150px]",
     cell: (l) => (
-      <span className="text-muted-foreground">{humanize(l.last_outcome)}</span>
+      <span className="text-muted-foreground">
+        {outcomeLabel(l.last_outcome)}
+      </span>
     ),
-    text: (l) => (l.last_outcome ? humanize(l.last_outcome) : ""),
+    text: (l) => (l.last_outcome ? outcomeLabel(l.last_outcome) : ""),
   },
   {
     key: "list",

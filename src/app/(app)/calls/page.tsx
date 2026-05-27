@@ -24,7 +24,6 @@ import {
   resolveLeadFilterIds,
   str,
 } from "./calls-query";
-import { CallsSearchInput } from "./calls-search-input";
 import { CallsStatStrip } from "./calls-stat-strip";
 import { CALL_COLUMNS, DEFAULT_COLUMN_KEYS, type DisplayCall } from "./columns";
 import { ColumnPicker } from "./column-picker";
@@ -210,18 +209,15 @@ export default async function CallsPage({
       <CallsStatStrip stats={stats} />
 
       <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <CallsSearchInput />
-          <div className="flex items-center gap-1.5">
-            <CallsFilters
-              campaigns={campaignOptions}
-              agents={agentOptions}
-              owners={ownerOptions}
-              showOwner={isAdmin}
-            />
-            <ColumnPicker />
-            <SavedViews views={viewsRaw ?? []} />
-          </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <CallsFilters
+            campaigns={campaignOptions}
+            agents={agentOptions}
+            owners={ownerOptions}
+            showOwner={isAdmin}
+          />
+          <ColumnPicker />
+          <SavedViews views={viewsRaw ?? []} />
         </div>
         <CallsActiveFilterChips
           campaigns={campaignOptions}

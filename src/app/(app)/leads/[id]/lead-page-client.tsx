@@ -17,13 +17,13 @@ import {
   GOOGLE_FIELDS,
   LOCATION_FIELDS,
   formatDateTime,
-  humanize,
   statusVariant,
   useLeadSaver,
   type CustomFieldDef,
   type LeadMeta,
   type StandardField,
 } from "../lead-detail-parts";
+import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
 import { MergeInboundDialog } from "../merge-inbound-dialog";
 import { EditableCompanyName } from "./editable-company-name";
 import { SinceLastViewed } from "./since-last-viewed";
@@ -102,7 +102,7 @@ export function LeadPageClient({
             onSave={saveField("company")}
           />
           <Badge variant={statusVariant(meta.status)} dot>
-            {humanize(meta.status)}
+            {leadStatusLabel(meta.status)}
           </Badge>
         </div>
         <CallNowDialog
@@ -158,7 +158,7 @@ export function LeadPageClient({
               <PipelineRow label="List" value={meta.listName} />
               <PipelineRow
                 label="Last outcome"
-                value={humanize(meta.lastOutcome)}
+                value={outcomeLabel(meta.lastOutcome)}
               />
               <PipelineRow
                 label="Next call"

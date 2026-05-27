@@ -20,42 +20,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  CALL_STATUS_LABELS,
+  OUTCOME_LABELS,
+  callStatusLabel,
+  outcomeLabel,
+} from "@/lib/labels";
 
 type Campaign = { id: string; name: string };
 type Agent = { id: string; name: string };
 type Owner = { id: string; name: string };
 
-const STATUSES = [
-  "queued",
-  "dialing",
-  "ringing",
-  "in_progress",
-  "completed",
-  "failed",
-  "cancelled",
-] as const;
-
-const OUTCOMES = [
-  "voicemail",
-  "no_answer",
-  "busy",
-  "failed",
-  "hung_up_immediately",
-  "invalid_number",
-  "gatekeeper",
-  "not_interested",
-  "callback",
-  "dnc",
-  "goal_met",
-  "language_barrier",
-  "ai_receptionist",
-  "ai_error",
-  "transferred_to_human",
-] as const;
-
 /** Filter keys that count toward the "active filters" badge on the
- *  popover trigger. Search (`q`) is in the toolbar input, not the
- *  popover, so it's not counted here. */
+ *  popover trigger. */
 const FILTER_KEYS = [
   "direction",
   "status",
@@ -70,16 +47,9 @@ const FILTER_KEYS = [
   "to",
 ] as const;
 
-function humanize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
-}
-
-/** URL-driven filter popover for the Calls table. Replaces the v1
- *  always-open filter wall — the 11 controls all live behind a single
- *  `Filters` button now. Search stays on the toolbar.
- *
- *  Picking "Any" clears the param. Apply pushes everything to the URL
- *  at once so the server re-renders with the new params. */
+/** URL-driven filter popover for the Calls table. Grouped into three
+ *  visual sections (Call · Where · When) so pairs read together
+ *  instead of orphaning Min/Max or the date range across rows. */
 export function CallsFilters({
   campaigns,
   agents,
@@ -166,117 +136,139 @@ export function CallsFilters({
           ) : null}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[min(560px,90vw)]">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Pickable
-            label="Direction"
-            value={direction}
-            onChange={setDirection}
-            options={[
-              { value: "any", label: "Any" },
-              { value: "outbound", label: "Outbound" },
-              { value: "inbound", label: "Inbound" },
-            ]}
-          />
-          <Pickable
-            label="Status"
-            value={status}
-            onChange={setStatus}
-            options={[
-              { value: "any", label: "Any" },
-              ...STATUSES.map((s) => ({ value: s, label: humanize(s) })),
-            ]}
-          />
-          <Pickable
-            label="Outcome"
-            value={outcome}
-            onChange={setOutcome}
-            options={[
-              { value: "any", label: "Any" },
-              ...OUTCOMES.map((o) => ({ value: o, label: humanize(o) })),
-            ]}
-          />
-          <Pickable
-            label="Goal met"
-            value={goalMet}
-            onChange={setGoalMet}
-            options={[
-              { value: "any", label: "Any" },
-              { value: "yes", label: "Yes" },
-              { value: "no", label: "No" },
-            ]}
-          />
-          <Pickable
-            label="Campaign"
-            value={campaign}
-            onChange={setCampaign}
-            options={[
-              { value: "any", label: "Any campaign" },
-              ...campaigns.map((c) => ({ value: c.id, label: c.name })),
-            ]}
-          />
-          <Pickable
-            label="Agent"
-            value={agent}
-            onChange={setAgent}
-            options={[
-              { value: "any", label: "Any agent" },
-              ...agents.map((a) => ({ value: a.id, label: a.name })),
-            ]}
-          />
-          {showOwner ? (
+      <PopoverContent
+        align="start"
+        className="flex w-[min(520px,92vw)] flex-col gap-5"
+      >
+        <Section title="Call">
+          <div className="grid grid-cols-2 gap-3">
             <Pickable
-              label="Owner"
-              value={owner}
-              onChange={setOwner}
+              label="Direction"
+              value={direction}
+              onChange={setDirection}
               options={[
-                { value: "any", label: "Any owner" },
-                ...owners.map((o) => ({ value: o.id, label: o.name })),
+                { value: "any", label: "Any" },
+                { value: "outbound", label: "Outbound" },
+                { value: "inbound", label: "Inbound" },
               ]}
             />
-          ) : null}
+            <Pickable
+              label="Outcome"
+              value={outcome}
+              onChange={setOutcome}
+              options={[
+                { value: "any", label: "Any" },
+                ...Object.keys(OUTCOME_LABELS).map((k) => ({
+                  value: k,
+                  label: outcomeLabel(k),
+                })),
+              ]}
+            />
+            <Pickable
+              label="Goal met"
+              value={goalMet}
+              onChange={setGoalMet}
+              options={[
+                { value: "any", label: "Any" },
+                { value: "yes", label: "Yes" },
+                { value: "no", label: "No" },
+              ]}
+            />
+            <Pickable
+              label="Status"
+              value={status}
+              onChange={setStatus}
+              options={[
+                { value: "any", label: "Any" },
+                ...Object.keys(CALL_STATUS_LABELS).map((k) => ({
+                  value: k,
+                  label: callStatusLabel(k),
+                })),
+              ]}
+            />
+          </div>
+        </Section>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="calls-min-dur">Min duration (s)</Label>
-            <Input
-              id="calls-min-dur"
-              type="number"
-              min="0"
-              value={minDur}
-              onChange={(e) => setMinDur(e.target.value)}
+        <Section title="Where">
+          <div className="grid grid-cols-2 gap-3">
+            <Pickable
+              label="Campaign"
+              value={campaign}
+              onChange={setCampaign}
+              options={[
+                { value: "any", label: "Any campaign" },
+                ...campaigns.map((c) => ({ value: c.id, label: c.name })),
+              ]}
             />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="calls-max-dur">Max duration (s)</Label>
-            <Input
-              id="calls-max-dur"
-              type="number"
-              min="0"
-              value={maxDur}
-              onChange={(e) => setMaxDur(e.target.value)}
+            <Pickable
+              label="Agent"
+              value={agent}
+              onChange={setAgent}
+              options={[
+                { value: "any", label: "Any agent" },
+                ...agents.map((a) => ({ value: a.id, label: a.name })),
+              ]}
             />
+            {showOwner ? (
+              <div className="col-span-2">
+                <Pickable
+                  label="Owner"
+                  value={owner}
+                  onChange={setOwner}
+                  options={[
+                    { value: "any", label: "Any owner" },
+                    ...owners.map((o) => ({ value: o.id, label: o.name })),
+                  ]}
+                />
+              </div>
+            ) : null}
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="calls-from">Started from</Label>
-            <Input
-              id="calls-from"
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="calls-to">Started to</Label>
-            <Input
-              id="calls-to"
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-            />
-          </div>
-        </div>
+        </Section>
 
-        <div className="flex justify-between gap-2 pt-3">
+        <Section title="When">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="calls-from">Started from</Label>
+              <Input
+                id="calls-from"
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="calls-to">Started to</Label>
+              <Input
+                id="calls-to"
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="calls-min-dur">Min duration (s)</Label>
+              <Input
+                id="calls-min-dur"
+                type="number"
+                min="0"
+                value={minDur}
+                onChange={(e) => setMinDur(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="calls-max-dur">Max duration (s)</Label>
+              <Input
+                id="calls-max-dur"
+                type="number"
+                min="0"
+                value={maxDur}
+                onChange={(e) => setMaxDur(e.target.value)}
+              />
+            </div>
+          </div>
+        </Section>
+
+        <div className="flex justify-between gap-2 pt-1">
           <Button variant="ghost" size="sm" onClick={clear}>
             Clear
           </Button>
@@ -286,6 +278,23 @@ export function CallsFilters({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
+        {title}
+      </p>
+      {children}
+    </section>
   );
 }
 

@@ -1,6 +1,7 @@
 import { CircleCheckBig, Mic, Phone, PhoneIncoming } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { callStatusLabel, outcomeLabel } from "@/lib/labels";
 
 /** A row passed to a column's `cell` renderer. */
 export type DisplayCall = {
@@ -56,11 +57,6 @@ const WIN_OUTCOMES = new Set(["goal_met", "transferred_to_human"]);
  *  AI error, etc.). */
 const HARD_OUTCOMES = new Set(["dnc", "ai_error"]);
 
-export function humanize(value: string | null | undefined): string {
-  if (!value) return "—";
-  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
-}
-
 function fmtDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds <= 0) return "—";
   const m = Math.floor(seconds / 60);
@@ -80,10 +76,6 @@ function fmtCost(breakdown: unknown): string {
   return `$${total.toFixed(2)}`;
 }
 
-/** Map a call's status to the Badge variant palette used everywhere
- *  else in the app (coral / emerald / muted secondary). Active states
- *  pulse coral; completed sits neutral; failed/cancelled goes
- *  destructive. */
 export function statusVariant(
   status: string,
 ): "coral" | "secondary" | "destructive" {
@@ -94,17 +86,14 @@ export function statusVariant(
   return "secondary";
 }
 
-/** Map a call's outcome to the same palette as statusVariant. Pulled
- *  separate so a "wins" outcome (goal_met / transfer) reads emerald
- *  even when the status itself is just "completed". */
 export function outcomeVariant(
   outcome: string,
 ): "coral" | "success" | "destructive" | "secondary" {
   if (WIN_OUTCOMES.has(outcome)) return "success";
   if (HARD_OUTCOMES.has(outcome)) return "destructive";
   if (NON_CONNECT_OUTCOMES.has(outcome)) return "secondary";
-  // "callback" and "not_interested" are connected-but-not-won — read
-  // coral to signal "still active work".
+  // "callback", "not_interested", "dm_reached" are connected-but-not-
+  // closed — read coral to signal "still active work".
   return "coral";
 }
 
@@ -112,11 +101,7 @@ export const CALL_COLUMNS: CallColumn[] = [
   {
     key: "company",
     label: "Lead",
-    width: "min-w-[260px] w-[32%]",
-    /** Primary identity cell: direction icon + company name on top,
-     *  phone + campaign on the second line. Folds three columns into
-     *  one so rows scan as "this call to this company" instead of a
-     *  wide flat strip. */
+    width: "min-w-[260px] w-[34%]",
     cell: (c) => {
       const DirIcon = c.direction === "inbound" ? PhoneIncoming : Phone;
       const dirTone =
@@ -221,7 +206,7 @@ export const CALL_COLUMNS: CallColumn[] = [
     width: "w-[140px]",
     cell: (c) => (
       <Badge variant={statusVariant(c.status)} dot>
-        {humanize(c.status)}
+        {callStatusLabel(c.status)}
       </Badge>
     ),
   },
@@ -229,10 +214,12 @@ export const CALL_COLUMNS: CallColumn[] = [
     key: "outcome",
     label: "Outcome",
     sortKey: "outcome",
-    width: "w-[170px]",
+    width: "w-[180px]",
     cell: (c) =>
       c.outcome ? (
-        <Badge variant={outcomeVariant(c.outcome)}>{humanize(c.outcome)}</Badge>
+        <Badge variant={outcomeVariant(c.outcome)}>
+          {outcomeLabel(c.outcome)}
+        </Badge>
       ) : (
         <span className="text-muted-foreground">—</span>
       ),
@@ -273,31 +260,29 @@ export const CALL_COLUMNS: CallColumn[] = [
   },
   {
     key: "recording",
-    label: "Rec",
-    width: "w-[60px]",
+    label: "Recording",
+    width: "w-[100px]",
     cell: (c) =>
       c.recording_path ? (
-        <Mic
-          className="size-4 text-[color:var(--coral)]"
-          aria-label="Has recording"
-        />
+        <span className="inline-flex items-center gap-1 text-[color:var(--coral)]">
+          <Mic className="size-4" aria-label="Has recording" />
+          <span className="text-xs">Audio</span>
+        </span>
       ) : (
         <span className="text-muted-foreground">—</span>
       ),
   },
 ];
 
-/** Default visible columns trimmed from 11 to 7. Phone + Campaign are
- *  folded into the primary cell so they're no longer redundant as
- *  separate columns. Agent / Owner / Talk / Score / Recording stay
- *  opt-in via the column picker. */
+/** Default visible columns trimmed further per round-2 feedback:
+ *  Status is redundant with Outcome (most calls are "Completed"),
+ *  Goal is redundant with the Outcome pill (which already reads
+ *  "Goal met" in emerald). Both move to opt-in via the column picker. */
 export const DEFAULT_COLUMN_KEYS = [
   "company",
   "started_at",
   "duration",
-  "status",
   "outcome",
-  "goal_met",
   "cost",
 ];
 

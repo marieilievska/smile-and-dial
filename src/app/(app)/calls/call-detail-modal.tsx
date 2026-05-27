@@ -182,7 +182,7 @@ export function CallDetailModal() {
             <span>{call?.leadCompany ?? "Call"}</span>
             {call?.outcome ? (
               <Badge variant="default" className="ml-1">
-                {call.outcome}
+                {outcomeLabel(call.outcome)}
               </Badge>
             ) : null}
           </SheetTitle>

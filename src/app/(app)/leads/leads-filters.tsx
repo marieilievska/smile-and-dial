@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
 
 const STATUSES = [
   "ready_to_call",
@@ -42,6 +43,7 @@ const OUTCOMES = [
   "hung_up_immediately",
   "invalid_number",
   "gatekeeper",
+  "dm_reached",
   "not_interested",
   "callback",
   "dnc",
@@ -63,10 +65,6 @@ const FILTER_KEYS = [
   "nextcall_from",
   "nextcall_to",
 ];
-
-function humanize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
-}
 
 export function LeadsFilters({
   lists,
@@ -165,7 +163,7 @@ export function LeadsFilters({
                 <SelectItem value="any">Any status</SelectItem>
                 {STATUSES.map((s) => (
                   <SelectItem key={s} value={s}>
-                    {humanize(s)}
+                    {leadStatusLabel(s)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -181,7 +179,7 @@ export function LeadsFilters({
                 <SelectItem value="any">Any outcome</SelectItem>
                 {OUTCOMES.map((o) => (
                   <SelectItem key={o} value={o}>
-                    {humanize(o)}
+                    {outcomeLabel(o)}
                   </SelectItem>
                 ))}
               </SelectContent>
