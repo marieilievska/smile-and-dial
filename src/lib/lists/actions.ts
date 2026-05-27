@@ -31,6 +31,33 @@ export async function createList(
   return { error: null };
 }
 
+/** Create a list and return its id. Mirrors `createList` but surfaces
+ *  the new row's id so callers (e.g. the inline-create affordance in
+ *  the import wizard) can auto-select it after creation. */
+export async function createListInline(
+  name: string,
+): Promise<{ id: string | null; error: string | null }> {
+  const trimmedName = name.trim();
+  if (!trimmedName) return { id: null, error: "Enter a list name." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { id: null, error: "You are not signed in." };
+
+  const { data, error } = await supabase
+    .from("lists")
+    .insert({ owner_id: user.id, name: trimmedName, description: null })
+    .select("id")
+    .single();
+  if (error || !data) return { id: null, error: "Could not create the list." };
+
+  revalidatePath("/settings/lists");
+  revalidatePath("/leads/import");
+  return { id: data.id, error: null };
+}
+
 /** Rename or re-describe a list. RLS limits this to the owner (or an admin). */
 export async function updateList(
   id: string,

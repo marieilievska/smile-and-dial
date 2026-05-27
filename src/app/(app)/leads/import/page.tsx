@@ -20,16 +20,17 @@ export default async function ImportLeadsPage() {
   ]);
 
   return (
-    <div className="p-8">
-      <h1 className="text-foreground text-2xl font-bold tracking-tight">
-        Import leads
-      </h1>
-      <p className="text-muted-foreground mt-1 text-sm">
-        Upload a CSV file to add leads to a list.
-      </p>
-      <div className="mt-6 max-w-2xl">
-        <ImportWizard lists={lists ?? []} customFields={customFields ?? []} />
-      </div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-8">
+      <header className="flex flex-col gap-1.5">
+        <h1 className="text-foreground text-2xl font-bold tracking-tight">
+          Import leads
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          Bring leads into Smile &amp; Dial. We&apos;ll verify every phone
+          number with Twilio and skip the ones we can&apos;t legally call.
+        </p>
+      </header>
+      <ImportWizard lists={lists ?? []} customFields={customFields ?? []} />
     </div>
   );
 }
