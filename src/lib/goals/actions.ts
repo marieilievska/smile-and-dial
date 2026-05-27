@@ -52,6 +52,7 @@ export async function createGoal(
   if (isDefault) await clearOtherDefaults(supabase, user.id, created.id);
 
   revalidatePath("/goals");
+  revalidatePath("/settings/goals");
   return { error: null };
 }
 
@@ -84,12 +85,15 @@ export async function updateGoal(
   if (isDefault) await clearOtherDefaults(supabase, user.id, id);
 
   revalidatePath("/goals");
+  revalidatePath("/settings/goals");
   return { error: null };
 }
 
 /**
- * Delete a goal. Once campaigns exist (Phase 3), this will also block
- * deletion of a goal that a campaign is using.
+ * Delete a goal. Blocks deletion if at least one non-ended campaign
+ * still references it — that would orphan the campaign and break the
+ * goals pipeline. The UI also disables the trigger button when usage
+ * count > 0, but we re-check server-side here as a guard.
  */
 export async function deleteGoal(id: string): Promise<GoalActionResult> {
   const supabase = await createClient();
@@ -98,9 +102,21 @@ export async function deleteGoal(id: string): Promise<GoalActionResult> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
 
+  const { count } = await supabase
+    .from("campaigns")
+    .select("id", { count: "exact", head: true })
+    .eq("goal_id", id)
+    .neq("status", "ended");
+  if ((count ?? 0) > 0) {
+    return {
+      error: `This goal is used by ${count} active campaign${count === 1 ? "" : "s"}. Reassign the campaign${count === 1 ? "" : "s"} first.`,
+    };
+  }
+
   const { error } = await supabase.from("goals").delete().eq("id", id);
   if (error) return { error: "Could not delete the goal." };
 
   revalidatePath("/goals");
+  revalidatePath("/settings/goals");
   return { error: null };
 }
