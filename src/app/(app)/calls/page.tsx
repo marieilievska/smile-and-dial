@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Phone } from "lucide-react";
+import { Phone } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -13,6 +13,10 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
 
+import { CallsActiveFilterChips } from "./active-filter-chips";
+import { CallDetailModal } from "./call-detail-modal";
+import { CallRow } from "./call-row";
+import { CallRowActions } from "./call-row-actions";
 import { CallsFilters } from "./calls-filters";
 import {
   buildCallsQuery,
@@ -20,15 +24,18 @@ import {
   resolveLeadFilterIds,
   str,
 } from "./calls-query";
-import { callsHref, type SearchParams } from "./calls-url";
-import { CallDetailModal } from "./call-detail-modal";
-import { CallRow } from "./call-row";
+import { CallsSearchInput } from "./calls-search-input";
+import { CallsStatStrip } from "./calls-stat-strip";
 import { CALL_COLUMNS, DEFAULT_COLUMN_KEYS, type DisplayCall } from "./columns";
 import { ColumnPicker } from "./column-picker";
 import { SavedViews } from "./saved-views";
+import { SmartPagination } from "../leads/smart-pagination";
 import { SortableHeader } from "./sortable-header";
+import { fetchCallStats } from "./stats-query";
+import { type SearchParams } from "./calls-url";
 
-const PAGE_SIZE = 25;
+const ALLOWED_PAGE_SIZES = new Set([25, 50, 100]);
+const DEFAULT_PAGE_SIZE = 25;
 
 export default async function CallsPage({
   searchParams,
@@ -38,6 +45,8 @@ export default async function CallsPage({
   const params = await searchParams;
   const { sort, dir } = parseSort(params);
   const page = Math.max(1, Number(params.page) || 1);
+  const perRaw = Number(str(params.per));
+  const pageSize = ALLOWED_PAGE_SIZES.has(perRaw) ? perRaw : DEFAULT_PAGE_SIZE;
 
   const supabase = await createClient();
   const {
@@ -58,6 +67,7 @@ export default async function CallsPage({
     { data: agents },
     { data: owners },
     { data: viewsRaw },
+    stats,
   ] = await Promise.all([
     supabase.from("campaigns").select("id, name").order("name"),
     supabase.from("agents").select("id, name").order("name"),
@@ -71,6 +81,7 @@ export default async function CallsPage({
       .select("id, name, params")
       .eq("page", "calls")
       .order("created_at", { ascending: false }),
+    fetchCallStats(supabase),
   ]);
 
   const ownerOptions: { id: string; name: string }[] = (owners ?? []).map(
@@ -79,9 +90,14 @@ export default async function CallsPage({
       name: o.full_name || o.email || "—",
     }),
   );
+  const campaignOptions = (campaigns ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+  }));
+  const agentOptions = (agents ?? []).map((a) => ({ id: a.id, name: a.name }));
 
   const leadFilterIds = await resolveLeadFilterIds(supabase, params);
-  const offset = (page - 1) * PAGE_SIZE;
+  const offset = (page - 1) * pageSize;
   const { data, count } = await buildCallsQuery(
     supabase,
     params,
@@ -89,11 +105,10 @@ export default async function CallsPage({
   )
     .order(sort, { ascending: dir === "asc" })
     .order("id", { ascending: true })
-    .range(offset, offset + PAGE_SIZE - 1);
+    .range(offset, offset + pageSize - 1);
 
   const rawCalls = data ?? [];
   const total = count ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Owner names for the rows: gather distinct owner_ids across visible
   // leads. Members get a single owner (themselves) so this is cheap.
@@ -143,6 +158,7 @@ export default async function CallsPage({
     score: c.score,
     cost_breakdown: c.cost_breakdown,
     hasCallback: hasCallback.has(c.id),
+    leadId: c.lead?.id ?? null,
     company: c.lead?.company ?? null,
     business_phone: c.lead?.business_phone ?? null,
     campaignName: c.campaign?.name ?? "—",
@@ -159,47 +175,65 @@ export default async function CallsPage({
     : new Set(DEFAULT_COLUMN_KEYS);
   const columns = CALL_COLUMNS.filter((c) => visibleKeys.has(c.key));
 
+  // Has the user applied any filters or a search? Drives the empty-
+  // state variant when no calls match.
+  const hasAnyFilter =
+    Boolean(
+      str(params.q) ||
+      str(params.direction) ||
+      str(params.status) ||
+      str(params.outcome) ||
+      str(params.campaign) ||
+      str(params.agent) ||
+      str(params.owner) ||
+      str(params.goal_met),
+    ) ||
+    Boolean(
+      str(params.min_dur) ||
+      str(params.max_dur) ||
+      str(params.from) ||
+      str(params.to),
+    );
+
   return (
     <div className="flex flex-col gap-6 p-8">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-foreground text-2xl font-bold tracking-tight">
-            Calls
-          </h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            Every outbound and inbound call. Filter and sort to drill in.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <SavedViews views={viewsRaw ?? []} />
-          <ColumnPicker />
-        </div>
+      <div className="flex flex-col gap-1.5">
+        <h1 className="text-foreground text-2xl font-bold tracking-tight">
+          Calls
+        </h1>
+        <p className="text-muted-foreground text-sm">
+          What the AI dialed. Sortable, searchable, every recording one click
+          away.
+        </p>
       </div>
 
-      <CallsFilters
-        campaigns={campaigns ?? []}
-        agents={agents ?? []}
-        owners={ownerOptions}
-        initial={{
-          q: str(params.q),
-          direction: str(params.direction),
-          status: str(params.status),
-          outcome: str(params.outcome),
-          campaign: str(params.campaign),
-          agent: str(params.agent),
-          owner: str(params.owner),
-          goal_met: str(params.goal_met),
-          min_dur: str(params.min_dur),
-          max_dur: str(params.max_dur),
-          from: str(params.from),
-          to: str(params.to),
-        }}
-      />
+      <CallsStatStrip stats={stats} />
+
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <CallsSearchInput />
+          <div className="flex items-center gap-1.5">
+            <CallsFilters
+              campaigns={campaignOptions}
+              agents={agentOptions}
+              owners={ownerOptions}
+              showOwner={isAdmin}
+            />
+            <ColumnPicker />
+            <SavedViews views={viewsRaw ?? []} />
+          </div>
+        </div>
+        <CallsActiveFilterChips
+          campaigns={campaignOptions}
+          agents={agentOptions}
+          owners={ownerOptions}
+        />
+      </div>
 
       {calls.length > 0 ? (
         <>
-          <div className="border-border overflow-hidden rounded-lg border">
-            <Table>
+          <div className="border-border overflow-x-auto rounded-lg border">
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
                   {columns.map((col) =>
@@ -211,70 +245,101 @@ export default async function CallsPage({
                         currentSort={sort}
                         currentDir={dir}
                         params={params}
+                        className={col.width}
                       />
                     ) : (
-                      <TableHead key={col.key}>{col.label}</TableHead>
+                      <TableHead key={col.key} className={col.width}>
+                        {col.label}
+                      </TableHead>
                     ),
                   )}
+                  <TableHead className="w-[100px]" aria-label="Row actions" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {calls.map((c) => (
                   <CallRow key={c.id} callId={c.id}>
                     {columns.map((col) => (
-                      <TableCell key={col.key}>{col.cell(c)}</TableCell>
+                      <TableCell key={col.key} className={col.width}>
+                        {col.cell(c)}
+                      </TableCell>
                     ))}
+                    <TableCell className="w-[100px] text-right">
+                      <CallRowActions
+                        callId={c.id}
+                        leadId={c.leadId}
+                        hasRecording={Boolean(c.recording_path)}
+                      />
+                    </TableCell>
                   </CallRow>
                 ))}
               </TableBody>
             </Table>
           </div>
 
-          <div className="flex items-center justify-between">
-            <p className="text-muted-foreground text-sm">
-              {total === 0
-                ? "No calls"
-                : `Showing ${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} of ${total}`}
-            </p>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1} asChild>
-                <Link
-                  href={callsHref(params, { page: String(page - 1) })}
-                  aria-label="Previous page"
-                >
-                  <ChevronLeft className="size-4" />
-                </Link>
-              </Button>
-              <span className="text-foreground text-sm">
-                Page {page} of {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= totalPages}
-                asChild
-              >
-                <Link
-                  href={callsHref(params, { page: String(page + 1) })}
-                  aria-label="Next page"
-                >
-                  <ChevronRight className="size-4" />
-                </Link>
-              </Button>
-            </div>
-          </div>
+          <SmartPagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            basePath="/calls"
+          />
         </>
+      ) : hasAnyFilter ? (
+        <FilteredEmptyState />
       ) : (
-        <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
-          <Phone className="text-muted-foreground size-8" />
-          <p className="text-foreground text-sm font-medium">No calls yet</p>
-          <p className="text-muted-foreground text-sm">
-            Calls show up here as soon as the dialer places them.
-          </p>
-        </div>
+        <NoCallsEmptyState />
       )}
 
       <CallDetailModal />
+    </div>
+  );
+}
+
+/** Shown when filters or search restrict the result set to nothing. */
+function FilteredEmptyState() {
+  return (
+    <div
+      data-testid="calls-empty-filtered"
+      className="border-border/70 bg-muted/10 flex flex-col items-center gap-3 rounded-2xl border border-dashed py-14 text-center"
+    >
+      <Phone className="text-muted-foreground/70 size-7" />
+      <div className="flex flex-col gap-1">
+        <p className="text-foreground text-sm font-medium">No calls match</p>
+        <p className="text-muted-foreground max-w-sm text-sm">
+          Adjust the filters above or clear them with the chips just below the
+          toolbar.
+        </p>
+      </div>
+      <Button asChild variant="outline" size="sm">
+        <Link href="/calls">Clear all filters</Link>
+      </Button>
+    </div>
+  );
+}
+
+/** Shown when there are no calls in the system at all. */
+function NoCallsEmptyState() {
+  return (
+    <div
+      data-testid="calls-empty-zero"
+      className="border-border/70 bg-muted/10 flex flex-col items-center gap-4 rounded-2xl border border-dashed py-16 text-center"
+    >
+      <Phone className="text-muted-foreground/70 size-8" />
+      <div className="flex flex-col gap-1">
+        <p className="text-foreground text-base font-medium">No calls yet</p>
+        <p className="text-muted-foreground max-w-md text-sm">
+          The dialer hasn&apos;t placed any calls yet. Make sure a campaign is
+          active and attached to a list with at least one ready-to-call lead.
+        </p>
+      </div>
+      <div className="mt-1 flex items-center gap-2">
+        <Button asChild size="sm">
+          <Link href="/campaigns">Manage campaigns</Link>
+        </Button>
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/leads">Browse leads</Link>
+        </Button>
+      </div>
     </div>
   );
 }

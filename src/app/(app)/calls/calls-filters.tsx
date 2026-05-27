@@ -1,9 +1,18 @@
 "use client";
 
+import { Filter } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -16,341 +25,296 @@ type Campaign = { id: string; name: string };
 type Agent = { id: string; name: string };
 type Owner = { id: string; name: string };
 
-/**
- * URL-driven filter bar for the Calls table. Submits via a normal GET form
- * so the server component re-renders with the new searchParams. Picking
- * "Any" clears the param by submitting an empty value.
- */
+const STATUSES = [
+  "queued",
+  "dialing",
+  "ringing",
+  "in_progress",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
+
+const OUTCOMES = [
+  "voicemail",
+  "no_answer",
+  "busy",
+  "failed",
+  "hung_up_immediately",
+  "invalid_number",
+  "gatekeeper",
+  "not_interested",
+  "callback",
+  "dnc",
+  "goal_met",
+  "language_barrier",
+  "ai_receptionist",
+  "ai_error",
+  "transferred_to_human",
+] as const;
+
+/** Filter keys that count toward the "active filters" badge on the
+ *  popover trigger. Search (`q`) is in the toolbar input, not the
+ *  popover, so it's not counted here. */
+const FILTER_KEYS = [
+  "direction",
+  "status",
+  "outcome",
+  "campaign",
+  "agent",
+  "owner",
+  "goal_met",
+  "min_dur",
+  "max_dur",
+  "from",
+  "to",
+] as const;
+
+function humanize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
+}
+
+/** URL-driven filter popover for the Calls table. Replaces the v1
+ *  always-open filter wall — the 11 controls all live behind a single
+ *  `Filters` button now. Search stays on the toolbar.
+ *
+ *  Picking "Any" clears the param. Apply pushes everything to the URL
+ *  at once so the server re-renders with the new params. */
 export function CallsFilters({
   campaigns,
   agents,
   owners,
-  initial,
+  showOwner,
 }: {
   campaigns: Campaign[];
   agents: Agent[];
   owners: Owner[];
-  initial: {
-    q: string;
-    direction: string;
-    status: string;
-    outcome: string;
-    campaign: string;
-    agent: string;
-    owner: string;
-    goal_met: string;
-    min_dur: string;
-    max_dur: string;
-    from: string;
-    to: string;
-  };
+  /** Owner filter only appears for admins (members can only see their
+   *  own calls anyway). */
+  showOwner: boolean;
 }) {
-  // Track local state so the user can clear a Select dropdown without
-  // submitting. The native form submission still uses the underlying
-  // <input name=...> hidden fields below.
-  const [direction, setDirection] = useState(initial.direction);
-  const [status, setStatus] = useState(initial.status);
-  const [outcome, setOutcome] = useState(initial.outcome);
-  const [campaign, setCampaign] = useState(initial.campaign);
-  const [agent, setAgent] = useState(initial.agent);
-  const [owner, setOwner] = useState(initial.owner);
-  const [goalMet, setGoalMet] = useState(initial.goal_met);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [open, setOpen] = useState(false);
+
+  const get = (key: string) => searchParams.get(key) ?? "";
+  const [direction, setDirection] = useState(get("direction") || "any");
+  const [status, setStatus] = useState(get("status") || "any");
+  const [outcome, setOutcome] = useState(get("outcome") || "any");
+  const [campaign, setCampaign] = useState(get("campaign") || "any");
+  const [agent, setAgent] = useState(get("agent") || "any");
+  const [owner, setOwner] = useState(get("owner") || "any");
+  const [goalMet, setGoalMet] = useState(get("goal_met") || "any");
+  const [minDur, setMinDur] = useState(get("min_dur"));
+  const [maxDur, setMaxDur] = useState(get("max_dur"));
+  const [from, setFrom] = useState(get("from"));
+  const [to, setTo] = useState(get("to"));
+
+  const activeCount = FILTER_KEYS.filter((key) =>
+    searchParams.get(key as string),
+  ).length;
+
+  function apply() {
+    const params = new URLSearchParams(searchParams.toString());
+    const set = (key: string, value: string) => {
+      if (value && value !== "any") params.set(key, value);
+      else params.delete(key);
+    };
+    set("direction", direction);
+    set("status", status);
+    set("outcome", outcome);
+    set("campaign", campaign);
+    set("agent", agent);
+    set("owner", owner);
+    set("goal_met", goalMet);
+    set("min_dur", minDur);
+    set("max_dur", maxDur);
+    set("from", from);
+    set("to", to);
+    params.delete("page");
+    router.push(`/calls?${params.toString()}`);
+    setOpen(false);
+  }
+
+  function clear() {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const key of FILTER_KEYS) params.delete(key as string);
+    params.delete("page");
+    setDirection("any");
+    setStatus("any");
+    setOutcome("any");
+    setCampaign("any");
+    setAgent("any");
+    setOwner("any");
+    setGoalMet("any");
+    setMinDur("");
+    setMaxDur("");
+    setFrom("");
+    setTo("");
+    router.push(`/calls?${params.toString()}`);
+    setOpen(false);
+  }
 
   return (
-    <form
-      method="get"
-      action="/calls"
-      className="flex flex-wrap items-end gap-2"
-    >
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-q"
-          className="text-foreground text-sm font-medium"
-        >
-          Search
-        </label>
-        <Input
-          id="calls-q"
-          name="q"
-          defaultValue={initial.q}
-          placeholder="Company, phone, or email"
-          className="w-56"
-        />
-      </div>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline">
+          <Filter className="size-4" />
+          Filters
+          {activeCount > 0 ? (
+            <Badge variant="secondary">{activeCount}</Badge>
+          ) : null}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[min(560px,90vw)]">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Pickable
+            label="Direction"
+            value={direction}
+            onChange={setDirection}
+            options={[
+              { value: "any", label: "Any" },
+              { value: "outbound", label: "Outbound" },
+              { value: "inbound", label: "Inbound" },
+            ]}
+          />
+          <Pickable
+            label="Status"
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: "any", label: "Any" },
+              ...STATUSES.map((s) => ({ value: s, label: humanize(s) })),
+            ]}
+          />
+          <Pickable
+            label="Outcome"
+            value={outcome}
+            onChange={setOutcome}
+            options={[
+              { value: "any", label: "Any" },
+              ...OUTCOMES.map((o) => ({ value: o, label: humanize(o) })),
+            ]}
+          />
+          <Pickable
+            label="Goal met"
+            value={goalMet}
+            onChange={setGoalMet}
+            options={[
+              { value: "any", label: "Any" },
+              { value: "yes", label: "Yes" },
+              { value: "no", label: "No" },
+            ]}
+          />
+          <Pickable
+            label="Campaign"
+            value={campaign}
+            onChange={setCampaign}
+            options={[
+              { value: "any", label: "Any campaign" },
+              ...campaigns.map((c) => ({ value: c.id, label: c.name })),
+            ]}
+          />
+          <Pickable
+            label="Agent"
+            value={agent}
+            onChange={setAgent}
+            options={[
+              { value: "any", label: "Any agent" },
+              ...agents.map((a) => ({ value: a.id, label: a.name })),
+            ]}
+          />
+          {showOwner ? (
+            <Pickable
+              label="Owner"
+              value={owner}
+              onChange={setOwner}
+              options={[
+                { value: "any", label: "Any owner" },
+                ...owners.map((o) => ({ value: o.id, label: o.name })),
+              ]}
+            />
+          ) : null}
 
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-direction"
-          className="text-foreground text-sm font-medium"
-        >
-          Direction
-        </label>
-        <Select
-          value={direction || "__any__"}
-          onValueChange={(value) =>
-            setDirection(value === "__any__" ? "" : value)
-          }
-        >
-          <SelectTrigger id="calls-direction" className="w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__any__">Any</SelectItem>
-            <SelectItem value="outbound">Outbound</SelectItem>
-            <SelectItem value="inbound">Inbound</SelectItem>
-          </SelectContent>
-        </Select>
-        <input type="hidden" name="direction" value={direction} />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-status"
-          className="text-foreground text-sm font-medium"
-        >
-          Status
-        </label>
-        <Select
-          value={status || "__any__"}
-          onValueChange={(value) => setStatus(value === "__any__" ? "" : value)}
-        >
-          <SelectTrigger id="calls-status" className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__any__">Any</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="in_progress">In progress</SelectItem>
-            <SelectItem value="ringing">Ringing</SelectItem>
-            <SelectItem value="dialing">Dialing</SelectItem>
-            <SelectItem value="queued">Queued</SelectItem>
-            <SelectItem value="failed">Failed</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
-          </SelectContent>
-        </Select>
-        <input type="hidden" name="status" value={status} />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-outcome"
-          className="text-foreground text-sm font-medium"
-        >
-          Outcome
-        </label>
-        <Select
-          value={outcome || "__any__"}
-          onValueChange={(value) =>
-            setOutcome(value === "__any__" ? "" : value)
-          }
-        >
-          <SelectTrigger id="calls-outcome" className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__any__">Any</SelectItem>
-            <SelectItem value="voicemail">Voicemail</SelectItem>
-            <SelectItem value="no_answer">No answer</SelectItem>
-            <SelectItem value="busy">Busy</SelectItem>
-            <SelectItem value="failed">Failed</SelectItem>
-            <SelectItem value="gatekeeper">Gatekeeper</SelectItem>
-            <SelectItem value="not_interested">Not interested</SelectItem>
-            <SelectItem value="callback">Callback</SelectItem>
-            <SelectItem value="goal_met">Goal met</SelectItem>
-            <SelectItem value="dnc">DNC</SelectItem>
-            <SelectItem value="invalid_number">Invalid number</SelectItem>
-            <SelectItem value="language_barrier">Language barrier</SelectItem>
-            <SelectItem value="ai_receptionist">AI receptionist</SelectItem>
-            <SelectItem value="ai_error">AI error</SelectItem>
-            <SelectItem value="transferred_to_human">
-              Transferred to human
-            </SelectItem>
-            <SelectItem value="hung_up_immediately">
-              Hung up immediately
-            </SelectItem>
-          </SelectContent>
-        </Select>
-        <input type="hidden" name="outcome" value={outcome} />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-campaign"
-          className="text-foreground text-sm font-medium"
-        >
-          Campaign
-        </label>
-        <Select
-          value={campaign || "__any__"}
-          onValueChange={(value) =>
-            setCampaign(value === "__any__" ? "" : value)
-          }
-        >
-          <SelectTrigger id="calls-campaign" className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__any__">Any</SelectItem>
-            {campaigns.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <input type="hidden" name="campaign" value={campaign} />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-agent"
-          className="text-foreground text-sm font-medium"
-        >
-          Agent
-        </label>
-        <Select
-          value={agent || "__any__"}
-          onValueChange={(value) => setAgent(value === "__any__" ? "" : value)}
-        >
-          <SelectTrigger id="calls-agent" className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__any__">Any</SelectItem>
-            {agents.map((a) => (
-              <SelectItem key={a.id} value={a.id}>
-                {a.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <input type="hidden" name="agent" value={agent} />
-      </div>
-
-      {owners.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          <label
-            htmlFor="calls-owner"
-            className="text-foreground text-sm font-medium"
-          >
-            Owner
-          </label>
-          <Select
-            value={owner || "__any__"}
-            onValueChange={(value) =>
-              setOwner(value === "__any__" ? "" : value)
-            }
-          >
-            <SelectTrigger id="calls-owner" className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__any__">Any</SelectItem>
-              {owners.map((o) => (
-                <SelectItem key={o.id} value={o.id}>
-                  {o.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <input type="hidden" name="owner" value={owner} />
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="calls-min-dur">Min duration (s)</Label>
+            <Input
+              id="calls-min-dur"
+              type="number"
+              min="0"
+              value={minDur}
+              onChange={(e) => setMinDur(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="calls-max-dur">Max duration (s)</Label>
+            <Input
+              id="calls-max-dur"
+              type="number"
+              min="0"
+              value={maxDur}
+              onChange={(e) => setMaxDur(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="calls-from">Started from</Label>
+            <Input
+              id="calls-from"
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="calls-to">Started to</Label>
+            <Input
+              id="calls-to"
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </div>
         </div>
-      ) : null}
 
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-goal-met"
-          className="text-foreground text-sm font-medium"
-        >
-          Goal met
-        </label>
-        <Select
-          value={goalMet || "__any__"}
-          onValueChange={(value) =>
-            setGoalMet(value === "__any__" ? "" : value)
-          }
-        >
-          <SelectTrigger id="calls-goal-met" className="w-32">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__any__">Any</SelectItem>
-            <SelectItem value="yes">Yes</SelectItem>
-            <SelectItem value="no">No</SelectItem>
-          </SelectContent>
-        </Select>
-        <input type="hidden" name="goal_met" value={goalMet} />
-      </div>
+        <div className="flex justify-between gap-2 pt-3">
+          <Button variant="ghost" size="sm" onClick={clear}>
+            Clear
+          </Button>
+          <Button size="sm" onClick={apply}>
+            Apply filters
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-min-dur"
-          className="text-foreground text-sm font-medium"
-        >
-          Min duration (s)
-        </label>
-        <Input
-          id="calls-min-dur"
-          name="min_dur"
-          type="number"
-          min="0"
-          defaultValue={initial.min_dur}
-          className="w-28"
-        />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-max-dur"
-          className="text-foreground text-sm font-medium"
-        >
-          Max duration (s)
-        </label>
-        <Input
-          id="calls-max-dur"
-          name="max_dur"
-          type="number"
-          min="0"
-          defaultValue={initial.max_dur}
-          className="w-28"
-        />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-from"
-          className="text-foreground text-sm font-medium"
-        >
-          Started from
-        </label>
-        <Input
-          id="calls-from"
-          name="from"
-          type="date"
-          defaultValue={initial.from}
-          className="w-40"
-        />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <label
-          htmlFor="calls-to"
-          className="text-foreground text-sm font-medium"
-        >
-          Started to
-        </label>
-        <Input
-          id="calls-to"
-          name="to"
-          type="date"
-          defaultValue={initial.to}
-          className="w-40"
-        />
-      </div>
-
-      <Button type="submit" variant="outline">
-        Filter
-      </Button>
-    </form>
+function Pickable({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>{label}</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }

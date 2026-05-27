@@ -32,7 +32,7 @@ export function CallRow({
         if (event.key === "Enter") open();
       }}
       tabIndex={0}
-      className="hover:bg-muted/50 cursor-pointer"
+      className="group hover:bg-muted/50 cursor-pointer"
     >
       {children}
     </TableRow>
