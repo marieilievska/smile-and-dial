@@ -5,7 +5,6 @@ import {
   CalendarClock,
   Check,
   Copy,
-  ExternalLink,
   Mic,
   PhoneCall,
   Save,
@@ -260,14 +259,35 @@ export function CallDetailModal() {
         if (!next) close();
       }}
     >
-      <SheetContent className="flex w-full max-w-2xl flex-col gap-0 p-0 sm:max-w-2xl">
+      {/* Round 7 — bumped max-width from 2xl (672px) to ~58vw with a
+          generous floor so the hero metric row, transcript, and
+          coral-bordered summary card all breathe. On smaller laptop
+          screens the sheet still occupies a sensible majority of the
+          viewport without overlapping the sidebar.
+          Important: shadcn's <SheetContent> sets
+          `data-[side=right]:sm:max-w-sm` by default, which beats a
+          plain `sm:max-w-…` because of the data-attribute selector's
+          specificity. Match it with the same selector to win. */}
+      <SheetContent className="flex w-full flex-col gap-0 p-0 data-[side=right]:sm:max-w-[min(58vw,900px)]">
         {/* HEADER — stacked title cluster. Company on its own line so
             the outcome pill never collides with the close X. */}
         <SheetHeader className="border-border animate-in fade-in slide-in-from-top-1 border-b px-6 pt-6 pb-4 duration-300">
           <SheetTitle className="flex flex-col items-start gap-2 text-left">
-            <span className="text-foreground text-xl font-semibold">
-              {call?.leadCompany ?? (loading ? "Loading…" : "Call")}
-            </span>
+            {/* Title is the lead deep-link: click → /leads/<id>,
+                middle-click → new tab. Replaces the redundant
+                "Open lead" footer button. */}
+            {call?.leadId ? (
+              <Link
+                href={`/leads/${call.leadId}`}
+                className="text-foreground text-xl font-semibold underline-offset-2 hover:text-[color:var(--coral)] hover:underline"
+              >
+                {call.leadCompany ?? "Untitled lead"}
+              </Link>
+            ) : (
+              <span className="text-foreground text-xl font-semibold">
+                {call?.leadCompany ?? (loading ? "Loading…" : "Call")}
+              </span>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               {call?.outcome ? (
                 <Badge variant={outcomeVariant(call.outcome)}>
@@ -481,19 +501,13 @@ export function CallDetailModal() {
           </div>
         )}
 
-        {/* M10 — Sticky bottom action bar. Stays pinned even when the
-            transcript scrolls long. Call again is the primary (coral). */}
+        {/* Sticky bottom action bar. Open lead is gone — the title is
+            the lead deep-link, so a second "Open lead" button was just
+            duplication. Schedule callback + Call again carry their
+            own weight. */}
         {call ? (
           <div className="border-border bg-card flex flex-wrap items-center justify-end gap-2 border-t px-6 py-4">
             <ScheduleCallbackDialog callId={call.id} />
-            {call.leadId ? (
-              <Button asChild variant="outline">
-                <Link href={`/leads/${call.leadId}`}>
-                  <ExternalLink className="size-4" />
-                  Open lead
-                </Link>
-              </Button>
-            ) : null}
             {call.leadId ? (
               <Button
                 onClick={callAgain}

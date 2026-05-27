@@ -252,11 +252,12 @@ export default async function CallsPage({
                   {/* Sticky-right actions header: stays pinned to the
                       table's right edge when extra columns force the
                       table to scroll horizontally, so users never have
-                      to scroll just to reach Listen / Open lead / Call
-                      lead. bg-card + shadow give it a subtle floating
-                      feel above the scrolling content. */}
+                      to scroll just to reach Listen / Call lead. The
+                      shadow only shows when there's actually content
+                      scrolled under it (we keep it always-on; soft
+                      enough to be invisible otherwise). */}
                   <TableHead
-                    className="bg-card sticky right-0 z-10 w-[230px] shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)]"
+                    className="bg-card sticky right-0 z-10 w-[170px] shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)]"
                     aria-label="Row actions"
                   />
                 </TableRow>
@@ -269,7 +270,13 @@ export default async function CallsPage({
                         {col.cell(c)}
                       </TableCell>
                     ))}
-                    <TableCell className="bg-card group-hover:bg-muted/50 sticky right-0 z-10 w-[230px] text-right shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)] transition-colors">
+                    {/* Hover color is computed with color-mix so it
+                        produces the SAME opaque pixel value as the
+                        row's `hover:bg-muted/50` blend. Without this
+                        the sticky cell stays bright white on hover
+                        while the rest of the row tints muted, and
+                        the two-tone effect looks broken. */}
+                    <TableCell className="bg-card sticky right-0 z-10 w-[170px] text-right shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)] transition-colors group-hover:bg-[color-mix(in_oklab,var(--muted)_50%,var(--card))]">
                       <CallRowActions
                         callId={c.id}
                         leadId={c.leadId}
