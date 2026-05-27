@@ -29,6 +29,13 @@ export const CALL_STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
+export const CALLBACK_STATUS_LABELS: Record<string, string> = {
+  pending: "Pending",
+  completed: "Completed",
+  missed: "Missed",
+  cancelled: "Cancelled",
+};
+
 export const OUTCOME_LABELS: Record<string, string> = {
   voicemail: "Voicemail",
   no_answer: "No answer",
@@ -69,4 +76,9 @@ export function callStatusLabel(status: string | null | undefined): string {
 export function outcomeLabel(outcome: string | null | undefined): string {
   if (!outcome) return "—";
   return OUTCOME_LABELS[outcome] ?? humanizeFallback(outcome);
+}
+
+export function callbackStatusLabel(status: string | null | undefined): string {
+  if (!status) return "—";
+  return CALLBACK_STATUS_LABELS[status] ?? humanizeFallback(status);
 }

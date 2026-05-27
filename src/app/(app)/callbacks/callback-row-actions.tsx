@@ -1,7 +1,8 @@
 "use client";
 
+import { CalendarClock, Phone, XCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { CalendarClock, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -29,17 +30,32 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cancelCallback, rescheduleCallback } from "@/lib/callbacks/actions";
 
-/** Per-row Reschedule + Cancel controls on the Callbacks page. Only the
- *  pending callbacks render these; completed/missed/cancelled ones are
- *  rendered without actions. */
+/** Hover-only action cluster at the right edge of every pending
+ *  callback row. Three affordances:
+ *   - **Call now** (coral, primary) — jumps to /leads/<id>?action=call
+ *     so the operator can place the dial right now instead of waiting
+ *     for the cron to pick up the scheduled time.
+ *   - **Reschedule** (ghost, labelled) — opens a datetime dialog.
+ *   - **Cancel** (ghost destructive, labelled) — soft-cancels via the
+ *     server action; the row stays for audit, status flips to
+ *     `cancelled`.
+ *
+ *  v2 (round 9): replaced bare icon-only buttons with icon + label
+ *  hover-only buttons matching the calls list pattern. All event
+ *  handlers stopPropagation so the row's "open lead" handler
+ *  doesn't also fire when the user is acting *on* the row. */
 export function CallbackRowActions({
   callbackId,
+  leadId,
   currentScheduledAt,
 }: {
   callbackId: string;
+  leadId: string | null;
   currentScheduledAt: string;
 }) {
+  const router = useRouter();
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
+
   // datetime-local needs yyyy-MM-ddTHH:mm in LOCAL time, not ISO/UTC.
   const initial = (() => {
     const d = new Date(currentScheduledAt);
@@ -48,6 +64,16 @@ export function CallbackRowActions({
   })();
   const [when, setWhen] = useState(initial);
   const [pending, startTransition] = useTransition();
+
+  function stop(event: React.SyntheticEvent) {
+    event.stopPropagation();
+  }
+
+  function callNow(event: React.MouseEvent) {
+    event.stopPropagation();
+    if (!leadId) return;
+    router.push(`/leads/${leadId}?action=call`);
+  }
 
   function reschedule() {
     if (!when) return;
@@ -77,14 +103,43 @@ export function CallbackRowActions({
   }
 
   return (
-    <div className="flex justify-end gap-1">
+    <div
+      data-testid="callback-row-actions"
+      onClick={stop}
+      onKeyDown={stop}
+      className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+    >
+      {/* Call now — primary action when an SDR sees a callback they
+          want to handle immediately instead of waiting for the cron. */}
+      {leadId ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={callNow}
+          className="h-7 px-2 text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]"
+          title="Call this lead now"
+        >
+          <Phone className="size-3.5" />
+          Call now
+        </Button>
+      ) : null}
+
       <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
         <DialogTrigger asChild>
-          <Button variant="ghost" size="sm" aria-label="Reschedule callback">
-            <CalendarClock className="size-4" />
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2"
+            title="Reschedule callback"
+            onClick={stop}
+          >
+            <CalendarClock className="size-3.5" />
+            Reschedule
           </Button>
         </DialogTrigger>
-        <DialogContent>
+        <DialogContent onClick={stop}>
           <DialogHeader>
             <DialogTitle>Reschedule callback</DialogTitle>
             <DialogDescription>
@@ -113,15 +168,19 @@ export function CallbackRowActions({
       <AlertDialog>
         <AlertDialogTrigger asChild>
           <Button
-            variant="ghost"
+            type="button"
             size="sm"
-            aria-label="Cancel callback"
+            variant="ghost"
             disabled={pending}
+            className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+            title="Cancel callback"
+            onClick={stop}
           >
-            <XCircle className="size-4" />
+            <XCircle className="size-3.5" />
+            Cancel
           </Button>
         </AlertDialogTrigger>
-        <AlertDialogContent>
+        <AlertDialogContent onClick={stop}>
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel callback?</AlertDialogTitle>
             <AlertDialogDescription>
