@@ -1,6 +1,14 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import {
+  Check,
+  ListChecks,
+  Megaphone,
+  Plus,
+  Sparkles,
+  Target,
+  User,
+} from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -29,16 +37,26 @@ import { setCampaignLists } from "@/lib/campaigns/list-attachments-actions";
 
 type Option = { id: string; name: string };
 
-/** Minimal 2-step campaign creation dialog.
+/** Two-step campaign creation dialog (round 15 redesign).
  *
- *  Step 1: Name + Agent + Goal. (The three required fields.)
+ *  Step 1: Name + Agent + Goal — the three required fields.
  *  Step 2: Optional list attachments.
  *  Submit → createCampaign + setCampaignLists.
  *
- *  Telephony, tools, knowledge base, and caps all live on the edit dialog
- *  after creation — keeping create lean is the entire point of this
- *  component. The campaign starts active with safe defaults (09:00–21:00
- *  calling hours, 30/hour cap, 300/day cap, 2 concurrent). */
+ *  Telephony, tools, knowledge base, and caps live on the edit
+ *  drawer. The dialog ships the campaign with safe defaults
+ *  (09:00–21:00 calling, 30 calls/hr, 2 concurrent) and lets the
+ *  user refine those after creation.
+ *
+ *  Visual treatment:
+ *  - Step indicator pill at the top so the user knows there's a
+ *    second step and roughly where they are.
+ *  - Coral Sparkles icon next to the title to match the rest of the
+ *    app's accent moments.
+ *  - A small "what we'll set up by default" note on step 1 so the
+ *    user understands what they're NOT picking right now.
+ *  - Step 2 list picker keeps a tidy bordered list with a hover
+ *    background. Selecting a list is one click — checkbox follows. */
 export function CreateCampaignDialog({
   agents,
   goals,
@@ -49,12 +67,12 @@ export function CreateCampaignDialog({
   eligibleLists: Option[];
 }) {
   const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
   const [step, setStep] = useState<1 | 2>(1);
   const [name, setName] = useState("");
   const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
   const [goalId, setGoalId] = useState(goals[0]?.id ?? "");
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
-  const [pending, startTransition] = useTransition();
 
   function reset() {
     setStep(1);
@@ -88,14 +106,12 @@ export function CreateCampaignDialog({
 
   function submit() {
     startTransition(async () => {
-      // Step 1 already validated name/agent/goal.
       const result = await createCampaign({
         name,
         description: "",
         agentId,
         goalId,
         twilioNumberId: "",
-        // Defaults from the existing dialog — keep them aligned.
         callingHoursStart: "09:00",
         callingHoursEnd: "21:00",
         callsPerHourCap: "30",
@@ -138,22 +154,34 @@ export function CreateCampaignDialog({
           New campaign
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>
+          {/* Round 15 — step indicator pill so the user knows there's
+              a second step. Coral Sparkles to match the rest of the
+              app's accent moments. */}
+          <div className="text-muted-foreground mb-1 inline-flex items-center gap-2 text-[10px] font-medium tracking-[0.16em] uppercase">
+            <Sparkles className="size-3.5" style={{ color: "var(--coral)" }} />
+            <span>Step {step} of 2</span>
+            <StepDots current={step} />
+          </div>
+          <DialogTitle className="text-xl">
             {step === 1 ? "New campaign" : "Attach lists (optional)"}
           </DialogTitle>
           <DialogDescription>
             {step === 1
-              ? "Pick an agent, set a goal, and give it a name. You can configure telephony, caps, and tools after it's created."
-              : "Which lists should this campaign dial from? You can skip this and attach lists later."}
+              ? "Pick an agent, set a goal, and give it a name. Telephony, caps, and tools can be tuned after creation."
+              : "Lists attached here get dialed when the campaign runs. You can skip and attach later from the campaign settings."}
           </DialogDescription>
         </DialogHeader>
 
         {step === 1 ? (
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="create-campaign-name">Name</Label>
+          <div className="flex flex-col gap-5 py-1">
+            <FieldRow
+              icon={<Megaphone className="size-4" />}
+              label="Name"
+              htmlFor="create-campaign-name"
+              hint="Short, scannable — appears in the leads table and on reports."
+            >
               <Input
                 id="create-campaign-name"
                 value={name}
@@ -161,9 +189,14 @@ export function CreateCampaignDialog({
                 placeholder="Q1 Outbound"
                 required
               />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="create-campaign-agent">Agent</Label>
+            </FieldRow>
+
+            <FieldRow
+              icon={<User className="size-4" />}
+              label="Agent"
+              htmlFor="create-campaign-agent"
+              hint="The AI personality + prompt that dials. Build new ones under Settings → Agents."
+            >
               {agents.length > 0 ? (
                 <Select value={agentId} onValueChange={setAgentId}>
                   <SelectTrigger id="create-campaign-agent">
@@ -178,13 +211,18 @@ export function CreateCampaignDialog({
                   </SelectContent>
                 </Select>
               ) : (
-                <p className="text-muted-foreground text-sm">
+                <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-sm">
                   No agents yet. Build one in Settings → Agents first.
                 </p>
               )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="create-campaign-goal">Goal</Label>
+            </FieldRow>
+
+            <FieldRow
+              icon={<Target className="size-4" />}
+              label="Goal"
+              htmlFor="create-campaign-goal"
+              hint="What the AI is trying to achieve on each call."
+            >
               {goals.length > 0 ? (
                 <Select value={goalId} onValueChange={setGoalId}>
                   <SelectTrigger id="create-campaign-goal">
@@ -199,45 +237,77 @@ export function CreateCampaignDialog({
                   </SelectContent>
                 </Select>
               ) : (
-                <p className="text-muted-foreground text-sm">
-                  No goals yet. Create one in Goals first.
+                <p className="text-muted-foreground rounded-md border border-dashed px-3 py-2 text-sm">
+                  No goals yet. Create one in Settings → Goals.
                 </p>
               )}
+            </FieldRow>
+
+            {/* "What we'll set up by default" — pre-empts the
+                'wait what about hours / caps?' question. */}
+            <div className="border-border bg-muted/30 rounded-md border px-3 py-2 text-xs">
+              <p className="text-muted-foreground">
+                <span className="text-foreground font-medium">
+                  Safe defaults applied:
+                </span>{" "}
+                9am – 9pm calling · 30 calls/hour · 300/day · 2 concurrent. Edit
+                any of these later from the campaign settings.
+              </p>
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3 py-1">
             {eligibleLists.length === 0 ? (
-              <p className="text-muted-foreground text-sm">
-                No lists available. You can attach lists from the
-                campaign&apos;s Lists tab after creating.
-              </p>
-            ) : (
-              <div className="border-border max-h-64 overflow-y-auto rounded-md border">
-                <ul className="divide-border divide-y">
-                  {eligibleLists.map((l) => {
-                    const checked = selectedListIds.includes(l.id);
-                    return (
-                      <li
-                        key={l.id}
-                        className="flex items-center gap-3 px-3 py-2"
-                      >
-                        <Checkbox
-                          id={`create-list-${l.id}`}
-                          checked={checked}
-                          onCheckedChange={() => toggleList(l.id)}
-                        />
-                        <Label
-                          htmlFor={`create-list-${l.id}`}
-                          className="flex-1 cursor-pointer text-sm font-normal"
-                        >
-                          {l.name}
-                        </Label>
-                      </li>
-                    );
-                  })}
-                </ul>
+              <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-12 text-center">
+                <ListChecks className="text-muted-foreground size-6" />
+                <p className="text-foreground text-sm font-medium">
+                  No lists available right now
+                </p>
+                <p className="text-muted-foreground max-w-sm text-xs">
+                  Each list can be attached to one active campaign at a time.
+                  Create or detach a list, then come back. You can also attach
+                  lists later from the campaign settings.
+                </p>
               </div>
+            ) : (
+              <>
+                <p className="text-muted-foreground text-xs">
+                  {selectedListIds.length === 0
+                    ? "Pick the lists this campaign should dial. You can skip and add them later."
+                    : `${selectedListIds.length} list${
+                        selectedListIds.length === 1 ? "" : "s"
+                      } selected.`}
+                </p>
+                <div className="border-border max-h-64 overflow-y-auto rounded-md border">
+                  <ul className="divide-border divide-y">
+                    {eligibleLists.map((l) => {
+                      const checked = selectedListIds.includes(l.id);
+                      return (
+                        <li key={l.id}>
+                          <label
+                            htmlFor={`create-list-${l.id}`}
+                            className={`hover:bg-muted/40 flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors ${
+                              checked ? "bg-[color:var(--coral)]/5" : ""
+                            }`}
+                          >
+                            <Checkbox
+                              id={`create-list-${l.id}`}
+                              checked={checked}
+                              onCheckedChange={() => toggleList(l.id)}
+                            />
+                            <span className="flex-1 text-sm font-normal">
+                              {l.name}
+                            </span>
+                            {checked ? (
+                              <Check className="size-4 text-[color:var(--coral)]" />
+                            ) : null}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -261,11 +331,17 @@ export function CreateCampaignDialog({
                 type="button"
                 onClick={goToStep2}
                 disabled={pending || agents.length === 0 || goals.length === 0}
+                className="bg-[color:var(--coral)] text-white hover:bg-[color:var(--coral)]/90"
               >
                 Continue
               </Button>
             ) : (
-              <Button type="button" onClick={submit} disabled={pending}>
+              <Button
+                type="button"
+                onClick={submit}
+                disabled={pending}
+                className="bg-[color:var(--coral)] text-white hover:bg-[color:var(--coral)]/90"
+              >
                 {pending ? "Creating…" : "Create campaign"}
               </Button>
             )}
@@ -273,5 +349,59 @@ export function CreateCampaignDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Three-dot progress indicator next to the step label. The current
+ *  step's dot is coral; previous steps are filled muted; remaining
+ *  steps are an empty outline. */
+function StepDots({ current }: { current: 1 | 2 }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {[1, 2].map((s) => (
+        <span
+          key={s}
+          aria-hidden
+          className={`size-1.5 rounded-full ${
+            s === current
+              ? "bg-[color:var(--coral)]"
+              : s < current
+                ? "bg-muted-foreground"
+                : "border-muted-foreground/40 border"
+          }`}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** Reusable label + hint + control row. Lets every field on step 1
+ *  share the same icon + uppercase letter-spaced label treatment
+ *  as the rest of the app. */
+function FieldRow({
+  icon,
+  label,
+  htmlFor,
+  hint,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  htmlFor: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Label
+        htmlFor={htmlFor}
+        className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase"
+      >
+        <span className="text-[color:var(--coral)]">{icon}</span>
+        {label}
+      </Label>
+      {children}
+      {hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
+    </div>
   );
 }

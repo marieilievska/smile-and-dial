@@ -1,7 +1,19 @@
 "use client";
 
+import {
+  BookOpen,
+  ChevronDown,
+  Clock,
+  Headset,
+  ListChecks,
+  PhoneCall,
+  PlayCircle,
+  Sliders,
+  Target,
+  User,
+} from "lucide-react";
 import { useState, useTransition } from "react";
-import { ChevronDown, Pencil, Plus } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -217,22 +229,45 @@ export function CampaignSettingsDialog({
           </Button>
         )}
       </SheetTrigger>
+      {/* Round 15 — matched the call-detail modal width (min(58vw,
+          900px)). Important: shadcn defaults Sheet to
+          data-[side=right]:sm:max-w-sm; we need the same data-attr
+          selector to win specificity. */}
       <SheetContent
         side="right"
-        className="flex w-full flex-col gap-0 p-0 sm:max-w-[640px]"
+        className="flex w-full flex-col gap-0 p-0 data-[side=right]:sm:max-w-[min(58vw,900px)]"
       >
-        <SheetHeader className="border-border border-b">
-          <SheetTitle>{isEdit ? "Edit campaign" : "New campaign"}</SheetTitle>
+        <SheetHeader className="border-border animate-in fade-in slide-in-from-top-1 border-b px-6 pt-6 pb-4 duration-300">
+          <SheetTitle className="text-xl">
+            {isEdit ? (
+              <span className="text-foreground inline-flex items-center gap-2">
+                <span>Edit</span>
+                <span className="text-foreground/60 text-base font-normal">
+                  ·
+                </span>
+                <span>{campaign?.name ?? "Campaign"}</span>
+              </span>
+            ) : (
+              "New campaign"
+            )}
+          </SheetTitle>
           <SheetDescription>
-            A campaign ties a list of leads to an agent, a number, and a goal.
+            A campaign ties leads to an agent, a goal, a Twilio number, and
+            calling caps. Each section can be expanded independently — only the
+            ones you change get saved.
           </SheetDescription>
         </SheetHeader>
 
         {/* Scrollable middle — every section is a collapsible <details>
             so the user can scan section headers and only open the one
-            they want to edit. General is open by default. */}
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-6">
-          <CampaignSection title="General" defaultOpen>
+            they want to edit. General + Telephony default open since
+            they're the most-touched. */}
+        <div className="animate-in fade-in flex flex-1 flex-col gap-3 overflow-y-auto px-6 py-5 duration-300">
+          <CampaignSection
+            title="General"
+            icon={<Sliders className="size-4" />}
+            defaultOpen
+          >
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-name">Name</Label>
               <Input
@@ -275,7 +310,7 @@ export function CampaignSettingsDialog({
             </div>
           </CampaignSection>
 
-          <CampaignSection title="Agent">
+          <CampaignSection title="Agent" icon={<User className="size-4" />}>
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-agent">Agent</Label>
               {agents.length > 0 ? (
@@ -299,7 +334,11 @@ export function CampaignSettingsDialog({
             </div>
           </CampaignSection>
 
-          <CampaignSection title="Telephony">
+          <CampaignSection
+            title="Telephony"
+            icon={<PhoneCall className="size-4" />}
+            defaultOpen
+          >
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-twilio">Twilio number</Label>
               {eligibleNumbers.length > 0 ? (
@@ -328,27 +367,47 @@ export function CampaignSettingsDialog({
                 </p>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="campaign-hours-start">
-                  Calling hours start
-                </Label>
-                <Input
-                  id="campaign-hours-start"
-                  type="time"
-                  value={callingHoursStart}
-                  onChange={(event) => setCallingHoursStart(event.target.value)}
-                />
+            <div className="flex flex-col gap-2">
+              <div className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase">
+                <Clock className="size-3.5 text-[color:var(--coral)]" />
+                Calling hours
               </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="campaign-hours-end">Calling hours end</Label>
-                <Input
-                  id="campaign-hours-end"
-                  type="time"
-                  value={callingHoursEnd}
-                  onChange={(event) => setCallingHoursEnd(event.target.value)}
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label
+                    htmlFor="campaign-hours-start"
+                    className="text-xs font-normal"
+                  >
+                    From
+                  </Label>
+                  <Input
+                    id="campaign-hours-start"
+                    type="time"
+                    value={callingHoursStart}
+                    onChange={(event) =>
+                      setCallingHoursStart(event.target.value)
+                    }
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label
+                    htmlFor="campaign-hours-end"
+                    className="text-xs font-normal"
+                  >
+                    To
+                  </Label>
+                  <Input
+                    id="campaign-hours-end"
+                    type="time"
+                    value={callingHoursEnd}
+                    onChange={(event) => setCallingHoursEnd(event.target.value)}
+                  />
+                </div>
               </div>
+              <p className="text-muted-foreground text-xs">
+                The dialer won&apos;t start new calls outside this window
+                (lead-local time).
+              </p>
             </div>
             <div className="grid grid-cols-3 gap-4">
               <div className="flex flex-col gap-2">
@@ -385,7 +444,7 @@ export function CampaignSettingsDialog({
             </div>
           </CampaignSection>
 
-          <CampaignSection title="Tools">
+          <CampaignSection title="Tools" icon={<Headset className="size-4" />}>
             <p className="text-muted-foreground text-sm">
               Calendly and Close integrations land in Phase 8. The agent tools
               they enable (book appointment, send email) become configurable
@@ -411,7 +470,10 @@ export function CampaignSettingsDialog({
             </div>
           </CampaignSection>
 
-          <CampaignSection title="Knowledge base">
+          <CampaignSection
+            title="Knowledge base"
+            icon={<BookOpen className="size-4" />}
+          >
             <p className="text-muted-foreground text-sm">
               Knowledge bases are configured on the agent. This campaign
               inherits the selected agent&rsquo;s knowledge bases.
@@ -431,7 +493,10 @@ export function CampaignSettingsDialog({
             )}
           </CampaignSection>
 
-          <CampaignSection title="Lists">
+          <CampaignSection
+            title="Lists"
+            icon={<ListChecks className="size-4" />}
+          >
             <p className="text-muted-foreground text-sm">
               Lists attached to this campaign get dialed when it runs. A list
               can be attached to only one active campaign at a time.
@@ -462,7 +527,7 @@ export function CampaignSettingsDialog({
             )}
           </CampaignSection>
 
-          <CampaignSection title="Goal">
+          <CampaignSection title="Goal" icon={<Target className="size-4" />}>
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-goal">Goal</Label>
               {goals.length > 0 ? (
@@ -487,7 +552,10 @@ export function CampaignSettingsDialog({
           </CampaignSection>
 
           {isEdit ? (
-            <CampaignSection title="Test">
+            <CampaignSection
+              title="Test"
+              icon={<PlayCircle className="size-4" />}
+            >
               {/*
                 liveMode is hard-wired to false for now — live ElevenLabs
                 browser calls are a safety-rail item. Flip this to
@@ -499,10 +567,16 @@ export function CampaignSettingsDialog({
           ) : null}
         </div>
 
-        {/* Sticky footer so Save changes is always reachable, no matter
-            which section is expanded or how far the user scrolled. */}
-        <SheetFooter className="border-border border-t">
-          <Button onClick={submit} disabled={pending}>
+        {/* Sticky footer so Save changes is always reachable, no
+            matter which section is expanded or how far the user
+            scrolled. Save is coral — same primary treatment as the
+            Call again button on the call detail modal. */}
+        <SheetFooter className="border-border bg-card flex flex-row items-center justify-end gap-2 border-t px-6 py-4">
+          <Button
+            onClick={submit}
+            disabled={pending}
+            className="bg-[color:var(--coral)] text-white hover:bg-[color:var(--coral)]/90"
+          >
             {pending ? "Saving…" : isEdit ? "Save changes" : "Create campaign"}
           </Button>
         </SheetFooter>
@@ -511,15 +585,21 @@ export function CampaignSettingsDialog({
   );
 }
 
-/** Collapsible section inside the campaign-settings drawer. Same native
- *  <details> pattern used by the lead detail modal — no library, no
- *  state to manage, fully keyboard- and screen-reader-friendly. */
+/** Collapsible section inside the campaign-settings drawer. Native
+ *  <details>/<summary> — no library, no state to manage, full
+ *  keyboard + screen-reader support.
+ *
+ *  Round 15 — added an `icon` slot so each section reads with a
+ *  consistent coral glyph + uppercase letter-spaced title, matching
+ *  the rest of the app's section header convention. */
 function CampaignSection({
   title,
+  icon,
   defaultOpen,
   children,
 }: {
   title: string;
+  icon?: React.ReactNode;
   defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
@@ -527,13 +607,20 @@ function CampaignSection({
     <details
       open={defaultOpen}
       data-testid={`campaign-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
-      className="border-border group rounded-lg border"
+      className="border-border group bg-card rounded-lg border"
     >
-      <summary className="hover:bg-muted/50 flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2 transition-colors">
-        <span className="text-foreground text-sm font-semibold">{title}</span>
+      <summary className="hover:bg-muted/40 flex cursor-pointer list-none items-center justify-between rounded-lg px-4 py-3 transition-colors">
+        <span className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
+          {icon ? (
+            <span className="text-[color:var(--coral)]">{icon}</span>
+          ) : null}
+          {title}
+        </span>
         <ChevronDown className="text-muted-foreground size-4 transition-transform group-open:rotate-180" />
       </summary>
-      <div className="flex flex-col gap-4 px-3 pt-3 pb-4">{children}</div>
+      <div className="border-border/60 flex flex-col gap-4 border-t px-4 pt-4 pb-4">
+        {children}
+      </div>
     </details>
   );
 }
