@@ -20,10 +20,10 @@ import { DEFAULT_COLUMN_KEYS, LEAD_COLUMNS, type DisplayLead } from "./columns";
 import { LeadRow } from "./lead-row";
 import { LeadRowActions } from "./lead-row-actions";
 import { LeadsFilters } from "./leads-filters";
-import { LeadsSearchInput } from "./search-input";
 import { LeadsStatStrip } from "./leads-stat-strip";
 import { buildLeadsQuery, parseSort, str } from "./leads-query";
 import { type SearchParams } from "./leads-url";
+import { SelectAllBanner } from "./select-all-banner";
 import { SmartPagination } from "./smart-pagination";
 import { SaveCurrentViewButton } from "./saved-views";
 import { fetchLeadStats } from "./stats-query";
@@ -169,11 +169,11 @@ export default async function LeadsPage({
           Each tile is a clickable filter shortcut. */}
       <LeadsStatStrip stats={stats} />
 
-      {/* L2 — toolbar in three zones:
-            left = search · middle = filter cluster + chips · right = actions. */}
+      {/* L2 — toolbar. Search lives in the global top bar now, so this
+            row holds filter + column + save-view on the left and the
+            export / import actions on the right. */}
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <LeadsSearchInput />
           <div className="flex items-center gap-1.5">
             <LeadsFilters lists={lists ?? []} />
             <ColumnPicker />
@@ -208,6 +208,7 @@ export default async function LeadsPage({
           owners={bulkOwners}
           isAdmin={isAdmin}
         />
+        <SelectAllBanner total={total} />
         {leads.length > 0 ? (
           <div className="border-border overflow-x-auto rounded-lg border">
             <Table>
@@ -225,13 +226,16 @@ export default async function LeadsPage({
                         currentSort={sort}
                         currentDir={dir}
                         params={params}
+                        className={col.width}
                       />
                     ) : (
-                      <TableHead key={col.key}>{col.label}</TableHead>
+                      <TableHead key={col.key} className={col.width}>
+                        {col.label}
+                      </TableHead>
                     ),
                   )}
                   {/* Right-edge column for hover-only row actions. */}
-                  <TableHead className="w-[120px]" aria-label="Row actions" />
+                  <TableHead className="w-[100px]" aria-label="Row actions" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -241,9 +245,11 @@ export default async function LeadsPage({
                       <RowCheckbox leadId={lead.id} />
                     </TableCell>
                     {columns.map((col) => (
-                      <TableCell key={col.key}>{col.cell(lead)}</TableCell>
+                      <TableCell key={col.key} className={col.width}>
+                        {col.cell(lead)}
+                      </TableCell>
                     ))}
-                    <TableCell className="w-[120px] text-right">
+                    <TableCell className="w-[100px] text-right">
                       <LeadRowActions
                         leadId={lead.id}
                         leadName={lead.company ?? ""}

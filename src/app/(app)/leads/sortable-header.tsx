@@ -11,18 +11,20 @@ export function SortableHeader({
   currentSort,
   currentDir,
   params,
+  className,
 }: {
   label: string;
   sortKey: string;
   currentSort: string;
   currentDir: "asc" | "desc";
   params: SearchParams;
+  className?: string;
 }) {
   const isActive = currentSort === sortKey;
   const nextDir = isActive && currentDir === "asc" ? "desc" : "asc";
 
   return (
-    <TableHead>
+    <TableHead className={className}>
       <Link
         href={leadsHref(params, { sort: sortKey, dir: nextDir, page: "1" })}
         className="hover:text-foreground inline-flex items-center gap-1"

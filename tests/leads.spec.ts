@@ -79,11 +79,11 @@ test.describe("leads table", () => {
   test("search filters the leads table", async ({ page }) => {
     await page.goto("/leads");
 
-    // v2 search is debounced URL-bound — no Search button. Just type
-    // and the table re-queries 300ms later.
-    await page
-      .getByPlaceholder("Search company, phone, or email")
-      .fill(company);
+    // Search moved to the global top bar in v3 and submits on Enter
+    // (route.replace to /leads?q=…).
+    const search = page.getByRole("search").getByLabel("Search leads");
+    await search.fill(company);
+    await search.press("Enter");
 
     await expect(page.getByRole("cell", { name: company })).toBeVisible();
     await expect(page.getByRole("cell", { name: otherCompany })).toHaveCount(0);

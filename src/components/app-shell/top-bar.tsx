@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "@/lib/auth/actions";
 
+import { GlobalSearch } from "./global-search";
 import { NotificationBell, type NotificationItem } from "./notification-bell";
 
 function initialsOf(name: string) {
@@ -40,7 +41,10 @@ export function TopBar({
   unreadCount: number;
 }) {
   return (
-    <header className="border-border bg-card flex h-16 shrink-0 items-center justify-end gap-1 border-b px-6">
+    <header className="border-border bg-card flex h-16 shrink-0 items-center gap-3 border-b px-6">
+      <div className="flex-1">
+        <GlobalSearch />
+      </div>
       <NotificationBell
         initialItems={notifications}
         initialUnreadCount={unreadCount}
