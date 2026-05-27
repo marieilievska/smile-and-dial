@@ -165,20 +165,22 @@ test.describe("Goals pipeline", () => {
   test("the pipeline section shows the goal_met lead under its campaign", async ({
     page,
   }) => {
-    await page.goto("/goals");
-    // Campaign section heading visible.
+    // Round 12+ — /goals defaults to the kanban board, which renders
+    // <div> cards (not table cells). Force the table view so the
+    // existing cell/row selectors keep working.
+    await page.goto("/goals?view=table&status=all");
     await expect(page.getByText(`E2E Goals Campaign ${stamp}`)).toBeVisible();
-    // Lead row.
     await expect(
-      page.getByRole("cell", { name: `E2E Goals Lead ${stamp}` }),
+      page.getByRole("cell", { name: new RegExp(`E2E Goals Lead ${stamp}`) }),
     ).toBeVisible();
   });
 
   test("changing status moves the lead through the pipeline and audits it", async ({
     page,
   }) => {
-    await page.goto("/goals");
-    // Open the Set status dropdown on our lead's row.
+    // Default is board now; table view exposes the "Change goal status"
+    // dropdown the same way (board uses the same component too).
+    await page.goto("/goals?view=table&status=all");
     await page
       .getByRole("row", { name: new RegExp(`E2E Goals Lead ${stamp}`) })
       .getByRole("button", { name: "Change goal status" })

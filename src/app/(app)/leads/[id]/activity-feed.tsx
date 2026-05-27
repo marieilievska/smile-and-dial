@@ -8,6 +8,7 @@ import {
   Voicemail,
   type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
 
 import { humanizeFallback, outcomeLabel } from "@/lib/labels";
 
@@ -109,7 +110,16 @@ function describeEvent(item: Extract<FeedItem, { kind: "event" }>): string {
   }
 }
 
-export function LeadActivityFeed({ items }: { items: FeedItem[] }) {
+export function LeadActivityFeed({
+  items,
+  leadId,
+}: {
+  items: FeedItem[];
+  /** Lead this feed belongs to. Used to build the call-detail-modal
+   *  deep link (`/leads/<id>?call=<callId>`) for `kind: "call"` items
+   *  so the audio + transcript open inline. */
+  leadId: string;
+}) {
   if (items.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
@@ -123,17 +133,41 @@ export function LeadActivityFeed({ items }: { items: FeedItem[] }) {
       data-testid="lead-activity-feed"
       className="flex flex-col gap-3 text-sm"
     >
-      {items.map((item) => (
-        <li key={`${item.kind}-${item.id}`} className="flex gap-3">
-          <FeedIcon item={item} />
-          <div className="flex flex-1 flex-col gap-0.5">
-            <FeedLine item={item} />
-            <p className="text-muted-foreground text-xs">
-              {relativeTime(item.at)} · {new Date(item.at).toLocaleString()}
-            </p>
-          </div>
-        </li>
-      ))}
+      {items.map((item) => {
+        const body = (
+          <>
+            <FeedIcon item={item} />
+            <div className="flex flex-1 flex-col gap-0.5">
+              <FeedLine item={item} />
+              <p className="text-muted-foreground text-xs">
+                {relativeTime(item.at)} · {new Date(item.at).toLocaleString()}
+              </p>
+            </div>
+          </>
+        );
+
+        // Call items become clickable: opens the CallDetailModal that's
+        // also mounted on the lead detail page. Email and event items
+        // stay non-interactive — they have no detail surface yet.
+        if (item.kind === "call") {
+          return (
+            <li key={`call-${item.id}`}>
+              <Link
+                href={`/leads/${leadId}?call=${item.id}`}
+                scroll={false}
+                className="hover:bg-muted/40 -mx-2 flex gap-3 rounded-md px-2 py-1 transition-colors"
+              >
+                {body}
+              </Link>
+            </li>
+          );
+        }
+        return (
+          <li key={`${item.kind}-${item.id}`} className="flex gap-3">
+            {body}
+          </li>
+        );
+      })}
     </ol>
   );
 }
