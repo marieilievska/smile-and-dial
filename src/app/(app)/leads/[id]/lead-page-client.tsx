@@ -26,6 +26,7 @@ import {
 import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
 import { MergeInboundDialog } from "../merge-inbound-dialog";
 import { EditableCompanyName } from "./editable-company-name";
+import { LeadHeroActions } from "./lead-hero-actions";
 import { SinceLastViewed } from "./since-last-viewed";
 
 /** v3 — two-zone layout. Left = every field surface + at-a-glance.
@@ -94,7 +95,9 @@ export function LeadPageClient({
       </div>
 
       {/* Hero — editable company name + status pill on the left,
-          single primary action (Call now) on the right. */}
+          action cluster (Mark DNC, Delete, Call now) on the right.
+          The destructive actions sit before Call now so the primary
+          coral button retains the visual anchor at the trailing edge. */}
       <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
           <EditableCompanyName
@@ -105,12 +108,15 @@ export function LeadPageClient({
             {leadStatusLabel(meta.status)}
           </Badge>
         </div>
-        <CallNowDialog
-          leadId={leadId}
-          availableCampaigns={availableCampaigns}
-          open={callDialogOpen}
-          onOpenChange={setCallDialogOpen}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <LeadHeroActions leadId={leadId} leadName={leadCompany} />
+          <CallNowDialog
+            leadId={leadId}
+            availableCampaigns={availableCampaigns}
+            open={callDialogOpen}
+            onOpenChange={setCallDialogOpen}
+          />
+        </div>
       </header>
 
       {meta.isInbound ? (
