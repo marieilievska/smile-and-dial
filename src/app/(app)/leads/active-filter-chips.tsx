@@ -3,6 +3,8 @@
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
+
 /** Inline chips for each active filter on /leads. Click the × on a chip
  *  to remove just that filter (route.replace, no history pollution).
  *  Renders nothing when no filters are active. */
@@ -20,11 +22,11 @@ export function ActiveFilterChips({
 
   const status = searchParams.get("status");
   if (status)
-    chips.push({ key: "status", label: `Status: ${humanize(status)}` });
+    chips.push({ key: "status", label: `Status: ${leadStatusLabel(status)}` });
 
   const outcome = searchParams.get("outcome");
   if (outcome)
-    chips.push({ key: "outcome", label: `Outcome: ${humanize(outcome)}` });
+    chips.push({ key: "outcome", label: `Outcome: ${outcomeLabel(outcome)}` });
 
   const list = searchParams.get("list");
   if (list)
@@ -113,8 +115,4 @@ export function ActiveFilterChips({
       ) : null}
     </div>
   );
-}
-
-function humanize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
 }

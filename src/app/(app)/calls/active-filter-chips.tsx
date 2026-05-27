@@ -3,6 +3,8 @@
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { callStatusLabel, outcomeLabel } from "@/lib/labels";
+
 type LookupOption = { id: string; name: string };
 
 /** Inline chips for each active filter on /calls. Click the × on a
@@ -30,15 +32,16 @@ export function CallsActiveFilterChips({
   if (direction) {
     chips.push({
       key: "direction",
-      label: `Direction: ${humanize(direction)}`,
+      label: `Direction: ${direction === "inbound" ? "Inbound" : "Outbound"}`,
     });
   }
   const status = searchParams.get("status");
-  if (status)
-    chips.push({ key: "status", label: `Status: ${humanize(status)}` });
+  if (status) {
+    chips.push({ key: "status", label: `Status: ${callStatusLabel(status)}` });
+  }
   const outcome = searchParams.get("outcome");
   if (outcome) {
-    chips.push({ key: "outcome", label: `Outcome: ${humanize(outcome)}` });
+    chips.push({ key: "outcome", label: `Outcome: ${outcomeLabel(outcome)}` });
   }
   const goalMet = searchParams.get("goal_met");
   if (goalMet) {
@@ -146,8 +149,4 @@ export function CallsActiveFilterChips({
       ) : null}
     </div>
   );
-}
-
-function humanize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
 }

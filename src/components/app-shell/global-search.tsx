@@ -24,8 +24,14 @@ export function GlobalSearch() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  // Pages where the search input filters the current view (instead of
+  // routing away). On /leads it filters leads; on /calls it filters
+  // calls via the same ?q= param. From anywhere else, Enter routes to
+  // /leads with the search applied.
   const onLeadsPage = pathname?.startsWith("/leads") ?? false;
-  const urlQ = onLeadsPage ? (searchParams.get("q") ?? "") : "";
+  const onCallsPage = pathname?.startsWith("/calls") ?? false;
+  const onListPage = onLeadsPage || onCallsPage;
+  const urlQ = onListPage ? (searchParams.get("q") ?? "") : "";
 
   const [value, setValue] = useState(urlQ);
   const [open, setOpen] = useState(false);
@@ -37,18 +43,18 @@ export function GlobalSearch() {
 
   // Mirror URL→input when the URL `q` changes externally.
   const [lastUrlQ, setLastUrlQ] = useState(urlQ);
-  if (onLeadsPage && urlQ !== lastUrlQ) {
+  if (onListPage && urlQ !== lastUrlQ) {
     setLastUrlQ(urlQ);
     setValue(urlQ);
   }
 
-  // Clear when leaving /leads.
+  // Clear when leaving a list page.
   useEffect(() => {
-    if (!onLeadsPage) {
+    if (!onListPage) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setValue("");
     }
-  }, [onLeadsPage]);
+  }, [onListPage]);
 
   // Close the dropdown on outside click.
   useEffect(() => {
@@ -91,13 +97,16 @@ export function GlobalSearch() {
   function submitFull() {
     setOpen(false);
     const next = value.trim();
-    if (onLeadsPage) {
+    // On /leads or /calls, stay on the page and update the q param.
+    // From anywhere else, route to /leads with the search applied.
+    if (onListPage) {
+      const basePath = onCallsPage ? "/calls" : "/leads";
       const params = new URLSearchParams(searchParams.toString());
       if (next) params.set("q", next);
       else params.delete("q");
       params.delete("page");
       const qs = params.toString();
-      router.replace(qs ? `/leads?${qs}` : "/leads");
+      router.replace(qs ? `${basePath}?${qs}` : basePath);
     } else {
       router.push(next ? `/leads?q=${encodeURIComponent(next)}` : "/leads");
     }
