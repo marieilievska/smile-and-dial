@@ -9,11 +9,11 @@ import { Button } from "@/components/ui/button";
  *  "Choose File / No file chosen" with something that matches the rest
  *  of the UI and supports drag-and-drop.
  *
- *  Two states:
- *   - empty: dashed-border card with upload icon + headline + sub-line.
- *     Whole surface is clickable (opens file picker) and a drop target.
- *   - filled: a tighter row showing the filename, size, row/column
- *     count, with a "remove" affordance to swap the file. */
+ *  Click-to-pick is implemented via a real `<label htmlFor="csv-file">`
+ *  wrapping the empty-state visual. That way the browser's built-in
+ *  label-to-input plumbing opens the file chooser — no JS, no
+ *  programmatic `.click()`, and no risk of the event bubbling back
+ *  through the wrapper and firing the picker more than once. */
 export function FileDropzone({
   fileName,
   rowCount,
@@ -74,62 +74,70 @@ export function FileDropzone({
           <X className="size-3.5" />
           Use a different file
         </Button>
+        {/* Keep the input mounted so onClear can reset it and the
+            user can immediately pick a new file via the dropzone again. */}
+        <input
+          ref={inputRef}
+          id="csv-file"
+          type="file"
+          accept=".csv,text/csv"
+          onChange={(e) => handleFiles(e.target.files)}
+          aria-label="CSV file"
+          className="sr-only"
+        />
       </div>
     );
   }
 
   return (
-    <div
-      data-testid="file-dropzone-empty"
-      data-state={dragOver ? "drag-over" : "idle"}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-        handleFiles(e.dataTransfer.files);
-      }}
-      onClick={() => inputRef.current?.click()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+    <>
+      <label
+        htmlFor="csv-file"
+        data-testid="file-dropzone-empty"
+        data-state={dragOver ? "drag-over" : "idle"}
+        onDragOver={(e) => {
           e.preventDefault();
-          inputRef.current?.click();
-        }
-      }}
-      role="button"
-      tabIndex={0}
-      aria-label="Drop a CSV here, or click to choose one"
-      className={`focus-visible:ring-ring/50 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-8 text-center transition-colors focus-visible:ring-2 focus-visible:outline-none ${
-        dragOver ? "bg-muted/40" : "border-border bg-muted/10 hover:bg-muted/30"
-      }`}
-      style={
-        dragOver
-          ? {
-              borderColor: "color-mix(in oklab, var(--coral) 50%, transparent)",
-            }
-          : undefined
-      }
-    >
-      <div
-        className="flex size-10 items-center justify-center rounded-full"
-        style={{
-          backgroundColor: "color-mix(in oklab, var(--coral) 14%, transparent)",
-          color: "var(--coral)",
+          setDragOver(true);
         }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          handleFiles(e.dataTransfer.files);
+        }}
+        className={`focus-within:ring-ring/50 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-8 text-center transition-colors focus-within:ring-2 focus-within:outline-none ${
+          dragOver
+            ? "bg-muted/40"
+            : "border-border bg-muted/10 hover:bg-muted/30"
+        }`}
+        style={
+          dragOver
+            ? {
+                borderColor:
+                  "color-mix(in oklab, var(--coral) 50%, transparent)",
+              }
+            : undefined
+        }
       >
-        <Upload className="size-5" />
-      </div>
-      <div className="flex flex-col gap-0.5">
-        <p className="text-foreground text-sm font-medium">
-          Drop a CSV here, or click to choose one
-        </p>
-        <p className="text-muted-foreground text-xs">
-          One row per lead. We&apos;ll verify every phone number with Twilio.
-        </p>
-      </div>
+        <div
+          className="flex size-10 items-center justify-center rounded-full"
+          style={{
+            backgroundColor:
+              "color-mix(in oklab, var(--coral) 14%, transparent)",
+            color: "var(--coral)",
+          }}
+        >
+          <Upload className="size-5" />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-foreground text-sm font-medium">
+            Drop a CSV here, or click to choose one
+          </p>
+          <p className="text-muted-foreground text-xs">
+            One row per lead. We&apos;ll verify every phone number with Twilio.
+          </p>
+        </div>
+      </label>
       <input
         ref={inputRef}
         id="csv-file"
@@ -139,6 +147,6 @@ export function FileDropzone({
         aria-label="CSV file"
         className="sr-only"
       />
-    </div>
+    </>
   );
 }
