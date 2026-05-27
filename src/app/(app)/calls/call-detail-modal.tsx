@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import {
   CalendarClock,
+  Check,
+  Copy,
   ExternalLink,
   Mic,
-  PhoneIncoming,
-  Phone as PhoneIcon,
+  PhoneCall,
   Save,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -48,6 +50,9 @@ import {
   type TranscriptTurn,
 } from "@/lib/calls/actions";
 import { OVERRIDABLE_OUTCOMES, outcomeLabel } from "@/lib/calls/outcomes";
+import { callStatusLabel } from "@/lib/labels";
+
+import { outcomeVariant, statusVariant } from "./columns";
 
 function fmtDateTime(value: string | null | undefined): string {
   if (!value) return "—";
@@ -66,6 +71,35 @@ function fmtCost(breakdown: Record<string, unknown> | null): string {
   const total = breakdown.total;
   if (typeof total !== "number") return "—";
   return `$${total.toFixed(2)}`;
+}
+
+/** Plain-English explanation of why a call has no recording, keyed off
+ *  the outcome. Used as the empty-state body when `recordingPath` is
+ *  null — gives the reviewer something useful to read instead of just
+ *  "No recording for this call." */
+function noRecordingReason(outcome: string | null): string {
+  switch (outcome) {
+    case "voicemail":
+      return "Voicemail — the AI left a message after the beep.";
+    case "no_answer":
+      return "No answer — the line rang out without anyone picking up.";
+    case "busy":
+      return "Busy signal — the line was occupied. The dialer will retry later.";
+    case "failed":
+      return "The call failed before connecting (carrier error or network drop).";
+    case "hung_up_immediately":
+      return "Picked up and hung up immediately — no conversation captured.";
+    case "invalid_number":
+      return "Twilio rejected the number as invalid.";
+    case "gatekeeper":
+      return "Reached a gatekeeper who didn't connect us to the decision maker.";
+    case "language_barrier":
+      return "Language barrier — the lead didn't speak the agent's language.";
+    case "ai_error":
+      return "The AI agent errored mid-call. Check the agent's logs.";
+    default:
+      return "No conversation was captured for this call.";
+  }
 }
 
 /**
@@ -95,16 +129,40 @@ function fmtTurnTime(seconds: number | null): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** Title-case an extracted-data key. "next_action" → "Next action". */
+function humanizeKey(key: string): string {
+  const spaced = key.replace(/_/g, " ").trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+}
+
+/** Copy `text` to the clipboard and toast a confirmation. Returns true
+ *  on success so the caller can flip its visual state. */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success("Copied to clipboard.");
+    return true;
+  } catch {
+    toast.error("Couldn't copy. Select the text and copy manually.");
+    return false;
+  }
+}
+
 function Section({
   title,
+  trailing,
   children,
 }: {
   title: string;
+  trailing?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-foreground text-sm font-semibold">{title}</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-foreground text-sm font-semibold">{title}</h3>
+        {trailing}
+      </div>
       {children}
     </section>
   );
@@ -113,9 +171,25 @@ function Section({
 /**
  * Right-side slide-in modal opened via `?call=<id>`. Renders the audio
  * player, transcript (click a turn to seek), summary, extracted data,
- * score, cost, and a Jump to lead button.
+ * score, cost, and follow-up actions.
  *
- * Read-only — outcome override + schedule callback land in Step 28b.
+ * v2 (round 6, M1-M15):
+ * - Header is a stacked title block (no more badge colliding with X).
+ * - Outcome pill uses the same palette as the calls list (success /
+ *   coral / destructive / secondary), not a generic dark navy.
+ * - "Status" metric is omitted for completed calls (the 95% case).
+ * - "No recording" empty state is keyed off outcome and explains why.
+ * - AI summary lives in a coral-accented card matching the lead detail.
+ * - Metric grid splits into a hero row (duration / talk / cost / score)
+ *   + a secondary row (campaign / agent / started).
+ * - Transcript timestamps render as visible pill-buttons when the audio
+ *   is seekable; muted plain text when there's no recording to seek.
+ * - Extracted-data keys are humanized (no more SCREAMING UPPERCASE).
+ * - Bottom action bar is sticky and includes Call again (coral, primary)
+ *   alongside Schedule callback and Open lead.
+ * - Outcome override is demoted below the actions — it's an admin
+ *   correction tool, not the primary action.
+ * - Copy buttons on the summary card and the transcript section.
  */
 export function CallDetailModal() {
   const router = useRouter();
@@ -124,9 +198,6 @@ export function CallDetailModal() {
   const [loaded, setLoaded] = useState<CallDetail | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Async fetch on callId change. Only calls setState inside the awaited
-  // .then() (the react-hooks/set-state-in-effect rule allows this and
-  // disallows synchronous setState in the body).
   useEffect(() => {
     if (!callId) return;
     let cancelled = false;
@@ -143,8 +214,6 @@ export function CallDetailModal() {
     };
   }, [callId]);
 
-  // While we're fetching a new call (or the URL has no call param), avoid
-  // showing the previous call's contents.
   const call = loaded && loaded.id === callId ? loaded : null;
   const loading = Boolean(callId) && !call;
 
@@ -164,6 +233,26 @@ export function CallDetailModal() {
     });
   }
 
+  function callAgain() {
+    if (!call?.leadId) return;
+    router.push(`/leads/${call.leadId}?action=call`);
+  }
+
+  // Talk ratio (M15) — what fraction of call time was actual speech.
+  // Only meaningful if we have both numbers AND there was any talk.
+  const talkRatio =
+    call &&
+    call.durationSeconds &&
+    call.durationSeconds > 0 &&
+    call.talkTimeSeconds != null
+      ? Math.min(
+          100,
+          Math.round((call.talkTimeSeconds / call.durationSeconds) * 100),
+        )
+      : null;
+
+  const showStatus = call && call.status && call.status !== "completed";
+
   return (
     <Sheet
       open={Boolean(callId)}
@@ -171,22 +260,28 @@ export function CallDetailModal() {
         if (!next) close();
       }}
     >
-      <SheetContent className="flex w-full max-w-2xl flex-col gap-4 overflow-y-auto sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            {call?.direction === "inbound" ? (
-              <PhoneIncoming className="size-4" aria-label="Inbound" />
-            ) : (
-              <PhoneIcon className="size-4" aria-label="Outbound" />
-            )}
-            <span>{call?.leadCompany ?? "Call"}</span>
-            {call?.outcome ? (
-              <Badge variant="default" className="ml-1">
-                {outcomeLabel(call.outcome)}
-              </Badge>
-            ) : null}
+      <SheetContent className="flex w-full max-w-2xl flex-col gap-0 p-0 sm:max-w-2xl">
+        {/* HEADER — stacked title cluster. Company on its own line so
+            the outcome pill never collides with the close X. */}
+        <SheetHeader className="border-border animate-in fade-in slide-in-from-top-1 border-b px-6 pt-6 pb-4 duration-300">
+          <SheetTitle className="flex flex-col items-start gap-2 text-left">
+            <span className="text-foreground text-xl font-semibold">
+              {call?.leadCompany ?? (loading ? "Loading…" : "Call")}
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              {call?.outcome ? (
+                <Badge variant={outcomeVariant(call.outcome)}>
+                  {outcomeLabel(call.outcome)}
+                </Badge>
+              ) : null}
+              {showStatus ? (
+                <Badge variant={statusVariant(call!.status)} dot>
+                  {callStatusLabel(call!.status)}
+                </Badge>
+              ) : null}
+            </div>
           </SheetTitle>
-          <SheetDescription>
+          <SheetDescription className="text-left">
             {call ? (
               <span className="font-mono text-xs">{call.leadPhone ?? "—"}</span>
             ) : loading ? (
@@ -197,146 +292,217 @@ export function CallDetailModal() {
           </SheetDescription>
         </SheetHeader>
 
+        {/* SCROLLING BODY — every section lives here so the sticky
+            footer below stays pinned regardless of transcript length. */}
         {call ? (
-          <div className="flex flex-col gap-6 px-1">
-            {/* Top metadata row */}
-            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-              <Metric label="Status" value={call.status} />
-              <Metric
-                label="Duration"
-                value={fmtDuration(call.durationSeconds)}
-              />
-              <Metric
-                label="Talk time"
-                value={fmtDuration(call.talkTimeSeconds)}
-              />
-              <Metric
-                label="Score"
-                value={call.score == null ? "—" : call.score.toFixed(1)}
-              />
-              <Metric label="Campaign" value={call.campaignName} />
-              <Metric label="Agent" value={call.agentName} />
-              <Metric label="Started" value={fmtDateTime(call.startedAt)} />
-              <Metric label="Cost" value={fmtCost(call.costBreakdown)} />
-            </div>
-
-            {/* Audio player */}
-            {call.recordingPath ? (
-              <Section title="Recording">
-                <audio
-                  ref={audioRef}
-                  controls
-                  preload="metadata"
-                  className="w-full"
-                  src={call.recordingPath}
+          <div className="animate-in fade-in flex-1 overflow-y-auto px-6 py-5 duration-300">
+            <div className="flex flex-col gap-6">
+              {/* M8 — Hero metric row: the four numbers an SDR actually
+                  scans for. Tabular, larger type, equal weight. */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <HeroMetric
+                  label="Duration"
+                  value={fmtDuration(call.durationSeconds)}
                 />
-              </Section>
-            ) : (
-              <p className="text-muted-foreground flex items-center gap-2 text-sm">
-                <Mic className="size-4" /> No recording for this call.
-              </p>
-            )}
+                <HeroMetric
+                  label="Talk time"
+                  value={fmtDuration(call.talkTimeSeconds)}
+                  sub={talkRatio != null ? `${talkRatio}% of call` : undefined}
+                />
+                <HeroMetric label="Cost" value={fmtCost(call.costBreakdown)} />
+                <HeroMetric
+                  label="Score"
+                  value={call.score == null ? "—" : call.score.toFixed(1)}
+                />
+              </div>
 
-            {/* Summary */}
-            {call.summary ? (
-              <Section title="Summary">
-                <p className="text-muted-foreground text-sm whitespace-pre-line">
-                  {call.summary}
-                </p>
-              </Section>
-            ) : null}
+              {/* Secondary metadata — smaller, muted. */}
+              <dl className="text-muted-foreground grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
+                <SecondaryMetric label="Campaign" value={call.campaignName} />
+                <SecondaryMetric label="Agent" value={call.agentName} />
+                <SecondaryMetric
+                  label="Started"
+                  value={fmtDateTime(call.startedAt)}
+                />
+              </dl>
 
-            {/* Transcript */}
-            {call.transcript.length > 0 ? (
-              <Section title="Transcript">
-                <ol className="border-border flex flex-col gap-1 rounded-lg border p-3">
-                  {call.transcript.map((turn, i) => {
-                    const seconds = turnSeconds(turn, call.startedAt);
-                    const canSeek =
-                      Boolean(call.recordingPath) && seconds != null;
-                    return (
-                      <li key={i} className="flex gap-3 py-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (canSeek) seekTo(seconds!);
-                          }}
-                          disabled={!canSeek}
-                          className="text-muted-foreground hover:text-foreground disabled:text-muted-foreground/50 disabled:hover:text-muted-foreground/50 w-12 shrink-0 font-mono text-xs tabular-nums disabled:cursor-default"
-                          aria-label={
-                            canSeek
-                              ? `Seek to ${fmtTurnTime(seconds)}`
-                              : undefined
-                          }
-                        >
-                          {fmtTurnTime(seconds)}
-                        </button>
-                        <div className="flex-1">
-                          <p className="text-muted-foreground text-xs font-medium uppercase">
-                            {turn.role ?? "—"}
-                          </p>
-                          <p className="text-foreground text-sm whitespace-pre-line">
-                            {turn.text ?? ""}
-                          </p>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </Section>
-            ) : null}
+              {/* M4 — Recording (or a useful empty state). */}
+              {call.recordingPath ? (
+                <Section title="Recording">
+                  <audio
+                    ref={audioRef}
+                    controls
+                    preload="metadata"
+                    className="w-full"
+                    src={call.recordingPath}
+                  />
+                </Section>
+              ) : (
+                <div className="border-border bg-muted/30 flex items-start gap-3 rounded-lg border p-3">
+                  <Mic className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                  <p className="text-muted-foreground text-sm">
+                    {noRecordingReason(call.outcome)}
+                  </p>
+                </div>
+              )}
 
-            {/* Extracted data */}
-            {call.extractedData &&
-            Object.keys(call.extractedData).length > 0 ? (
-              <Section title="Extracted data">
-                <dl className="border-border grid grid-cols-1 gap-2 rounded-lg border p-3 text-sm sm:grid-cols-[max-content_1fr]">
-                  {Object.entries(call.extractedData).map(([key, value]) => (
-                    <div key={key} className="contents text-sm">
-                      <dt className="text-muted-foreground font-medium uppercase">
-                        {key.replace(/_/g, " ")}
-                      </dt>
-                      <dd className="text-foreground">
-                        {typeof value === "string" ||
-                        typeof value === "number" ||
-                        typeof value === "boolean"
-                          ? String(value)
-                          : JSON.stringify(value)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </Section>
-            ) : null}
-
-            <Section title="Outcome">
-              <OutcomeOverride
-                callId={call.id}
-                currentOutcome={call.outcome}
-                onSaved={(next) => {
-                  // Optimistically reflect the new outcome in the modal so
-                  // the user sees the change without waiting for refetch.
-                  setLoaded((prev) =>
-                    prev && prev.id === call.id
-                      ? { ...prev, outcome: next, outcomeSource: "manual" }
-                      : prev,
-                  );
-                  router.refresh();
-                }}
-              />
-            </Section>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <ScheduleCallbackDialog callId={call.id} />
-              {call.leadId ? (
-                <Button asChild variant="outline">
-                  <Link href={`/leads/${call.leadId}`}>
-                    <ExternalLink className="size-4" />
-                    Open lead
-                  </Link>
-                </Button>
+              {/* M7 — AI summary in a coral-accented card, matching
+                  the elevated treatment on the lead detail page. */}
+              {call.summary ? (
+                <section
+                  data-testid="call-ai-summary-block"
+                  className="bg-card flex flex-col gap-3 rounded-xl border p-5"
+                  style={{
+                    borderColor:
+                      "color-mix(in oklab, var(--coral) 25%, var(--border))",
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
+                      <Sparkles
+                        className="size-4"
+                        style={{ color: "var(--coral)" }}
+                      />
+                      AI summary
+                    </h3>
+                    <CopyButton text={call.summary} label="Copy summary" />
+                  </div>
+                  <p className="text-foreground text-sm leading-relaxed whitespace-pre-line">
+                    {call.summary}
+                  </p>
+                </section>
               ) : null}
+
+              {/* M9 — Transcript with clickable timestamp pills. */}
+              {call.transcript.length > 0 ? (
+                <Section
+                  title="Transcript"
+                  trailing={
+                    <CopyButton
+                      text={call.transcript
+                        .map((t) => `${t.role ?? "—"}: ${t.text ?? ""}`)
+                        .join("\n")}
+                      label="Copy transcript"
+                    />
+                  }
+                >
+                  <ol className="border-border flex flex-col gap-1 rounded-lg border p-3">
+                    {call.transcript.map((turn, i) => {
+                      const seconds = turnSeconds(turn, call.startedAt);
+                      const canSeek =
+                        Boolean(call.recordingPath) && seconds != null;
+                      return (
+                        <li key={i} className="flex gap-3 py-1.5">
+                          {canSeek ? (
+                            <button
+                              type="button"
+                              onClick={() => seekTo(seconds!)}
+                              className="bg-muted text-foreground inline-flex h-6 w-14 shrink-0 items-center justify-center rounded-md font-mono text-xs tabular-nums transition-colors hover:bg-[color:var(--coral)]/15 hover:text-[color:var(--coral)]"
+                              aria-label={`Seek to ${fmtTurnTime(seconds)}`}
+                            >
+                              {fmtTurnTime(seconds)}
+                            </button>
+                          ) : (
+                            <span className="text-muted-foreground inline-flex h-6 w-14 shrink-0 items-center justify-center font-mono text-xs tabular-nums">
+                              {fmtTurnTime(seconds)}
+                            </span>
+                          )}
+                          <div className="flex-1">
+                            <p className="text-muted-foreground text-xs font-medium">
+                              {turn.role === "agent"
+                                ? "AI"
+                                : turn.role === "user"
+                                  ? "Lead"
+                                  : (turn.role ?? "—")}
+                            </p>
+                            <p className="text-foreground text-sm whitespace-pre-line">
+                              {turn.text ?? ""}
+                            </p>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </Section>
+              ) : null}
+
+              {/* M13 — Extracted data with sentence-case keys. */}
+              {call.extractedData &&
+              Object.keys(call.extractedData).length > 0 ? (
+                <Section title="Extracted data">
+                  <dl className="border-border grid grid-cols-1 gap-x-4 gap-y-2 rounded-lg border p-3 text-sm sm:grid-cols-[max-content_1fr]">
+                    {Object.entries(call.extractedData).map(([key, value]) => (
+                      <div key={key} className="contents text-sm">
+                        <dt className="text-muted-foreground font-medium">
+                          {humanizeKey(key)}
+                        </dt>
+                        <dd className="text-foreground">
+                          {typeof value === "string" ||
+                          typeof value === "number" ||
+                          typeof value === "boolean"
+                            ? String(value)
+                            : JSON.stringify(value)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </Section>
+              ) : null}
+
+              {/* M5 — Outcome override demoted below the primary actions.
+                  Admin correction tool, not the main thing you're here for. */}
+              <details className="border-border bg-muted/30 group rounded-lg border p-3 text-sm">
+                <summary className="text-foreground flex cursor-pointer items-center justify-between font-medium">
+                  <span>Override outcome</span>
+                  <span className="text-muted-foreground text-xs group-open:hidden">
+                    Admin
+                  </span>
+                </summary>
+                <div className="mt-3">
+                  <OutcomeOverride
+                    callId={call.id}
+                    currentOutcome={call.outcome}
+                    onSaved={(next) => {
+                      setLoaded((prev) =>
+                        prev && prev.id === call.id
+                          ? { ...prev, outcome: next, outcomeSource: "manual" }
+                          : prev,
+                      );
+                      router.refresh();
+                    }}
+                  />
+                </div>
+              </details>
             </div>
+          </div>
+        ) : (
+          <div className="text-muted-foreground flex flex-1 items-center justify-center px-6 text-sm">
+            {loading ? "Loading…" : "Call not found."}
+          </div>
+        )}
+
+        {/* M10 — Sticky bottom action bar. Stays pinned even when the
+            transcript scrolls long. Call again is the primary (coral). */}
+        {call ? (
+          <div className="border-border bg-card flex flex-wrap items-center justify-end gap-2 border-t px-6 py-4">
+            <ScheduleCallbackDialog callId={call.id} />
+            {call.leadId ? (
+              <Button asChild variant="outline">
+                <Link href={`/leads/${call.leadId}`}>
+                  <ExternalLink className="size-4" />
+                  Open lead
+                </Link>
+              </Button>
+            ) : null}
+            {call.leadId ? (
+              <Button
+                onClick={callAgain}
+                className="bg-[color:var(--coral)] text-white hover:bg-[color:var(--coral)]/90"
+              >
+                <PhoneCall className="size-4" />
+                Call again
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </SheetContent>
@@ -344,14 +510,69 @@ export function CallDetailModal() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function HeroMetric({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+}) {
   return (
-    <div className="flex flex-col">
-      <span className="text-muted-foreground text-xs font-medium uppercase">
+    <div className="flex flex-col gap-0.5">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-[0.1em] uppercase">
         {label}
       </span>
-      <span className="text-foreground text-sm">{value}</span>
+      <span className="text-foreground text-xl font-semibold tabular-nums">
+        {value}
+      </span>
+      {sub ? (
+        <span className="text-muted-foreground text-[11px]">{sub}</span>
+      ) : null}
     </div>
+  );
+}
+
+function SecondaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col">
+      <dt className="text-muted-foreground text-[10px] font-medium tracking-[0.08em] uppercase">
+        {label}
+      </dt>
+      <dd className="text-foreground truncate text-xs">{value}</dd>
+    </div>
+  );
+}
+
+/** Tiny ghost button that flips to a check icon for ~1.5s after a
+ *  successful copy. Used by the AI summary card and the Transcript
+ *  section header. */
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  async function onClick() {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      onClick={onClick}
+      className="h-7 px-2 text-xs"
+      aria-label={label}
+    >
+      {copied ? (
+        <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+      ) : (
+        <Copy className="size-3.5" />
+      )}
+      {copied ? "Copied" : "Copy"}
+    </Button>
   );
 }
 
@@ -397,7 +618,7 @@ function OutcomeOverride({
           </SelectContent>
         </Select>
       </div>
-      <Button onClick={save} disabled={!dirty || pending}>
+      <Button onClick={save} disabled={!dirty || pending} variant="outline">
         <Save className="size-4" />
         {pending ? "Saving…" : "Save outcome"}
       </Button>

@@ -1,31 +1,26 @@
 "use client";
 
-import { Ban, ExternalLink, MoreVertical, Phone, Trash2 } from "lucide-react";
+import { Phone } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { bulkAddLeadsToDnc } from "@/lib/dnc/actions";
-import { bulkDeleteLeads } from "@/lib/leads/bulk-actions";
 
 /** Hover-only action cluster on a leads row. Renders to the right of
- *  the cells. Two primary affordances:
- *   - Call now (coral, prominent) — dispatches a custom DOM event the
- *     page-level CallNowDialog listens for, so the dialog stays mounted
- *     once and doesn't need a per-row dialog instance.
- *   - More (kebab) — Open in new tab, Mark DNC, Delete.
+ *  the cells.
  *
- *  Each interactive element stops click + keydown propagation so the
- *  surrounding TableRow's "navigate to /leads/<id>" handler doesn't
- *  fire when the user is acting *on* the row, not opening it. */
+ *  v2 (round 6) — dropped the kebab dropdown entirely. The three menu
+ *  items it hosted (Open in new tab, Mark DNC, Delete) have all been
+ *  superseded:
+ *    - Middle-mouse-button on the row opens a new tab (see lead-row.tsx)
+ *    - Mark DNC + Delete are visible buttons on the lead detail hero
+ *      (see lead-hero-actions.tsx)
+ *  So the only action left on the row is Call — the high-frequency one.
+ *  Less hover noise, fewer clicks to reach the destructive actions.
+ *
+ *  Stops click + keydown propagation so the surrounding TableRow's
+ *  "navigate to /leads/<id>" handler doesn't fire when the user is
+ *  acting *on* the row, not opening it. */
 export function LeadRowActions({
   leadId,
   leadName,
@@ -46,37 +41,8 @@ export function LeadRowActions({
     // auto-opens the CallNowDialog. This keeps the "available
     // campaigns" lookup server-side and avoids reimplementing the
     // dialog at the row level.
-    router.push(`/leads/${leadId}?action=call`);
-  }
-
-  function openNewTab(event: React.MouseEvent) {
-    event.stopPropagation();
-    window.open(`/leads/${leadId}`, "_blank", "noopener");
-  }
-
-  function markDnc() {
-    if (!confirm(`Mark ${leadName || "this lead"} as Do Not Call?`)) return;
-    startTransition(async () => {
-      const result = await bulkAddLeadsToDnc({ leadIds: [leadId] });
-      if (result.error) toast.error(result.error);
-      else {
-        toast.success("Added to DNC.");
-        router.refresh();
-      }
-    });
-  }
-
-  function softDelete() {
-    if (!confirm(`Delete ${leadName || "this lead"}? This can be restored.`)) {
-      return;
-    }
-    startTransition(async () => {
-      const result = await bulkDeleteLeads({ leadIds: [leadId] });
-      if (result.error) toast.error(result.error);
-      else {
-        toast.success("Lead deleted.");
-        router.refresh();
-      }
+    startTransition(() => {
+      router.push(`/leads/${leadId}?action=call`);
     });
   }
 
@@ -99,35 +65,6 @@ export function LeadRowActions({
         <Phone className="size-3.5" />
         Call
       </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            disabled={pending}
-            aria-label="More row actions"
-            onClick={stop}
-          >
-            <MoreVertical className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" onClick={stop}>
-          <DropdownMenuItem onClick={openNewTab}>
-            <ExternalLink className="size-4" />
-            Open in new tab
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={markDnc} variant="destructive">
-            <Ban className="size-4" />
-            Mark DNC
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={softDelete} variant="destructive">
-            <Trash2 className="size-4" />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   );
 }

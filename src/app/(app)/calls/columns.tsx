@@ -1,7 +1,7 @@
 import { Mic, Phone, PhoneIncoming } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { callStatusLabel, outcomeLabel } from "@/lib/labels";
+import { outcomeLabel } from "@/lib/labels";
 
 /** A row passed to a column's `cell` renderer. */
 export type DisplayCall = {
@@ -199,17 +199,12 @@ export const CALL_COLUMNS: CallColumn[] = [
       </span>
     ),
   },
-  {
-    key: "status",
-    label: "Status",
-    sortKey: "status",
-    width: "w-[140px]",
-    cell: (c) => (
-      <Badge variant={statusVariant(c.status)} dot>
-        {callStatusLabel(c.status)}
-      </Badge>
-    ),
-  },
+  // Status (queued/dialing/ringing/in_progress/completed/failed/cancelled)
+  // is the technical state of one dial attempt. For finished calls in the
+  // history list it's "completed" 95% of the time — pure noise. It still
+  // matters for live calls, which the Today page surfaces separately, and
+  // for non-completed calls inside the call detail modal where we'll
+  // render it conditionally. So no Status column on this list at all.
   {
     key: "outcome",
     label: "Outcome",

@@ -475,8 +475,11 @@ test.describe("Calls page", () => {
 
     await page.goto(`/calls?call=${overrideCallId}`);
     // Scope to the sheet so the page's Outcome filter doesn't collide with
-    // the modal's Outcome override.
+    // the modal's Outcome override. The override is collapsed inside a
+    // <details> by default (it's an admin escape hatch, not the primary
+    // action), so expand it first.
     const sheet = page.getByRole("dialog");
+    await sheet.getByText("Override outcome").click();
     await sheet.getByLabel("Outcome").click();
     await page.getByRole("option", { name: "Not interested" }).click();
     await sheet.getByRole("button", { name: "Save outcome" }).click();

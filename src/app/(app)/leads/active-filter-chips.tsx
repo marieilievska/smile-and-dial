@@ -22,7 +22,7 @@ export function ActiveFilterChips({
 
   const status = searchParams.get("status");
   if (status)
-    chips.push({ key: "status", label: `Status: ${leadStatusLabel(status)}` });
+    chips.push({ key: "status", label: `Stage: ${leadStatusLabel(status)}` });
 
   const outcome = searchParams.get("outcome");
   if (outcome)
