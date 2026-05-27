@@ -66,19 +66,23 @@ test.describe("CSV import", () => {
     // Map step → run the Twilio Lookup analysis.
     await page.getByRole("button", { name: "Review import" }).click();
 
-    // Summary step: 3 valid leads, 1 mobile blocked, 1 invalid.
+    // Review step in v2: hero count + 3-stat strip. Copy now reads
+    // "Mobile numbers (skipped)" / "Invalid numbers (skipped)".
     await expect(page.getByText(/3 leads ready to import/)).toBeVisible();
-    await expect(page.getByText(/1 mobile number skipped/)).toBeVisible();
-    await expect(page.getByText(/1 invalid number skipped/)).toBeVisible();
+    await expect(page.getByText(/Mobile numbers \(skipped\)/i)).toBeVisible();
+    await expect(page.getByText(/Invalid numbers \(skipped\)/i)).toBeVisible();
 
     // The skipped rows are downloadable as an error report.
     const downloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: "Download error report" }).click();
+    await page.getByRole("button", { name: "Download skipped rows" }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("import-errors.csv");
 
     await page.getByRole("button", { name: /Import 3 leads/ }).click();
-    await expect(page.getByText("Import complete")).toBeVisible();
+    // Success copy in v2: "3 leads imported into <list name>"
+    await expect(
+      page.getByRole("heading", { name: /leads imported/i }),
+    ).toBeVisible();
 
     // The valid lead shows up on the Leads page.
     // v3 — search moved to the global top bar; submits on Enter. The
