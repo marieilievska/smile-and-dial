@@ -14,8 +14,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "@/lib/auth/actions";
 
+import {
+  ActiveCampaignChip,
+  type ActiveCampaignOption,
+} from "./active-campaign-chip";
 import { GlobalSearch } from "./global-search";
 import { NotificationBell, type NotificationItem } from "./notification-bell";
+import { ThemeToggle } from "./theme-toggle";
 
 function initialsOf(name: string) {
   const letters = name
@@ -33,18 +38,30 @@ export function TopBar({
   role,
   notifications,
   unreadCount,
+  activeCampaign,
+  campaigns,
 }: {
   name: string;
   email: string;
   role: string;
   notifications: NotificationItem[];
   unreadCount: number;
+  activeCampaign: { id: string; name: string } | null;
+  campaigns: ActiveCampaignOption[];
 }) {
   return (
     <header className="border-border bg-card flex h-16 shrink-0 items-center gap-3 border-b px-6">
       <div className="flex-1">
         <GlobalSearch />
       </div>
+      {/* Round 27 — operator-scoped chrome: active campaign chip,
+       *  theme toggle, notifications, user. Active campaign drives
+       *  manual call destinations. */}
+      <ActiveCampaignChip
+        activeCampaign={activeCampaign}
+        campaigns={campaigns}
+      />
+      <ThemeToggle />
       <NotificationBell
         initialItems={notifications}
         initialUnreadCount={unreadCount}

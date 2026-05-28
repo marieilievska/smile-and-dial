@@ -1264,6 +1264,7 @@ export type Database = {
       profiles: {
         Row: {
           active: boolean;
+          active_campaign_id: string | null;
           avatar_url: string | null;
           created_at: string;
           email: string | null;
@@ -1276,6 +1277,7 @@ export type Database = {
         };
         Insert: {
           active?: boolean;
+          active_campaign_id?: string | null;
           avatar_url?: string | null;
           created_at?: string;
           email?: string | null;
@@ -1288,6 +1290,7 @@ export type Database = {
         };
         Update: {
           active?: boolean;
+          active_campaign_id?: string | null;
           avatar_url?: string | null;
           created_at?: string;
           email?: string | null;
@@ -1298,7 +1301,22 @@ export type Database = {
           notify_on_goal_met?: boolean;
           role?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "profiles_active_campaign_id_fkey";
+            columns: ["active_campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "profiles_active_campaign_id_fkey";
+            columns: ["active_campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+        ];
       };
       saved_views: {
         Row: {

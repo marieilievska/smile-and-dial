@@ -32,12 +32,35 @@ const SAVED_VIEWS_FOR_HREF: Record<string, string> = {
   "/leads": "leads",
 };
 
+/** Per-href dot status so the rail can surface "needs attention"
+ *  without opening a page. Counts come from the layout. */
+export type SidebarStatusCounts = {
+  callbacks: number;
+  campaigns: number;
+  systemHealth: number;
+};
+
+const STATUS_HREFS: Record<string, keyof SidebarStatusCounts> = {
+  "/callbacks": "callbacks",
+  "/campaigns": "campaigns",
+  "/system-health": "systemHealth",
+};
+
+const STATUS_TONES: Record<keyof SidebarStatusCounts, string> = {
+  callbacks: "bg-warning",
+  campaigns: "bg-warning",
+  systemHealth: "bg-destructive",
+};
+
 export function AppSidebar({
   isAdmin,
   savedViews = [],
+  statusCounts,
 }: {
   isAdmin: boolean;
   savedViews?: SidebarSavedView[];
+  /** Status badges driven by the layout's queries. Omitted = no dots. */
+  statusCounts?: SidebarStatusCounts;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -97,6 +120,9 @@ export function AppSidebar({
                 const itemSavedViews = savedViewKey
                   ? (viewsByPage.get(savedViewKey) ?? [])
                   : [];
+                const statusKey = STATUS_HREFS[item.href];
+                const statusValue =
+                  statusKey && statusCounts ? statusCounts[statusKey] : 0;
                 return (
                   <div key={item.href} className="flex flex-col gap-0.5">
                     <Link
@@ -110,7 +136,29 @@ export function AppSidebar({
                       )}
                     >
                       <item.icon className="size-4 shrink-0" />
-                      {item.label}
+                      <span className="flex-1">{item.label}</span>
+                      {statusKey && statusValue > 0 ? (
+                        <span
+                          data-testid={`sidebar-status-${statusKey}`}
+                          aria-label={`${statusValue} ${statusKey === "systemHealth" ? "errors" : statusKey === "callbacks" ? "overdue" : "paused"}`}
+                          className={cn(
+                            "inline-flex items-center justify-center rounded-full px-1.5 py-0 text-[10px] font-semibold tabular-nums",
+                            active
+                              ? "bg-sidebar-primary-foreground/15 text-sidebar-primary-foreground"
+                              : "text-sidebar-foreground/90 bg-sidebar-accent",
+                          )}
+                          title={`${statusValue} need attention`}
+                        >
+                          <span
+                            aria-hidden
+                            className={cn(
+                              "mr-1 size-1 rounded-full",
+                              STATUS_TONES[statusKey],
+                            )}
+                          />
+                          {statusValue}
+                        </span>
+                      ) : null}
                     </Link>
                     {/* Nested saved views under this nav item — Close-style
                         Smart Views graduating from a dropdown into the rail

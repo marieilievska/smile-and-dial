@@ -88,6 +88,22 @@ export default async function LeadDetailPage({
     )
     .map((c) => ({ id: c.id, name: c.name }));
 
+  // Round 27 — the user's "active campaign" preference. The CallNow
+  // dialog pre-selects it when it's a valid pick for this lead's list,
+  // skipping the campaign picker step.
+  const { data: profileWithActive } = await supabase
+    .from("profiles")
+    .select("active_campaign_id")
+    .eq("id", user.id)
+    .single();
+  const activeCampaignId =
+    profileWithActive?.active_campaign_id &&
+    availableCampaigns.some(
+      (c) => c.id === profileWithActive.active_campaign_id,
+    )
+      ? profileWithActive.active_campaign_id
+      : undefined;
+
   // Flatten the lead row's importable fields into the {key: string-value}
   // map the client editor expects.
   const row = lead as Record<string, unknown>;
@@ -174,6 +190,7 @@ export default async function LeadDetailPage({
       customValues={customValues}
       meta={meta}
       availableCampaigns={availableCampaigns}
+      activeCampaignId={activeCampaignId}
       activityFeed={<LeadActivityFeed items={feedItems} leadId={lead.id} />}
       feedItemsForChip={feedItemsForChip}
     />
