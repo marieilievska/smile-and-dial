@@ -14,7 +14,7 @@ export default async function ImportDncPage() {
   if (!user) redirect("/login");
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-5 p-6">
       <div className="flex flex-col gap-1">
         <Link
           href="/dnc"

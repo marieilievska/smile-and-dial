@@ -178,17 +178,20 @@ export default async function CostsPage({
     view === "per_campaign" ? await fetchCampaignCaps(supabase) : new Map();
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-5 p-6">
       {/* Header — title left, MTD / Today context badges + Export
        *  right. Mirrors the analytics header pattern. */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-foreground text-2xl font-bold tracking-tight">
-              Costs
+              Costs{" "}
+              <span className="text-muted-foreground font-normal">
+                · {rangeLabel}
+              </span>
             </h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              {rangeLabel} · {totalCalls.toLocaleString()}{" "}
+            <p className="text-muted-foreground mt-0.5 text-sm">
+              {totalCalls.toLocaleString()}{" "}
               {totalCalls === 1 ? "call" : "calls"} ·{" "}
               <span className="text-foreground font-medium">
                 {usd(summary.total)}

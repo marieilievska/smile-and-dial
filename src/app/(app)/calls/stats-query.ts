@@ -6,7 +6,6 @@ export type CallStats = {
   callsToday: number;
   connectRateToday: number;
   goalMetToday: number;
-  spendToday: number;
 };
 
 /** Outcomes that count as a "connected" call for the connect-rate stat.
@@ -21,9 +20,13 @@ const CONNECTED_OUTCOMES = new Set([
   "gatekeeper",
 ]);
 
-/** Compute the 4-stat strip shown under the /calls page header.
+/** Compute the 3-stat strip shown under the /calls page header.
  *  Read-only — every stat is "today so far" against the server clock.
- *  Heavy lifting is one query (today's calls), then map+reduce in JS. */
+ *  Heavy lifting is one query (today's calls), then map+reduce in JS.
+ *
+ *  Round 30 — dropped the spend column (D3, 4→3). The /costs page is
+ *  the proper home for financial signals; mirroring it here was
+ *  duplication. */
 export async function fetchCallStats(
   supabase: SupabaseServerClient,
 ): Promise<CallStats> {
@@ -32,7 +35,7 @@ export async function fetchCallStats(
 
   const { data, error } = await supabase
     .from("calls")
-    .select("outcome, goal_met, cost_breakdown")
+    .select("outcome, goal_met")
     .gte("started_at", startOfToday.toISOString())
     .limit(5000);
 
@@ -41,18 +44,14 @@ export async function fetchCallStats(
       callsToday: 0,
       connectRateToday: 0,
       goalMetToday: 0,
-      spendToday: 0,
     };
   }
 
   let connected = 0;
   let goalMet = 0;
-  let spend = 0;
   for (const row of data) {
     if (row.outcome && CONNECTED_OUTCOMES.has(row.outcome)) connected++;
     if (row.goal_met) goalMet++;
-    const total = (row.cost_breakdown as { total?: unknown } | null)?.total;
-    if (typeof total === "number") spend += total;
   }
   const callsToday = data.length;
   const connectRateToday = callsToday > 0 ? connected / callsToday : 0;
@@ -61,6 +60,5 @@ export async function fetchCallStats(
     callsToday,
     connectRateToday,
     goalMetToday: goalMet,
-    spendToday: spend,
   };
 }

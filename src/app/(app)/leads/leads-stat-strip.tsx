@@ -1,20 +1,24 @@
-import { Phone, PhoneCall, Plus, Trophy } from "lucide-react";
+import { Phone, PhoneCall, Trophy } from "lucide-react";
 import Link from "next/link";
 
 import type { LeadStats } from "./stats-query";
 
-/** 4-stat strip under the Leads page header. Each stat is a one-click
+/** 3-stat strip under the Leads page header. Each stat is a one-click
  *  filter shortcut: click "Callbacks due" and you land on the leads
  *  page already filtered to status=callback.
  *
  *  Coral accents the "needs attention" stats (Ready to call, Callbacks
- *  due). The "good news" Sale-this-week sits in emerald. Added-today
- *  is neutral. */
+ *  due). The "good news" Sale-this-week sits in emerald.
+ *
+ *  Round 30 — dropped the "Added today" tile (D3, 4→3). It was the
+ *  only non-actionable stat (just a recency count) and the primary
+ *  cell already surfaces recency on each row. Three tiles read as
+ *  intentional triage shortcuts rather than a generic dashboard. */
 export function LeadsStatStrip({ stats }: { stats: LeadStats }) {
   return (
     <section
       data-testid="leads-stat-strip"
-      className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-4"
+      className="border-border bg-card grid grid-cols-1 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-3"
     >
       <StatLink
         icon={<Phone className="size-3.5" />}
@@ -29,6 +33,7 @@ export function LeadsStatStrip({ stats }: { stats: LeadStats }) {
         value={stats.callbacksDue}
         href="/leads?status=callback"
         tone="coral"
+        divider
       />
       <StatLink
         icon={<Trophy className="size-3.5" />}
@@ -36,13 +41,6 @@ export function LeadsStatStrip({ stats }: { stats: LeadStats }) {
         value={stats.saleThisWeek}
         href="/leads?status=sale"
         tone="emerald"
-      />
-      <StatLink
-        icon={<Plus className="size-3.5" />}
-        label="Added today"
-        value={stats.addedToday}
-        href={`/leads?created_from=${new Date().toISOString().slice(0, 10)}`}
-        tone="neutral"
         divider
       />
     </section>

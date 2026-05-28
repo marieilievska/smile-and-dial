@@ -1,18 +1,21 @@
-import { DollarSign, PhoneCall, Target, TrendingUp } from "lucide-react";
+import { PhoneCall, Target, TrendingUp } from "lucide-react";
 import Link from "next/link";
 
 import type { CallStats } from "./stats-query";
 
-/** 4-stat strip under the /calls header. Mirrors LeadsStatStrip — tile-
- *  per-stat layout, each tile a clickable filter shortcut when it
- *  makes sense. Spend is read-only (no useful filter for "today's
- *  spend"). */
+/** 3-stat strip under the /calls header. Mirrors LeadsStatStrip — tile-
+ *  per-stat layout, each tile a clickable filter shortcut.
+ *
+ *  Round 30 — dropped the "Spend today" tile (D3, 4→3). Calls is an
+ *  operational view ("what happened on the phone"); spend lives on
+ *  the dedicated /costs page where it has the proper breakdown and
+ *  context. Removing it keeps the strip focused on activity. */
 export function CallsStatStrip({ stats }: { stats: CallStats }) {
   const today = new Date().toISOString().slice(0, 10);
   return (
     <section
       data-testid="calls-stat-strip"
-      className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-4"
+      className="border-border bg-card grid grid-cols-1 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-3"
     >
       <StatLink
         icon={<PhoneCall className="size-3.5" />}
@@ -35,13 +38,6 @@ export function CallsStatStrip({ stats }: { stats: CallStats }) {
         value={stats.goalMetToday.toLocaleString()}
         href={`/calls?from=${today}&to=${today}&goal_met=yes`}
         tone="emerald"
-        divider
-      />
-      <Stat
-        icon={<DollarSign className="size-3.5" />}
-        label="Spend today"
-        value={`$${stats.spendToday.toFixed(2)}`}
-        tone="neutral"
         divider
       />
     </section>
@@ -84,43 +80,5 @@ function StatLink({
         {value}
       </p>
     </Link>
-  );
-}
-
-/** Same shape as StatLink but renders a non-clickable stat — used for
- *  "Spend today" since there's no useful filter to attach to it. */
-function Stat({
-  icon,
-  label,
-  value,
-  tone,
-  divider,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  tone: "coral" | "emerald" | "neutral";
-  divider?: boolean;
-}) {
-  const accent = {
-    coral: "text-[color:var(--coral)]",
-    emerald: "text-emerald-600 dark:text-emerald-400",
-    neutral: "text-muted-foreground",
-  }[tone];
-
-  return (
-    <div
-      className={`-mx-2 flex flex-col gap-1 rounded-lg px-2 py-1 ${
-        divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""
-      }`}
-    >
-      <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
-        <span className={accent}>{icon}</span>
-        {label}
-      </p>
-      <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
-        {value}
-      </p>
-    </div>
   );
 }
