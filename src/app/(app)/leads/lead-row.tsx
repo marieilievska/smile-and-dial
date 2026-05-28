@@ -50,7 +50,10 @@ export function LeadRow({
         if (event.key === "Enter") open();
       }}
       tabIndex={0}
-      className="group hover:bg-muted/50 cursor-pointer"
+      // Round 33 (I2) — j/k vim navigation reads this attribute to
+      // find the current row's index in the list.
+      data-lead-id={leadId}
+      className="group hover:bg-muted/50 focus-visible:bg-muted/60 cursor-pointer focus-visible:outline-none"
     >
       {children}
     </TableRow>
