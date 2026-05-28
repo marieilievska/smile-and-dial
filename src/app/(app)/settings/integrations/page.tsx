@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -9,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 
+import { formatCreatedAt } from "../format-created";
 import { CalendlyForm } from "./calendly-form";
 import { CloseForm } from "./close-form";
 import { ElevenLabsForm } from "./elevenlabs-form";
@@ -41,9 +43,14 @@ export default async function IntegrationsPage() {
       .eq("active", true),
   ]);
 
+  const elevenLabsConnected = Boolean(settings?.elevenlabs_api_key);
+  const closeConnected = Boolean(settings?.close_connected_at);
+  const calendlyConnected = Boolean(settings?.calendly_connected_at);
+  const now = new Date();
+
   return (
-    <div className="p-8">
-      <div>
+    <div className="flex flex-col gap-6 p-8">
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           Integrations
         </h1>
@@ -52,54 +59,99 @@ export default async function IntegrationsPage() {
         </p>
       </div>
 
-      <Card className="mt-6 max-w-2xl">
-        <CardHeader>
-          <CardTitle>ElevenLabs</CardTitle>
-          <CardDescription>
-            The voice AI that powers calls. The voice IDs listed here are the
-            ones available when building an agent.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <IntegrationCard
+          title="ElevenLabs"
+          description="The voice AI that powers calls. The voice IDs listed here are the ones available when building an agent."
+          connected={elevenLabsConnected}
+          subtitle={elevenLabsConnected ? "API key on file" : undefined}
+          delay={75}
+        >
           <ElevenLabsForm
-            hasApiKey={Boolean(settings?.elevenlabs_api_key)}
+            hasApiKey={elevenLabsConnected}
             voiceIds={settings?.elevenlabs_voice_ids ?? ""}
           />
-        </CardContent>
-      </Card>
+        </IntegrationCard>
 
-      <Card className="mt-6 max-w-2xl">
-        <CardHeader>
-          <CardTitle>Close</CardTitle>
-          <CardDescription>
-            Email gateway. Connect to enable the send_email agent tool and to
-            receive email_replied notifications when a lead writes back.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        <IntegrationCard
+          title="Close"
+          description="Email gateway. Connect to enable the send_email agent tool and to receive email_replied notifications when a lead writes back."
+          connected={closeConnected}
+          subtitle={
+            closeConnected && settings?.close_connected_at
+              ? `Connected ${formatCreatedAt(settings.close_connected_at, now)}`
+              : undefined
+          }
+          delay={150}
+        >
           <CloseForm
-            connected={Boolean(settings?.close_connected_at)}
+            connected={closeConnected}
             connectedAt={settings?.close_connected_at ?? null}
           />
-        </CardContent>
-      </Card>
+        </IntegrationCard>
 
-      <Card className="mt-6 max-w-2xl">
-        <CardHeader>
-          <CardTitle>Calendly</CardTitle>
-          <CardDescription>
-            Connect Calendly to enable agent appointment booking and to
-            auto-flip leads into the goal pipeline when an invitee schedules.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        <IntegrationCard
+          title="Calendly"
+          description="Connect Calendly to enable agent appointment booking and to auto-flip leads into the goal pipeline when an invitee schedules."
+          connected={calendlyConnected}
+          subtitle={
+            calendlyConnected && settings?.calendly_last_sync_at
+              ? `Last sync ${formatCreatedAt(settings.calendly_last_sync_at, now)}`
+              : calendlyConnected
+                ? "Connected"
+                : undefined
+          }
+          delay={225}
+        >
           <CalendlyForm
-            connected={Boolean(settings?.calendly_connected_at)}
+            connected={calendlyConnected}
             lastSyncAt={settings?.calendly_last_sync_at ?? null}
             eventTypeCount={eventTypeCount ?? 0}
           />
-        </CardContent>
-      </Card>
+        </IntegrationCard>
+      </div>
     </div>
+  );
+}
+
+function IntegrationCard({
+  title,
+  description,
+  connected,
+  subtitle,
+  children,
+  delay,
+}: {
+  title: string;
+  description: string;
+  connected: boolean;
+  subtitle?: string;
+  children: React.ReactNode;
+  delay: number;
+}) {
+  return (
+    <Card
+      className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500"
+      style={{ animationDelay: `${delay}ms` }}
+      data-testid="integration-card"
+      data-integration={title}
+      data-connected={connected ? "true" : "false"}
+    >
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </div>
+          <Badge variant={connected ? "success" : "ghost"} dot>
+            {connected ? "Connected" : "Not connected"}
+          </Badge>
+        </div>
+        {subtitle ? (
+          <p className="text-muted-foreground mt-2 text-xs">{subtitle}</p>
+        ) : null}
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
   );
 }
