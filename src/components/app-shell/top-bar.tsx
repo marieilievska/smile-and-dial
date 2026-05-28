@@ -40,6 +40,7 @@ export function TopBar({
   unreadCount,
   activeCampaign,
   campaigns,
+  mobileNav,
 }: {
   name: string;
   email: string;
@@ -48,9 +49,14 @@ export function TopBar({
   unreadCount: number;
   activeCampaign: { id: string; name: string } | null;
   campaigns: ActiveCampaignOption[];
+  /** Round 35 (R1) — hamburger trigger for the sidebar drawer below
+   *  `md`. Slotted from the layout so the trigger has the same
+   *  isAdmin / saved-views payload as the persistent sidebar. */
+  mobileNav?: React.ReactNode;
 }) {
   return (
-    <header className="border-border bg-card flex h-16 shrink-0 items-center gap-3 border-b px-6">
+    <header className="border-border bg-card flex h-16 shrink-0 items-center gap-3 border-b px-4 sm:px-6">
+      {mobileNav}
       <div className="flex-1">
         <GlobalSearch />
       </div>

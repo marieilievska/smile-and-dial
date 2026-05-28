@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { MobileNavTrigger } from "@/components/app-shell/mobile-nav-trigger";
 import { AppSidebar } from "@/components/app-shell/sidebar";
 import { TopBar } from "@/components/app-shell/top-bar";
 import { Toaster } from "@/components/ui/sonner";
@@ -115,12 +116,27 @@ export default async function AppLayout({
     <>
       {/* Run the no-flash theme script before paint. */}
       <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      {/* Round 35 (X4) — skip-to-content link for keyboard / screen
+       *  reader users. Hidden until focused, then jumps focus past
+       *  the top-bar and nav into #main-content. Honours the
+       *  Referrizer palette so when it does appear it matches the
+       *  shell. */}
+      <a
+        href="#main-content"
+        className="bg-primary text-primary-foreground focus-visible:ring-ring/60 sr-only z-50 rounded-md px-3 py-2 text-sm font-medium shadow-md focus-visible:not-sr-only focus-visible:fixed focus-visible:top-3 focus-visible:left-3 focus-visible:ring-2 focus-visible:outline-none"
+      >
+        Skip to main content
+      </a>
       <div className="flex h-screen w-full overflow-hidden">
-        <AppSidebar
-          isAdmin={role === "admin"}
-          savedViews={savedViews}
-          statusCounts={statusCounts}
-        />
+        {/* Sidebar — persistent on md+, hidden on small screens
+         *  where MobileNavTrigger surfaces it as a Sheet drawer. */}
+        <div className="hidden md:flex">
+          <AppSidebar
+            isAdmin={role === "admin"}
+            savedViews={savedViews}
+            statusCounts={statusCounts}
+          />
+        </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar
             name={name}
@@ -130,8 +146,21 @@ export default async function AppLayout({
             unreadCount={unreadCount ?? 0}
             activeCampaign={activeCampaign}
             campaigns={allCampaigns}
+            mobileNav={
+              <MobileNavTrigger
+                isAdmin={role === "admin"}
+                savedViews={savedViews}
+                statusCounts={statusCounts}
+              />
+            }
           />
-          <main className="flex-1 overflow-y-auto">{children}</main>
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="flex-1 overflow-y-auto"
+          >
+            {children}
+          </main>
         </div>
         <Toaster />
       </div>
