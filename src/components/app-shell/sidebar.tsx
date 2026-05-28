@@ -66,8 +66,11 @@ export function AppSidebar({
   return (
     <aside className="border-sidebar-border bg-sidebar flex w-60 shrink-0 flex-col border-r">
       <div className="border-sidebar-border flex h-16 shrink-0 items-center border-b px-6">
-        <span className="text-sidebar-foreground text-lg font-bold tracking-tight">
-          Smile <span className="text-coral">&amp;</span> Dial
+        {/* Round 25 — Referrizer-aligned shell. The whitespace ampersand
+         *  gets the sidebar's primary-foreground white so it reads as
+         *  one wordmark, not a coral accent on a dark surface. */}
+        <span className="text-sidebar-primary-foreground text-lg font-bold tracking-tight">
+          Smile &amp; Dial
         </span>
       </div>
       <nav
