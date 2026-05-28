@@ -234,3 +234,19 @@
     @apply bg-background text-foreground font-sans;
   }
 }
+
+/* Round 27 — respect the OS-level reduced motion preference. Kills
+   the animate-in cascade and any custom transitions for users who've
+   asked the system not to animate. Doesn't disable functionality —
+   pings on live-call indicators still pulse, since they're a
+   semantic status, not chrome. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

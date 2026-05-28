@@ -36,11 +36,16 @@ import { callNow } from "@/lib/dialer/call-now";
 export function CallNowDialog({
   leadId,
   availableCampaigns,
+  initialCampaignId,
   open: openProp,
   onOpenChange,
 }: {
   leadId: string;
   availableCampaigns: { id: string; name: string }[];
+  /** Round 27 — the user's "active campaign" preference, when valid for
+   *  this lead's list. Pre-fills the picker so the standard flow is
+   *  one click ("Call"), with the dropdown there as an override. */
+  initialCampaignId?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -51,7 +56,7 @@ export function CallNowDialog({
     else setOpenSelf(next);
   };
   const [campaignId, setCampaignId] = useState<string>(
-    availableCampaigns[0]?.id ?? "",
+    initialCampaignId ?? availableCampaigns[0]?.id ?? "",
   );
   const [pending, startTransition] = useTransition();
 

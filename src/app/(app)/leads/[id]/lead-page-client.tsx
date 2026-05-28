@@ -43,6 +43,7 @@ export function LeadPageClient({
   customValues,
   meta,
   availableCampaigns,
+  activeCampaignId,
   activityFeed,
   feedItemsForChip,
 }: {
@@ -53,6 +54,7 @@ export function LeadPageClient({
   customValues: Record<string, unknown>;
   meta: LeadMeta;
   availableCampaigns: { id: string; name: string }[];
+  activeCampaignId?: string;
   activityFeed: React.ReactNode;
   feedItemsForChip: { at: string; description: string }[];
 }) {
@@ -114,6 +116,7 @@ export function LeadPageClient({
           <CallNowDialog
             leadId={leadId}
             availableCampaigns={availableCampaigns}
+            initialCampaignId={activeCampaignId}
             open={callDialogOpen}
             onOpenChange={setCallDialogOpen}
           />
