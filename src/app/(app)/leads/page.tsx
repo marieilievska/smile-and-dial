@@ -27,6 +27,7 @@ import { SelectAllBanner } from "./select-all-banner";
 import { SmartPagination } from "./smart-pagination";
 import { SaveCurrentViewButton } from "./saved-views";
 import { fetchLeadStats } from "./stats-query";
+import { LeadsJKNavigation } from "./jk-navigation";
 import { RowCheckbox, SelectAllCheckbox, SelectionProvider } from "./selection";
 import { SortableHeader } from "./sortable-header";
 
@@ -203,6 +204,7 @@ export default async function LeadsPage({
       </div>
 
       <SelectionProvider allIds={leads.map((l) => l.id)}>
+        <LeadsJKNavigation ids={leads.map((l) => l.id)} />
         <BulkActionBar
           lists={lists ?? []}
           owners={bulkOwners}
