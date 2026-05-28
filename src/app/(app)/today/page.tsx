@@ -31,11 +31,6 @@ function fmtPct(value: number): string {
   return `${(value * 100).toFixed(0)}%`;
 }
 
-function fmtUsd(value: number): string {
-  if (!Number.isFinite(value) || value === 0) return "—";
-  return `$${value.toFixed(2)}`;
-}
-
 function pctDelta(curr: number, prior: number): number | null {
   if (prior === 0) return curr === 0 ? 0 : null;
   return (curr - prior) / prior;
@@ -184,15 +179,16 @@ export default async function TodayPage() {
             -counts.overdueCallbacks / Math.max(counts.pendingCallbacks, 1)
           : undefined,
     },
-    {
-      label: "per appointment",
-      value: fmtUsd(counts.costPerAppointmentToday),
-      delta: undefined,
-    },
+    // Round 30 — dropped the "per appointment" cost tile from the
+    // pace strip. Today is operational ("are we moving?"); cost-per
+    // belongs on /costs and /analytics where the framing is
+    // financial. Keeping three metrics tightens the band visually
+    // and avoids competing with the HeroPace appointment metric
+    // directly above.
   ];
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 p-8 lg:p-12">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-8">
       {/* Greeting + AI-aware subtitle + date. Round 26 — toned down
        *  from the round T4 "bigger hero typography" treatment. The
        *  greeting now reads as a product page header (2xl) rather

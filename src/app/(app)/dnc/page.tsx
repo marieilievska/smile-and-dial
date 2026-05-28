@@ -167,7 +167,7 @@ export default async function DncPage({
 
   return (
     <SelectionProvider allRows={rowsForSelection}>
-      <div className="flex flex-col gap-6 p-8">
+      <div className="flex flex-col gap-5 p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-baseline gap-3">

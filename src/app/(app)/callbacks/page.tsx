@@ -230,7 +230,7 @@ export default async function CallbacksPage({
     rangeFilter !== "";
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-5 p-6">
       <div className="flex flex-col gap-1.5">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           Callbacks

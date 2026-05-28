@@ -152,7 +152,7 @@ export default async function SystemHealthPage({
   }
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-5 p-6">
       {/* Header — title + count + auto-refresh controls. Auto-refresh
        *  graduates from a buried text link to a button pair in the
        *  header so an admin investigating an outage can see + drive

@@ -170,18 +170,24 @@ export default async function AnalyticsPage({
   const rangeLabel = fmtRangeLabel(from, to);
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-5 p-6">
       {/* Header row — title left, Filters popover right. The date pills
        *  sit below as their own row because date range is the primary
        *  axis of the page, not "yet another filter". */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
+          {/* Round 30 — title + range live on one line. The numeric
+           *  context (call count + compare flag) keeps its second line
+           *  because it's the secondary signal, not the page name. */}
           <div>
             <h1 className="text-foreground text-2xl font-bold tracking-tight">
-              Analytics
+              Analytics{" "}
+              <span className="text-muted-foreground font-normal">
+                · {rangeLabel}
+              </span>
             </h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              {rangeLabel} · {kpis.totalCalls.toLocaleString()}{" "}
+            <p className="text-muted-foreground mt-0.5 text-sm">
+              {kpis.totalCalls.toLocaleString()}{" "}
               {kpis.totalCalls === 1 ? "call" : "calls"}
               {compare ? " · comparing to prior period" : ""}
             </p>

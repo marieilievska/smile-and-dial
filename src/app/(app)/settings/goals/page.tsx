@@ -49,7 +49,7 @@ export default async function SettingsGoalsPage() {
   const defaultGoal = (goals ?? []).find((g) => g.is_default);
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-5 p-6">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <h1 className="text-foreground text-2xl font-bold tracking-tight">

@@ -73,7 +73,7 @@ export default async function TwilioNumbersPage({
   const now = new Date();
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-5 p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-foreground text-2xl font-bold tracking-tight">

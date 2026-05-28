@@ -266,7 +266,7 @@ export function AgentWizard({
   const modelHelper = AI_MODELS.find((m) => m.value === aiModel)?.helper ?? "";
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-5 p-6">
       <div className="duration-500">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           {isEdit ? "Edit agent" : "Build agent"}

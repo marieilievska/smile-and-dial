@@ -162,7 +162,7 @@ export default async function SettingsOverviewPage() {
     : [];
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-5 p-6">
       <div>
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           Settings
