@@ -1,4 +1,5 @@
-import { ArrowDown, ArrowUp, Minus } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Minus } from "lucide-react";
+import Link from "next/link";
 
 /** The page's primary metric. Appointments today, with an inline
  *  sparkline of hourly bookings and a pace-vs-yesterday comparison.
@@ -33,8 +34,19 @@ export function HeroPace({
   return (
     <section
       data-testid="hero-pace"
-      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both rounded-xl border p-6 delay-100 duration-500"
+      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both relative rounded-xl border p-6 delay-100 duration-500"
     >
+      {/* Round 29 — small "See analytics" affordance in the corner so
+       *  the Today operational view and the Analytics retrospective
+       *  view tell one story together. */}
+      <Link
+        href="/analytics"
+        className="text-muted-foreground hover:text-foreground absolute top-3 right-3 inline-flex items-center gap-1 text-xs transition-colors"
+        aria-label="Open analytics for windowed appointment trends"
+      >
+        See analytics
+        <ArrowUpRight className="size-3" />
+      </Link>
       <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between md:gap-8">
         <div className="flex flex-col gap-2.5">
           <p className="text-muted-foreground text-[10px] font-medium tracking-[0.18em] uppercase">

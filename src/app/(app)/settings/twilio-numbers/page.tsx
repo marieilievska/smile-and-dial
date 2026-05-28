@@ -1,4 +1,4 @@
-import { DollarSign, Hash, Phone } from "lucide-react";
+import { Phone } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
@@ -63,10 +63,6 @@ export default async function TwilioNumbersPage({
     return true;
   });
 
-  const totalMonthly = numbers
-    .filter((n) => !n.released_at)
-    .reduce((sum, n) => sum + Number(n.monthly_cost ?? 0), 0);
-
   function buildStatusHref(next: string): string {
     const url = new URLSearchParams();
     if (next && next !== "all") url.set("status", next);
@@ -92,29 +88,10 @@ export default async function TwilioNumbersPage({
 
       {numbers.length > 0 ? (
         <>
-          <section
-            data-testid="twilio-numbers-stat-strip"
-            className="border-border bg-card grid grid-cols-3 gap-x-4 gap-y-3 rounded-xl border px-5 py-4"
-          >
-            <StatTile
-              icon={<Phone className="size-3.5" />}
-              label="In pool"
-              value={counts.in_pool.toLocaleString()}
-            />
-            <StatTile
-              icon={<Hash className="size-3.5" />}
-              label="Released"
-              value={counts.released.toLocaleString()}
-              divider
-            />
-            <StatTile
-              icon={<DollarSign className="size-3.5" />}
-              label="Monthly cost"
-              value={`$${totalMonthly.toFixed(2)}`}
-              divider
-            />
-          </section>
-
+          {/* Round 29 — dropped the stat strip. The status tabs below
+           *  carry the In pool / Released split with per-tab counts,
+           *  and the monthly cost wasn't urgent enough to chrome up
+           *  every settings visit with it. */}
           <TwilioNumbersStatusTabs
             current={status}
             counts={counts}
@@ -205,34 +182,6 @@ export default async function TwilioNumbersPage({
           </p>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatTile({
-  icon,
-  label,
-  value,
-  divider,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  divider?: boolean;
-}) {
-  return (
-    <div
-      className={`-mx-2 flex flex-col gap-1 rounded-lg px-2 py-1 ${
-        divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""
-      }`}
-    >
-      <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
-        <span className="text-[color:var(--coral)]">{icon}</span>
-        {label}
-      </p>
-      <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
-        {value}
-      </p>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Bot, Megaphone, Pencil, Plus, Sparkles } from "lucide-react";
+import { Bot, Pencil, Plus } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -45,10 +45,6 @@ export default async function AgentsPage() {
   }
 
   const totalAgents = agents.length;
-  const syncedAgents = agents.filter((a) => a.elevenlabs_agent_id).length;
-  const inUseAgents = agents.filter(
-    (a) => (usageByAgent.get(a.id) ?? 0) > 0,
-  ).length;
   const now = new Date();
 
   return (
@@ -72,28 +68,10 @@ export default async function AgentsPage() {
 
       {totalAgents > 0 ? (
         <>
-          <section
-            data-testid="agents-stat-strip"
-            className="border-border bg-card grid grid-cols-3 gap-x-4 gap-y-3 rounded-xl border px-5 py-4"
-          >
-            <StatTile
-              icon={<Bot className="size-3.5" />}
-              label="Agents"
-              value={totalAgents.toLocaleString()}
-            />
-            <StatTile
-              icon={<Megaphone className="size-3.5" />}
-              label="In active campaigns"
-              value={inUseAgents.toLocaleString()}
-              divider
-            />
-            <StatTile
-              icon={<Sparkles className="size-3.5" />}
-              label="Synced to ElevenLabs"
-              value={syncedAgents.toLocaleString()}
-              divider
-            />
-          </section>
+          {/* Round 29 — dropped the stat strip. The "Used by N
+           *  campaigns" inline chip + the Synced badge already carry
+           *  the per-row signal; a workspace summary row up top was
+           *  chrome tax. */}
 
           <div className="border-border overflow-hidden rounded-lg border">
             <Table>
@@ -181,34 +159,6 @@ export default async function AgentsPage() {
           </p>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatTile({
-  icon,
-  label,
-  value,
-  divider,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  divider?: boolean;
-}) {
-  return (
-    <div
-      className={`-mx-2 flex flex-col gap-1 rounded-lg px-2 py-1 ${
-        divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""
-      }`}
-    >
-      <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
-        <span className="text-[color:var(--coral)]">{icon}</span>
-        {label}
-      </p>
-      <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
-        {value}
-      </p>
     </div>
   );
 }

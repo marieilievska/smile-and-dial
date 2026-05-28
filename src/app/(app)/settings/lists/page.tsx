@@ -1,4 +1,4 @@
-import { FolderPlus, Link2, ListChecks } from "lucide-react";
+import { FolderPlus } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import {
@@ -56,10 +56,6 @@ export default async function ListsPage() {
   }));
 
   const totalLists = lists?.length ?? 0;
-  const attachedCount = (lists ?? []).filter((l) =>
-    campaignByList.has(l.id),
-  ).length;
-  const unattachedCount = totalLists - attachedCount;
   const now = new Date();
 
   return (
@@ -78,29 +74,11 @@ export default async function ListsPage() {
 
       {totalLists > 0 ? (
         <>
-          <section
-            data-testid="lists-stat-strip"
-            className="border-border bg-card grid grid-cols-3 gap-x-4 gap-y-3 rounded-xl border px-5 py-4"
-          >
-            <StatTile
-              icon={<ListChecks className="size-3.5" />}
-              label="Total lists"
-              value={totalLists.toLocaleString()}
-            />
-            <StatTile
-              icon={<Link2 className="size-3.5" />}
-              label="Attached to a campaign"
-              value={attachedCount.toLocaleString()}
-              divider
-            />
-            <StatTile
-              icon={<FolderPlus className="size-3.5" />}
-              label="Unattached"
-              value={unattachedCount.toLocaleString()}
-              divider
-            />
-          </section>
-
+          {/* Round 29 — dropped the lists stat strip. Total / attached /
+           *  unattached counts weren't urgent enough to justify the
+           *  chrome tax on every settings visit. The same numbers live
+           *  inline in the table footer or via the campaign count
+           *  column. */}
           <div className="border-border overflow-hidden rounded-lg border">
             <Table>
               <TableHeader>
@@ -157,34 +135,6 @@ export default async function ListsPage() {
           </p>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatTile({
-  icon,
-  label,
-  value,
-  divider,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  divider?: boolean;
-}) {
-  return (
-    <div
-      className={`-mx-2 flex flex-col gap-1 rounded-lg px-2 py-1 ${
-        divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""
-      }`}
-    >
-      <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
-        <span className="text-[color:var(--coral)]">{icon}</span>
-        {label}
-      </p>
-      <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
-        {value}
-      </p>
     </div>
   );
 }

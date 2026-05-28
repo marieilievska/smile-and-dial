@@ -13,6 +13,13 @@ type Tab = { label: string; href: string };
  *  falls back to a horizontal tab row on smaller widths where a left
  *  rail would steal too much canvas. The orientation prop lets the
  *  layout pick the right form per breakpoint without rerendering. */
+/** Round 29 — "Overview" added as the first item so the rail
+ *  surfaces the overview landing card grid (each settings sub-page
+ *  with its count + one-line purpose). The `/settings` redirect to
+ *  /settings/users stays for the admin-clicks-Settings-in-the-main-nav
+ *  flow; this is the explicit entry point for the overview. */
+const OVERVIEW_TAB: Tab = { label: "Overview", href: "/settings/overview" };
+
 const WORKSPACE_TABS: Tab[] = [
   { label: "Lists", href: "/settings/lists" },
   { label: "Goals", href: "/settings/goals" },
@@ -38,8 +45,23 @@ export function SettingsNav({
   const pathname = usePathname();
 
   if (orientation === "vertical") {
+    const overviewActive = pathname === OVERVIEW_TAB.href;
     return (
       <nav aria-label="Settings" className="flex flex-col gap-5 text-sm">
+        <div className="flex flex-col gap-1">
+          <Link
+            href={OVERVIEW_TAB.href}
+            aria-current={overviewActive ? "page" : undefined}
+            className={cn(
+              "flex items-center rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
+              overviewActive
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+            )}
+          >
+            {OVERVIEW_TAB.label}
+          </Link>
+        </div>
         <NavGroupVertical
           label="Workspace"
           tabs={WORKSPACE_TABS}
@@ -56,8 +78,22 @@ export function SettingsNav({
     );
   }
 
+  const overviewActive = pathname === OVERVIEW_TAB.href;
   return (
     <nav aria-label="Settings" className="flex flex-wrap items-center gap-1">
+      <Link
+        href={OVERVIEW_TAB.href}
+        aria-current={overviewActive ? "page" : undefined}
+        className={cn(
+          "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+          overviewActive
+            ? "border-primary text-foreground"
+            : "text-muted-foreground hover:text-foreground border-transparent",
+        )}
+      >
+        {OVERVIEW_TAB.label}
+      </Link>
+      <Divider />
       <NavGroup label="Workspace" tabs={WORKSPACE_TABS} pathname={pathname} />
       {isAdmin ? (
         <>
