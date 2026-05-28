@@ -1,3 +1,5 @@
+import { Trophy } from "lucide-react";
+
 import type {
   FunnelStep,
   OutcomeBucket,
@@ -6,33 +8,56 @@ import type {
 } from "@/lib/analytics/stats";
 
 /** Horizontal bar — top step is the widest, every subsequent step is a
- *  percentage of the prior. Used for the conversion funnel. */
+ *  percentage of the prior. Used for the conversion funnel. Round 17 —
+ *  drop-off labels promoted from a small grey number to a coral pill on
+ *  the bar itself, plus a "of dialed" share line under each step. */
 export function FunnelChart({ steps }: { steps: FunnelStep[] }) {
   const top = Math.max(1, steps[0]?.count ?? 1);
   return (
-    <div data-testid="funnel" className="flex flex-col gap-2">
+    <div data-testid="funnel" className="flex flex-col gap-3">
       {steps.map((s, i) => {
         const pct = (s.count / top) * 100;
         const prev = i === 0 ? null : steps[i - 1].count;
         const stepDrop =
           prev != null && prev > 0 ? ((prev - s.count) / prev) * 100 : null;
+        const ofDialed = top > 0 ? (s.count / top) * 100 : 0;
         return (
           <div key={s.label} className="flex flex-col gap-1">
             <div className="flex items-baseline justify-between text-sm">
               <span className="text-foreground font-medium">{s.label}</span>
-              <span className="text-muted-foreground">
+              <span className="text-muted-foreground tabular-nums">
                 {s.count.toLocaleString()}
-                {stepDrop != null ? (
-                  <span className="ml-2 text-xs">−{stepDrop.toFixed(0)}%</span>
+                {i > 0 ? (
+                  <span className="text-muted-foreground/70 ml-1.5 text-xs">
+                    ({ofDialed.toFixed(0)}% of dialed)
+                  </span>
                 ) : null}
               </span>
             </div>
-            <div className="bg-muted h-3 w-full overflow-hidden rounded">
+            <div
+              className="bg-muted relative h-3 w-full overflow-hidden rounded"
+              title={`${s.label}: ${s.count.toLocaleString()}${stepDrop != null ? ` · ${stepDrop.toFixed(0)}% drop-off from prior step` : ""}`}
+            >
               <div
                 className="bg-primary h-full"
                 style={{ width: `${Math.max(2, pct)}%` }}
               />
             </div>
+            {stepDrop != null && stepDrop > 0 ? (
+              <p
+                className="text-muted-foreground inline-flex items-center gap-1 self-end text-[11px]"
+                style={{
+                  color:
+                    "color-mix(in oklab, var(--coral) 80%, var(--muted-foreground))",
+                }}
+              >
+                <span
+                  className="size-1.5 rounded-full"
+                  style={{ background: "var(--coral)" }}
+                />
+                −{stepDrop.toFixed(0)}% drop-off from prior step
+              </p>
+            ) : null}
           </div>
         );
       })}
@@ -70,7 +95,9 @@ export function CallsOverTime({ buckets }: { buckets: TimeBucket[] }) {
               height={h}
               fill="currentColor"
               opacity={b.count === 0 ? 0.15 : 0.85}
-            />
+            >
+              <title>{`${b.day}: ${b.count} calls`}</title>
+            </rect>
           );
         })}
         <line
@@ -110,11 +137,14 @@ export function OutcomeBreakdown({
           <li key={b.outcome} className="flex flex-col gap-1">
             <div className="text-foreground flex items-baseline justify-between">
               <span className="capitalize">{b.outcome.replace(/_/g, " ")}</span>
-              <span className="text-muted-foreground">
+              <span className="text-muted-foreground tabular-nums">
                 {b.count.toLocaleString()} ({pct.toFixed(0)}%)
               </span>
             </div>
-            <div className="bg-muted h-2 w-full overflow-hidden rounded">
+            <div
+              className="bg-muted h-2 w-full overflow-hidden rounded"
+              title={`${b.outcome.replace(/_/g, " ")}: ${b.count} (${pct.toFixed(1)}%)`}
+            >
               <div
                 className="bg-primary h-full"
                 style={{ width: `${Math.max(1, pct)}%` }}
@@ -127,7 +157,31 @@ export function OutcomeBreakdown({
   );
 }
 
-/** Top campaigns by Goal Met. */
+/** Top-3 medal tint. Gold / silver / bronze — applied as a tiny pill in
+ *  front of the rank for the leaderboard. */
+const MEDALS: { bg: string; ring: string; text: string; label: string }[] = [
+  {
+    bg: "bg-amber-100 dark:bg-amber-950",
+    ring: "ring-amber-300/60 dark:ring-amber-700/60",
+    text: "text-amber-800 dark:text-amber-200",
+    label: "Gold",
+  },
+  {
+    bg: "bg-slate-100 dark:bg-slate-800",
+    ring: "ring-slate-300/60 dark:ring-slate-600/60",
+    text: "text-slate-700 dark:text-slate-200",
+    label: "Silver",
+  },
+  {
+    bg: "bg-orange-100 dark:bg-orange-950",
+    ring: "ring-orange-300/60 dark:ring-orange-700/60",
+    text: "text-orange-800 dark:text-orange-200",
+    label: "Bronze",
+  },
+];
+
+/** Top campaigns by Goal Met. Round 17 — top 3 get gold/silver/bronze
+ *  rank pills so the leaderboard reads at a glance. */
 export function CampaignLeaderboard({ rows }: { rows: CampaignRank[] }) {
   if (rows.length === 0) {
     return (
@@ -141,19 +195,40 @@ export function CampaignLeaderboard({ rows }: { rows: CampaignRank[] }) {
       data-testid="campaign-leaderboard"
       className="flex flex-col gap-2 text-sm"
     >
-      {rows.slice(0, 8).map((r) => (
-        <li key={r.campaignId} className="flex items-baseline justify-between">
-          <span className="text-foreground truncate pr-3">
-            {r.campaignName}
-          </span>
-          <span className="text-muted-foreground whitespace-nowrap">
-            {r.goalMet} goals · ${r.spend.toFixed(2)} ·{" "}
-            {r.costPerGoalMet > 0
-              ? `$${r.costPerGoalMet.toFixed(2)}/goal`
-              : "—"}
-          </span>
-        </li>
-      ))}
+      {rows.slice(0, 8).map((r, i) => {
+        const medal = i < 3 ? MEDALS[i] : null;
+        return (
+          <li
+            key={r.campaignId}
+            className="flex items-center justify-between gap-3"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              {medal ? (
+                <span
+                  data-testid="leaderboard-medal"
+                  data-rank={i + 1}
+                  className={`inline-flex size-6 items-center justify-center rounded-full ring-1 ${medal.bg} ${medal.ring} ${medal.text} text-[11px] font-semibold`}
+                  title={`${medal.label} — rank ${i + 1}`}
+                >
+                  {i === 0 ? <Trophy className="size-3" /> : i + 1}
+                </span>
+              ) : (
+                <span className="text-muted-foreground inline-flex size-6 items-center justify-center text-xs tabular-nums">
+                  {i + 1}
+                </span>
+              )}
+              <span className="text-foreground truncate">{r.campaignName}</span>
+            </div>
+            <span className="text-muted-foreground whitespace-nowrap tabular-nums">
+              {r.goalMet} {r.goalMet === 1 ? "goal" : "goals"} · $
+              {r.spend.toFixed(2)} ·{" "}
+              {r.costPerGoalMet > 0
+                ? `$${r.costPerGoalMet.toFixed(2)}/goal`
+                : "—"}
+            </span>
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -4,7 +4,6 @@ import {
   BookOpen,
   ChevronDown,
   Clock,
-  Headset,
   ListChecks,
   PhoneCall,
   PlayCircle,
@@ -442,14 +441,12 @@ export function CampaignSettingsDialog({
                 />
               </div>
             </div>
-          </CampaignSection>
 
-          <CampaignSection title="Tools" icon={<Headset className="size-4" />}>
-            <p className="text-muted-foreground text-sm">
-              Calendly and Close integrations land in Phase 8. The agent tools
-              they enable (book appointment, send email) become configurable
-              here then.
-            </p>
+            {/* Transfer destination phone — moved here from the
+                retired Tools section. The transfer-to-human capability
+                itself lives on the agent; this is just the campaign-
+                specific number the agent should dial when the user
+                asks for a human. */}
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-transfer">
                 Transfer destination phone
@@ -464,11 +461,19 @@ export function CampaignSettingsDialog({
                 placeholder="+1…  (E.164)"
               />
               <p className="text-muted-foreground text-xs">
-                When set, the agent gains the &ldquo;transfer to a human&rdquo;
-                tool.
+                When set and the agent has the &ldquo;transfer to a human&rdquo;
+                tool enabled, this is the number it dials.
               </p>
             </div>
           </CampaignSection>
+
+          {/* Round 16 — "Tools" section retired. The agent owns its
+              tool capabilities (transfer-to-human, calendly book, etc).
+              The campaign only contributes the destination phone for
+              the transfer tool — that's a telephony detail, so we keep
+              it under Telephony above. Calendly / Close integration
+              config will live on the agent edit page when Phase 8
+              lands. */}
 
           <CampaignSection
             title="Knowledge base"

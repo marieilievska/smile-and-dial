@@ -1,16 +1,7 @@
+import { Info } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   bookingsByDay,
   buildFunnel,
@@ -25,20 +16,12 @@ import {
 } from "@/lib/analytics/stats";
 import { createClient } from "@/lib/supabase/server";
 
+import { AnalyticsDatePills } from "./analytics-date-pills";
+import { AnalyticsFilters } from "./analytics-filters";
 import { BookingsOverTime } from "./bookings-over-time";
 import { CampaignLeaderboard, FunnelChart, OutcomeBreakdown } from "./charts";
 import { HeroKpi } from "./hero-kpi";
 import { KpiTile } from "./kpi-tile";
-
-const PRESETS = [
-  { value: "today", label: "Today" },
-  { value: "yesterday", label: "Yesterday" },
-  { value: "last7", label: "Last 7 days" },
-  { value: "last30", label: "Last 30 days" },
-  { value: "this_month", label: "This month" },
-  { value: "last_month", label: "Last month" },
-  { value: "custom", label: "Custom" },
-];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -72,6 +55,18 @@ function isMockMode(): boolean {
   );
 }
 
+function fmtRangeLabel(from: string, to: string): string {
+  try {
+    const f = new Date(`${from}T00:00:00Z`);
+    const t = new Date(`${to}T00:00:00Z`);
+    const fmt: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+    if (from === to) return f.toLocaleDateString(undefined, fmt);
+    return `${f.toLocaleDateString(undefined, fmt)} – ${t.toLocaleDateString(undefined, fmt)}`;
+  } catch {
+    return `${from} → ${to}`;
+  }
+}
+
 export default async function AnalyticsPage({
   searchParams,
 }: {
@@ -93,9 +88,15 @@ export default async function AnalyticsPage({
   if (!user) redirect("/login");
 
   const preset = str(params.preset) || "last30";
+  const customFromInput = DATE_RE.test(str(params.from))
+    ? str(params.from)
+    : undefined;
+  const customToInput = DATE_RE.test(str(params.to))
+    ? str(params.to)
+    : undefined;
   const { from, to } = resolveDatePreset(preset, {
-    from: DATE_RE.test(str(params.from)) ? str(params.from) : undefined,
-    to: DATE_RE.test(str(params.to)) ? str(params.to) : undefined,
+    from: customFromInput,
+    to: customToInput,
   });
   const campaignId = UUID_RE.test(str(params.campaign))
     ? str(params.campaign)
@@ -161,190 +162,124 @@ export default async function AnalyticsPage({
     view: "per_campaign",
     preset: "custom",
   }).toString()}`;
+  const conversationsHref = `/calls?${new URLSearchParams({
+    ...Object.fromEntries(drillQs),
+  }).toString()}`;
 
   const mockMode = isMockMode();
+  const rangeLabel = fmtRangeLabel(from, to);
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <div>
-        <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          Analytics
-        </h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Appointments and pipeline performance · {from} → {to} ·{" "}
-          {kpis.totalCalls.toLocaleString()} calls
-          {compare ? " · comparing to prior period" : ""}
-        </p>
+      {/* Header row — title left, Filters popover right. The date pills
+       *  sit below as their own row because date range is the primary
+       *  axis of the page, not "yet another filter". */}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-foreground animate-in fade-in slide-in-from-bottom-1 fill-mode-both text-2xl font-bold tracking-tight duration-500">
+              Analytics
+            </h1>
+            <p className="text-muted-foreground animate-in fade-in fill-mode-both mt-1 text-sm delay-75 duration-500">
+              {rangeLabel} · {kpis.totalCalls.toLocaleString()}{" "}
+              {kpis.totalCalls === 1 ? "call" : "calls"}
+              {compare ? " · comparing to prior period" : ""}
+            </p>
+          </div>
+          <AnalyticsFilters
+            campaigns={campaigns ?? []}
+            lists={lists ?? []}
+            owners={owners}
+            showOwner={isAdmin}
+            showCustomDates={preset === "custom"}
+            initialFrom={customFromInput}
+            initialTo={customToInput}
+          />
+        </div>
+
+        <AnalyticsDatePills current={preset} />
       </div>
 
-      <form
-        method="get"
-        action="/analytics"
-        className="flex flex-wrap items-end gap-2"
-      >
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="ana-preset">Date range</Label>
-          <Select name="preset" defaultValue={preset}>
-            <SelectTrigger id="ana-preset" className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PRESETS.map((p) => (
-                <SelectItem key={p.value} value={p.value}>
-                  {p.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {preset === "custom" ? (
-          <>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="ana-from">From</Label>
-              <Input
-                id="ana-from"
-                name="from"
-                type="date"
-                defaultValue={from}
-                className="w-44"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="ana-to">To</Label>
-              <Input
-                id="ana-to"
-                name="to"
-                type="date"
-                defaultValue={to}
-                className="w-44"
-              />
-            </div>
-          </>
-        ) : null}
-
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="ana-campaign">Campaign</Label>
-          <Select name="campaign" defaultValue={campaignId ?? "__any__"}>
-            <SelectTrigger id="ana-campaign" className="w-52">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__any__">Any</SelectItem>
-              {(campaigns ?? []).map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="ana-list">List</Label>
-          <Select name="list" defaultValue={listId ?? "__any__"}>
-            <SelectTrigger id="ana-list" className="w-52">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__any__">Any</SelectItem>
-              {(lists ?? []).map((l) => (
-                <SelectItem key={l.id} value={l.id}>
-                  {l.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {isAdmin ? (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="ana-user">User</Label>
-            <Select name="user" defaultValue={ownerId ?? "__any__"}>
-              <SelectTrigger id="ana-user" className="w-52">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__any__">Any</SelectItem>
-                {owners.map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    {o.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      {/* Page-level mock-data banner — clearer than a tiny badge tucked
+       *  into one tile. Drops the moment any LIVE env var flips. */}
+      {mockMode ? (
+        <div
+          data-testid="mock-data-banner"
+          className="border-border bg-muted/40 animate-in fade-in fill-mode-both flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm delay-100 duration-500"
+        >
+          <Info className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+          <div className="flex flex-col gap-0.5">
+            <p className="text-foreground font-medium">
+              You&apos;re viewing mock data
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Twilio, ElevenLabs, and OpenAI are all running in simulated mode.
+              Costs, durations, and outcomes are seeded for design and QA — not
+              real billable activity.
+            </p>
           </div>
-        ) : null}
-
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="ana-compare">Compare</Label>
-          <Select name="compare" defaultValue={compare ? "1" : "0"}>
-            <SelectTrigger id="ana-compare" className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1">vs prior period</SelectItem>
-              <SelectItem value="0">No comparison</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
+      ) : null}
 
-        <Button type="submit" variant="outline">
-          Apply
-        </Button>
-      </form>
-
-      {/* Layer 1 — Executive summary: NSM + 3 supporting KPIs */}
-      <Link href={goalMetCallsHref} className="block">
-        <HeroKpi
-          label="Appointments Booked"
-          value={kpis.goalMet.toLocaleString()}
-          priorValue={prior?.goalMet ?? null}
-          deltaPct={prior ? pctDelta(kpis.goalMet, prior.goalMet) : undefined}
-          sparkline={dailyBookings}
-          helper="Calls where the AI agent successfully booked a meeting"
-        />
-      </Link>
-
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <KpiTile
-          label="Conversations"
-          value={kpis.conversations.toLocaleString()}
-          hint="Calls where we reached someone"
-          pctDelta={
-            prior
-              ? pctDelta(kpis.conversations, prior.conversations)
-              : undefined
-          }
-        />
-        <KpiTile
-          label="Goal Met Rate"
-          value={fmtPct(kpis.goalMetRate)}
-          hint="Of conversations that booked"
-          pctDelta={
-            prior ? pctDelta(kpis.goalMetRate, prior.goalMetRate) : undefined
-          }
-        />
-        <Link href={costsHref} className="block">
-          <KpiTile
-            label="Cost per Appointment"
-            value={kpis.goalMet === 0 ? "—" : fmtUsd(kpis.costPerGoalMet)}
-            hint="All-in: Twilio + 11Labs + OpenAI"
-            pctDelta={
-              prior && kpis.goalMet > 0 && prior.goalMet > 0
-                ? pctDelta(kpis.costPerGoalMet, prior.costPerGoalMet)
-                : undefined
-            }
-            badge={mockMode ? { label: "Mock data", tone: "warn" } : null}
+      {/* Layer 1 — Executive summary: NSM hero + 3 supporting KPIs in a
+       *  unified strip so the eye reads them as one band. */}
+      <section className="flex flex-col gap-3">
+        <Link href={goalMetCallsHref} className="block">
+          <HeroKpi
+            label="Appointments Booked"
+            value={kpis.goalMet.toLocaleString()}
+            priorValue={prior?.goalMet ?? null}
+            deltaPct={prior ? pctDelta(kpis.goalMet, prior.goalMet) : undefined}
+            sparkline={dailyBookings}
+            helper="Calls where the AI agent successfully booked a meeting"
+            cta="View calls"
           />
         </Link>
-      </div>
 
-      <BookingsOverTime daily={dailyBookings} />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <Link href={conversationsHref} className="block">
+            <KpiTile
+              label="Conversations"
+              value={kpis.conversations.toLocaleString()}
+              hint="Calls where we reached someone"
+              pctDelta={
+                prior
+                  ? pctDelta(kpis.conversations, prior.conversations)
+                  : undefined
+              }
+              cta="View"
+            />
+          </Link>
+          <KpiTile
+            label="Goal Met Rate"
+            value={fmtPct(kpis.goalMetRate)}
+            hint="Of conversations that booked"
+            pctDelta={
+              prior ? pctDelta(kpis.goalMetRate, prior.goalMetRate) : undefined
+            }
+          />
+          <Link href={costsHref} className="block">
+            <KpiTile
+              label="Cost per Appointment"
+              value={kpis.goalMet === 0 ? "—" : fmtUsd(kpis.costPerGoalMet)}
+              hint="All-in: Twilio + 11Labs + OpenAI"
+              pctDelta={
+                prior && kpis.goalMet > 0 && prior.goalMet > 0
+                  ? pctDelta(kpis.costPerGoalMet, prior.costPerGoalMet)
+                  : undefined
+              }
+              badge={mockMode ? { label: "Mock data", tone: "warn" } : null}
+              cta="View costs"
+            />
+          </Link>
+        </div>
+      </section>
+
+      <BookingsOverTime daily={dailyBookings} startDate={from} />
 
       {/* Layer 2 — Clarification */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <section className="border-border bg-card rounded-lg border p-4">
+        <section className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both rounded-xl border p-5 delay-150 duration-500">
           <h2 className="text-foreground text-sm font-semibold">
             Conversion funnel
           </h2>
@@ -354,17 +289,17 @@ export default async function AnalyticsPage({
           <FunnelChart steps={funnel} />
         </section>
 
-        <section className="border-border bg-card rounded-lg border p-4">
+        <section className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both rounded-xl border p-5 delay-150 duration-500">
           <h2 className="text-foreground text-sm font-semibold">
             Top campaigns
           </h2>
           <p className="text-muted-foreground mt-1 mb-3 text-xs">
-            Sorted by Goal Met. Click a row to see the underlying calls.
+            Sorted by Goal Met. Top 3 wear the medal.
           </p>
           <CampaignLeaderboard rows={ranking} />
         </section>
 
-        <section className="border-border bg-card col-span-1 rounded-lg border p-4 lg:col-span-2">
+        <section className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both col-span-1 rounded-xl border p-5 delay-200 duration-500 lg:col-span-2">
           <h2 className="text-foreground text-sm font-semibold">
             Outcome distribution
           </h2>
@@ -375,23 +310,48 @@ export default async function AnalyticsPage({
         </section>
       </div>
 
-      {/* Inventory strip — replaces the 5 lower-priority equal-weight tiles */}
-      <p
-        data-testid="inventory-strip"
-        className="text-muted-foreground text-sm"
-      >
-        <span className="text-foreground font-medium">
+      {/* Inventory strip — six low-priority counts displayed as a grid of
+       *  mini-tiles instead of a single run-on line. */}
+      <section data-testid="inventory-strip" className="flex flex-col gap-2">
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
           Also in this period:
-        </span>{" "}
-        {kpis.dmsReached.toLocaleString()} DMs reached ·{" "}
-        {kpis.callbacksScheduled.toLocaleString()} callbacks scheduled ·{" "}
-        {kpis.dncAdditions.toLocaleString()} DNC additions ·{" "}
-        {fmtSeconds(kpis.avgDurationSeconds)} avg call ·{" "}
-        {fmtUsd(kpis.avgCostPerCall)} avg cost per call ·{" "}
-        {fmtUsd(kpis.totalSpend)} total spend
-        {mockMode ? (
-          <span className="text-muted-foreground/80"> (mock data)</span>
-        ) : null}
+        </p>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
+          <InventoryTile
+            label="DMs reached"
+            value={kpis.dmsReached.toLocaleString()}
+          />
+          <InventoryTile
+            label="Callbacks scheduled"
+            value={kpis.callbacksScheduled.toLocaleString()}
+          />
+          <InventoryTile
+            label="DNC additions"
+            value={kpis.dncAdditions.toLocaleString()}
+          />
+          <InventoryTile
+            label="Avg call"
+            value={fmtSeconds(kpis.avgDurationSeconds)}
+          />
+          <InventoryTile
+            label="Avg cost / call"
+            value={fmtUsd(kpis.avgCostPerCall)}
+          />
+          <InventoryTile label="Total spend" value={fmtUsd(kpis.totalSpend)} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function InventoryTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-border bg-card flex flex-col gap-0.5 rounded-lg border p-3">
+      <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
+        {label}
+      </p>
+      <p className="text-foreground text-base font-semibold tabular-nums">
+        {value}
       </p>
     </div>
   );
