@@ -55,8 +55,8 @@ export default async function CustomFieldsPage() {
   }));
 
   return (
-    <div className="p-8">
-      <div className="flex items-start justify-between gap-4">
+    <div className="flex flex-col gap-6 p-8">
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex items-start justify-between gap-4 duration-500">
         <div>
           <h1 className="text-foreground text-2xl font-bold tracking-tight">
             Custom fields
@@ -69,7 +69,7 @@ export default async function CustomFieldsPage() {
       </div>
 
       {fields.length > 0 ? (
-        <div className="border-border mt-6 overflow-hidden rounded-lg border">
+        <div className="border-border overflow-hidden rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -82,7 +82,7 @@ export default async function CustomFieldsPage() {
             </TableHeader>
             <TableBody>
               {fields.map((field, index) => (
-                <TableRow key={field.id}>
+                <TableRow key={field.id} className="group">
                   <TableCell className="font-medium">{field.name}</TableCell>
                   <TableCell className="text-muted-foreground font-mono text-xs">
                     {field.slug}
@@ -92,7 +92,7 @@ export default async function CustomFieldsPage() {
                   </TableCell>
                   <TableCell>
                     {field.required ? (
-                      <Badge variant="secondary">Required</Badge>
+                      <Badge variant="warning">Required</Badge>
                     ) : (
                       <span className="text-muted-foreground text-sm">
                         Optional
@@ -100,11 +100,13 @@ export default async function CustomFieldsPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <CustomFieldRowActions
-                      field={field}
-                      isFirst={index === 0}
-                      isLast={index === fields.length - 1}
-                    />
+                    <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <CustomFieldRowActions
+                        field={field}
+                        isFirst={index === 0}
+                        isLast={index === fields.length - 1}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -112,7 +114,7 @@ export default async function CustomFieldsPage() {
           </Table>
         </div>
       ) : (
-        <div className="border-border mt-6 flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+        <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
           <SlidersHorizontal className="text-muted-foreground size-8" />
           <p className="text-foreground text-sm font-medium">
             No custom fields yet

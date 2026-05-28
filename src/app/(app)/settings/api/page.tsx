@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
 
+import { formatCreatedAt } from "../format-created";
+import { ApiDocsTabs } from "./api-docs-tabs";
 import { ApiKeyCreateForm } from "./api-key-create-form";
 import { ApiKeyRevokeButton } from "./api-key-revoke-button";
 
@@ -39,9 +41,11 @@ export default async function ApiPage() {
     .select("id, name, key_prefix, created_at, last_used_at, revoked_at")
     .order("created_at", { ascending: false });
 
+  const now = new Date();
+
   return (
     <div className="flex flex-col gap-6 p-8">
-      <div>
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           API keys
         </h1>
@@ -51,7 +55,7 @@ export default async function ApiPage() {
         </p>
       </div>
 
-      <Card>
+      <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both delay-75 duration-500">
         <CardHeader>
           <CardTitle>Create a new key</CardTitle>
           <CardDescription>
@@ -64,7 +68,7 @@ export default async function ApiPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both delay-150 duration-500">
         <CardHeader>
           <CardTitle>Active keys</CardTitle>
         </CardHeader>
@@ -84,28 +88,37 @@ export default async function ApiPage() {
               </TableHeader>
               <TableBody>
                 {(keys ?? []).map((k) => (
-                  <TableRow key={k.id}>
+                  <TableRow key={k.id} className="group">
                     <TableCell className="font-medium">{k.name}</TableCell>
                     <TableCell className="font-mono text-xs">
                       sk_{k.key_prefix}…
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-xs">
+                    <TableCell
+                      className="text-muted-foreground text-xs tabular-nums"
+                      title={
+                        k.last_used_at
+                          ? new Date(k.last_used_at).toLocaleString()
+                          : undefined
+                      }
+                    >
                       {k.last_used_at
-                        ? new Date(k.last_used_at).toLocaleString()
-                        : "—"}
+                        ? formatCreatedAt(k.last_used_at, now)
+                        : "Never"}
                     </TableCell>
                     <TableCell>
                       <Badge
-                        variant={k.revoked_at ? "destructive" : "secondary"}
+                        variant={k.revoked_at ? "destructive" : "success"}
                         dot
                       >
-                        {k.revoked_at ? "revoked" : "active"}
+                        {k.revoked_at ? "Revoked" : "Active"}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {!k.revoked_at ? (
-                        <ApiKeyRevokeButton apiKeyId={k.id} />
-                      ) : null}
+                      <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        {!k.revoked_at ? (
+                          <ApiKeyRevokeButton apiKeyId={k.id} />
+                        ) : null}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -115,60 +128,13 @@ export default async function ApiPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both delay-200 duration-500">
         <CardHeader>
           <CardTitle>Documentation</CardTitle>
           <CardDescription>POST a lead to your workspace.</CardDescription>
         </CardHeader>
-        <CardContent className="text-sm">
-          <p className="text-foreground mb-2 font-semibold">Endpoint</p>
-          <pre className="bg-muted overflow-x-auto rounded-md p-3 text-xs">
-            POST /api/v1/leads
-          </pre>
-          <p className="text-foreground mt-4 mb-2 font-semibold">Headers</p>
-          <pre className="bg-muted overflow-x-auto rounded-md p-3 text-xs">{`Authorization: Bearer sk_…
-Content-Type: application/json
-Idempotency-Key: <optional-uuid>`}</pre>
-          <p className="text-foreground mt-4 mb-2 font-semibold">Body</p>
-          <pre className="bg-muted overflow-x-auto rounded-md p-3 text-xs">{`{
-  "business_phone": "+18005551234",
-  "company": "Acme Gym",
-  "city": "Austin",
-  "state": "TX",
-  "business_email": "info@acmegym.com",
-  "owner_name": "Pat Smith",
-  "list": "January Partner Imports",
-  "custom_fields": { "tier": "gold" }
-}`}</pre>
-          <p className="text-foreground mt-4 mb-2 font-semibold">Responses</p>
-          <ul className="text-muted-foreground list-disc pl-5">
-            <li>
-              <code className="font-mono">201 Created</code> — new lead;
-              response body has <code>id</code> + <code>status: created</code>
-            </li>
-            <li>
-              <code className="font-mono">200 OK</code> — phone already exists;{" "}
-              <code>id</code> + <code>status: duplicate</code>
-            </li>
-            <li>
-              <code className="font-mono">400</code> — missing business_phone or
-              invalid JSON
-            </li>
-            <li>
-              <code className="font-mono">401</code> — missing or malformed key
-            </li>
-            <li>
-              <code className="font-mono">403</code> — invalid or revoked key
-            </li>
-          </ul>
-          <p className="text-foreground mt-4 mb-2 font-semibold">
-            curl example
-          </p>
-          <pre className="bg-muted overflow-x-auto rounded-md p-3 text-xs">{`curl -X POST https://your.app/api/v1/leads \\
-  -H "Authorization: Bearer sk_…" \\
-  -H "Content-Type: application/json" \\
-  -H "Idempotency-Key: $(uuidgen)" \\
-  -d '{"business_phone":"+18005551234","company":"Acme"}'`}</pre>
+        <CardContent>
+          <ApiDocsTabs />
         </CardContent>
       </Card>
     </div>
