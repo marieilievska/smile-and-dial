@@ -66,9 +66,17 @@ export function BookingsOverTime({
           style={{ color: "var(--primary)" }}
           onMouseLeave={() => setHover(null)}
         >
+          {/* Round 32 (V7) — gradient area fill so the chart fades
+           *  into the card surface instead of slabbing a flat tint. */}
+          <defs>
+            <linearGradient id="bot-area" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="currentColor" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="currentColor" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
           {daily.length > 1 ? (
             <>
-              <polygon points={filled} fill="currentColor" opacity={0.12} />
+              <polygon points={filled} fill="url(#bot-area)" />
               <polyline
                 points={points}
                 fill="none"

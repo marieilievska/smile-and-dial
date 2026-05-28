@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 
 import { humanizeFallback, outcomeLabel } from "@/lib/labels";
+import { relativeTime } from "@/lib/relative-time";
 
 /** Activity feed for the lead detail route. Merges three sources into
  *  one chronological stream:
@@ -53,20 +54,6 @@ function fmtSeconds(s: number | null): string {
   const m = Math.floor(s / 60);
   const sec = s % 60;
   return `${m}m ${sec.toString().padStart(2, "0")}s`;
-}
-
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const sec = Math.max(1, Math.floor((now - then) / 1000));
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 14) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString();
 }
 
 function callIcon(outcome: string | null, direction: string): LucideIcon {

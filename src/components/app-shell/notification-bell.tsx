@@ -15,6 +15,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from "@/lib/notifications/actions";
+import { relativeTime } from "@/lib/relative-time";
 
 export type NotificationItem = {
   id: string;
@@ -35,20 +36,6 @@ const KIND_HREF: Record<string, (n: NotificationItem) => string | null> = {
   connect_rate_low: () => `/campaigns`,
   call_now: (n) => (n.ref_id ? `/calls?call=${n.ref_id}` : null),
 };
-
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const sec = Math.max(1, Math.floor((now - then) / 1000));
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 14) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
 
 /** Top-bar notification bell (Step 40 / BUILD_PLAN §5.0).
  *  Shows the most recent notifications with an unread badge; clicking a row
