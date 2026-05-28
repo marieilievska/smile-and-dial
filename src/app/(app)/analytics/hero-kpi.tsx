@@ -1,9 +1,23 @@
-import { ArrowDown, ArrowUp, Minus } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpRight,
+  Minus,
+  Sparkles,
+} from "lucide-react";
 
-/** Hero KPI for the dashboard's North Star Metric. Larger than KpiTile,
- *  carries an inline sparkline, and uses absolute prior-period framing
- *  ("was 19") instead of just a percentage so the eye doesn't have to
- *  reverse-compute the comparison. */
+/** Hero KPI for the dashboard's North Star Metric.
+ *
+ *  Round 17 refresh:
+ *  - Coral Sparkles + uppercase letter-spaced label so the NSM
+ *    visually outranks every other KPI on the page.
+ *  - Coral-bordered card matching the lead detail / call detail
+ *    AI summary treatment.
+ *  - Sparkline tinted coral, more substantial size.
+ *  - Delta line renders "no prior data" only when prior actually was
+ *    zero — checks priorValue first, not just deltaPct.
+ *  - When wrapped in a Link, an "View calls →" affordance appears in
+ *    the corner so the click intent is explicit (CTA prop opt-in). */
 export function HeroKpi({
   label,
   value,
@@ -12,6 +26,7 @@ export function HeroKpi({
   sparkline,
   helper,
   badge,
+  cta,
 }: {
   label: string;
   value: string;
@@ -20,17 +35,24 @@ export function HeroKpi({
   sparkline?: number[];
   helper?: string;
   badge?: { label: string; tone: "info" | "warn" } | null;
+  /** Renders a small "View →" affordance in the top-right when this
+   *  tile is wrapped in a navigation Link. */
+  cta?: string;
 }) {
   const showDelta = deltaPct !== undefined;
   return (
     <div
       data-testid="hero-kpi"
       data-label={label}
-      className="border-border bg-card flex flex-col gap-3 rounded-lg border p-6 md:flex-row md:items-center md:justify-between"
+      className="bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both relative flex flex-col gap-3 rounded-xl border p-6 duration-500 md:flex-row md:items-center md:justify-between"
+      style={{
+        borderColor: "color-mix(in oklab, var(--coral) 28%, var(--border))",
+      }}
     >
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-1 flex-col gap-1">
         <div className="flex items-center gap-2">
-          <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+          <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase">
+            <Sparkles className="size-3.5" style={{ color: "var(--coral)" }} />
             {label}
           </p>
           {badge ? (
@@ -38,7 +60,7 @@ export function HeroKpi({
               data-testid="hero-kpi-badge"
               className={
                 badge.tone === "warn"
-                  ? "rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium tracking-wide text-amber-800 uppercase dark:bg-amber-950 dark:text-amber-200"
+                  ? "text-warning bg-warning/10 rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase"
                   : "bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase"
               }
             >
@@ -46,7 +68,7 @@ export function HeroKpi({
             </span>
           ) : null}
         </div>
-        <p className="text-foreground text-5xl leading-none font-semibold">
+        <p className="text-foreground text-5xl leading-none font-semibold tabular-nums">
           {value}
         </p>
         {showDelta ? (
@@ -57,6 +79,12 @@ export function HeroKpi({
       </div>
       {sparkline && sparkline.length > 1 ? (
         <Sparkline values={sparkline} />
+      ) : null}
+      {cta ? (
+        <span className="text-muted-foreground absolute top-3 right-3 inline-flex items-center gap-1 text-xs">
+          {cta}
+          <ArrowUpRight className="size-3" />
+        </span>
       ) : null}
     </div>
   );
@@ -69,11 +97,22 @@ function DeltaLine({
   value: number | null;
   priorValue?: number | null;
 }) {
+  // Round 17 — "no prior data" only when prior was genuinely zero
+  // (or null). If we have a prior value but the delta is undefined
+  // we still render the prior so the eye has a baseline.
+  if (value == null && (priorValue == null || priorValue === 0)) {
+    return (
+      <p className="text-muted-foreground inline-flex items-center gap-1 text-sm">
+        <Minus className="size-3" />
+        No prior data to compare
+      </p>
+    );
+  }
   if (value == null) {
     return (
       <p className="text-muted-foreground inline-flex items-center gap-1 text-sm">
         <Minus className="size-3" />
-        no prior data
+        Prior period: {priorValue?.toLocaleString()}
       </p>
     );
   }
@@ -99,11 +138,12 @@ function DeltaLine({
   );
 }
 
-/** Tiny inline-SVG sparkline. Designed to feel like part of the typography,
- *  not a chart — no axes, no labels, no tooltips. */
+/** Inline-SVG sparkline tinted coral. Round 17 — bumped from 50px tall
+ *  to 64px and shifted to coral so the trend reads as part of the
+ *  NSM's identity, not a generic decoration. */
 function Sparkline({ values }: { values: number[] }) {
-  const width = 180;
-  const height = 50;
+  const width = 200;
+  const height = 64;
   const max = Math.max(1, ...values);
   const min = 0;
   const step = values.length > 1 ? width / (values.length - 1) : 0;
@@ -117,9 +157,10 @@ function Sparkline({ values }: { values: number[] }) {
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className="text-primary h-12 w-44 shrink-0"
+      className="h-16 w-52 shrink-0"
       role="img"
       aria-label="Trend over the selected window"
+      style={{ color: "var(--coral)" }}
     >
       <polyline
         points={points}
@@ -128,7 +169,6 @@ function Sparkline({ values }: { values: number[] }) {
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
-        opacity={0.85}
       />
     </svg>
   );

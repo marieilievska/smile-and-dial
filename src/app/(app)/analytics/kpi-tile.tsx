@@ -1,28 +1,39 @@
-import { ArrowDown, ArrowUp, Minus } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Minus } from "lucide-react";
 
-/** KPI tile that optionally renders a compare-period delta. `pctDelta` of
- *  `null` is "previous was zero", which we render as a dash. */
+/** Supporting KPI tile — sits alongside the HeroKpi in a unified strip.
+ *  Round 17:
+ *  - Matched padding and animation to HeroKpi so the strip reads as one
+ *    cohesive band.
+ *  - Warning-tone badge now uses the project's text-warning palette
+ *    (was raw amber utilities) so it lines up with every other warning
+ *    badge in the app.
+ *  - Optional `cta` renders a "View →" affordance in the corner when the
+ *    tile is wrapped in a Link, so the click intent is explicit. */
 export function KpiTile({
   label,
   value,
   hint,
   pctDelta,
   badge,
+  cta,
 }: {
   label: string;
   value: string;
   hint?: string;
   pctDelta?: number | null;
   badge?: { label: string; tone: "info" | "warn" } | null;
+  /** Renders a small "View →" affordance in the top-right when this tile
+   *  is wrapped in a navigation Link. */
+  cta?: string;
 }) {
   return (
     <div
       data-testid="kpi-tile"
       data-label={label}
-      className="border-border bg-card flex flex-col gap-1 rounded-lg border p-4"
+      className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both relative flex flex-col gap-1.5 rounded-xl border p-5 duration-500"
     >
       <div className="flex items-center gap-2">
-        <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+        <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
           {label}
         </p>
         {badge ? (
@@ -30,7 +41,7 @@ export function KpiTile({
             data-testid="kpi-badge"
             className={
               badge.tone === "warn"
-                ? "rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium tracking-wide text-amber-800 uppercase dark:bg-amber-950 dark:text-amber-200"
+                ? "text-warning bg-warning/10 rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase"
                 : "bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase"
             }
           >
@@ -38,9 +49,17 @@ export function KpiTile({
           </span>
         ) : null}
       </div>
-      <p className="text-foreground text-2xl font-semibold">{value}</p>
+      <p className="text-foreground text-2xl font-semibold tabular-nums">
+        {value}
+      </p>
       {hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
       {pctDelta !== undefined ? <DeltaBadge value={pctDelta} /> : null}
+      {cta ? (
+        <span className="text-muted-foreground absolute top-3 right-3 inline-flex items-center gap-1 text-[11px]">
+          {cta}
+          <ArrowUpRight className="size-3" />
+        </span>
+      ) : null}
     </div>
   );
 }
