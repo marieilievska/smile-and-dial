@@ -193,21 +193,24 @@ export default async function TodayPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 p-8 lg:p-12">
-      {/* Greeting + AI-aware subtitle + date — generous typography sets the tone */}
+      {/* Greeting + AI-aware subtitle + date. Round 26 — toned down
+       *  from the round T4 "bigger hero typography" treatment. The
+       *  greeting now reads as a product page header (2xl) rather
+       *  than a marketing splash (4xl). */}
       <header
         data-testid="today-greeting"
-        className="animate-in fade-in slide-in-from-bottom-1 flex flex-col gap-1.5 duration-500"
+        className="animate-in fade-in slide-in-from-bottom-1 flex flex-col gap-1 duration-500"
       >
-        <h1 className="text-foreground text-3xl font-semibold tracking-tight md:text-4xl">
+        <h1 className="text-foreground text-2xl font-bold tracking-tight">
           {greeting}
         </h1>
         <p
           data-testid="today-subtitle"
-          className="text-foreground/80 text-base md:text-lg"
+          className="text-muted-foreground text-sm"
         >
           {subtitle}
         </p>
-        <p className="text-muted-foreground text-xs tracking-wide uppercase">
+        <p className="text-muted-foreground/70 mt-1 text-[10px] tracking-wider uppercase">
           {dateStr}
         </p>
       </header>
