@@ -35,7 +35,7 @@ export function AuthShell({
             aria-hidden so it doesn't reach the a11y tree). */}
         <div className="flex flex-col gap-1.5">
           <h1 className="text-foreground text-base font-bold tracking-tight">
-            Smile <span className="text-coral">&amp;</span> Dial
+            Smile <span className="text-primary">&amp;</span> Dial
           </h1>
           {mobileTagline ? (
             <p className="text-muted-foreground text-xs md:hidden">
@@ -80,7 +80,7 @@ export function AuthSingleColumn({ children }: { children: React.ReactNode }) {
     <main className="bg-background flex min-h-screen w-full flex-col">
       <div className="flex items-center gap-2 p-8 md:p-12">
         <h1 className="text-foreground text-base font-bold tracking-tight">
-          Smile <span className="text-coral">&amp;</span> Dial
+          Smile <span className="text-primary">&amp;</span> Dial
         </h1>
       </div>
       <div className="flex flex-1 items-center justify-center px-8 pb-16">

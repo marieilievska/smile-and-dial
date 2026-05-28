@@ -89,7 +89,7 @@ export function GoalStatusActions({
           variant="ghost"
           onClick={callAgain}
           disabled={pending}
-          className={`${sizeCls} text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]`}
+          className={`${sizeCls} text-primary hover:bg-primary/10 hover:text-primary`}
           title="Call again to rebook"
         >
           <PhoneCall className="size-3.5" />
@@ -102,7 +102,7 @@ export function GoalStatusActions({
           variant="ghost"
           onClick={(e) => transition(e, next.next)}
           disabled={pending}
-          className={`${sizeCls} text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]`}
+          className={`${sizeCls} text-primary hover:bg-primary/10 hover:text-primary`}
           title={next.label}
         >
           <MoveRight className="size-3.5" />

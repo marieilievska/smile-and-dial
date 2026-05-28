@@ -14,6 +14,10 @@
    feel like a sibling product to Referrizer — same family, same shell
    chrome, different feature set.
 
+   Round 31 — the legacy `--coral` alias has been retired. The 117
+   `var(--coral)` references across the codebase were swept to
+   `var(--primary)` so the token graph matches the design.
+
    Source of truth for palette decisions: design-tokens.md
    (Referrizer scaffold), kept in /tmp on Marija's machine.
 
@@ -74,14 +78,6 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
 
-  /* Coral — kept as a token name for backward compatibility with the
-   *  hundreds of existing references, but RE-POINTED to the same
-   *  cool blue as `--primary`. Acts as an alias so legacy code keeps
-   *  working visually without a 200-file sweep. New code should use
-   *  `--primary` directly. */
-  --color-coral: var(--coral);
-  --color-coral-foreground: var(--coral-foreground);
-
   /* Semantic status — Referrizer scaffold values */
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
@@ -138,12 +134,6 @@
   --accent: #e8ebff;
   --accent-foreground: #3e4c7d;
 
-  /* Coral alias — points at the same blue as primary so the hundreds
-   *  of existing decorative `var(--coral)` references keep producing
-   *  a coherent look. Future code should use `--primary` directly. */
-  --coral: #4c70f0;
-  --coral-foreground: #ffffff;
-
   /* Semantic — Referrizer scaffold values */
   --success: #38bb94;
   --success-foreground: #ffffff;
@@ -195,9 +185,6 @@
   --muted-foreground: #8a91a8;
   --accent: #2e344b;
   --accent-foreground: #ffffff;
-
-  --coral: #6385ff;
-  --coral-foreground: #0c0e15;
 
   --success: #44c89f;
   --success-foreground: #0b0d12;

@@ -77,13 +77,13 @@ export function PipelineTable({ leads }: { leads: PipelineLead[] }) {
                     <div className="flex min-w-0 items-center gap-2">
                       <Link
                         href={`/leads/${lead.id}`}
-                        className="text-foreground truncate text-sm font-medium underline-offset-2 hover:text-[color:var(--coral)] hover:underline"
+                        className="text-foreground hover:text-primary truncate text-sm font-medium underline-offset-2 hover:underline"
                       >
                         {lead.company || "Unknown lead"}
                       </Link>
                       {since?.stale ? (
                         <span
-                          className="inline-flex items-center rounded-full bg-[color:var(--coral)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[color:var(--coral)]"
+                          className="bg-primary/10 text-primary inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
                           title="Sitting in the pipeline for 2+ weeks — worth a nudge"
                         >
                           Stale

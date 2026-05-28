@@ -63,7 +63,7 @@ export function BookingsOverTime({
           className="h-40 w-full"
           role="img"
           aria-label="Appointments booked per day in the selected window"
-          style={{ color: "var(--coral)" }}
+          style={{ color: "var(--primary)" }}
           onMouseLeave={() => setHover(null)}
         >
           {daily.length > 1 ? (

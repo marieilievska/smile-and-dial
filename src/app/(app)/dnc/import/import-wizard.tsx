@@ -358,8 +358,8 @@ export function DncImportWizard() {
                   className="inline-flex size-5 items-center justify-center rounded-full"
                   style={{
                     backgroundColor:
-                      "color-mix(in oklab, var(--coral) 14%, transparent)",
-                    color: "var(--coral)",
+                      "color-mix(in oklab, var(--primary) 14%, transparent)",
+                    color: "var(--primary)",
                   }}
                   aria-hidden
                 >

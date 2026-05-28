@@ -117,7 +117,7 @@ export function CallbackRowActions({
           size="sm"
           variant="ghost"
           onClick={callNow}
-          className="h-7 px-2 text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]"
+          className="text-primary hover:bg-primary/10 hover:text-primary h-7 px-2"
           title="Call this lead now"
         >
           <Phone className="size-3.5" />

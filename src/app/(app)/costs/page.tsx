@@ -375,7 +375,7 @@ function PerCampaignView({
                         className="h-full"
                         style={{
                           width: `${Math.max(2, barPct)}%`,
-                          background: "var(--coral)",
+                          background: "var(--primary)",
                         }}
                       />
                     </div>
@@ -489,7 +489,7 @@ function PerGoalView({
                         className="h-full"
                         style={{
                           width: `${Math.max(2, barPct)}%`,
-                          background: "var(--coral)",
+                          background: "var(--primary)",
                         }}
                       />
                     </div>
@@ -580,7 +580,7 @@ async function PerUserView({
                         className="h-full"
                         style={{
                           width: `${Math.max(2, barPct)}%`,
-                          background: "var(--coral)",
+                          background: "var(--primary)",
                         }}
                       />
                     </div>
@@ -688,7 +688,7 @@ async function PerListView({
                         className="h-full"
                         style={{
                           width: `${Math.max(2, barPct)}%`,
-                          background: "var(--coral)",
+                          background: "var(--primary)",
                         }}
                       />
                     </div>
@@ -735,28 +735,33 @@ async function PerListView({
   );
 }
 
-/** Tiny coloured dot for the per-vendor bar list, so the four
- *  vendors are visually distinct. Twilio = red-ish, ElevenLabs =
- *  purple, OpenAI = green, Lookup = slate. */
-const VENDOR_COLOURS: Record<string, string> = {
-  twilio: "#e0245e",
-  elevenlabs: "#7a5af8",
-  openai: "#10a37f",
-  lookup: "#64748b",
-};
-
+/** Per-vendor breakdown. Round 31 — recoloured monochromatically
+ *  against `--primary`. The earlier rainbow (red / purple / green /
+ *  slate, one colour per vendor) read as competing brands; the
+ *  truer story is "four shares of one bill", so each row now uses
+ *  the same primary blue at a different opacity. Bar length still
+ *  carries magnitude. Ordering is by share descending so the
+ *  opacity ramp lines up with importance instead of arbitrary
+ *  vendor order. */
 function PerVendorView({
   summary,
 }: {
   summary: ReturnType<typeof rollupByVendor>;
 }) {
-  const items: { label: string; key: keyof typeof summary; value: number }[] = [
-    { label: "Twilio", key: "twilio", value: summary.twilio },
-    { label: "ElevenLabs", key: "elevenlabs", value: summary.elevenlabs },
-    { label: "OpenAI", key: "openai", value: summary.openai },
-    { label: "Twilio Lookup", key: "lookup", value: summary.lookup },
-  ];
+  const items = [
+    { label: "Twilio", key: "twilio" as const, value: summary.twilio },
+    {
+      label: "ElevenLabs",
+      key: "elevenlabs" as const,
+      value: summary.elevenlabs,
+    },
+    { label: "OpenAI", key: "openai" as const, value: summary.openai },
+    { label: "Twilio Lookup", key: "lookup" as const, value: summary.lookup },
+  ].sort((a, b) => b.value - a.value);
   const max = Math.max(0.01, ...items.map((i) => i.value));
+  // Opacity ramp — biggest share is solid, smallest is a quiet
+  // wash. Four steps because we have four vendors.
+  const opacities = [1, 0.7, 0.45, 0.25];
   return (
     <div
       className="border-border bg-card flex flex-col gap-3 rounded-xl border p-5"
@@ -766,13 +771,13 @@ function PerVendorView({
         Total across vendors: {usd(summary.total)}
       </p>
       <ul className="flex flex-col gap-3 text-sm">
-        {items.map((i) => {
+        {items.map((i, idx) => {
           const pct = (i.value / max) * 100;
           const share =
             summary.total > 0
               ? `${((i.value / summary.total) * 100).toFixed(0)}%`
               : "—";
-          const dotColour = VENDOR_COLOURS[i.key as string] ?? "var(--coral)";
+          const opacity = opacities[idx] ?? 0.25;
           return (
             <li key={i.key} className="flex flex-col gap-1">
               <div className="flex items-baseline justify-between">
@@ -780,7 +785,7 @@ function PerVendorView({
                   <span
                     aria-hidden
                     className="inline-block size-2.5 rounded-full"
-                    style={{ background: dotColour }}
+                    style={{ background: "var(--primary)", opacity }}
                   />
                   {i.label}
                 </span>
@@ -793,7 +798,8 @@ function PerVendorView({
                   className="h-full"
                   style={{
                     width: `${Math.max(i.value > 0 ? 2 : 0, pct)}%`,
-                    background: dotColour,
+                    background: "var(--primary)",
+                    opacity,
                   }}
                 />
               </div>

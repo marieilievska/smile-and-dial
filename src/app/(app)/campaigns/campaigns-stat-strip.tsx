@@ -113,7 +113,7 @@ function Stat({
 function toneClass(tone: "coral" | "warning" | "neutral"): string {
   switch (tone) {
     case "coral":
-      return "text-[color:var(--coral)]";
+      return "text-primary";
     case "warning":
       return "text-warning";
     case "neutral":

@@ -59,7 +59,7 @@ export function CallRowActions({
           size="sm"
           variant="ghost"
           onClick={listen}
-          className="h-7 px-2 text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]"
+          className="text-primary hover:bg-primary/10 hover:text-primary h-7 px-2"
           title="Listen to the recording"
         >
           <Play className="size-3.5" />
@@ -72,7 +72,7 @@ export function CallRowActions({
           size="sm"
           variant="ghost"
           onClick={callBack}
-          className="h-7 px-2 text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]"
+          className="text-primary hover:bg-primary/10 hover:text-primary h-7 px-2"
           title="Call this lead again"
         >
           <PhoneCall className="size-3.5" />

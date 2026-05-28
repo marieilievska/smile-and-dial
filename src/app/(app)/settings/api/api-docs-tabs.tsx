@@ -156,7 +156,7 @@ function ResponsesTable() {
               r.tone === "success"
                 ? "text-emerald-600 dark:text-emerald-400"
                 : r.tone === "warn"
-                  ? "text-[color:var(--coral)]"
+                  ? "text-primary"
                   : "text-destructive"
             }`}
           >

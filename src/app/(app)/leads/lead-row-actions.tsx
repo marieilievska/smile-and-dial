@@ -59,7 +59,7 @@ export function LeadRowActions({
         variant="ghost"
         onClick={dispatchCallNow}
         disabled={pending}
-        className="h-7 px-2 text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]"
+        className="text-primary hover:bg-primary/10 hover:text-primary h-7 px-2"
         title={leadName ? `Call ${leadName} now` : "Call now"}
       >
         <Phone className="size-3.5" />

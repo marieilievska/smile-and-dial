@@ -48,12 +48,12 @@ export function FunnelChart({ steps }: { steps: FunnelStep[] }) {
                 className="text-muted-foreground inline-flex items-center gap-1 self-end text-[11px]"
                 style={{
                   color:
-                    "color-mix(in oklab, var(--coral) 80%, var(--muted-foreground))",
+                    "color-mix(in oklab, var(--primary) 80%, var(--muted-foreground))",
                 }}
               >
                 <span
                   className="size-1.5 rounded-full"
-                  style={{ background: "var(--coral)" }}
+                  style={{ background: "var(--primary)" }}
                 />
                 −{stepDrop.toFixed(0)}% drop-off from prior step
               </p>

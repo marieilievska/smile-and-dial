@@ -102,7 +102,7 @@ export function PipelineBoard({
             onDrop={(event) => onDrop(event, status)}
             className={`flex min-h-[160px] flex-col gap-2 rounded-xl border p-3 transition-colors ${
               isOver
-                ? "border-[color:var(--coral)] bg-[color:var(--coral)]/5"
+                ? "bg-primary/5 border-[color:var(--primary)]"
                 : "border-border bg-card"
             }`}
           >
@@ -168,13 +168,13 @@ function BoardCard({
         <Link
           href={`/leads/${lead.id}`}
           onClick={(e) => e.stopPropagation()}
-          className="text-foreground truncate text-sm font-medium underline-offset-2 hover:text-[color:var(--coral)] hover:underline"
+          className="text-foreground hover:text-primary truncate text-sm font-medium underline-offset-2 hover:underline"
         >
           {lead.company || "Unknown lead"}
         </Link>
         {since?.stale ? (
           <span
-            className="inline-flex shrink-0 items-center rounded-full bg-[color:var(--coral)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[color:var(--coral)]"
+            className="bg-primary/10 text-primary inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
             title="Sitting in the pipeline for 2+ weeks"
           >
             Stale

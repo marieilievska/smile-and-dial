@@ -81,7 +81,7 @@ export function CallNowDialog({
         <Button
           variant="default"
           disabled={disabled}
-          className="bg-[color:var(--coral)] text-white hover:bg-[color:var(--coral)]/90"
+          className="bg-primary hover:bg-primary/90 text-white"
         >
           <PhoneCall className="size-4" />
           Call now

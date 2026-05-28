@@ -85,9 +85,9 @@ export function BulkActionBar({
       data-testid="bulk-action-bar"
       className="animate-in slide-in-from-bottom-2 bg-card fixed inset-x-0 bottom-4 z-40 mx-auto flex w-fit max-w-[95vw] flex-wrap items-center gap-2 rounded-xl border px-3 py-2 shadow-lg duration-200"
       style={{
-        borderColor: "color-mix(in oklab, var(--coral) 40%, transparent)",
+        borderColor: "color-mix(in oklab, var(--primary) 40%, transparent)",
         boxShadow:
-          "0 8px 32px -8px color-mix(in oklab, var(--coral) 25%, transparent), 0 4px 12px -2px rgba(0,0,0,0.08)",
+          "0 8px 32px -8px color-mix(in oklab, var(--primary) 25%, transparent), 0 4px 12px -2px rgba(0,0,0,0.08)",
       }}
     >
       <span
@@ -97,7 +97,7 @@ export function BulkActionBar({
         <span
           aria-hidden
           className="size-1.5 rounded-full"
-          style={{ backgroundColor: "var(--coral)" }}
+          style={{ backgroundColor: "var(--primary)" }}
         />
         {count} selected
       </span>

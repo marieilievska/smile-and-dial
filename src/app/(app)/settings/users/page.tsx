@@ -222,7 +222,7 @@ function StatTile({
       }`}
     >
       <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
-        <span className="text-[color:var(--coral)]">{icon}</span>
+        <span className="text-primary">{icon}</span>
         {label}
       </p>
       <p className="text-foreground text-2xl leading-none font-medium tabular-nums">

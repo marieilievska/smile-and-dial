@@ -46,8 +46,8 @@ export function FileDropzone({
           className="flex size-10 shrink-0 items-center justify-center rounded-lg"
           style={{
             backgroundColor:
-              "color-mix(in oklab, var(--coral) 14%, transparent)",
-            color: "var(--coral)",
+              "color-mix(in oklab, var(--primary) 14%, transparent)",
+            color: "var(--primary)",
           }}
         >
           <FileSpreadsheet className="size-5" />
@@ -114,7 +114,7 @@ export function FileDropzone({
           dragOver
             ? {
                 borderColor:
-                  "color-mix(in oklab, var(--coral) 50%, transparent)",
+                  "color-mix(in oklab, var(--primary) 50%, transparent)",
               }
             : undefined
         }
@@ -123,8 +123,8 @@ export function FileDropzone({
           className="flex size-10 items-center justify-center rounded-full"
           style={{
             backgroundColor:
-              "color-mix(in oklab, var(--coral) 14%, transparent)",
-            color: "var(--coral)",
+              "color-mix(in oklab, var(--primary) 14%, transparent)",
+            color: "var(--primary)",
           }}
         >
           <Upload className="size-5" />

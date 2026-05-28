@@ -162,7 +162,7 @@ function Sparkline({ values }: { values: number[] }) {
       className="h-16 w-52 shrink-0"
       role="img"
       aria-label="Trend over the selected window"
-      style={{ color: "var(--coral)" }}
+      style={{ color: "var(--primary)" }}
     >
       <polyline
         points={points}
