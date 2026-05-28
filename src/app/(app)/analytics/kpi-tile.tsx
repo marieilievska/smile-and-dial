@@ -30,7 +30,7 @@ export function KpiTile({
     <div
       data-testid="kpi-tile"
       data-label={label}
-      className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both relative flex flex-col gap-1.5 rounded-xl border p-5 duration-500"
+      className="border-border bg-card relative flex flex-col gap-1.5 rounded-xl border p-5"
     >
       <div className="flex items-center gap-2">
         <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">

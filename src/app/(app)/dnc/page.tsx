@@ -168,7 +168,7 @@ export default async function DncPage({
   return (
     <SelectionProvider allRows={rowsForSelection}>
       <div className="flex flex-col gap-6 p-8">
-        <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex items-start justify-between gap-4 duration-500">
+        <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-baseline gap-3">
               <h1 className="text-foreground text-2xl font-bold tracking-tight">

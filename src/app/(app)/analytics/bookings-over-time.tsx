@@ -47,7 +47,7 @@ export function BookingsOverTime({
   return (
     <div
       data-testid="bookings-over-time"
-      className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both relative rounded-xl border p-5 duration-500"
+      className="border-border bg-card relative rounded-xl border p-5"
     >
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="text-foreground text-sm font-semibold">

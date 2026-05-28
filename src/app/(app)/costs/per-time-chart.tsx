@@ -42,7 +42,7 @@ export function PerTimeChart({ data }: { data: PerTime[] }) {
   return (
     <div
       data-testid="per-time-chart"
-      className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both relative rounded-xl border p-5 duration-500"
+      className="border-border bg-card relative rounded-xl border p-5"
     >
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-foreground text-sm font-semibold">
