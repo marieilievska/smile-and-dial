@@ -1,7 +1,7 @@
 "use client";
 
+import { FileText, Pencil, Plus, Star, Target } from "lucide-react";
 import { useState, useTransition } from "react";
-import { Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { createGoal, updateGoal } from "@/lib/goals/actions";
 
+import { DialogSection } from "../dialog-section";
+
 export type GoalData = {
   id: string;
   name: string;
@@ -27,6 +29,9 @@ export type GoalData = {
   is_default: boolean;
 };
 
+/** Create/edit dialog for /settings/goals. Round 24 — Section
+ *  pattern + placeholder examples + "default" checkbox now spells
+ *  out the consequence in the helper line. */
 export function GoalFormDialog({
   mode,
   goal,
@@ -85,44 +90,73 @@ export function GoalFormDialog({
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit goal" : "New goal"}</DialogTitle>
           <DialogDescription>
-            A goal is what a campaign&apos;s calls are trying to achieve.
+            A goal is what a campaign&apos;s calls are trying to achieve. Pick
+            one when you create a campaign.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="goal-name">Name</Label>
-            <Input
-              id="goal-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="goal-description">Description</Label>
-            <Textarea
-              id="goal-description"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={3}
-              placeholder="What does success look like for this goal?"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="goal-default"
-              checked={isDefault}
-              onCheckedChange={(checked) => setIsDefault(checked === true)}
-            />
-            <Label htmlFor="goal-default" className="font-normal">
+        <form onSubmit={submit} className="flex flex-col gap-5">
+          <DialogSection
+            icon={<Target className="size-3.5" />}
+            title="Name"
+            description="Used in the campaign goal picker and in the analytics roll-ups."
+          >
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="goal-name">Name</Label>
+              <Input
+                id="goal-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="e.g. Book a 15-min consultation"
+                required
+              />
+            </div>
+          </DialogSection>
+
+          <DialogSection
+            icon={<FileText className="size-3.5" />}
+            title="Description"
+            description="What does success on this goal look like for the AI agent?"
+          >
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="goal-description">Description</Label>
+              <Textarea
+                id="goal-description"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                rows={3}
+                placeholder="Lead agrees to a calendar invite for next week — and the invite has been sent."
+              />
+            </div>
+          </DialogSection>
+
+          <DialogSection
+            icon={<Star className="size-3.5" />}
+            title="Default"
+            description="The default goal is pre-selected when an operator creates a new campaign."
+          >
+            <label className="text-foreground inline-flex cursor-pointer items-center gap-2 text-sm select-none">
+              <Checkbox
+                id="goal-default"
+                checked={isDefault}
+                onCheckedChange={(checked) => setIsDefault(checked === true)}
+              />
               Make this the default goal
-            </Label>
-          </div>
-          <DialogFooter>
+            </label>
+          </DialogSection>
+
+          <DialogFooter className="flex-row items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setOpen(false)}
+              disabled={pending}
+            >
+              Cancel
+            </Button>
             <Button type="submit" disabled={pending}>
               {pending ? "Saving…" : isEdit ? "Save changes" : "Create goal"}
             </Button>

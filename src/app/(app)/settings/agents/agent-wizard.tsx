@@ -1,7 +1,15 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Copy,
+  Save,
+  Sparkles,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -33,12 +41,40 @@ import {
   type ToolsEnabled,
 } from "@/lib/agents/prompt";
 
-const AI_MODELS = [
-  "gpt-4o",
-  "gpt-4o-mini",
-  "claude-sonnet-4",
-  "gemini-2.5-flash",
+/** Per-model helper line so the dropdown isn't a guessing game. */
+const AI_MODELS: { value: string; helper: string }[] = [
+  {
+    value: "gpt-4o",
+    helper: "OpenAI's flagship. Best for nuanced sales conversations.",
+  },
+  {
+    value: "gpt-4o-mini",
+    helper: "Cheaper, snappier. Good default for simple booking flows.",
+  },
+  {
+    value: "claude-sonnet-4",
+    helper: "Anthropic. Calmer tone, fewer hallucinations on long prompts.",
+  },
+  {
+    value: "gemini-2.5-flash",
+    helper: "Google. Fast and inexpensive; less polished for live voice.",
+  },
 ];
+
+/** One-line summary per tool — surfaced under the tools step so the
+ *  operator knows what each tool actually does at call time. */
+const TOOL_HELPERS: Record<ToolKey, string> = {
+  send_email: "Mid-call: send a follow-up email to the lead's address.",
+  schedule_callback: "Records a callback request for human follow-up later.",
+  get_available_times:
+    "Fetches the user's Calendly availability so the agent can offer slots.",
+  book_appointment:
+    "Books a Calendly slot directly during the call. Counts as Goal Met.",
+  mark_dnc:
+    "Adds the lead's number to the workspace DNC list with reason 'caller requested'.",
+  transfer_to_number:
+    "Warm-transfers the live call to a human number set on the campaign.",
+};
 
 const STEPS = [
   {
@@ -49,22 +85,10 @@ const STEPS = [
     title: "Personality",
     description: "How would you describe this agent's personality?",
   },
-  {
-    title: "Environment",
-    description: "Where is this agent operating?",
-  },
-  {
-    title: "Tone",
-    description: "How should the agent speak?",
-  },
-  {
-    title: "Goal",
-    description: "What is the agent trying to accomplish?",
-  },
-  {
-    title: "Guardrails",
-    description: "What should the agent never do?",
-  },
+  { title: "Environment", description: "Where is this agent operating?" },
+  { title: "Tone", description: "How should the agent speak?" },
+  { title: "Goal", description: "What is the agent trying to accomplish?" },
+  { title: "Guardrails", description: "What should the agent never do?" },
   {
     title: "Tools",
     description: "Which capabilities should the agent have?",
@@ -96,6 +120,53 @@ export type AgentInitial = {
   knowledgeBaseIds: string[];
 };
 
+/** Step indicator pip row. Round 24 — replaces the "Step X of 9" text
+ *  with a visual stepper matching the leads import wizard. Steps you
+ *  already filled get a coral filled circle; the active step is the
+ *  dark filled circle; future steps are muted. */
+function StepIndicator({ current }: { current: number }) {
+  return (
+    <ol
+      aria-label="Agent build progress"
+      className="flex w-full items-center gap-1 text-xs"
+    >
+      {STEPS.map((step, i) => {
+        const idx = i + 1;
+        const isActive = idx === current;
+        const isDone = idx < current;
+        return (
+          <li
+            key={step.title}
+            data-state={isActive ? "active" : isDone ? "done" : "future"}
+            className="flex flex-1 items-center gap-1.5"
+          >
+            <span
+              aria-hidden
+              className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-medium transition-colors ${
+                isActive
+                  ? "bg-foreground text-background"
+                  : isDone
+                    ? "bg-[color:var(--coral)] text-white"
+                    : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {isDone ? <Check className="size-3" /> : idx}
+            </span>
+            {i < STEPS.length - 1 ? (
+              <span
+                aria-hidden
+                className={`hidden h-px flex-1 sm:block ${
+                  isDone ? "bg-[color:var(--coral)]" : "bg-border"
+                }`}
+              />
+            ) : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 export function AgentWizard({
   voiceIds,
   knowledgeBases,
@@ -110,7 +181,7 @@ export function AgentWizard({
   const [step, setStep] = useState(1);
   const [name, setName] = useState(agent?.name ?? "");
   const [voiceId, setVoiceId] = useState(agent?.voiceId || voiceIds[0] || "");
-  const [aiModel, setAiModel] = useState(agent?.aiModel || AI_MODELS[0]);
+  const [aiModel, setAiModel] = useState(agent?.aiModel || AI_MODELS[0].value);
   const [personality, setPersonality] = useState(agent?.personality ?? "");
   const [environment, setEnvironment] = useState(agent?.environment ?? "");
   const [tone, setTone] = useState(agent?.tone ?? "");
@@ -119,6 +190,7 @@ export function AgentWizard({
   const [tools, setTools] = useState<ToolsEnabled>(agent?.toolsEnabled ?? {});
   const [kbIds, setKbIds] = useState<string[]>(agent?.knowledgeBaseIds ?? []);
   const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? "");
+  const [copied, setCopied] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function next() {
@@ -151,6 +223,16 @@ export function AgentWizard({
     );
   }
 
+  async function copyPrompt() {
+    try {
+      await navigator.clipboard.writeText(systemPrompt);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API can fail in non-secure contexts; ignore.
+    }
+  }
+
   function save() {
     startTransition(async () => {
       const input = {
@@ -181,17 +263,24 @@ export function AgentWizard({
 
   const canProceed = step !== 1 || name.trim().length > 0;
   const current = STEPS[step - 1];
+  const modelHelper = AI_MODELS.find((m) => m.value === aiModel)?.helper ?? "";
 
   return (
-    <div className="p-8">
-      <div>
+    <div className="flex flex-col gap-6 p-8">
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           {isEdit ? "Edit agent" : "Build agent"}
         </h1>
-        <p className="text-muted-foreground mt-1 text-sm">Step {step} of 9</p>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Step {step} of {STEPS.length} · {current.title}
+        </p>
       </div>
 
-      <Card className="mt-6 max-w-3xl">
+      <div className="max-w-3xl">
+        <StepIndicator current={step} />
+      </div>
+
+      <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both max-w-3xl delay-75 duration-500">
         <CardHeader>
           <CardTitle>{current.title}</CardTitle>
           <CardDescription>{current.description}</CardDescription>
@@ -205,24 +294,36 @@ export function AgentWizard({
                   id="agent-name"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
+                  placeholder="e.g. Friendly outbound assistant"
                   required
                 />
+                <p className="text-muted-foreground text-xs">
+                  Operators see this name when picking which agent a campaign
+                  uses.
+                </p>
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="agent-voice">Voice</Label>
                 {voiceIds.length > 0 ? (
-                  <Select value={voiceId} onValueChange={setVoiceId}>
-                    <SelectTrigger id="agent-voice">
-                      <SelectValue placeholder="Choose a voice" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {voiceIds.map((v) => (
-                        <SelectItem key={v} value={v}>
-                          {v}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <>
+                    <Select value={voiceId} onValueChange={setVoiceId}>
+                      <SelectTrigger id="agent-voice">
+                        <SelectValue placeholder="Choose a voice" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {voiceIds.map((v) => (
+                          <SelectItem key={v} value={v}>
+                            <span className="font-mono text-xs">{v}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-muted-foreground text-xs">
+                      ElevenLabs voice ID. Preview voices in the ElevenLabs
+                      dashboard; add or remove available IDs under{" "}
+                      <strong>Settings → Integrations</strong>.
+                    </p>
+                  </>
                 ) : (
                   <p className="text-muted-foreground text-sm">
                     No voices configured yet. Add some in Settings →
@@ -238,12 +339,13 @@ export function AgentWizard({
                   </SelectTrigger>
                   <SelectContent>
                     {AI_MODELS.map((m) => (
-                      <SelectItem key={m} value={m}>
-                        {m}
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.value}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-muted-foreground text-xs">{modelHelper}</p>
               </div>
             </>
           ) : null}
@@ -255,6 +357,7 @@ export function AgentWizard({
               value={personality}
               onChange={setPersonality}
               placeholder="e.g., friendly and curious, professional and direct"
+              helper="The agent's overall vibe — picked up on by callers within the first two sentences."
             />
           ) : null}
           {step === 3 ? (
@@ -264,6 +367,7 @@ export function AgentWizard({
               value={environment}
               onChange={setEnvironment}
               placeholder="e.g., outbound phone calls to small business owners during business hours"
+              helper="Where and to whom the agent is calling. Helps it pick the right tone for the moment."
             />
           ) : null}
           {step === 4 ? (
@@ -273,6 +377,7 @@ export function AgentWizard({
               value={tone}
               onChange={setTone}
               placeholder="e.g., concise, 2-3 sentences max, brief affirmations like 'I see' or 'Got it'"
+              helper="How the agent speaks. Length, formality, filler words, etc."
             />
           ) : null}
           {step === 5 ? (
@@ -282,6 +387,7 @@ export function AgentWizard({
               value={goal}
               onChange={setGoal}
               placeholder="What success looks like, and the steps the agent should follow."
+              helper="What 'Goal Met' means for this agent. Be specific — vague goals lead to vague calls."
             />
           ) : null}
           {step === 6 ? (
@@ -291,41 +397,70 @@ export function AgentWizard({
               value={guardrails}
               onChange={setGuardrails}
               placeholder="One thing the agent should never do per line."
+              helper="Hard limits — e.g. 'never promise a discount', 'never name competitors'. One per line."
             />
           ) : null}
 
           {step === 7 ? (
             <div className="flex flex-col gap-3">
-              {ALL_TOOLS.map((key) => (
-                <div key={key} className="flex items-center gap-2">
-                  <Checkbox
-                    id={`tool-${key}`}
-                    checked={Boolean(tools[key])}
-                    onCheckedChange={() => toggleTool(key)}
-                  />
-                  <Label htmlFor={`tool-${key}`} className="font-normal">
-                    {TOOL_LABELS[key]}
-                  </Label>
-                </div>
-              ))}
+              {ALL_TOOLS.map((key) => {
+                const enabled = Boolean(tools[key]);
+                return (
+                  <label
+                    key={key}
+                    htmlFor={`tool-${key}`}
+                    className={`border-border hover:bg-muted/30 flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                      enabled ? "bg-muted/40" : ""
+                    }`}
+                  >
+                    <Checkbox
+                      id={`tool-${key}`}
+                      checked={enabled}
+                      onCheckedChange={() => toggleTool(key)}
+                      className="mt-0.5"
+                    />
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-foreground text-sm font-medium">
+                        {TOOL_LABELS[key]}
+                      </span>
+                      <span className="text-muted-foreground text-xs">
+                        {TOOL_HELPERS[key]}
+                      </span>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
           ) : null}
 
           {step === 8 ? (
             knowledgeBases.length > 0 ? (
               <div className="flex flex-col gap-3">
-                {knowledgeBases.map((kb) => (
-                  <div key={kb.id} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`kb-${kb.id}`}
-                      checked={kbIds.includes(kb.id)}
-                      onCheckedChange={() => toggleKb(kb.id)}
-                    />
-                    <Label htmlFor={`kb-${kb.id}`} className="font-normal">
-                      {kb.name}
-                    </Label>
-                  </div>
-                ))}
+                <p className="text-muted-foreground text-xs">
+                  The agent will be able to reference any knowledge base you
+                  attach here when forming answers mid-call.
+                </p>
+                {knowledgeBases.map((kb) => {
+                  const checked = kbIds.includes(kb.id);
+                  return (
+                    <label
+                      key={kb.id}
+                      htmlFor={`kb-${kb.id}`}
+                      className={`border-border hover:bg-muted/30 flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors ${
+                        checked ? "bg-muted/40" : ""
+                      }`}
+                    >
+                      <Checkbox
+                        id={`kb-${kb.id}`}
+                        checked={checked}
+                        onCheckedChange={() => toggleKb(kb.id)}
+                      />
+                      <span className="text-foreground text-sm font-medium">
+                        {kb.name}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-muted-foreground text-sm">
@@ -337,7 +472,23 @@ export function AgentWizard({
 
           {step === 9 ? (
             <div className="flex flex-col gap-2">
-              <Label htmlFor="agent-prompt">System prompt</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="agent-prompt">System prompt</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={copyPrompt}
+                  aria-label={copied ? "Copied prompt" : "Copy system prompt"}
+                >
+                  {copied ? (
+                    <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
               <Textarea
                 id="agent-prompt"
                 value={systemPrompt}
@@ -345,6 +496,11 @@ export function AgentWizard({
                 rows={20}
                 className="font-mono text-xs"
               />
+              <p className="text-muted-foreground text-xs">
+                Final prompt sent to ElevenLabs. Tweak anything before saving —
+                but remember edits here won&apos;t flow back into the individual
+                personality / tone / goal blocks.
+              </p>
             </div>
           ) : null}
         </CardContent>
@@ -354,14 +510,21 @@ export function AgentWizard({
             onClick={back}
             disabled={step === 1 || pending}
           >
+            <ArrowLeft className="size-4" />
             Back
           </Button>
           {step < 9 ? (
             <Button onClick={next} disabled={!canProceed || pending}>
               Next
+              <ArrowRight className="size-4" />
             </Button>
           ) : (
             <Button onClick={save} disabled={pending || !name.trim()}>
+              {pending ? (
+                <Sparkles className="size-4 animate-pulse" />
+              ) : (
+                <Save className="size-4" />
+              )}
               {pending ? "Saving…" : isEdit ? "Save changes" : "Save agent"}
             </Button>
           )}
@@ -377,12 +540,14 @@ function TextStep({
   value,
   onChange,
   placeholder,
+  helper,
 }: {
   id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  helper?: string;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -394,6 +559,9 @@ function TextStep({
         rows={4}
         placeholder={placeholder}
       />
+      {helper ? (
+        <p className="text-muted-foreground text-xs">{helper}</p>
+      ) : null}
     </div>
   );
 }
