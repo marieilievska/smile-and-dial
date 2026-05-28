@@ -5,18 +5,32 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ---------------------------------------------------------------------------
-   Smile & Dial design system — BUILD_PLAN.md Section 19.
-   This file is the single source of truth for palette, type, spacing, radius.
+   Smile & Dial design system — Round 25 Referrizer alignment.
+
+   Switched away from the navy/coral hybrid to the Referrizer parent
+   product's palette: cool blue primary, soft gray canvas, white card
+   surfaces, dark sidebar shell. Restrained shadows, soft borders,
+   modern but not bubbly rounding. The intent is for Smile & Dial to
+   feel like a sibling product to Referrizer — same family, same shell
+   chrome, different feature set.
+
+   Source of truth for palette decisions: design-tokens.md
+   (Referrizer scaffold), kept in /tmp on Marija's machine.
+
    Never override these values inline. Never deviate page to page.
 --------------------------------------------------------------------------- */
 
 @theme inline {
-  /* Fonts — Inter for UI, JetBrains Mono for phone numbers / IDs / code */
+  /* Fonts — Inter remains the UI face. Referrizer specs Red Hat Text
+   *  but we're sticking with Inter for now to avoid a font load shift
+   *  during this redesign. The mono stays JetBrains Mono. */
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
   --font-heading: var(--font-sans);
 
-  /* Type scale — 12 / 14 / 16 / 18 / 20 / 24 / 32. No other sizes. */
+  /* Type scale — tighter than before so operational pages read like
+   *  product UI rather than a marketing site. 12 / 14 / 16 / 18 / 20
+   *  / 24 / 28. */
   --text-xs: 0.75rem;
   --text-xs--line-height: 1.4;
   --text-sm: 0.875rem;
@@ -29,15 +43,16 @@
   --text-xl--line-height: 1.2;
   --text-2xl: 1.5rem;
   --text-2xl--line-height: 1.2;
-  --text-3xl: 2rem;
+  --text-3xl: 1.75rem;
   --text-3xl--line-height: 1.2;
 
-  /* Radius — 8px buttons/inputs/cards/badges, 12px modals/slide-ins */
+  /* Radius — slightly larger family per the Referrizer scaffold
+   *  (xl = 1rem for cards, lg = 0.75rem for inputs/buttons). */
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
-  --radius-2xl: 1rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
 
   /* Surfaces & text */
   --color-background: var(--background);
@@ -47,7 +62,8 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
 
-  /* Navy primary — primary buttons, active nav, links */
+  /* Primary — Referrizer cool blue. Replaces the old navy `#0f1e3d`.
+   *  Used for primary buttons, active nav, links, focus rings. */
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
 
@@ -58,11 +74,15 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
 
-  /* Coral — CTAs that need to pop, Goal Met indicators, notification badges */
+  /* Coral — kept as a token name for backward compatibility with the
+   *  hundreds of existing references, but RE-POINTED to the same
+   *  cool blue as `--primary`. Acts as an alias so legacy code keeps
+   *  working visually without a 200-file sweep. New code should use
+   *  `--primary` directly. */
   --color-coral: var(--coral);
   --color-coral-foreground: var(--coral-foreground);
 
-  /* Semantic status */
+  /* Semantic status — Referrizer scaffold values */
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
@@ -75,14 +95,16 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  /* Charts (Analytics — Phase 7) */
+  /* Charts — recoloured to read as one cohesive cool palette
+   *  (blue / teal / green / orange / muted slate) instead of the
+   *  old navy + coral pair. */
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
 
-  /* Sidebar (app shell — Phase 1 step 3) */
+  /* Sidebar — now dark by default, matching the Referrizer shell. */
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -93,104 +115,115 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* Light theme */
+/* Light theme — the default. */
 :root {
-  --radius: 0.5rem;
+  --radius: 0.75rem;
 
-  --background: #faf9f7;
-  --foreground: #1a1d24;
+  /* App canvas: soft gray-blue. Cards: clean white. */
+  --background: #eff0f7;
+  --foreground: #23283c;
   --card: #ffffff;
-  --card-foreground: #1a1d24;
+  --card-foreground: #23283c;
   --popover: #ffffff;
-  --popover-foreground: #1a1d24;
+  --popover-foreground: #23283c;
 
-  --primary: #0f1e3d;
+  /* Cool blue primary — replaces the dark navy of round 24. */
+  --primary: #4c70f0;
   --primary-foreground: #ffffff;
 
-  --secondary: #f0eee9;
-  --secondary-foreground: #1a1d24;
-  --muted: #f0eee9;
-  --muted-foreground: #5c6370;
-  --accent: #f0eee9;
-  --accent-foreground: #1a1d24;
+  --secondary: #dde1ec;
+  --secondary-foreground: #23283c;
+  --muted: #dde1ec;
+  --muted-foreground: #6d7287;
+  --accent: #e8ebff;
+  --accent-foreground: #3e4c7d;
 
-  --coral: #ff6b5b;
-  --coral-foreground: #1a1d24;
+  /* Coral alias — points at the same blue as primary so the hundreds
+   *  of existing decorative `var(--coral)` references keep producing
+   *  a coherent look. Future code should use `--primary` directly. */
+  --coral: #4c70f0;
+  --coral-foreground: #ffffff;
 
-  --success: #1f9d55;
+  /* Semantic — Referrizer scaffold values */
+  --success: #38bb94;
   --success-foreground: #ffffff;
-  --warning: #d97706;
+  --warning: #ffa030;
   --warning-foreground: #ffffff;
-  --destructive: #dc2626;
+  --destructive: #f13c47;
   --destructive-foreground: #ffffff;
 
-  --border: #e5e2dc;
-  --input: #e5e2dc;
-  --ring: #0f1e3d;
+  --border: #dde1ec;
+  --input: #dde1ec;
+  --ring: #4c70f0;
 
-  --chart-1: #0f1e3d;
-  --chart-2: #ff6b5b;
-  --chart-3: #1f9d55;
-  --chart-4: #d97706;
-  --chart-5: #5c6370;
+  /* Chart palette — blue / teal / green / amber / slate. Friendlier
+   *  for analytics than the old navy+coral pair. */
+  --chart-1: #4c70f0;
+  --chart-2: #2cbacc;
+  --chart-3: #38bb94;
+  --chart-4: #ffa030;
+  --chart-5: #6d7287;
 
-  --sidebar: #ffffff;
-  --sidebar-foreground: #1a1d24;
-  --sidebar-primary: #0f1e3d;
+  /* Sidebar shell — DARK now. Matches Referrizer. */
+  --sidebar: #23283c;
+  --sidebar-foreground: #b3bbd2;
+  --sidebar-primary: #4c70f0;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f0eee9;
-  --sidebar-accent-foreground: #1a1d24;
-  --sidebar-border: #e5e2dc;
-  --sidebar-ring: #0f1e3d;
+  --sidebar-accent: #2e344b;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2e344b;
+  --sidebar-ring: #4c70f0;
 }
 
-/* Dark theme — deep neutrals, navy + coral kept as accents */
+/* Dark theme — deep navy canvas, primary blue accents, lifted
+ *  surfaces. Sidebar stays even darker than the canvas so the shell
+ *  still reads as a distinct chrome region. */
 .dark {
-  --background: #13151b;
-  --foreground: #f2f2f0;
-  --card: #1c1f27;
-  --card-foreground: #f2f2f0;
-  --popover: #1c1f27;
-  --popover-foreground: #f2f2f0;
+  --background: #14171f;
+  --foreground: #e8ebef;
+  --card: #1c2030;
+  --card-foreground: #e8ebef;
+  --popover: #1c2030;
+  --popover-foreground: #e8ebef;
 
-  --primary: #4a6bb8;
-  --primary-foreground: #ffffff;
+  --primary: #6385ff;
+  --primary-foreground: #0c0e15;
 
   --secondary: #262a35;
-  --secondary-foreground: #f2f2f0;
+  --secondary-foreground: #e8ebef;
   --muted: #262a35;
-  --muted-foreground: #9ba1ae;
-  --accent: #262a35;
-  --accent-foreground: #f2f2f0;
+  --muted-foreground: #8a91a8;
+  --accent: #2e344b;
+  --accent-foreground: #ffffff;
 
-  --coral: #ff6b5b;
-  --coral-foreground: #13151b;
+  --coral: #6385ff;
+  --coral-foreground: #0c0e15;
 
-  --success: #2bb36a;
+  --success: #44c89f;
   --success-foreground: #0b0d12;
-  --warning: #e0902c;
+  --warning: #ffab44;
   --warning-foreground: #0b0d12;
-  --destructive: #f0564b;
+  --destructive: #ff5a64;
   --destructive-foreground: #0b0d12;
 
-  --border: #2a2f3a;
-  --input: #333845;
-  --ring: #5b7cc4;
+  --border: #2e344b;
+  --input: #2e344b;
+  --ring: #6385ff;
 
-  --chart-1: #5b7cc4;
-  --chart-2: #ff6b5b;
-  --chart-3: #2bb36a;
-  --chart-4: #e0902c;
-  --chart-5: #9ba1ae;
+  --chart-1: #6385ff;
+  --chart-2: #4cc8d8;
+  --chart-3: #44c89f;
+  --chart-4: #ffab44;
+  --chart-5: #8a91a8;
 
-  --sidebar: #1c1f27;
-  --sidebar-foreground: #f2f2f0;
-  --sidebar-primary: #4a6bb8;
+  --sidebar: #101727;
+  --sidebar-foreground: #b3bbd2;
+  --sidebar-primary: #6385ff;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #262a35;
-  --sidebar-accent-foreground: #f2f2f0;
-  --sidebar-border: #2a2f3a;
-  --sidebar-ring: #5b7cc4;
+  --sidebar-accent: #1c2030;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #1c2030;
+  --sidebar-ring: #6385ff;
 }
 
 @layer base {

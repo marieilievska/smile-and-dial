@@ -44,15 +44,15 @@ export function HeroKpi({
     <div
       data-testid="hero-kpi"
       data-label={label}
-      className="bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both relative flex flex-col gap-3 rounded-xl border p-6 duration-500 md:flex-row md:items-center md:justify-between"
-      style={{
-        borderColor: "color-mix(in oklab, var(--coral) 28%, var(--border))",
-      }}
+      className="bg-card border-border animate-in fade-in slide-in-from-bottom-1 fill-mode-both relative flex flex-col gap-3 rounded-xl border p-6 duration-500 md:flex-row md:items-center md:justify-between"
     >
       <div className="flex flex-1 flex-col gap-1">
         <div className="flex items-center gap-2">
+          {/* Round 25 — dropped the coral Sparkles. The Referrizer
+           *  spec calls out oversized marketing cues on operational
+           *  pages; a quieter label reads as one of many KPIs. */}
           <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase">
-            <Sparkles className="size-3.5" style={{ color: "var(--coral)" }} />
+            <Sparkles className="text-primary size-3.5" />
             {label}
           </p>
           {badge ? (
@@ -68,7 +68,9 @@ export function HeroKpi({
             </span>
           ) : null}
         </div>
-        <p className="text-foreground text-5xl leading-none font-semibold tabular-nums">
+        {/* Round 25 — toned down from text-5xl (marketing-hero) to
+         *  text-3xl. Operational pages shouldn't shout. */}
+        <p className="text-foreground text-3xl leading-none font-semibold tabular-nums">
           {value}
         </p>
         {showDelta ? (
