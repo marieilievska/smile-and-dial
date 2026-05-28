@@ -191,13 +191,14 @@ export default async function AnalyticsPage({
             lists={lists ?? []}
             owners={owners}
             showOwner={isAdmin}
-            showCustomDates={preset === "custom"}
-            initialFrom={customFromInput}
-            initialTo={customToInput}
           />
         </div>
 
-        <AnalyticsDatePills current={preset} />
+        <AnalyticsDatePills
+          current={preset}
+          initialFrom={customFromInput ?? from}
+          initialTo={customToInput ?? to}
+        />
       </div>
 
       {/* Page-level mock-data banner — clearer than a tiny badge tucked

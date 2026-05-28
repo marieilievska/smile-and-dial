@@ -1,17 +1,9 @@
-import { Ban, Upload } from "lucide-react";
+import { Ban, SearchX, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -24,8 +16,15 @@ import { createClient } from "@/lib/supabase/server";
 
 import { AddDncDialog } from "./add-dnc-dialog";
 import { DncBulkActionBar } from "./bulk-action-bar";
+import { CopyPhoneButton } from "./copy-phone";
+import { DncFilters } from "./dnc-filters";
+import { DncSearchInput } from "./dnc-search";
+import { DncStatStrip } from "./dnc-stat-strip";
+import { formatAddedAt } from "./format-added";
 import { RemoveDncDialog } from "./remove-dnc-dialog";
 import { RowCheckbox, SelectAllCheckbox, SelectionProvider } from "./selection";
+import { fetchDncStats } from "./stats-query";
+import { SmartPagination } from "../leads/smart-pagination";
 
 const REASON_LABELS: Record<string, string> = {
   dnc_requested: "Caller requested",
@@ -37,7 +36,29 @@ const REASON_LABELS: Record<string, string> = {
 
 const REASON_OPTIONS = Object.keys(REASON_LABELS);
 
-// Accepts yyyy-mm-dd, returns the same string. Invalid input becomes "".
+/** Tone palette for the reason badge column. Caller-requested is the
+ *  most "active" signal (someone explicitly asked) — coral. Invalid
+ *  number is a system fact, no judgement needed — muted. Imported is
+ *  bulk provenance — info/secondary blue tone. Manual and language
+ *  barrier are everyday secondary. */
+function reasonBadgeVariant(
+  reason: string,
+): "warning" | "secondary" | "outline" | "ghost" {
+  switch (reason) {
+    case "dnc_requested":
+      return "warning";
+    case "imported":
+      return "outline";
+    case "invalid_number":
+      return "ghost";
+    default:
+      return "secondary";
+  }
+}
+
+const ALLOWED_PAGE_SIZES = new Set([25, 50, 100]);
+const DEFAULT_PAGE_SIZE = 25;
+
 function dateStr(value: string | string[] | undefined): string {
   const s = typeof value === "string" ? value : "";
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
@@ -47,10 +68,32 @@ function str(value: string | string[] | undefined): string {
   return typeof value === "string" ? value : "";
 }
 
+function intParam(
+  value: string | string[] | undefined,
+  fallback: number,
+): number {
+  const s = typeof value === "string" ? value : "";
+  const n = Number.parseInt(s, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function escapeIlike(value: string): string {
+  // PostgREST ilike — protect %, _, and the comma we use as the
+  // .or() separator.
+  return value.replace(/[%_,]/g, "\\$&");
+}
+
 export default async function DncPage({
   searchParams,
 }: {
-  searchParams: Promise<{ reason?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    reason?: string;
+    from?: string;
+    to?: string;
+    q?: string;
+    page?: string;
+    per?: string;
+  }>;
 }) {
   const params = await searchParams;
   const reasonFilter = REASON_OPTIONS.includes(str(params.reason))
@@ -58,6 +101,12 @@ export default async function DncPage({
     : "";
   const fromFilter = dateStr(params.from);
   const toFilter = dateStr(params.to);
+  const searchTerm = str(params.q).trim();
+  const page = intParam(params.page, 1);
+  const requestedPageSize = intParam(params.per, DEFAULT_PAGE_SIZE);
+  const pageSize = ALLOWED_PAGE_SIZES.has(requestedPageSize)
+    ? requestedPageSize
+    : DEFAULT_PAGE_SIZE;
 
   const supabase = await createClient();
   const {
@@ -74,14 +123,26 @@ export default async function DncPage({
 
   let query = supabase
     .from("dnc_entries")
-    .select("id, phone, company_snapshot, reason, added_by_user_id, added_at")
+    .select("id, phone, company_snapshot, reason, added_by_user_id, added_at", {
+      count: "exact",
+    })
     .order("added_at", { ascending: false });
   if (reasonFilter) query = query.eq("reason", reasonFilter);
   if (fromFilter) query = query.gte("added_at", fromFilter);
   if (toFilter) query = query.lte("added_at", `${toFilter}T23:59:59.999Z`);
+  if (searchTerm) {
+    const safe = escapeIlike(searchTerm);
+    query = query.or(`phone.ilike.%${safe}%,company_snapshot.ilike.%${safe}%`);
+  }
+  const offset = (page - 1) * pageSize;
+  query = query.range(offset, offset + pageSize - 1);
 
-  const { data: rawEntries } = await query;
+  const [{ data: rawEntries, count }, stats] = await Promise.all([
+    query,
+    fetchDncStats(supabase),
+  ]);
   const entries = rawEntries ?? [];
+  const total = count ?? 0;
 
   const userIds = [
     ...new Set(
@@ -102,15 +163,40 @@ export default async function DncPage({
   }
 
   const rowsForSelection = entries.map((e) => ({ id: e.id, phone: e.phone }));
+  const filtersActive = Boolean(
+    reasonFilter || fromFilter || toFilter || searchTerm,
+  );
+  const now = new Date();
+
+  // Active-filter chips above the table, each a click-to-remove link
+  // that re-pushes the URL without that filter.
+  function chipHref(removeKey: string): string {
+    const next = new URLSearchParams();
+    if (reasonFilter && removeKey !== "reason")
+      next.set("reason", reasonFilter);
+    if (fromFilter && removeKey !== "from") next.set("from", fromFilter);
+    if (toFilter && removeKey !== "to") next.set("to", toFilter);
+    if (searchTerm && removeKey !== "q") next.set("q", searchTerm);
+    const qs = next.toString();
+    return qs ? `/dnc?${qs}` : "/dnc";
+  }
 
   return (
     <SelectionProvider allRows={rowsForSelection}>
       <div className="flex flex-col gap-6 p-8">
-        <div className="flex items-start justify-between gap-4">
+        <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex items-start justify-between gap-4 duration-500">
           <div>
-            <h1 className="text-foreground text-2xl font-bold tracking-tight">
-              Do not call
-            </h1>
+            <div className="flex items-baseline gap-3">
+              <h1 className="text-foreground text-2xl font-bold tracking-tight">
+                Do not call
+              </h1>
+              {stats.total > 0 ? (
+                <span className="text-muted-foreground text-sm tabular-nums">
+                  {stats.total.toLocaleString()}{" "}
+                  {stats.total === 1 ? "number" : "numbers"}
+                </span>
+              ) : null}
+            </div>
             <p className="text-muted-foreground mt-1 text-sm">
               Workspace-wide list of phone numbers the dialer must skip.
             </p>
@@ -126,134 +212,179 @@ export default async function DncPage({
           </div>
         </div>
 
-        <form
-          method="get"
-          action="/dnc"
-          className="flex flex-wrap items-end gap-2"
-        >
-          <div className="flex flex-col gap-2">
-            <label
-              htmlFor="dnc-reason-filter"
-              className="text-foreground text-sm font-medium"
+        <DncStatStrip stats={stats} />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <DncSearchInput />
+          <div className="flex-1" />
+          <DncFilters />
+        </div>
+
+        {filtersActive ? (
+          <div
+            data-testid="dnc-active-filters"
+            className="flex flex-wrap items-center gap-2"
+          >
+            <span className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
+              Active
+            </span>
+            {reasonFilter ? (
+              <FilterChip
+                label={`Reason: ${REASON_LABELS[reasonFilter] ?? reasonFilter}`}
+                href={chipHref("reason")}
+              />
+            ) : null}
+            {fromFilter ? (
+              <FilterChip
+                label={`From ${fromFilter}`}
+                href={chipHref("from")}
+              />
+            ) : null}
+            {toFilter ? (
+              <FilterChip label={`To ${toFilter}`} href={chipHref("to")} />
+            ) : null}
+            {searchTerm ? (
+              <FilterChip
+                label={`Search: ${searchTerm}`}
+                href={chipHref("q")}
+              />
+            ) : null}
+            <Link
+              href="/dnc"
+              className="text-muted-foreground hover:text-foreground ml-1 text-xs underline-offset-4 hover:underline"
             >
-              Reason
-            </label>
-            <Select name="reason" defaultValue={reasonFilter || "__all__"}>
-              <SelectTrigger id="dnc-reason-filter" className="w-56">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">All reasons</SelectItem>
-                {REASON_OPTIONS.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {REASON_LABELS[value]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              Clear all
+            </Link>
           </div>
-          <div className="flex flex-col gap-2">
-            <label
-              htmlFor="dnc-from-filter"
-              className="text-foreground text-sm font-medium"
-            >
-              Added from
-            </label>
-            <Input
-              id="dnc-from-filter"
-              name="from"
-              type="date"
-              defaultValue={fromFilter}
-              className="w-44"
-            />
-          </div>
-          <div className="flex flex-col gap-2">
-            <label
-              htmlFor="dnc-to-filter"
-              className="text-foreground text-sm font-medium"
-            >
-              Added to
-            </label>
-            <Input
-              id="dnc-to-filter"
-              name="to"
-              type="date"
-              defaultValue={toFilter}
-              className="w-44"
-            />
-          </div>
-          <Button type="submit" variant="outline">
-            Filter
-          </Button>
-        </form>
+        ) : null}
 
         <DncBulkActionBar isAdmin={isAdmin} />
 
         {entries.length > 0 ? (
-          <div className="border-border overflow-hidden rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">
-                    <SelectAllCheckbox />
-                  </TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Company</TableHead>
-                  <TableHead>Reason</TableHead>
-                  <TableHead>Added by</TableHead>
-                  <TableHead>Added</TableHead>
-                  <TableHead className="w-28" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {entries.map((entry) => (
-                  <TableRow key={entry.id}>
-                    <TableCell>
-                      <RowCheckbox id={entry.id} phone={entry.phone} />
-                    </TableCell>
-                    <TableCell className="font-mono text-xs font-medium">
-                      {entry.phone}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {entry.company_snapshot || "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {REASON_LABELS[entry.reason] ?? entry.reason}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {entry.added_by_user_id
-                        ? (userName.get(entry.added_by_user_id) ?? "—")
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {new Date(entry.added_at).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      {isAdmin ? (
-                        <div className="flex justify-end">
-                          <RemoveDncDialog phone={entry.phone} />
-                        </div>
-                      ) : null}
-                    </TableCell>
+          <>
+            <div className="border-border overflow-hidden rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10">
+                      <SelectAllCheckbox />
+                    </TableHead>
+                    <TableHead>Phone</TableHead>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Reason</TableHead>
+                    <TableHead>Added by</TableHead>
+                    <TableHead>Added</TableHead>
+                    <TableHead className="bg-background sticky right-0 w-28 text-right">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {entries.map((entry) => (
+                    <TableRow key={entry.id} className="group">
+                      <TableCell>
+                        <RowCheckbox id={entry.id} phone={entry.phone} />
+                      </TableCell>
+                      <TableCell className="font-mono text-xs font-medium">
+                        {entry.phone}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {entry.company_snapshot || "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={reasonBadgeVariant(entry.reason)}>
+                          {REASON_LABELS[entry.reason] ?? entry.reason}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {entry.added_by_user_id
+                          ? (userName.get(entry.added_by_user_id) ?? "—")
+                          : "—"}
+                      </TableCell>
+                      <TableCell
+                        className="text-muted-foreground tabular-nums"
+                        title={new Date(entry.added_at).toLocaleString()}
+                      >
+                        {formatAddedAt(entry.added_at, now)}
+                      </TableCell>
+                      <TableCell
+                        className="bg-background sticky right-0 text-right"
+                        style={{
+                          backgroundColor:
+                            "color-mix(in oklab, var(--muted) 0%, var(--background))",
+                        }}
+                      >
+                        <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          <CopyPhoneButton phone={entry.phone} />
+                          {isAdmin ? (
+                            <RemoveDncDialog phone={entry.phone} />
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <SmartPagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              basePath="/dnc"
+            />
+          </>
+        ) : filtersActive ? (
+          <div
+            data-testid="dnc-empty-filtered"
+            className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center"
+          >
+            <SearchX className="text-muted-foreground size-8" />
+            <p className="text-foreground text-sm font-medium">
+              No DNC entries match these filters
+            </p>
+            <p className="text-muted-foreground max-w-xs text-sm">
+              Try widening the date range, removing the reason filter, or
+              searching a different phone.
+            </p>
+            <Button asChild variant="outline" size="sm" className="mt-2">
+              <Link href="/dnc">Clear filters</Link>
+            </Button>
           </div>
         ) : (
-          <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+          <div
+            data-testid="dnc-empty-initial"
+            className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center"
+          >
             <Ban className="text-muted-foreground size-8" />
             <p className="text-foreground text-sm font-medium">
-              No numbers on DNC
+              No numbers on DNC yet
             </p>
-            <p className="text-muted-foreground text-sm">
-              Numbers added here are blocked at dial time.
+            <p className="text-muted-foreground max-w-sm text-sm">
+              Numbers added here are blocked at dial time. Use{" "}
+              <span className="text-foreground font-medium">Add number</span>{" "}
+              above for a single addition, or import a CSV.
             </p>
+            <Button asChild variant="outline" size="sm" className="mt-2">
+              <Link href="/dnc/import">
+                <Upload className="size-4" />
+                Import CSV
+              </Link>
+            </Button>
           </div>
         )}
       </div>
     </SelectionProvider>
+  );
+}
+
+function FilterChip({ label, href }: { label: string; href: string }) {
+  return (
+    <Link
+      href={href}
+      className="border-border bg-card hover:bg-muted/60 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors"
+    >
+      <span className="text-foreground">{label}</span>
+      <X className="text-muted-foreground size-3" />
+    </Link>
   );
 }

@@ -6,7 +6,6 @@ import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -23,13 +22,13 @@ import {
 
 type Option = { id: string; name: string };
 
-/** Filter popover for /analytics. Round 17 — replaces the inline
- *  filter wall. Date range lives in its own pill row above the page
- *  (it's the primary axis); Campaign / List / User / Compare /
- *  Custom date inputs collapse into this popover.
+/** Filter popover for /analytics. Round 17 — replaces the inline filter
+ *  wall. Date range lives in its own pill row above the page (it's the
+ *  primary axis); only Scope (Campaign / List / User) and Comparison
+ *  collapse into this popover.
  *
- *  Custom From/To only render when the current preset is "custom" —
- *  the page passes `showCustomDates` accordingly. */
+ *  Round 17.1 — Custom dates moved out of this popover and into the
+ *  pill row itself, so this popover is purely about scope + compare. */
 const FILTER_KEYS = ["campaign", "list", "user", "compare"] as const;
 
 export function AnalyticsFilters({
@@ -37,17 +36,11 @@ export function AnalyticsFilters({
   lists,
   owners,
   showOwner,
-  showCustomDates,
-  initialFrom,
-  initialTo,
 }: {
   campaigns: Option[];
   lists: Option[];
   owners: Option[];
   showOwner: boolean;
-  showCustomDates: boolean;
-  initialFrom?: string;
-  initialTo?: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -58,16 +51,13 @@ export function AnalyticsFilters({
   const [list, setList] = useState(get("list") || "any");
   const [user, setUser] = useState(get("user") || "any");
   const [compare, setCompare] = useState(get("compare") === "0" ? "0" : "1");
-  const [from, setFrom] = useState(initialFrom ?? "");
-  const [to, setTo] = useState(initialTo ?? "");
 
   // Active-filter badge count — any non-default value bumps the chip.
-  const activeCount =
-    FILTER_KEYS.filter((key) => {
-      const v = searchParams.get(key);
-      if (key === "compare") return v === "0"; // default is compare on
-      return v && v !== "any";
-    }).length + (showCustomDates && (initialFrom || initialTo) ? 1 : 0);
+  const activeCount = FILTER_KEYS.filter((key) => {
+    const v = searchParams.get(key);
+    if (key === "compare") return v === "0"; // default is compare on
+    return v && v !== "any";
+  }).length;
 
   function apply() {
     const params = new URLSearchParams(searchParams.toString());
@@ -79,12 +69,6 @@ export function AnalyticsFilters({
     set("list", list, "any");
     set("user", user, "any");
     set("compare", compare, "1");
-    if (showCustomDates) {
-      if (from) params.set("from", from);
-      else params.delete("from");
-      if (to) params.set("to", to);
-      else params.delete("to");
-    }
     router.push(`/analytics?${params.toString()}`);
     setOpen(false);
   }
@@ -92,14 +76,10 @@ export function AnalyticsFilters({
   function clear() {
     const params = new URLSearchParams(searchParams.toString());
     for (const key of FILTER_KEYS) params.delete(key);
-    params.delete("from");
-    params.delete("to");
     setCampaign("any");
     setList("any");
     setUser("any");
     setCompare("1");
-    setFrom("");
-    setTo("");
     router.push(`/analytics?${params.toString()}`);
     setOpen(false);
   }
@@ -117,33 +97,8 @@ export function AnalyticsFilters({
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="flex w-[min(460px,92vw)] flex-col gap-4"
+        className="flex w-[min(420px,92vw)] flex-col gap-4"
       >
-        {showCustomDates ? (
-          <Section title="Custom dates">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="ana-from">From</Label>
-                <Input
-                  id="ana-from"
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="ana-to">To</Label>
-                <Input
-                  id="ana-to"
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                />
-              </div>
-            </div>
-          </Section>
-        ) : null}
-
         <Section title="Scope">
           <div className="flex flex-col gap-3">
             <Pickable
