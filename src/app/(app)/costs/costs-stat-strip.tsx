@@ -62,8 +62,7 @@ function Tile({
   tone: "coral" | "neutral";
   divider?: boolean;
 }) {
-  const accent =
-    tone === "coral" ? "text-[color:var(--coral)]" : "text-muted-foreground";
+  const accent = tone === "coral" ? "text-primary" : "text-muted-foreground";
   return (
     <div
       className={`flex flex-col gap-1 ${divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""}`}
@@ -95,7 +94,7 @@ function SparklineTile({
       className={`flex flex-col gap-1 ${divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""}`}
     >
       <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
-        <span className="text-[color:var(--coral)]">{icon}</span>
+        <span className="text-primary">{icon}</span>
         {label}
       </p>
       <Sparkline values={values} />
@@ -124,7 +123,7 @@ function Sparkline({ values }: { values: number[] }) {
       className="h-8 w-full"
       role="img"
       aria-label="Daily spend trend across the selected window"
-      style={{ color: "var(--coral)" }}
+      style={{ color: "var(--primary)" }}
     >
       <polyline
         points={points}

@@ -324,7 +324,7 @@ export function ImportWizard({
           <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 text-xs">
             <Link
               href="/leads/import/sample"
-              className="text-foreground inline-flex items-center gap-1 underline-offset-2 hover:text-[color:var(--coral)] hover:underline"
+              className="text-foreground hover:text-primary inline-flex items-center gap-1 underline-offset-2 hover:underline"
               prefetch={false}
             >
               <Download className="size-3.5" />
@@ -551,8 +551,8 @@ function MapStep({
                       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium tracking-wide uppercase"
                       style={{
                         backgroundColor:
-                          "color-mix(in oklab, var(--coral) 14%, transparent)",
-                        color: "color-mix(in oklab, var(--coral) 85%, black)",
+                          "color-mix(in oklab, var(--primary) 14%, transparent)",
+                        color: "color-mix(in oklab, var(--primary) 85%, black)",
                       }}
                     >
                       Mapped
@@ -804,16 +804,17 @@ function DoneStep({
       <section
         className="bg-card flex flex-col items-center gap-4 rounded-2xl border p-8 text-center"
         style={{
-          borderColor: "color-mix(in oklab, var(--coral) 35%, transparent)",
-          backgroundColor: "color-mix(in oklab, var(--coral) 5%, var(--card))",
+          borderColor: "color-mix(in oklab, var(--primary) 35%, transparent)",
+          backgroundColor:
+            "color-mix(in oklab, var(--primary) 5%, var(--card))",
         }}
       >
         <div
           className="animate-in fade-in zoom-in-50 flex size-14 items-center justify-center rounded-full"
           style={{
             backgroundColor:
-              "color-mix(in oklab, var(--coral) 22%, transparent)",
-            color: "var(--coral)",
+              "color-mix(in oklab, var(--primary) 22%, transparent)",
+            color: "var(--primary)",
           }}
         >
           <CheckCircle2 className="size-7" />

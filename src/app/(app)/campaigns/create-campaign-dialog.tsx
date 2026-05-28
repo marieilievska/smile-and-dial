@@ -160,7 +160,10 @@ export function CreateCampaignDialog({
               a second step. Coral Sparkles to match the rest of the
               app's accent moments. */}
           <div className="text-muted-foreground mb-1 inline-flex items-center gap-2 text-[10px] font-medium tracking-[0.16em] uppercase">
-            <Sparkles className="size-3.5" style={{ color: "var(--coral)" }} />
+            <Sparkles
+              className="size-3.5"
+              style={{ color: "var(--primary)" }}
+            />
             <span>Step {step} of 2</span>
             <StepDots current={step} />
           </div>
@@ -287,7 +290,7 @@ export function CreateCampaignDialog({
                           <label
                             htmlFor={`create-list-${l.id}`}
                             className={`hover:bg-muted/40 flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors ${
-                              checked ? "bg-[color:var(--coral)]/5" : ""
+                              checked ? "bg-primary/5" : ""
                             }`}
                           >
                             <Checkbox
@@ -299,7 +302,7 @@ export function CreateCampaignDialog({
                               {l.name}
                             </span>
                             {checked ? (
-                              <Check className="size-4 text-[color:var(--coral)]" />
+                              <Check className="text-primary size-4" />
                             ) : null}
                           </label>
                         </li>
@@ -331,7 +334,7 @@ export function CreateCampaignDialog({
                 type="button"
                 onClick={goToStep2}
                 disabled={pending || agents.length === 0 || goals.length === 0}
-                className="bg-[color:var(--coral)] text-white hover:bg-[color:var(--coral)]/90"
+                className="bg-primary hover:bg-primary/90 text-white"
               >
                 Continue
               </Button>
@@ -340,7 +343,7 @@ export function CreateCampaignDialog({
                 type="button"
                 onClick={submit}
                 disabled={pending}
-                className="bg-[color:var(--coral)] text-white hover:bg-[color:var(--coral)]/90"
+                className="bg-primary hover:bg-primary/90 text-white"
               >
                 {pending ? "Creating…" : "Create campaign"}
               </Button>
@@ -364,7 +367,7 @@ function StepDots({ current }: { current: 1 | 2 }) {
           aria-hidden
           className={`size-1.5 rounded-full ${
             s === current
-              ? "bg-[color:var(--coral)]"
+              ? "bg-primary"
               : s < current
                 ? "bg-muted-foreground"
                 : "border-muted-foreground/40 border"
@@ -397,7 +400,7 @@ function FieldRow({
         htmlFor={htmlFor}
         className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase"
       >
-        <span className="text-[color:var(--coral)]">{icon}</span>
+        <span className="text-primary">{icon}</span>
         {label}
       </Label>
       {children}

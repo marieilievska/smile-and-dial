@@ -110,7 +110,7 @@ export default async function SettingsGoalsPage() {
                           {goal.name}
                           {goal.is_default ? (
                             <span
-                              className="inline-flex items-center gap-0.5 rounded-full bg-[color:var(--coral)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[color:var(--coral)]"
+                              className="bg-primary/10 text-primary inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
                               title="Default goal — applied when creating a new campaign"
                             >
                               <Star className="size-2.5 fill-current" />
@@ -184,7 +184,7 @@ function StatTile({
       }`}
     >
       <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
-        <span className="text-[color:var(--coral)]">{icon}</span>
+        <span className="text-primary">{icon}</span>
         {label}
       </p>
       <p

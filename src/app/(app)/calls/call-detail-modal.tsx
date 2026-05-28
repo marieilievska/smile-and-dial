@@ -287,7 +287,7 @@ export function CallDetailModal() {
             {call?.leadId ? (
               <Link
                 href={`/leads/${call.leadId}`}
-                className="text-foreground text-xl font-semibold underline-offset-2 hover:text-[color:var(--coral)] hover:underline"
+                className="text-foreground hover:text-primary text-xl font-semibold underline-offset-2 hover:underline"
               >
                 {call.leadCompany ?? "Untitled lead"}
               </Link>
@@ -382,14 +382,14 @@ export function CallDetailModal() {
                   className="bg-card flex flex-col gap-3 rounded-xl border p-5"
                   style={{
                     borderColor:
-                      "color-mix(in oklab, var(--coral) 25%, var(--border))",
+                      "color-mix(in oklab, var(--primary) 25%, var(--border))",
                   }}
                 >
                   <div className="flex items-center justify-between">
                     <h3 className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
                       <Sparkles
                         className="size-4"
-                        style={{ color: "var(--coral)" }}
+                        style={{ color: "var(--primary)" }}
                       />
                       AI summary
                     </h3>
@@ -425,7 +425,7 @@ export function CallDetailModal() {
                             <button
                               type="button"
                               onClick={() => seekTo(seconds!)}
-                              className="bg-muted text-foreground inline-flex h-6 w-14 shrink-0 items-center justify-center rounded-md font-mono text-xs tabular-nums transition-colors hover:bg-[color:var(--coral)]/15 hover:text-[color:var(--coral)]"
+                              className="bg-muted text-foreground hover:bg-primary/15 hover:text-primary inline-flex h-6 w-14 shrink-0 items-center justify-center rounded-md font-mono text-xs tabular-nums transition-colors"
                               aria-label={`Seek to ${fmtTurnTime(seconds)}`}
                             >
                               {fmtTurnTime(seconds)}
@@ -519,7 +519,7 @@ export function CallDetailModal() {
             {call.leadId ? (
               <Button
                 onClick={callAgain}
-                className="bg-[color:var(--coral)] text-white hover:bg-[color:var(--coral)]/90"
+                className="bg-primary hover:bg-primary/90 text-white"
               >
                 <PhoneCall className="size-4" />
                 Call again

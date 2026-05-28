@@ -43,7 +43,7 @@ export function BudgetProgress({ cap }: { cap: CampaignCap | undefined }) {
       : pct >= 75
         ? {
             bar: "",
-            text: "text-[color:var(--coral)]",
+            text: "text-primary",
           }
         : { bar: "bg-muted-foreground/40", text: "text-muted-foreground" };
 
@@ -79,7 +79,7 @@ export function BudgetProgress({ cap }: { cap: CampaignCap | undefined }) {
           style={{
             width: `${Math.min(100, Math.max(2, pct))}%`,
             background:
-              pct >= 90 ? undefined : pct >= 75 ? "var(--coral)" : undefined,
+              pct >= 90 ? undefined : pct >= 75 ? "var(--primary)" : undefined,
           }}
         />
       </div>

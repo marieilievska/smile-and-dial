@@ -38,7 +38,7 @@ export function DncStepIndicator({ current }: { current: DncStepKey }) {
                 isActive
                   ? "bg-foreground text-background"
                   : isDone
-                    ? "bg-[color:var(--coral)] text-white"
+                    ? "bg-primary text-white"
                     : "bg-muted text-muted-foreground"
               }`}
             >
@@ -55,7 +55,7 @@ export function DncStepIndicator({ current }: { current: DncStepKey }) {
               <span
                 aria-hidden
                 className={`hidden h-px flex-1 sm:block ${
-                  isDone ? "bg-[color:var(--coral)]" : "bg-border"
+                  isDone ? "bg-primary" : "bg-border"
                 }`}
               />
             ) : null}

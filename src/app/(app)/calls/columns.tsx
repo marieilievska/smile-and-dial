@@ -127,7 +127,7 @@ export const CALL_COLUMNS: CallColumn[] = [
             {c.leadId ? (
               <Link
                 href={`/leads/${c.leadId}`}
-                className="text-foreground truncate text-sm font-medium underline-offset-2 hover:text-[color:var(--coral)] hover:underline"
+                className="text-foreground hover:text-primary truncate text-sm font-medium underline-offset-2 hover:underline"
               >
                 {c.company || "Unknown lead"}
               </Link>
@@ -263,7 +263,7 @@ export const CALL_COLUMNS: CallColumn[] = [
     width: "w-[100px]",
     cell: (c) =>
       c.recording_path ? (
-        <span className="inline-flex items-center gap-1 text-[color:var(--coral)]">
+        <span className="text-primary inline-flex items-center gap-1">
           <Mic className="size-4" aria-label="Has recording" />
           <span className="text-xs">Audio</span>
         </span>

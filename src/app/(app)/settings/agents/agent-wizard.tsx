@@ -146,7 +146,7 @@ function StepIndicator({ current }: { current: number }) {
                 isActive
                   ? "bg-foreground text-background"
                   : isDone
-                    ? "bg-[color:var(--coral)] text-white"
+                    ? "bg-primary text-white"
                     : "bg-muted text-muted-foreground"
               }`}
             >
@@ -156,7 +156,7 @@ function StepIndicator({ current }: { current: number }) {
               <span
                 aria-hidden
                 className={`hidden h-px flex-1 sm:block ${
-                  isDone ? "bg-[color:var(--coral)]" : "bg-border"
+                  isDone ? "bg-primary" : "bg-border"
                 }`}
               />
             ) : null}

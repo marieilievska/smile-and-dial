@@ -43,7 +43,8 @@ export function LiveCallsBand({
       style={
         !idle
           ? {
-              borderColor: "color-mix(in oklab, var(--coral) 35%, transparent)",
+              borderColor:
+                "color-mix(in oklab, var(--primary) 35%, transparent)",
             }
           : undefined
       }
@@ -67,11 +68,11 @@ export function LiveCallsBand({
               <span aria-hidden className="relative flex size-2.5 shrink-0">
                 <span
                   className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
-                  style={{ backgroundColor: "var(--coral)" }}
+                  style={{ backgroundColor: "var(--primary)" }}
                 />
                 <span
                   className="relative inline-flex size-2.5 rounded-full"
-                  style={{ backgroundColor: "var(--coral)" }}
+                  style={{ backgroundColor: "var(--primary)" }}
                 />
               </span>
               <p className="text-foreground text-base font-medium">
@@ -108,7 +109,7 @@ export function LiveCallsBand({
                   {call.status === "in_progress" ? (
                     <span
                       className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-70"
-                      style={{ backgroundColor: "var(--coral)" }}
+                      style={{ backgroundColor: "var(--primary)" }}
                     />
                   ) : null}
                   <span
@@ -119,7 +120,7 @@ export function LiveCallsBand({
                     }
                     style={
                       call.status === "in_progress"
-                        ? { backgroundColor: "var(--coral)" }
+                        ? { backgroundColor: "var(--primary)" }
                         : undefined
                     }
                   />

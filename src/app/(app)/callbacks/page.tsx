@@ -305,7 +305,7 @@ export default async function CallbacksPage({
                       <TableCell
                         className={`w-[34%] min-w-[260px] ${
                           showUrgencyRail
-                            ? "border-l-[3px] border-l-[color:var(--coral)]"
+                            ? "border-l-[3px] border-l-[color:var(--primary)]"
                             : "border-l-[3px] border-l-transparent"
                         }`}
                       >
@@ -314,7 +314,7 @@ export default async function CallbacksPage({
                             {cb.lead?.id ? (
                               <Link
                                 href={`/leads/${cb.lead.id}`}
-                                className="text-foreground truncate text-sm font-medium underline-offset-2 hover:text-[color:var(--coral)] hover:underline"
+                                className="text-foreground hover:text-primary truncate text-sm font-medium underline-offset-2 hover:underline"
                               >
                                 {cb.lead?.company || "Unknown lead"}
                               </Link>
@@ -348,7 +348,7 @@ export default async function CallbacksPage({
                               when.urgency === "overdue"
                                 ? "text-destructive"
                                 : when.urgency === "urgent"
-                                  ? "text-[color:var(--coral)]"
+                                  ? "text-primary"
                                   : "text-foreground"
                             }`}
                           >

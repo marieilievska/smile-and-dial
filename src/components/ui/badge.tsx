@@ -24,7 +24,7 @@ const badgeVariants = cva(
         // ~18%-strength pink tint that reads as a real pill at any
         // theme. Border picks up the same hue at a higher mix.
         coral:
-          "[background-color:color-mix(in_oklab,var(--coral)_18%,transparent)] [color:color-mix(in_oklab,var(--coral)_85%,black)] dark:[background-color:color-mix(in_oklab,var(--coral)_22%,transparent)] dark:[color:var(--coral)]",
+          "[background-color:color-mix(in_oklab,var(--primary)_18%,transparent)] [color:color-mix(in_oklab,var(--primary)_85%,black)] dark:[background-color:color-mix(in_oklab,var(--primary)_22%,transparent)] dark:[color:var(--primary)]",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:

@@ -59,7 +59,7 @@ export function PerTimeChart({ data }: { data: PerTime[] }) {
           className="h-48 w-full"
           role="img"
           aria-label="Spend per day in the selected window"
-          style={{ color: "var(--coral)" }}
+          style={{ color: "var(--primary)" }}
           onMouseLeave={() => setHover(null)}
         >
           {data.length > 1 ? (

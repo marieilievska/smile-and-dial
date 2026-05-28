@@ -354,7 +354,7 @@ export default async function CampaignsPage({
                     <TableCell className="w-[80px]">
                       {listCount === 0 ? (
                         <span
-                          className="inline-flex items-center rounded-full bg-[color:var(--coral)]/10 px-1.5 py-0.5 text-[10px] font-medium text-[color:var(--coral)]"
+                          className="bg-primary/10 text-primary inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
                           title="No lists attached — this campaign won't dial."
                         >
                           0 lists
@@ -447,7 +447,7 @@ function SpendCapBar({ spend, cap }: { spend: number; cap: number | null }) {
     pct >= 100
       ? "bg-destructive"
       : pct >= 80
-        ? "bg-[color:var(--coral)]"
+        ? "bg-primary"
         : "bg-foreground/70";
   return (
     <div className="flex flex-col gap-1">

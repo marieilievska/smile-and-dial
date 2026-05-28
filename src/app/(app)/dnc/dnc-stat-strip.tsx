@@ -83,7 +83,7 @@ function StatTile({
   divider?: boolean;
 }) {
   const accent = {
-    coral: "text-[color:var(--coral)]",
+    coral: "text-primary",
     neutral: "text-muted-foreground",
   }[tone];
 

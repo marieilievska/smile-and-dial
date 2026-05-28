@@ -368,7 +368,7 @@ export function CampaignSettingsDialog({
             </div>
             <div className="flex flex-col gap-2">
               <div className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase">
-                <Clock className="size-3.5 text-[color:var(--coral)]" />
+                <Clock className="text-primary size-3.5" />
                 Calling hours
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -580,7 +580,7 @@ export function CampaignSettingsDialog({
           <Button
             onClick={submit}
             disabled={pending}
-            className="bg-[color:var(--coral)] text-white hover:bg-[color:var(--coral)]/90"
+            className="bg-primary hover:bg-primary/90 text-white"
           >
             {pending ? "Saving…" : isEdit ? "Save changes" : "Create campaign"}
           </Button>
@@ -616,9 +616,7 @@ function CampaignSection({
     >
       <summary className="hover:bg-muted/40 flex cursor-pointer list-none items-center justify-between rounded-lg px-4 py-3 transition-colors">
         <span className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
-          {icon ? (
-            <span className="text-[color:var(--coral)]">{icon}</span>
-          ) : null}
+          {icon ? <span className="text-primary">{icon}</span> : null}
           {title}
         </span>
         <ChevronDown className="text-muted-foreground size-4 transition-transform group-open:rotate-180" />

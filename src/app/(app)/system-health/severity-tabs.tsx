@@ -38,7 +38,7 @@ export function SeverityTabs({
       case "red":
         return "bg-destructive";
       case "coral":
-        return "bg-[color:var(--coral)]";
+        return "bg-primary";
       default:
         return "bg-muted-foreground/50";
     }

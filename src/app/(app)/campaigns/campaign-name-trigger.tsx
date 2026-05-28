@@ -45,7 +45,7 @@ export function CampaignNameTrigger({
       trigger={
         <button
           type="button"
-          className="text-foreground truncate text-left text-sm font-medium underline-offset-2 hover:text-[color:var(--coral)] hover:underline"
+          className="text-foreground hover:text-primary truncate text-left text-sm font-medium underline-offset-2 hover:underline"
         >
           {name}
         </button>

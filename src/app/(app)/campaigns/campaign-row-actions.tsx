@@ -90,7 +90,7 @@ export function CampaignRowActions({
           aria-label={`Resume ${campaign.name}`}
           disabled={pending}
           onClick={() => run("resumed", () => resumeCampaign(campaign.id))}
-          className="h-7 px-2 text-[color:var(--coral)] hover:bg-[color:var(--coral)]/10 hover:text-[color:var(--coral)]"
+          className="text-primary hover:bg-primary/10 hover:text-primary h-7 px-2"
         >
           <Play className="size-3.5" />
           Resume

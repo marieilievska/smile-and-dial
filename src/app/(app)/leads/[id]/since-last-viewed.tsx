@@ -51,14 +51,14 @@ export function SinceLastViewed({
       data-testid="since-last-viewed"
       className="bg-card flex items-start justify-between gap-3 rounded-lg border px-3 py-2"
       style={{
-        borderColor: "color-mix(in oklab, var(--coral) 35%, transparent)",
-        backgroundColor: "color-mix(in oklab, var(--coral) 6%, var(--card))",
+        borderColor: "color-mix(in oklab, var(--primary) 35%, transparent)",
+        backgroundColor: "color-mix(in oklab, var(--primary) 6%, var(--card))",
       }}
     >
       <div className="flex items-start gap-2">
         <Eye
           className="mt-0.5 size-4 shrink-0"
-          style={{ color: "var(--coral)" }}
+          style={{ color: "var(--primary)" }}
         />
         <div className="flex flex-col gap-0.5">
           <p className="text-foreground text-xs font-medium">

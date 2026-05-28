@@ -21,10 +21,10 @@ export function DialogSection({
     <section className="flex flex-col gap-2">
       <div className="flex items-baseline gap-2">
         <span
-          className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[color:var(--coral)]"
+          className="text-primary inline-flex size-5 shrink-0 items-center justify-center rounded-md"
           style={{
             backgroundColor:
-              "color-mix(in oklab, var(--coral) 14%, transparent)",
+              "color-mix(in oklab, var(--primary) 14%, transparent)",
           }}
         >
           {icon}

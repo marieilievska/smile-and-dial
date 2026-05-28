@@ -193,11 +193,14 @@ export function LeadPageClient({
             className="bg-card flex flex-col gap-3 rounded-xl border p-5"
             style={{
               borderColor:
-                "color-mix(in oklab, var(--coral) 25%, var(--border))",
+                "color-mix(in oklab, var(--primary) 25%, var(--border))",
             }}
           >
             <h2 className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
-              <Sparkles className="size-4" style={{ color: "var(--coral)" }} />
+              <Sparkles
+                className="size-4"
+                style={{ color: "var(--primary)" }}
+              />
               AI summary
             </h2>
             {meta.aiSummary ? (

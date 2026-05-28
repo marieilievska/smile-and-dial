@@ -63,7 +63,7 @@ function StatLink({
   divider?: boolean;
 }) {
   const accent = {
-    coral: "text-[color:var(--coral)]",
+    coral: "text-primary",
     emerald: "text-emerald-600 dark:text-emerald-400",
     neutral: "text-muted-foreground",
   }[tone];

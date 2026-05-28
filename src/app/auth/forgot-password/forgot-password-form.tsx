@@ -82,8 +82,8 @@ function SentState() {
           className="animate-in fade-in zoom-in-50 flex size-16 items-center justify-center rounded-full duration-500"
           style={{
             backgroundColor:
-              "color-mix(in oklab, var(--coral) 18%, transparent)",
-            color: "var(--coral)",
+              "color-mix(in oklab, var(--primary) 18%, transparent)",
+            color: "var(--primary)",
           }}
         >
           <MailCheck className="size-8" />
