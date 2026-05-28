@@ -7,14 +7,12 @@ import { cn } from "@/lib/utils";
 
 type Tab = { label: string; href: string };
 
-/** Settings sub-navigation. Round 23 — grouped into "Workspace" (the
- *  assets everyone needs to do their job) and "Administration"
- *  (admin-only configuration). Members only see the Workspace group;
- *  admins see both with a thin divider between them.
- *
- *  Visual treatment matches the v1 tab row (border-bottom active
- *  state) so muscle memory survives; only the order + grouping
- *  changed. */
+/** Settings sub-navigation. Round 28 — renders as a vertical left
+ *  rail on `lg+` screens (Referrizer "Detached Sidebar Workspace"
+ *  pattern: persistent context block while inner views swap), and
+ *  falls back to a horizontal tab row on smaller widths where a left
+ *  rail would steal too much canvas. The orientation prop lets the
+ *  layout pick the right form per breakpoint without rerendering. */
 const WORKSPACE_TABS: Tab[] = [
   { label: "Lists", href: "/settings/lists" },
   { label: "Goals", href: "/settings/goals" },
@@ -30,8 +28,33 @@ const ADMIN_TABS: Tab[] = [
   { label: "API", href: "/settings/api" },
 ];
 
-export function SettingsNav({ isAdmin }: { isAdmin: boolean }) {
+export function SettingsNav({
+  isAdmin,
+  orientation = "horizontal",
+}: {
+  isAdmin: boolean;
+  orientation?: "horizontal" | "vertical";
+}) {
   const pathname = usePathname();
+
+  if (orientation === "vertical") {
+    return (
+      <nav aria-label="Settings" className="flex flex-col gap-5 text-sm">
+        <NavGroupVertical
+          label="Workspace"
+          tabs={WORKSPACE_TABS}
+          pathname={pathname}
+        />
+        {isAdmin ? (
+          <NavGroupVertical
+            label="Administration"
+            tabs={ADMIN_TABS}
+            pathname={pathname}
+          />
+        ) : null}
+      </nav>
+    );
+  }
 
   return (
     <nav aria-label="Settings" className="flex flex-wrap items-center gap-1">
@@ -76,6 +99,42 @@ function NavGroup({
               active
                 ? "border-primary text-foreground"
                 : "text-muted-foreground hover:text-foreground border-transparent",
+            )}
+          >
+            {tab.label}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function NavGroupVertical({
+  label,
+  tabs,
+  pathname,
+}: {
+  label: string;
+  tabs: Tab[];
+  pathname: string;
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex flex-col gap-1">
+      <p className="text-muted-foreground px-2 text-[10px] font-semibold tracking-[0.16em] uppercase">
+        {label}
+      </p>
+      {tabs.map((tab) => {
+        const active = pathname === tab.href;
+        return (
+          <Link
+            key={tab.href}
+            href={tab.href}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "flex items-center rounded-md px-2 py-1.5 text-sm font-medium transition-colors",
+              active
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
             )}
           >
             {tab.label}

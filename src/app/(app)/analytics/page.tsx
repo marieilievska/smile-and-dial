@@ -177,10 +177,10 @@ export default async function AnalyticsPage({
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-foreground animate-in fade-in slide-in-from-bottom-1 fill-mode-both text-2xl font-bold tracking-tight duration-500">
+            <h1 className="text-foreground text-2xl font-bold tracking-tight">
               Analytics
             </h1>
-            <p className="text-muted-foreground animate-in fade-in fill-mode-both mt-1 text-sm delay-75 duration-500">
+            <p className="text-muted-foreground mt-1 text-sm">
               {rangeLabel} · {kpis.totalCalls.toLocaleString()}{" "}
               {kpis.totalCalls === 1 ? "call" : "calls"}
               {compare ? " · comparing to prior period" : ""}
@@ -206,7 +206,7 @@ export default async function AnalyticsPage({
       {mockMode ? (
         <div
           data-testid="mock-data-banner"
-          className="border-border bg-muted/40 animate-in fade-in fill-mode-both flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm delay-100 duration-500"
+          className="border-border bg-muted/40 flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm"
         >
           <Info className="text-muted-foreground mt-0.5 size-4 shrink-0" />
           <div className="flex flex-col gap-0.5">
@@ -280,7 +280,7 @@ export default async function AnalyticsPage({
 
       {/* Layer 2 — Clarification */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <section className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both rounded-xl border p-5 delay-150 duration-500">
+        <section className="border-border bg-card rounded-xl border p-5">
           <h2 className="text-foreground text-sm font-semibold">
             Conversion funnel
           </h2>
@@ -290,7 +290,7 @@ export default async function AnalyticsPage({
           <FunnelChart steps={funnel} />
         </section>
 
-        <section className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both rounded-xl border p-5 delay-150 duration-500">
+        <section className="border-border bg-card rounded-xl border p-5">
           <h2 className="text-foreground text-sm font-semibold">
             Top campaigns
           </h2>
@@ -300,7 +300,7 @@ export default async function AnalyticsPage({
           <CampaignLeaderboard rows={ranking} />
         </section>
 
-        <section className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both col-span-1 rounded-xl border p-5 delay-200 duration-500 lg:col-span-2">
+        <section className="border-border bg-card col-span-1 rounded-xl border p-5 lg:col-span-2">
           <h2 className="text-foreground text-sm font-semibold">
             Outcome distribution
           </h2>

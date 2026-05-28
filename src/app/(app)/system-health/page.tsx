@@ -157,7 +157,7 @@ export default async function SystemHealthPage({
        *  graduates from a buried text link to a button pair in the
        *  header so an admin investigating an outage can see + drive
        *  it without scrolling. */}
-      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-wrap items-end justify-between gap-3 duration-500">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-foreground text-2xl font-bold tracking-tight">
             System Health
@@ -190,7 +190,7 @@ export default async function SystemHealthPage({
       {cappedResults ? (
         <div
           data-testid="system-events-cap-banner"
-          className="border-border bg-muted/40 animate-in fade-in fill-mode-both flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm delay-75 duration-500"
+          className="border-border bg-muted/40 flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm"
         >
           <Info className="text-muted-foreground mt-0.5 size-4 shrink-0" />
           <div className="flex flex-col gap-0.5">

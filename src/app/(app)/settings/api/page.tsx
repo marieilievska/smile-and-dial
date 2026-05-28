@@ -45,7 +45,7 @@ export default async function ApiPage() {
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500">
+      <div className="duration-500">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           API keys
         </h1>
@@ -55,7 +55,7 @@ export default async function ApiPage() {
         </p>
       </div>
 
-      <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both delay-75 duration-500">
+      <Card className="delay-75">
         <CardHeader>
           <CardTitle>Create a new key</CardTitle>
           <CardDescription>
@@ -68,7 +68,7 @@ export default async function ApiPage() {
         </CardContent>
       </Card>
 
-      <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both delay-150 duration-500">
+      <Card className="delay-150">
         <CardHeader>
           <CardTitle>Active keys</CardTitle>
         </CardHeader>
@@ -128,7 +128,7 @@ export default async function ApiPage() {
         </CardContent>
       </Card>
 
-      <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both delay-200 duration-500">
+      <Card className="delay-200">
         <CardHeader>
           <CardTitle>Documentation</CardTitle>
           <CardDescription>POST a lead to your workspace.</CardDescription>

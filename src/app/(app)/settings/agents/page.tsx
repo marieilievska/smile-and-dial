@@ -53,7 +53,7 @@ export default async function AgentsPage() {
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex items-start justify-between gap-4 duration-500">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-foreground text-2xl font-bold tracking-tight">
             Agents
@@ -74,7 +74,7 @@ export default async function AgentsPage() {
         <>
           <section
             data-testid="agents-stat-strip"
-            className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both grid grid-cols-3 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 delay-75 duration-500"
+            className="border-border bg-card grid grid-cols-3 gap-x-4 gap-y-3 rounded-xl border px-5 py-4"
           >
             <StatTile
               icon={<Bot className="size-3.5" />}

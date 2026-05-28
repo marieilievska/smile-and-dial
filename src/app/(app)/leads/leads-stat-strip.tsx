@@ -14,7 +14,7 @@ export function LeadsStatStrip({ stats }: { stats: LeadStats }) {
   return (
     <section
       data-testid="leads-stat-strip"
-      className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 duration-500 sm:grid-cols-4"
+      className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-4"
     >
       <StatLink
         icon={<Phone className="size-3.5" />}

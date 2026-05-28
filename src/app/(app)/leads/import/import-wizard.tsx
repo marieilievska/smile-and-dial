@@ -809,7 +809,7 @@ function DoneStep({
         }}
       >
         <div
-          className="animate-in fade-in zoom-in-50 flex size-14 items-center justify-center rounded-full duration-500"
+          className="animate-in fade-in zoom-in-50 flex size-14 items-center justify-center rounded-full"
           style={{
             backgroundColor:
               "color-mix(in oklab, var(--coral) 22%, transparent)",

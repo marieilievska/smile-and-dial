@@ -50,7 +50,7 @@ export default async function IntegrationsPage() {
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500">
+      <div className="duration-500">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           Integrations
         </h1>
@@ -131,7 +131,7 @@ function IntegrationCard({
 }) {
   return (
     <Card
-      className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500"
+      className="duration-500"
       style={{ animationDelay: `${delay}ms` }}
       data-testid="integration-card"
       data-integration={title}

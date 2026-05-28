@@ -66,7 +66,7 @@ export default async function SettingsGoalsPage() {
       {/* G1 — small at-a-glance strip matching the rest of the app. */}
       <section
         data-testid="goals-stat-strip"
-        className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 duration-500 sm:grid-cols-3"
+        className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-3"
       >
         <StatTile
           icon={<Target className="size-3.5" />}

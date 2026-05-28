@@ -267,7 +267,7 @@ export function AgentWizard({
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500">
+      <div className="duration-500">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           {isEdit ? "Edit agent" : "Build agent"}
         </h1>
@@ -280,7 +280,7 @@ export function AgentWizard({
         <StepIndicator current={step} />
       </div>
 
-      <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both max-w-3xl delay-75 duration-500">
+      <Card className="max-w-3xl">
         <CardHeader>
           <CardTitle>{current.title}</CardTitle>
           <CardDescription>{current.description}</CardDescription>

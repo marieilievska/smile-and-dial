@@ -15,7 +15,7 @@ export default async function ImportDncPage() {
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-1 duration-500">
+      <div className="flex flex-col gap-1">
         <Link
           href="/dnc"
           className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 self-start text-xs"

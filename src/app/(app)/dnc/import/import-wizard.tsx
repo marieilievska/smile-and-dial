@@ -187,7 +187,7 @@ export function DncImportWizard() {
       <DncStepIndicator current={step} />
 
       {step === "upload" ? (
-        <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500">
+        <Card className="duration-500">
           <CardHeader>
             <CardTitle>Upload CSV</CardTitle>
             <CardDescription>
@@ -223,7 +223,7 @@ export function DncImportWizard() {
       ) : null}
 
       {step === "map" && parsed ? (
-        <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500">
+        <Card className="duration-500">
           <CardHeader>
             <CardTitle>Map columns</CardTitle>
             <CardDescription>
@@ -324,7 +324,7 @@ export function DncImportWizard() {
       ) : null}
 
       {step === "done" && result ? (
-        <Card className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-500">
+        <Card className="duration-500">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle2 className="text-success size-5" />
