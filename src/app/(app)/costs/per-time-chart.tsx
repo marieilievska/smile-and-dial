@@ -62,9 +62,18 @@ export function PerTimeChart({ data }: { data: PerTime[] }) {
           style={{ color: "var(--primary)" }}
           onMouseLeave={() => setHover(null)}
         >
+          {/* Round 32 (V7) — area fill is a top-down gradient now,
+           *  so the chart reads as a soft wash that fades into the
+           *  card surface rather than a flat 12%-opacity slab. */}
+          <defs>
+            <linearGradient id="pt-area" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="currentColor" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="currentColor" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
           {data.length > 1 ? (
             <>
-              <polygon points={filled} fill="currentColor" opacity={0.12} />
+              <polygon points={filled} fill="url(#pt-area)" />
               <polyline
                 points={points}
                 fill="none"
