@@ -9,12 +9,17 @@ import Link from "next/link";
  *  carries the "per" meaning. "Per goal met" is kept verbatim because
  *  the test reaches for that link by accessible name; if the test is
  *  ever updated we can shorten it to "Goal Met". */
+/** Round 29 — collapsed from 7 tabs to 5. The Vendor view became a
+ *  small inline breakdown panel on the Campaign rollup (vendor data
+ *  lived alongside campaign data anyway), and the Per-user view was
+ *  cut entirely — admins curious about user-level spend can still
+ *  visit `?view=per_user` directly via the URL during the deprecation
+ *  window, and the page will render it; we just don't surface a tab.
+ *  This removes the "wall of segments" feeling the page had grown. */
 const VIEWS: { value: string; label: string }[] = [
   { value: "per_campaign", label: "Campaign" },
   { value: "per_list", label: "List" },
   { value: "per_goal", label: "Per goal met" },
-  { value: "per_vendor", label: "Vendor" },
-  { value: "per_user", label: "User" },
   { value: "per_time", label: "Day" },
   { value: "per_call", label: "Call" },
 ];
