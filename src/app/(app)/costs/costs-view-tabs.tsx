@@ -11,6 +11,7 @@ import Link from "next/link";
  *  ever updated we can shorten it to "Goal Met". */
 const VIEWS: { value: string; label: string }[] = [
   { value: "per_campaign", label: "Campaign" },
+  { value: "per_list", label: "List" },
   { value: "per_goal", label: "Per goal met" },
   { value: "per_vendor", label: "Vendor" },
   { value: "per_user", label: "User" },

@@ -199,6 +199,52 @@ export async function rollupByUser(
     .sort((a, b) => b.spend - a.spend);
 }
 
+export type PerList = {
+  listId: string;
+  calls: number;
+  goalMet: number;
+  spend: number;
+};
+
+/** Per-list rollup. Mirrors rollupByUser — calls don't carry list_id
+ *  directly, so we look up each call's lead to get its list. */
+export async function rollupByList(
+  supabase: SupabaseClient,
+  rows: CostsRow[],
+): Promise<PerList[]> {
+  if (rows.length === 0) return [];
+  const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
+  const { data: leads } = await supabase
+    .from("leads")
+    .select("id, list_id")
+    .in("id", leadIds);
+  const listOf = new Map<string, string>();
+  for (const l of leads ?? []) {
+    listOf.set((l as { id: string }).id, (l as { list_id: string }).list_id);
+  }
+  const acc = new Map<
+    string,
+    { calls: number; goalMet: number; spend: number }
+  >();
+  for (const r of rows) {
+    const lid = listOf.get(r.lead_id);
+    if (!lid) continue;
+    const cur = acc.get(lid) ?? { calls: 0, goalMet: 0, spend: 0 };
+    cur.calls += 1;
+    if (r.goal_met) cur.goalMet += 1;
+    cur.spend += pickBreakdown(r.cost_breakdown).total;
+    acc.set(lid, cur);
+  }
+  return [...acc.entries()]
+    .map(([listId, v]) => ({
+      listId,
+      calls: v.calls,
+      goalMet: v.goalMet,
+      spend: v.spend,
+    }))
+    .sort((a, b) => b.spend - a.spend);
+}
+
 export type PerTime = { day: string; spend: number; calls: number };
 
 export function rollupByTime(rows: CostsRow[], slicers: Slicers): PerTime[] {

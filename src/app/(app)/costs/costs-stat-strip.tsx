@@ -1,4 +1,4 @@
-import { DollarSign, PhoneCall, Sparkles, TrendingUp } from "lucide-react";
+import { DollarSign, Sparkles, TrendingUp } from "lucide-react";
 
 import type { Breakdown } from "@/lib/analytics/costs";
 
@@ -7,40 +7,30 @@ function usd(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
-/** 4-tile stat strip at the top of /costs. Total · Cost / call ·
- *  Cost / Goal Met · daily spend sparkline. Mirrors callbacks and
- *  DNC strips — neutral / coral / coral accents. Sparkline goes
- *  coral to match the analytics hero. */
+/** 3-tile stat strip at the top of /costs — Total spend ·
+ *  Cost / Goal Met · daily-spend sparkline. Round 21 — dropped the
+ *  Cost-per-call tile because that figure already lives on the Calls
+ *  page header strip; duplicating it here was noise. */
 export function CostsStatStrip({
   spend,
-  totalCalls,
   goalMet,
   daily,
 }: {
   spend: Breakdown;
-  totalCalls: number;
   goalMet: number;
   daily: number[];
 }) {
-  const perCall = totalCalls === 0 ? 0 : spend.total / totalCalls;
   const perGoal = goalMet === 0 ? null : spend.total / goalMet;
   return (
     <section
       data-testid="costs-stat-strip"
-      className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 duration-500 sm:grid-cols-4"
+      className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both grid grid-cols-1 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 duration-500 sm:grid-cols-3"
     >
       <Tile
         icon={<DollarSign className="size-3.5" />}
         label="Total spend"
         value={usd(spend.total)}
         tone="coral"
-      />
-      <Tile
-        icon={<PhoneCall className="size-3.5" />}
-        label="Cost per call"
-        value={totalCalls === 0 ? "—" : usd(perCall)}
-        tone="neutral"
-        divider
       />
       <Tile
         icon={<Sparkles className="size-3.5" />}
