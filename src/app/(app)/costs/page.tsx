@@ -1,27 +1,19 @@
+import { Download, Info } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import {
   fetchCostRows,
-  pickBreakdown,
   resolveDatePreset,
   rollupByCampaign,
   rollupByGoalMet,
@@ -32,26 +24,26 @@ import {
 } from "@/lib/analytics/costs";
 import { createClient } from "@/lib/supabase/server";
 
-const VIEWS = [
-  { value: "per_call", label: "Per call" },
-  { value: "per_campaign", label: "Per campaign" },
-  { value: "per_goal", label: "Per goal met" },
-  { value: "per_user", label: "Per user" },
-  { value: "per_time", label: "Per day" },
-  { value: "per_vendor", label: "Per vendor" },
-];
-
-const PRESETS = [
-  { value: "today", label: "Today" },
-  { value: "last7", label: "Last 7 days" },
-  { value: "last30", label: "Last 30 days" },
-  { value: "this_month", label: "This month" },
-  { value: "last_month", label: "Last month" },
-  { value: "custom", label: "Custom" },
-];
+import { BudgetProgress } from "./budget-progress";
+import { CostsDatePills } from "./costs-date-pills";
+import { CostsFilters } from "./costs-filters";
+import { CostsStatStrip } from "./costs-stat-strip";
+import { CostsViewTabs } from "./costs-view-tabs";
+import { fmtRangeLabel } from "./format-time";
+import { PerCallTable } from "./per-call-table";
+import { PerTimeChart } from "./per-time-chart";
+import { fetchCampaignCaps, fetchCostsHeadlineStats } from "./stats-query";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
+const ALLOWED_VIEWS = new Set([
+  "per_call",
+  "per_campaign",
+  "per_goal",
+  "per_user",
+  "per_time",
+  "per_vendor",
+]);
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
@@ -60,6 +52,14 @@ function str(v: string | string[] | undefined): string {
 function usd(value: number): string {
   if (!Number.isFinite(value)) return "—";
   return `$${value.toFixed(2)}`;
+}
+
+function isMockMode(): boolean {
+  return (
+    process.env.TWILIO_LIVE !== "live" &&
+    process.env.ELEVENLABS_LIVE !== "live" &&
+    process.env.OPENAI_LIVE !== "live"
+  );
 }
 
 export default async function CostsPage({
@@ -82,13 +82,19 @@ export default async function CostsPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const view = VIEWS.some((v) => v.value === str(params.view))
+  const view = ALLOWED_VIEWS.has(str(params.view))
     ? str(params.view)
     : "per_campaign";
   const preset = str(params.preset) || "last30";
+  const customFromInput = DATE_RE.test(str(params.from))
+    ? str(params.from)
+    : undefined;
+  const customToInput = DATE_RE.test(str(params.to))
+    ? str(params.to)
+    : undefined;
   const { from, to } = resolveDatePreset(preset, {
-    from: DATE_RE.test(str(params.from)) ? str(params.from) : undefined,
-    to: DATE_RE.test(str(params.to)) ? str(params.to) : undefined,
+    from: customFromInput,
+    to: customToInput,
   });
   const campaignId = UUID_RE.test(str(params.campaign))
     ? str(params.campaign)
@@ -97,13 +103,19 @@ export default async function CostsPage({
   const listId = UUID_RE.test(str(params.list)) ? str(params.list) : undefined;
   const slicers: Slicers = { from, to, campaignId, ownerId, listId };
 
-  const [rows, { data: campaigns }, { data: lists }, { data: me }] =
-    await Promise.all([
-      fetchCostRows(supabase, slicers),
-      supabase.from("campaigns").select("id, name").order("name"),
-      supabase.from("lists").select("id, name").order("name"),
-      supabase.from("profiles").select("role").eq("id", user.id).single(),
-    ]);
+  const [
+    rows,
+    { data: campaigns },
+    { data: lists },
+    { data: me },
+    headlineStats,
+  ] = await Promise.all([
+    fetchCostRows(supabase, slicers),
+    supabase.from("campaigns").select("id, name").order("name"),
+    supabase.from("lists").select("id, name").order("name"),
+    supabase.from("profiles").select("role").eq("id", user.id).single(),
+    fetchCostsHeadlineStats(supabase),
+  ]);
   const isAdmin = me?.role === "admin";
 
   let owners: { id: string; name: string }[] = [];
@@ -122,162 +134,143 @@ export default async function CostsPage({
     (campaigns ?? []).map((c) => [c.id, c.name] as const),
   );
 
-  // Headline summary across whatever the slicers selected.
   const summary = rollupByVendor(rows);
   const totalCalls = rows.length;
+  const totalGoalMet = rows.filter((r) => r.goal_met).length;
+  const dailyBuckets = rollupByTime(rows, slicers);
+  const dailySpend = dailyBuckets.map((b) => b.spend);
+  const mockMode = isMockMode();
+  const rangeLabel = fmtRangeLabel(from, to);
+
+  // Build URL for tab navigation that preserves slicers.
+  function buildViewHref(nextView: string): string {
+    const url = new URLSearchParams();
+    url.set("view", nextView);
+    url.set("preset", preset);
+    if (preset === "custom") {
+      if (from) url.set("from", from);
+      if (to) url.set("to", to);
+    }
+    if (campaignId) url.set("campaign", campaignId);
+    if (listId) url.set("list", listId);
+    if (ownerId) url.set("user", ownerId);
+    return `/costs?${url.toString()}`;
+  }
+
+  // Build the export URL with the same slicers in flight.
+  const exportParams = new URLSearchParams();
+  exportParams.set("preset", preset);
+  if (preset === "custom") {
+    if (from) exportParams.set("from", from);
+    if (to) exportParams.set("to", to);
+  }
+  if (campaignId) exportParams.set("campaign", campaignId);
+  if (listId) exportParams.set("list", listId);
+  if (ownerId) exportParams.set("user", ownerId);
+  const exportHref = `/costs/export?${exportParams.toString()}`;
+
+  // Pull campaign caps for the Per-campaign budget progress column.
+  const campaignCaps =
+    view === "per_campaign" ? await fetchCampaignCaps(supabase) : new Map();
 
   return (
     <div className="flex flex-col gap-6 p-8">
-      <div>
-        <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          Costs
-        </h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {from} → {to} · {totalCalls.toLocaleString()} calls ·{" "}
-          {usd(summary.total)} total spend
-        </p>
+      {/* Header — title left, MTD / Today context badges + Export
+       *  right. Mirrors the analytics header pattern. */}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-foreground animate-in fade-in slide-in-from-bottom-1 fill-mode-both text-2xl font-bold tracking-tight duration-500">
+              Costs
+            </h1>
+            <p className="text-muted-foreground animate-in fade-in fill-mode-both mt-1 text-sm delay-75 duration-500">
+              {rangeLabel} · {totalCalls.toLocaleString()}{" "}
+              {totalCalls === 1 ? "call" : "calls"} ·{" "}
+              <span className="text-foreground font-medium">
+                {usd(summary.total)}
+              </span>{" "}
+              total
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div
+              className="border-border bg-card hidden flex-col items-end rounded-lg border px-3 py-1.5 text-xs sm:flex"
+              data-testid="costs-context"
+              title="Workspace-wide spend today and month-to-date. Unaffected by the date filter."
+            >
+              <span className="text-muted-foreground text-[10px] tracking-wide uppercase">
+                Today · MTD
+              </span>
+              <span className="text-foreground tabular-nums">
+                {usd(headlineStats.todaySpend)} · {usd(headlineStats.mtdSpend)}
+              </span>
+            </div>
+            <Button asChild variant="outline">
+              <a href={exportHref} download>
+                <Download className="size-4" />
+                Export CSV
+              </a>
+            </Button>
+          </div>
+        </div>
+
+        <CostsDatePills
+          current={preset}
+          initialFrom={customFromInput ?? from}
+          initialTo={customToInput ?? to}
+        />
       </div>
 
-      <form
-        method="get"
-        action="/costs"
-        className="flex flex-wrap items-end gap-2"
-      >
-        <input type="hidden" name="view" value={view} />
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="c-preset">Date range</Label>
-          <Select name="preset" defaultValue={preset}>
-            <SelectTrigger id="c-preset" className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PRESETS.map((p) => (
-                <SelectItem key={p.value} value={p.value}>
-                  {p.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {preset === "custom" ? (
-          <>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="c-from">From</Label>
-              <Input
-                id="c-from"
-                name="from"
-                type="date"
-                defaultValue={from}
-                className="w-44"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="c-to">To</Label>
-              <Input
-                id="c-to"
-                name="to"
-                type="date"
-                defaultValue={to}
-                className="w-44"
-              />
-            </div>
-          </>
-        ) : null}
-
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="c-campaign">Campaign</Label>
-          <Select name="campaign" defaultValue={campaignId ?? "__any__"}>
-            <SelectTrigger id="c-campaign" className="w-52">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__any__">Any</SelectItem>
-              {(campaigns ?? []).map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="c-list">List</Label>
-          <Select name="list" defaultValue={listId ?? "__any__"}>
-            <SelectTrigger id="c-list" className="w-52">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__any__">Any</SelectItem>
-              {(lists ?? []).map((l) => (
-                <SelectItem key={l.id} value={l.id}>
-                  {l.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {isAdmin ? (
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="c-user">User</Label>
-            <Select name="user" defaultValue={ownerId ?? "__any__"}>
-              <SelectTrigger id="c-user" className="w-52">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__any__">Any</SelectItem>
-                {owners.map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    {o.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      {mockMode ? (
+        <div
+          data-testid="mock-data-banner"
+          className="border-border bg-muted/40 animate-in fade-in fill-mode-both flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm delay-100 duration-500"
+        >
+          <Info className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+          <div className="flex flex-col gap-0.5">
+            <p className="text-foreground font-medium">
+              You&apos;re viewing mock cost data
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Twilio, ElevenLabs, and OpenAI are all running in simulated mode.
+              Cents-per-row, totals, and caps are seeded for design and QA — not
+              real billable activity.
+            </p>
           </div>
-        ) : null}
+        </div>
+      ) : null}
 
-        <Button type="submit" variant="outline">
-          Apply
-        </Button>
-      </form>
+      <CostsStatStrip
+        spend={summary}
+        totalCalls={totalCalls}
+        goalMet={totalGoalMet}
+        daily={dailySpend}
+      />
 
-      <div
-        className="border-border bg-card flex flex-wrap gap-1 rounded-lg border p-1"
-        data-testid="costs-view-tabs"
-      >
-        {VIEWS.map((v) => {
-          const url = new URLSearchParams();
-          url.set("view", v.value);
-          url.set("preset", preset);
-          if (preset === "custom") {
-            url.set("from", from);
-            url.set("to", to);
-          }
-          if (campaignId) url.set("campaign", campaignId);
-          if (listId) url.set("list", listId);
-          if (ownerId) url.set("user", ownerId);
-          const active = view === v.value;
-          return (
-            <Button
-              key={v.value}
-              asChild
-              variant={active ? "default" : "ghost"}
-              size="sm"
-              aria-current={active ? "page" : undefined}
-            >
-              <Link href={`/costs?${url.toString()}`}>{v.label}</Link>
-            </Button>
-          );
-        })}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <CostsViewTabs current={view} buildHref={buildViewHref} />
+        <CostsFilters
+          campaigns={campaigns ?? []}
+          lists={lists ?? []}
+          owners={owners}
+          showOwner={isAdmin}
+        />
       </div>
 
       {view === "per_call" ? (
-        <PerCallView rows={rows.slice(0, 100)} campaignName={campaignName} />
+        <PerCallTable
+          rows={rows.slice(0, 100)}
+          campaignName={campaignName}
+          now={new Date().toISOString()}
+        />
       ) : null}
       {view === "per_campaign" ? (
-        <PerCampaignView rows={rows} campaignName={campaignName} />
+        <PerCampaignView
+          rows={rows}
+          campaignName={campaignName}
+          campaignCaps={campaignCaps}
+          totalSpend={summary.total}
+        />
       ) : null}
       {view === "per_goal" ? (
         <PerGoalView rows={rows} campaignName={campaignName} />
@@ -285,86 +278,17 @@ export default async function CostsPage({
       {view === "per_user" ? (
         <PerUserView rows={rows} ownerName={ownerName} supabase={supabase} />
       ) : null}
-      {view === "per_time" ? (
-        <PerTimeView rows={rows} slicers={slicers} />
-      ) : null}
+      {view === "per_time" ? <PerTimeChart data={dailyBuckets} /> : null}
       {view === "per_vendor" ? <PerVendorView summary={summary} /> : null}
     </div>
   );
 }
 
-function PerCallView({
-  rows,
-  campaignName,
-}: {
-  rows: Awaited<ReturnType<typeof fetchCostRows>>;
-  campaignName: Map<string, string>;
-}) {
-  if (rows.length === 0) {
-    return (
-      <p className="text-muted-foreground text-sm">No calls in this range.</p>
-    );
-  }
+function EmptyState({ headline, hint }: { headline: string; hint: string }) {
   return (
-    <div
-      className="border-border overflow-hidden rounded-lg border"
-      data-testid="per-call-table"
-    >
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Started</TableHead>
-            <TableHead>Campaign</TableHead>
-            <TableHead className="text-right">Duration</TableHead>
-            <TableHead className="text-right">Twilio</TableHead>
-            <TableHead className="text-right">11Labs</TableHead>
-            <TableHead className="text-right">OpenAI</TableHead>
-            <TableHead className="text-right">Lookup</TableHead>
-            <TableHead className="text-right">Total</TableHead>
-            <TableHead />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((r) => {
-            const b = pickBreakdown(r.cost_breakdown);
-            return (
-              <TableRow key={r.id}>
-                <TableCell className="text-muted-foreground text-xs">
-                  {r.started_at
-                    ? new Date(r.started_at).toLocaleString()
-                    : new Date(r.created_at).toLocaleString()}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {campaignName.get(r.campaign_id) ?? "—"}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {r.duration_seconds ?? 0}s
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {usd(b.twilio)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {usd(b.elevenlabs)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {usd(b.openai)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {usd(b.lookup)}
-                </TableCell>
-                <TableCell className="text-right font-medium tabular-nums">
-                  {usd(b.total)}
-                </TableCell>
-                <TableCell>
-                  <Button asChild variant="ghost" size="sm">
-                    <Link href={`/calls?call=${r.id}`}>Open</Link>
-                  </Button>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+    <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+      <p className="text-foreground text-sm font-medium">{headline}</p>
+      <p className="text-muted-foreground max-w-xs text-sm">{hint}</p>
     </div>
   );
 }
@@ -372,18 +296,26 @@ function PerCallView({
 function PerCampaignView({
   rows,
   campaignName,
+  campaignCaps,
+  totalSpend,
 }: {
   rows: Awaited<ReturnType<typeof fetchCostRows>>;
   campaignName: Map<string, string>;
+  campaignCaps: Awaited<ReturnType<typeof fetchCampaignCaps>>;
+  totalSpend: number;
 }) {
   const data = rollupByCampaign(rows);
   if (data.length === 0) {
     return (
-      <p className="text-muted-foreground text-sm">
-        No campaigns active in this range.
-      </p>
+      <EmptyState
+        headline="No campaigns active in this range"
+        hint="Widen the date range or remove the campaign filter."
+      />
     );
   }
+  const maxSpend = Math.max(0.01, ...data.map((d) => d.spend.total));
+  const totalCalls = data.reduce((a, b) => a + b.calls, 0);
+  const totalGoalMet = data.reduce((a, b) => a + b.goalMet, 0);
   return (
     <div
       className="border-border overflow-hidden rounded-lg border"
@@ -395,35 +327,98 @@ function PerCampaignView({
             <TableHead>Campaign</TableHead>
             <TableHead className="text-right">Calls</TableHead>
             <TableHead className="text-right">Goal Met</TableHead>
-            <TableHead className="text-right">Total spend</TableHead>
+            <TableHead className="text-right">Spend</TableHead>
+            <TableHead className="text-right">Share</TableHead>
             <TableHead className="text-right">Avg / call</TableHead>
             <TableHead className="text-right">Cost / Goal Met</TableHead>
+            <TableHead className="text-right">Cap</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {data.map((d) => (
-            <TableRow key={d.campaignId}>
-              <TableCell className="font-medium">
-                {campaignName.get(d.campaignId) ?? "—"}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {d.calls.toLocaleString()}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {d.goalMet.toLocaleString()}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {usd(d.spend.total)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {usd(d.avgPerCall)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {d.goalMet === 0 ? "—" : usd(d.costPerGoalMet)}
-              </TableCell>
-            </TableRow>
-          ))}
+          {data.map((d) => {
+            const name = campaignName.get(d.campaignId) ?? "—";
+            const share = totalSpend === 0 ? 0 : d.spend.total / totalSpend;
+            const barPct = (d.spend.total / maxSpend) * 100;
+            const goalTone =
+              d.goalMet === 0
+                ? "text-muted-foreground"
+                : "text-foreground font-medium";
+            return (
+              <TableRow key={d.campaignId} className="group">
+                <TableCell>
+                  <Link
+                    href={`/calls?campaign=${d.campaignId}`}
+                    className="text-foreground hover:text-foreground/80 font-medium underline-offset-4 hover:underline"
+                  >
+                    {name}
+                  </Link>
+                </TableCell>
+                <TableCell className="text-muted-foreground text-right tabular-nums">
+                  {d.calls.toLocaleString()}
+                </TableCell>
+                <TableCell className={`text-right tabular-nums ${goalTone}`}>
+                  {d.goalMet.toLocaleString()}
+                </TableCell>
+                <TableCell className="text-foreground text-right">
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="font-medium tabular-nums">
+                      {usd(d.spend.total)}
+                    </span>
+                    <div className="bg-muted h-1 w-24 overflow-hidden rounded">
+                      <div
+                        className="h-full"
+                        style={{
+                          width: `${Math.max(2, barPct)}%`,
+                          background: "var(--coral)",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="text-muted-foreground text-right tabular-nums">
+                  {(share * 100).toFixed(0)}%
+                </TableCell>
+                <TableCell className="text-muted-foreground text-right tabular-nums">
+                  {usd(d.avgPerCall)}
+                </TableCell>
+                <TableCell className="text-muted-foreground text-right tabular-nums">
+                  {d.goalMet === 0 ? "—" : usd(d.costPerGoalMet)}
+                </TableCell>
+                <TableCell className="text-right">
+                  <BudgetProgress cap={campaignCaps.get(d.campaignId)} />
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
+        <TableFooter>
+          <TableRow>
+            <TableCell className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+              Total
+            </TableCell>
+            <TableCell className="text-foreground text-right font-semibold tabular-nums">
+              {totalCalls.toLocaleString()}
+            </TableCell>
+            <TableCell className="text-foreground text-right font-semibold tabular-nums">
+              {totalGoalMet.toLocaleString()}
+            </TableCell>
+            <TableCell className="text-foreground text-right font-semibold tabular-nums">
+              {usd(totalSpend)}
+            </TableCell>
+            <TableCell className="text-muted-foreground text-right">
+              —
+            </TableCell>
+            <TableCell className="text-muted-foreground text-right tabular-nums">
+              {totalCalls === 0 ? "—" : usd(totalSpend / totalCalls)}
+            </TableCell>
+            <TableCell className="text-muted-foreground text-right tabular-nums">
+              {totalGoalMet === 0 ? "—" : usd(totalSpend / totalGoalMet)}
+            </TableCell>
+            <TableCell className="text-muted-foreground text-right">
+              —
+            </TableCell>
+          </TableRow>
+        </TableFooter>
       </Table>
     </div>
   );
@@ -439,11 +434,15 @@ function PerGoalView({
   const data = rollupByGoalMet(rows);
   if (data.length === 0) {
     return (
-      <p className="text-muted-foreground text-sm">
-        No Goal Met calls in this range yet.
-      </p>
+      <EmptyState
+        headline="No Goal Met calls in this range yet"
+        hint="Widen the date range, or check whether the campaigns are configured with a goal."
+      />
     );
   }
+  const maxSpend = Math.max(0.01, ...data.map((d) => d.spend));
+  const totalGoals = data.reduce((a, b) => a + b.goalMet, 0);
+  const totalSpend = data.reduce((a, b) => a + b.spend, 0);
   return (
     <div
       className="border-border overflow-hidden rounded-lg border"
@@ -459,23 +458,60 @@ function PerGoalView({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {data.map((d) => (
-            <TableRow key={d.campaignId}>
-              <TableCell className="font-medium">
-                {campaignName.get(d.campaignId) ?? "—"}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {d.goalMet}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {usd(d.spend)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {usd(d.costPerGoalMet)}
-              </TableCell>
-            </TableRow>
-          ))}
+          {data.map((d) => {
+            const barPct = (d.spend / maxSpend) * 100;
+            return (
+              <TableRow key={d.campaignId}>
+                <TableCell>
+                  <Link
+                    href={`/calls?campaign=${d.campaignId}&goal=met`}
+                    className="text-foreground hover:text-foreground/80 font-medium underline-offset-4 hover:underline"
+                  >
+                    {campaignName.get(d.campaignId) ?? "—"}
+                  </Link>
+                </TableCell>
+                <TableCell className="text-foreground text-right tabular-nums">
+                  {d.goalMet}
+                </TableCell>
+                <TableCell className="text-foreground text-right">
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="font-medium tabular-nums">
+                      {usd(d.spend)}
+                    </span>
+                    <div className="bg-muted h-1 w-24 overflow-hidden rounded">
+                      <div
+                        className="h-full"
+                        style={{
+                          width: `${Math.max(2, barPct)}%`,
+                          background: "var(--coral)",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="text-muted-foreground text-right tabular-nums">
+                  {usd(d.costPerGoalMet)}
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
+        <TableFooter>
+          <TableRow>
+            <TableCell className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+              Total
+            </TableCell>
+            <TableCell className="text-foreground text-right font-semibold tabular-nums">
+              {totalGoals.toLocaleString()}
+            </TableCell>
+            <TableCell className="text-foreground text-right font-semibold tabular-nums">
+              {usd(totalSpend)}
+            </TableCell>
+            <TableCell className="text-muted-foreground text-right tabular-nums">
+              {totalGoals === 0 ? "—" : usd(totalSpend / totalGoals)}
+            </TableCell>
+          </TableRow>
+        </TableFooter>
       </Table>
     </div>
   );
@@ -493,11 +529,15 @@ async function PerUserView({
   const data = await rollupByUser(supabase, rows);
   if (data.length === 0) {
     return (
-      <p className="text-muted-foreground text-sm">
-        No spend by user in this range.
-      </p>
+      <EmptyState
+        headline="No spend by user in this range"
+        hint="Either nobody made calls, or the user filter is too narrow."
+      />
     );
   }
+  const maxSpend = Math.max(0.01, ...data.map((d) => d.spend));
+  const totalCalls = data.reduce((a, b) => a + b.calls, 0);
+  const totalSpend = data.reduce((a, b) => a + b.spend, 0);
   return (
     <div
       className="border-border overflow-hidden rounded-lg border"
@@ -509,66 +549,74 @@ async function PerUserView({
             <TableHead>User</TableHead>
             <TableHead className="text-right">Calls</TableHead>
             <TableHead className="text-right">Spend</TableHead>
+            <TableHead className="text-right">Share</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {data.map((d) => (
-            <TableRow key={d.ownerId}>
-              <TableCell className="font-medium">
-                {ownerName.get(d.ownerId) ?? "—"}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {d.calls.toLocaleString()}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {usd(d.spend)}
-              </TableCell>
-            </TableRow>
-          ))}
+          {data.map((d) => {
+            const barPct = (d.spend / maxSpend) * 100;
+            const share = totalSpend === 0 ? 0 : d.spend / totalSpend;
+            return (
+              <TableRow key={d.ownerId}>
+                <TableCell className="text-foreground font-medium">
+                  {ownerName.get(d.ownerId) ?? "—"}
+                </TableCell>
+                <TableCell className="text-muted-foreground text-right tabular-nums">
+                  {d.calls.toLocaleString()}
+                </TableCell>
+                <TableCell className="text-foreground text-right">
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="font-medium tabular-nums">
+                      {usd(d.spend)}
+                    </span>
+                    <div className="bg-muted h-1 w-24 overflow-hidden rounded">
+                      <div
+                        className="h-full"
+                        style={{
+                          width: `${Math.max(2, barPct)}%`,
+                          background: "var(--coral)",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="text-muted-foreground text-right tabular-nums">
+                  {(share * 100).toFixed(0)}%
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
+        <TableFooter>
+          <TableRow>
+            <TableCell className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+              Total
+            </TableCell>
+            <TableCell className="text-foreground text-right font-semibold tabular-nums">
+              {totalCalls.toLocaleString()}
+            </TableCell>
+            <TableCell className="text-foreground text-right font-semibold tabular-nums">
+              {usd(totalSpend)}
+            </TableCell>
+            <TableCell className="text-muted-foreground text-right">
+              —
+            </TableCell>
+          </TableRow>
+        </TableFooter>
       </Table>
     </div>
   );
 }
 
-function PerTimeView({
-  rows,
-  slicers,
-}: {
-  rows: Awaited<ReturnType<typeof fetchCostRows>>;
-  slicers: Slicers;
-}) {
-  const data = rollupByTime(rows, slicers);
-  const max = Math.max(1, ...data.map((d) => d.spend));
-  return (
-    <div
-      className="border-border bg-card flex flex-col gap-2 rounded-lg border p-4"
-      data-testid="per-time-chart"
-    >
-      <ul className="flex flex-col gap-2 text-sm">
-        {data.map((d) => {
-          const pct = (d.spend / max) * 100;
-          return (
-            <li key={d.day} className="flex flex-col gap-1">
-              <div className="flex items-baseline justify-between">
-                <span className="text-foreground">{d.day}</span>
-                <span className="text-muted-foreground tabular-nums">
-                  {d.calls} calls · {usd(d.spend)}
-                </span>
-              </div>
-              <div className="bg-muted h-2 w-full overflow-hidden rounded">
-                <div
-                  className="bg-primary h-full"
-                  style={{ width: `${Math.max(d.spend > 0 ? 2 : 0, pct)}%` }}
-                />
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
+/** Tiny coloured dot for the per-vendor bar list, so the four
+ *  vendors are visually distinct. Twilio = red-ish, ElevenLabs =
+ *  purple, OpenAI = green, Lookup = slate. */
+const VENDOR_COLOURS: Record<string, string> = {
+  twilio: "#e0245e",
+  elevenlabs: "#7a5af8",
+  openai: "#10a37f",
+  lookup: "#64748b",
+};
 
 function PerVendorView({
   summary,
@@ -581,34 +629,45 @@ function PerVendorView({
     { label: "OpenAI", key: "openai", value: summary.openai },
     { label: "Twilio Lookup", key: "lookup", value: summary.lookup },
   ];
-  const max = Math.max(1, ...items.map((i) => i.value));
+  const max = Math.max(0.01, ...items.map((i) => i.value));
   return (
     <div
-      className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4"
+      className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-3 rounded-xl border p-5 duration-500"
       data-testid="per-vendor-chart"
     >
       <p className="text-foreground text-sm font-semibold">
         Total across vendors: {usd(summary.total)}
       </p>
-      <ul className="flex flex-col gap-2 text-sm">
+      <ul className="flex flex-col gap-3 text-sm">
         {items.map((i) => {
           const pct = (i.value / max) * 100;
           const share =
             summary.total > 0
               ? `${((i.value / summary.total) * 100).toFixed(0)}%`
               : "—";
+          const dotColour = VENDOR_COLOURS[i.key as string] ?? "var(--coral)";
           return (
             <li key={i.key} className="flex flex-col gap-1">
               <div className="flex items-baseline justify-between">
-                <span className="text-foreground">{i.label}</span>
+                <span className="text-foreground inline-flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="inline-block size-2.5 rounded-full"
+                    style={{ background: dotColour }}
+                  />
+                  {i.label}
+                </span>
                 <span className="text-muted-foreground tabular-nums">
                   {usd(i.value)} ({share})
                 </span>
               </div>
               <div className="bg-muted h-3 w-full overflow-hidden rounded">
                 <div
-                  className="bg-primary h-full"
-                  style={{ width: `${Math.max(i.value > 0 ? 2 : 0, pct)}%` }}
+                  className="h-full"
+                  style={{
+                    width: `${Math.max(i.value > 0 ? 2 : 0, pct)}%`,
+                    background: dotColour,
+                  }}
                 />
               </div>
             </li>
