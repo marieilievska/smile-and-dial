@@ -18,7 +18,6 @@ import { AddDncDialog } from "./add-dnc-dialog";
 import { DncBulkActionBar } from "./bulk-action-bar";
 import { CopyPhoneButton } from "./copy-phone";
 import { DncFilters } from "./dnc-filters";
-import { DncSearchInput } from "./dnc-search";
 import { DncStatStrip } from "./dnc-stat-strip";
 import { formatAddedAt } from "./format-added";
 import { RemoveDncDialog } from "./remove-dnc-dialog";
@@ -77,12 +76,6 @@ function intParam(
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-function escapeIlike(value: string): string {
-  // PostgREST ilike — protect %, _, and the comma we use as the
-  // .or() separator.
-  return value.replace(/[%_,]/g, "\\$&");
-}
-
 export default async function DncPage({
   searchParams,
 }: {
@@ -90,7 +83,6 @@ export default async function DncPage({
     reason?: string;
     from?: string;
     to?: string;
-    q?: string;
     page?: string;
     per?: string;
   }>;
@@ -101,7 +93,6 @@ export default async function DncPage({
     : "";
   const fromFilter = dateStr(params.from);
   const toFilter = dateStr(params.to);
-  const searchTerm = str(params.q).trim();
   const page = intParam(params.page, 1);
   const requestedPageSize = intParam(params.per, DEFAULT_PAGE_SIZE);
   const pageSize = ALLOWED_PAGE_SIZES.has(requestedPageSize)
@@ -130,10 +121,6 @@ export default async function DncPage({
   if (reasonFilter) query = query.eq("reason", reasonFilter);
   if (fromFilter) query = query.gte("added_at", fromFilter);
   if (toFilter) query = query.lte("added_at", `${toFilter}T23:59:59.999Z`);
-  if (searchTerm) {
-    const safe = escapeIlike(searchTerm);
-    query = query.or(`phone.ilike.%${safe}%,company_snapshot.ilike.%${safe}%`);
-  }
   const offset = (page - 1) * pageSize;
   query = query.range(offset, offset + pageSize - 1);
 
@@ -163,9 +150,7 @@ export default async function DncPage({
   }
 
   const rowsForSelection = entries.map((e) => ({ id: e.id, phone: e.phone }));
-  const filtersActive = Boolean(
-    reasonFilter || fromFilter || toFilter || searchTerm,
-  );
+  const filtersActive = Boolean(reasonFilter || fromFilter || toFilter);
   const now = new Date();
 
   // Active-filter chips above the table, each a click-to-remove link
@@ -176,7 +161,6 @@ export default async function DncPage({
       next.set("reason", reasonFilter);
     if (fromFilter && removeKey !== "from") next.set("from", fromFilter);
     if (toFilter && removeKey !== "to") next.set("to", toFilter);
-    if (searchTerm && removeKey !== "q") next.set("q", searchTerm);
     const qs = next.toString();
     return qs ? `/dnc?${qs}` : "/dnc";
   }
@@ -214,9 +198,7 @@ export default async function DncPage({
 
         <DncStatStrip stats={stats} />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <DncSearchInput />
-          <div className="flex-1" />
+        <div className="flex justify-end">
           <DncFilters />
         </div>
 
@@ -242,12 +224,6 @@ export default async function DncPage({
             ) : null}
             {toFilter ? (
               <FilterChip label={`To ${toFilter}`} href={chipHref("to")} />
-            ) : null}
-            {searchTerm ? (
-              <FilterChip
-                label={`Search: ${searchTerm}`}
-                href={chipHref("q")}
-              />
             ) : null}
             <Link
               href="/dnc"
@@ -343,8 +319,7 @@ export default async function DncPage({
               No DNC entries match these filters
             </p>
             <p className="text-muted-foreground max-w-xs text-sm">
-              Try widening the date range, removing the reason filter, or
-              searching a different phone.
+              Try widening the date range or removing the reason filter.
             </p>
             <Button asChild variant="outline" size="sm" className="mt-2">
               <Link href="/dnc">Clear filters</Link>
