@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { formatPhone } from "@/lib/format-phone";
 import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
 
 export type DisplayLead = {
@@ -81,7 +82,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
         </span>
         {l.business_phone ? (
           <span className="text-muted-foreground truncate font-mono text-[11px]">
-            {l.business_phone}
+            {formatPhone(l.business_phone)}
           </span>
         ) : null}
       </div>
@@ -93,7 +94,9 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     label: "Phone",
     width: "w-[140px]",
     cell: (l) => (
-      <span className="font-mono text-xs">{l.business_phone || "—"}</span>
+      <span className="font-mono text-xs">
+        {formatPhone(l.business_phone, "—")}
+      </span>
     ),
     text: (l) => l.business_phone ?? "",
   },

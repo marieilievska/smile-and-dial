@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { formatPhone } from "@/lib/format-phone";
 import { GOAL_STATUSES, type GoalStatus } from "@/lib/goals/goal-statuses";
 import { transitionLeadGoalStatus } from "@/lib/goals/pipeline-actions";
 
@@ -183,7 +184,7 @@ function BoardCard({
       </div>
       {lead.business_phone ? (
         <span className="text-muted-foreground truncate font-mono text-[11px]">
-          {lead.business_phone}
+          {formatPhone(lead.business_phone)}
         </span>
       ) : null}
       <div className="text-muted-foreground flex items-center justify-between text-[11px]">

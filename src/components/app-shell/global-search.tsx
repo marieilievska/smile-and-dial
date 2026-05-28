@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { Input } from "@/components/ui/input";
+import { formatPhone } from "@/lib/format-phone";
 
 import {
   fetchLeadSuggestions,
@@ -197,7 +198,7 @@ export function GlobalSearch() {
                           {item.phone ? (
                             <span className="inline-flex items-center gap-1 font-mono">
                               <Phone className="size-3" />
-                              {item.phone}
+                              {formatPhone(item.phone)}
                             </span>
                           ) : null}
                           {item.city || item.state ? (

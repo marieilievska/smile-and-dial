@@ -115,6 +115,12 @@ export default async function TwilioNumbersPage({
                 <TableBody>
                   {visible.map((number) => (
                     <TableRow key={number.id} className="group">
+                      {/* Round 34 — phones in this admin table stay as
+                       *  E.164 so the test contract (`getByRole("row",
+                       *  { name: phone })`) keeps resolving. The
+                       *  user-facing lists (/leads, /calls, /callbacks,
+                       *  /goals, /dnc, global search) use formatPhone
+                       *  for human-readability. */}
                       <TableCell className="font-mono text-xs font-medium">
                         {number.phone_number}
                       </TableCell>

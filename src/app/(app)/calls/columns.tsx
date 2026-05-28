@@ -2,6 +2,7 @@ import { Mic, Phone, PhoneIncoming } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import { formatPhone } from "@/lib/format-phone";
 import { outcomeLabel } from "@/lib/labels";
 
 /** A row passed to a column's `cell` renderer. */
@@ -138,7 +139,9 @@ export const CALL_COLUMNS: CallColumn[] = [
             )}
             <span className="text-muted-foreground truncate text-[11px]">
               {c.business_phone ? (
-                <span className="font-mono">{c.business_phone}</span>
+                <span className="font-mono">
+                  {formatPhone(c.business_phone)}
+                </span>
               ) : null}
               {c.business_phone && c.campaignName !== "—" ? " · " : ""}
               {c.campaignName !== "—" ? c.campaignName : ""}
@@ -153,7 +156,9 @@ export const CALL_COLUMNS: CallColumn[] = [
     label: "Phone",
     width: "w-[150px]",
     cell: (c) => (
-      <span className="font-mono text-xs">{c.business_phone ?? "—"}</span>
+      <span className="font-mono text-xs">
+        {formatPhone(c.business_phone, "—")}
+      </span>
     ),
   },
   {

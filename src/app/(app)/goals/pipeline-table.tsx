@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
+import { formatPhone } from "@/lib/format-phone";
 import {
   Table,
   TableBody,
@@ -92,7 +93,7 @@ export function PipelineTable({ leads }: { leads: PipelineLead[] }) {
                     </div>
                     {lead.business_phone ? (
                       <span className="text-muted-foreground truncate font-mono text-[11px]">
-                        {lead.business_phone}
+                        {formatPhone(lead.business_phone)}
                       </span>
                     ) : null}
                   </div>
