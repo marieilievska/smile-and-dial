@@ -1,12 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 /** Date-range segmented control at the top of /analytics. Round 17 —
  *  primary axis of the page, so it deserves its own pill row rather
- *  than being buried in a filter wall. Custom opens From/To inputs
- *  inline (the page renders them when preset=custom). */
+ *  than being buried in a filter wall.
+ *
+ *  Round 17.1 — clicking "Custom" now expands an inline From/To picker
+ *  right next to the pills, so the dates are one tap away. Previously
+ *  the inputs only appeared inside the Filters popover, which was
+ *  unintuitive (you'd click Custom and nothing visible would happen). */
 const PRESETS: { value: string; label: string }[] = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
@@ -17,8 +26,20 @@ const PRESETS: { value: string; label: string }[] = [
   { value: "custom", label: "Custom" },
 ];
 
-export function AnalyticsDatePills({ current }: { current: string }) {
+export function AnalyticsDatePills({
+  current,
+  initialFrom,
+  initialTo,
+}: {
+  current: string;
+  initialFrom?: string;
+  initialTo?: string;
+}) {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  const [from, setFrom] = useState(initialFrom ?? "");
+  const [to, setTo] = useState(initialTo ?? "");
+
   function hrefFor(value: string): string {
     const params = new URLSearchParams(searchParams.toString());
     params.set("preset", value);
@@ -30,30 +51,91 @@ export function AnalyticsDatePills({ current }: { current: string }) {
     }
     return `/analytics?${params.toString()}`;
   }
+
+  function applyCustom() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("preset", "custom");
+    if (from) params.set("from", from);
+    else params.delete("from");
+    if (to) params.set("to", to);
+    else params.delete("to");
+    router.push(`/analytics?${params.toString()}`);
+  }
+
   return (
-    <div
-      role="tablist"
-      aria-label="Date range"
-      className="border-border bg-background inline-flex flex-wrap items-center gap-0.5 rounded-lg border p-1"
-    >
-      {PRESETS.map((p) => {
-        const active = current === p.value;
-        return (
-          <Link
-            key={p.value}
-            href={hrefFor(p.value)}
-            role="tab"
-            aria-selected={active}
-            className={`inline-flex h-8 items-center rounded-md px-3 text-sm font-medium transition-colors ${
-              active
-                ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-            }`}
+    <div className="flex flex-wrap items-end gap-3">
+      <div
+        role="tablist"
+        aria-label="Date range"
+        className="border-border bg-background inline-flex flex-wrap items-center gap-0.5 rounded-lg border p-1"
+      >
+        {PRESETS.map((p) => {
+          const active = current === p.value;
+          return (
+            <Link
+              key={p.value}
+              href={hrefFor(p.value)}
+              role="tab"
+              aria-selected={active}
+              className={`inline-flex h-8 items-center rounded-md px-3 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              }`}
+            >
+              {p.label}
+            </Link>
+          );
+        })}
+      </div>
+
+      {current === "custom" ? (
+        <div
+          data-testid="custom-date-inputs"
+          className="border-border bg-background animate-in fade-in slide-in-from-left-1 fill-mode-both flex flex-wrap items-end gap-2 rounded-lg border p-2 duration-300"
+        >
+          <div className="flex flex-col gap-1">
+            <Label
+              htmlFor="ana-date-from"
+              className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase"
+            >
+              From
+            </Label>
+            <Input
+              id="ana-date-from"
+              type="date"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => setFrom(e.target.value)}
+              className="h-8 w-[10.5rem]"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label
+              htmlFor="ana-date-to"
+              className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase"
+            >
+              To
+            </Label>
+            <Input
+              id="ana-date-to"
+              type="date"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => setTo(e.target.value)}
+              className="h-8 w-[10.5rem]"
+            />
+          </div>
+          <Button
+            size="sm"
+            onClick={applyCustom}
+            disabled={!from || !to}
+            className="h-8"
           >
-            {p.label}
-          </Link>
-        );
-      })}
+            Apply
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
