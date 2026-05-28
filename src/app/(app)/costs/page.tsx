@@ -17,6 +17,7 @@ import {
   resolveDatePreset,
   rollupByCampaign,
   rollupByGoalMet,
+  rollupByList,
   rollupByTime,
   rollupByUser,
   rollupByVendor,
@@ -26,7 +27,6 @@ import { createClient } from "@/lib/supabase/server";
 
 import { BudgetProgress } from "./budget-progress";
 import { CostsDatePills } from "./costs-date-pills";
-import { CostsFilters } from "./costs-filters";
 import { CostsStatStrip } from "./costs-stat-strip";
 import { CostsViewTabs } from "./costs-view-tabs";
 import { fmtRangeLabel } from "./format-time";
@@ -39,6 +39,7 @@ const UUID_RE = /^[0-9a-f-]{36}$/i;
 const ALLOWED_VIEWS = new Set([
   "per_call",
   "per_campaign",
+  "per_list",
   "per_goal",
   "per_user",
   "per_time",
@@ -103,36 +104,39 @@ export default async function CostsPage({
   const listId = UUID_RE.test(str(params.list)) ? str(params.list) : undefined;
   const slicers: Slicers = { from, to, campaignId, ownerId, listId };
 
-  const [
-    rows,
-    { data: campaigns },
-    { data: lists },
-    { data: me },
-    headlineStats,
-  ] = await Promise.all([
-    fetchCostRows(supabase, slicers),
-    supabase.from("campaigns").select("id, name").order("name"),
-    supabase.from("lists").select("id, name").order("name"),
-    supabase.from("profiles").select("role").eq("id", user.id).single(),
-    fetchCostsHeadlineStats(supabase),
-  ]);
-  const isAdmin = me?.role === "admin";
+  const [rows, { data: campaigns }, { data: lists }, headlineStats] =
+    await Promise.all([
+      fetchCostRows(supabase, slicers),
+      supabase.from("campaigns").select("id, name").order("name"),
+      supabase.from("lists").select("id, name").order("name"),
+      fetchCostsHeadlineStats(supabase),
+    ]);
 
-  let owners: { id: string; name: string }[] = [];
-  if (isAdmin) {
-    const { data: people } = await supabase
+  // Owners are only needed by the Per-user rollup. Admin gate the
+  // lookup the same way as before so members can't enumerate owners.
+  let ownerName = new Map<string, string>();
+  if (view === "per_user") {
+    const { data: me } = await supabase
       .from("profiles")
-      .select("id, full_name, email")
-      .order("full_name");
-    owners = (people ?? []).map((p) => ({
-      id: p.id,
-      name: p.full_name || p.email || "—",
-    }));
+      .select("role")
+      .eq("id", user.id)
+      .single();
+    if (me?.role === "admin") {
+      const { data: people } = await supabase
+        .from("profiles")
+        .select("id, full_name, email")
+        .order("full_name");
+      ownerName = new Map(
+        (people ?? []).map(
+          (p) => [p.id, p.full_name || p.email || "—"] as const,
+        ),
+      );
+    }
   }
-  const ownerName = new Map(owners.map((o) => [o.id, o.name] as const));
   const campaignName = new Map(
     (campaigns ?? []).map((c) => [c.id, c.name] as const),
   );
+  const listName = new Map((lists ?? []).map((l) => [l.id, l.name] as const));
 
   const summary = rollupByVendor(rows);
   const totalCalls = rows.length;
@@ -242,20 +246,11 @@ export default async function CostsPage({
 
       <CostsStatStrip
         spend={summary}
-        totalCalls={totalCalls}
         goalMet={totalGoalMet}
         daily={dailySpend}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <CostsViewTabs current={view} buildHref={buildViewHref} />
-        <CostsFilters
-          campaigns={campaigns ?? []}
-          lists={lists ?? []}
-          owners={owners}
-          showOwner={isAdmin}
-        />
-      </div>
+      <CostsViewTabs current={view} buildHref={buildViewHref} />
 
       {view === "per_call" ? (
         <PerCallTable
@@ -269,6 +264,14 @@ export default async function CostsPage({
           rows={rows}
           campaignName={campaignName}
           campaignCaps={campaignCaps}
+          totalSpend={summary.total}
+        />
+      ) : null}
+      {view === "per_list" ? (
+        <PerListView
+          rows={rows}
+          listName={listName}
+          supabase={supabase}
           totalSpend={summary.total}
         />
       ) : null}
@@ -600,6 +603,127 @@ async function PerUserView({
             </TableCell>
             <TableCell className="text-muted-foreground text-right">
               —
+            </TableCell>
+          </TableRow>
+        </TableFooter>
+      </Table>
+    </div>
+  );
+}
+
+async function PerListView({
+  rows,
+  listName,
+  supabase,
+  totalSpend,
+}: {
+  rows: Awaited<ReturnType<typeof fetchCostRows>>;
+  listName: Map<string, string>;
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  totalSpend: number;
+}) {
+  const data = await rollupByList(supabase, rows);
+  if (data.length === 0) {
+    return (
+      <EmptyState
+        headline="No spend by list in this range"
+        hint="Either no calls happened on a list's leads, or the date range is too narrow."
+      />
+    );
+  }
+  const maxSpend = Math.max(0.01, ...data.map((d) => d.spend));
+  const totalCalls = data.reduce((a, b) => a + b.calls, 0);
+  const totalGoalMet = data.reduce((a, b) => a + b.goalMet, 0);
+  return (
+    <div
+      className="border-border overflow-hidden rounded-lg border"
+      data-testid="per-list-table"
+    >
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>List</TableHead>
+            <TableHead className="text-right">Calls</TableHead>
+            <TableHead className="text-right">Goal Met</TableHead>
+            <TableHead className="text-right">Spend</TableHead>
+            <TableHead className="text-right">Share</TableHead>
+            <TableHead className="text-right">Cost / Goal Met</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.map((d) => {
+            const name = listName.get(d.listId) ?? "—";
+            const share = totalSpend === 0 ? 0 : d.spend / totalSpend;
+            const barPct = (d.spend / maxSpend) * 100;
+            const goalTone =
+              d.goalMet === 0
+                ? "text-muted-foreground"
+                : "text-foreground font-medium";
+            return (
+              <TableRow key={d.listId}>
+                <TableCell>
+                  <Link
+                    href={`/leads?list=${d.listId}`}
+                    className="text-foreground hover:text-foreground/80 font-medium underline-offset-4 hover:underline"
+                  >
+                    {name}
+                  </Link>
+                </TableCell>
+                <TableCell className="text-muted-foreground text-right tabular-nums">
+                  {d.calls.toLocaleString()}
+                </TableCell>
+                <TableCell className={`text-right tabular-nums ${goalTone}`}>
+                  {d.goalMet.toLocaleString()}
+                </TableCell>
+                <TableCell className="text-foreground text-right">
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="font-medium tabular-nums">
+                      ${d.spend.toFixed(2)}
+                    </span>
+                    <div className="bg-muted h-1 w-24 overflow-hidden rounded">
+                      <div
+                        className="h-full"
+                        style={{
+                          width: `${Math.max(2, barPct)}%`,
+                          background: "var(--coral)",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell className="text-muted-foreground text-right tabular-nums">
+                  {(share * 100).toFixed(0)}%
+                </TableCell>
+                <TableCell className="text-muted-foreground text-right tabular-nums">
+                  {d.goalMet === 0
+                    ? "—"
+                    : `$${(d.spend / d.goalMet).toFixed(2)}`}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+        <TableFooter>
+          <TableRow>
+            <TableCell className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+              Total
+            </TableCell>
+            <TableCell className="text-foreground text-right font-semibold tabular-nums">
+              {totalCalls.toLocaleString()}
+            </TableCell>
+            <TableCell className="text-foreground text-right font-semibold tabular-nums">
+              {totalGoalMet.toLocaleString()}
+            </TableCell>
+            <TableCell className="text-foreground text-right font-semibold tabular-nums">
+              ${totalSpend.toFixed(2)}
+            </TableCell>
+            <TableCell className="text-muted-foreground text-right">
+              —
+            </TableCell>
+            <TableCell className="text-muted-foreground text-right tabular-nums">
+              {totalGoalMet === 0
+                ? "—"
+                : `$${(totalSpend / totalGoalMet).toFixed(2)}`}
             </TableCell>
           </TableRow>
         </TableFooter>
