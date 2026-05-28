@@ -1,11 +1,14 @@
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
 
-/** The page's one big number. Appointments today, with an inline
+/** The page's primary metric. Appointments today, with an inline
  *  sparkline of hourly bookings and a pace-vs-yesterday comparison.
  *
- *  v2 — typography is larger (7xl, medium weight), spacing is more
- *  generous (p-10, gap-3), and the sparkline's "now" bar uses coral so
- *  the eye lands on the present moment. */
+ *  Round 26 — toned down from the round-T4 "bigger hero typography"
+ *  experiment. The Referrizer design spec specifically flags
+ *  oversized hero numbers on operational pages as drift. The metric
+ *  still leads the page but at product-sized 4xl instead of
+ *  marketing-sized 7xl, with the supporting sparkline given equal
+ *  footing rather than being a side-decoration. */
 export function HeroPace({
   current,
   yesterdayByNow,
@@ -30,14 +33,14 @@ export function HeroPace({
   return (
     <section
       data-testid="hero-pace"
-      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both rounded-2xl border p-8 delay-100 duration-500 md:p-10"
+      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both rounded-xl border p-6 delay-100 duration-500"
     >
-      <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between md:gap-8">
-        <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between md:gap-8">
+        <div className="flex flex-col gap-2.5">
           <p className="text-muted-foreground text-[10px] font-medium tracking-[0.18em] uppercase">
             Appointments today
           </p>
-          <p className="text-foreground text-6xl leading-none font-medium tracking-tight tabular-nums md:text-7xl">
+          <p className="text-foreground text-4xl leading-none font-semibold tracking-tight tabular-nums">
             {current}
           </p>
           <PaceLine
@@ -110,9 +113,12 @@ function PaceLine({
   );
 }
 
-/** Inline 24-bar hourly sparkline. Current hour gets a coral accent so
- *  the eye lands on "now". Past hours use the primary (navy) at varying
- *  opacity; future hours sit faintly in the background. */
+/** Inline 24-bar hourly sparkline. Round 26 — the current hour is now
+ *  differentiated by opacity rather than colour. After the Referrizer
+ *  token swap (`--coral` aliased to `--primary`), the old coral/navy
+ *  contrast collapsed into one hue, but the opacity ramp (past 0.55,
+ *  now 1.0, future 0.18) still carries the "you are here" cue and
+ *  reads as more cohesive than mixing two accent colours. */
 function HourlySparkline({ hourly }: { hourly: number[] }) {
   const width = 320;
   const height = 80;
@@ -135,14 +141,10 @@ function HourlySparkline({ hourly }: { hourly: number[] }) {
         const y = padding + (innerH - bh);
         const isFuture = h > currentHour;
         const isNow = h === currentHour;
-        // Now bar uses coral (var(--coral)). Past hours use primary
-        // (navy). Future hours fade into the background.
-        const fill = isNow
-          ? "var(--coral)"
-          : isFuture
-            ? "var(--muted-foreground)"
-            : "var(--primary)";
-        const opacity = isFuture ? 0.18 : count === 0 ? 0.18 : isNow ? 1 : 0.55;
+        // All bars use the primary blue; opacity carries the
+        // past/now/future distinction (see component-level comment).
+        const fill = isFuture ? "var(--muted-foreground)" : "var(--primary)";
+        const opacity = isFuture ? 0.18 : count === 0 ? 0.18 : isNow ? 1 : 0.45;
         return (
           <rect
             key={h}
