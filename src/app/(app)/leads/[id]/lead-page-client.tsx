@@ -1,12 +1,11 @@
 "use client";
 
-import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
-import Link from "next/link";
+import { Loader2, Sparkles } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { Breadcrumbs } from "@/components/app-shell/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 
 import { CallDetailModal } from "../../calls/call-detail-modal";
 import { CallNowDialog } from "../call-now-dialog";
@@ -87,15 +86,18 @@ export function LeadPageClient({
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-8">
-      {/* Breadcrumb back to /leads */}
-      <div>
-        <Button asChild variant="ghost" size="sm" className="-ml-3">
-          <Link href="/leads">
-            <ArrowLeft className="size-4" />
-            All leads
-          </Link>
-        </Button>
-      </div>
+      {/* Round 36 (N3) — upgraded from a single "All leads" back
+       *  button to a real breadcrumb trail. Reads as part of the
+       *  site hierarchy ("Leads / Acme Co") rather than a one-shot
+       *  back affordance, which matters because the lead detail is
+       *  often linked to directly from notifications, the global
+       *  search, and the Calls table. */}
+      <Breadcrumbs
+        items={[
+          { label: "Leads", href: "/leads" },
+          { label: leadCompany || "Lead" },
+        ]}
+      />
 
       {/* Hero — editable company name + status pill on the left,
           action cluster (Mark DNC, Delete, Call now) on the right.

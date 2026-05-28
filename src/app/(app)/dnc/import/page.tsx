@@ -1,7 +1,6 @@
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { Breadcrumbs } from "@/components/app-shell/breadcrumbs";
 import { createClient } from "@/lib/supabase/server";
 
 import { DncImportWizard } from "./import-wizard";
@@ -15,14 +14,13 @@ export default async function ImportDncPage() {
 
   return (
     <div className="flex flex-col gap-5 p-6">
+      {/* Round 36 (N3) — replaced the bespoke "Back to DNC" link with
+       *  the shared Breadcrumbs trail so every nested page reads
+       *  the same site-hierarchy cue. */}
+      <Breadcrumbs
+        items={[{ label: "DNC", href: "/dnc" }, { label: "Import" }]}
+      />
       <div className="flex flex-col gap-1">
-        <Link
-          href="/dnc"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 self-start text-xs"
-        >
-          <ArrowLeft className="size-3" />
-          Back to DNC
-        </Link>
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           Import to DNC
         </h1>

@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { Breadcrumbs } from "@/components/app-shell/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -267,6 +268,16 @@ export function AgentWizard({
 
   return (
     <div className="flex flex-col gap-5 p-6">
+      {/* Round 36 (N3) — breadcrumb trail above the heading so a user
+       *  deep-linked into the wizard knows where they are and how to
+       *  get back to the agents list / settings root with one click. */}
+      <Breadcrumbs
+        items={[
+          { label: "Settings", href: "/settings/overview" },
+          { label: "Agents", href: "/settings/agents" },
+          { label: isEdit ? "Edit agent" : "New agent" },
+        ]}
+      />
       <div className="duration-500">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           {isEdit ? "Edit agent" : "Build agent"}

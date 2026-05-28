@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { Breadcrumbs } from "@/components/app-shell/breadcrumbs";
 import { createClient } from "@/lib/supabase/server";
 
 import { ImportWizard } from "./import-wizard";
@@ -21,6 +22,9 @@ export default async function ImportLeadsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-8">
+      <Breadcrumbs
+        items={[{ label: "Leads", href: "/leads" }, { label: "Import" }]}
+      />
       <header className="flex flex-col gap-1.5">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           Import leads
