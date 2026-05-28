@@ -261,6 +261,10 @@ export default async function DncPage({
                       <TableCell>
                         <RowCheckbox id={entry.id} phone={entry.phone} />
                       </TableCell>
+                      {/* Round 34 — DNC stays as raw E.164 in the
+                       *  cell. Both the Playwright contract and the
+                       *  compliance-paper-trail use case prefer the
+                       *  unambiguous canonical form here. */}
                       <TableCell className="font-mono text-xs font-medium">
                         {entry.phone}
                       </TableCell>

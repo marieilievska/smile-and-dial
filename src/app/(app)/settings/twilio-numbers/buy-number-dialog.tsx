@@ -32,23 +32,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatPhone } from "@/lib/format-phone";
 import { purchaseNumber, searchNumbers } from "@/lib/twilio/number-actions";
 import type { AvailableNumber, Country } from "@/lib/twilio/numbers";
 
 import { DialogSection } from "../dialog-section";
-
-/** Format an E.164 number for display. "+14155551000" → "(415) 555-1000".
- *  Only handles +1 (US/CA) prettily since that's the only supported
- *  country pair; falls back to the raw E.164 for anything else. */
-function formatPhone(e164: string): string {
-  if (e164.startsWith("+1") && e164.length === 12) {
-    const a = e164.slice(2, 5);
-    const b = e164.slice(5, 8);
-    const c = e164.slice(8, 12);
-    return `(${a}) ${b}-${c}`;
-  }
-  return e164;
-}
 
 export function BuyNumberDialog() {
   const [open, setOpen] = useState(false);

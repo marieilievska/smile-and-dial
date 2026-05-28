@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { formatPhone } from "@/lib/format-phone";
 import { callbackStatusLabel } from "@/lib/labels";
 import { createClient } from "@/lib/supabase/server";
 
@@ -335,7 +336,7 @@ export default async function CallbacksPage({
                           </div>
                           {cb.lead?.business_phone ? (
                             <span className="text-muted-foreground truncate font-mono text-[11px]">
-                              {cb.lead.business_phone}
+                              {formatPhone(cb.lead.business_phone)}
                             </span>
                           ) : null}
                         </div>

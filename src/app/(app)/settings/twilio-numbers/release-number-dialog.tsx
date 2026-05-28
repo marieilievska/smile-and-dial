@@ -39,6 +39,10 @@ export function ReleaseNumberDialog({
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
+        {/* Round 34 — aria-label keeps the raw E.164 to match the
+         *  twilio-numbers Playwright contract; the dialog title
+         *  reads from the same source so the heading and the screen
+         *  reader label stay aligned. */}
         <Button
           variant="ghost"
           size="sm"
