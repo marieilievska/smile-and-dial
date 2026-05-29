@@ -16,7 +16,12 @@ import { createClient } from "@/lib/supabase/server";
 import { ActiveFilterChips } from "./active-filter-chips";
 import { BulkActionBar } from "./bulk-action-bar";
 import { ColumnPicker } from "./column-picker";
-import { DEFAULT_COLUMN_KEYS, LEAD_COLUMNS, type DisplayLead } from "./columns";
+import {
+  DEFAULT_COLUMN_KEYS,
+  LEAD_COLUMNS,
+  statusRailClass,
+  type DisplayLead,
+} from "./columns";
 import { InlineListCell } from "./inline-list-cell";
 import { InlineStatusCell } from "./inline-status-cell";
 import { LeadRow } from "./lead-row";
@@ -74,16 +79,38 @@ export default async function LeadsPage({
   const rawLeads = leadsData ?? [];
   const total = leadsCount ?? 0;
 
-  // Owner names.
+  // Owner names + the set of leads the dialer has a call in flight for
+  // right now. Both lookups key off the visible rows, so run them in
+  // parallel — the on-call set drives the live pulse in the company cell.
   const ownerIds = [...new Set(rawLeads.map((l) => l.owner_id))];
+  const leadIds = rawLeads.map((l) => l.id);
   const ownerName = new Map<string, string>();
-  if (ownerIds.length > 0) {
-    const { data: owners } = await supabase
-      .from("profiles")
-      .select("id, full_name, email")
-      .in("id", ownerIds);
+  const onCallIds = new Set<string>();
+  if (rawLeads.length > 0) {
+    const [{ data: owners }, { data: activeCalls }] = await Promise.all([
+      ownerIds.length > 0
+        ? supabase
+            .from("profiles")
+            .select("id, full_name, email")
+            .in("id", ownerIds)
+        : Promise.resolve({
+            data: [] as {
+              id: string;
+              full_name: string | null;
+              email: string | null;
+            }[],
+          }),
+      supabase
+        .from("calls")
+        .select("lead_id")
+        .in("lead_id", leadIds)
+        .in("status", ["queued", "dialing", "ringing", "in_progress"]),
+    ]);
     for (const owner of owners ?? []) {
       ownerName.set(owner.id, owner.full_name || owner.email || "—");
+    }
+    for (const call of activeCalls ?? []) {
+      if (call.lead_id) onCallIds.add(call.lead_id);
     }
   }
 
@@ -103,6 +130,7 @@ export default async function LeadsPage({
     listId: l.list_id ?? null,
     listName: l.list?.name ?? "—",
     ownerName: ownerName.get(l.owner_id) ?? "—",
+    onCall: onCallIds.has(l.id),
   }));
 
   // Visible columns.
@@ -160,7 +188,7 @@ export default async function LeadsPage({
   return (
     <div className="flex flex-col gap-5 p-6">
       {/* HEADER — title + count */}
-      <div className="flex flex-col gap-1.5">
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-1.5 duration-500">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           Leads
         </h1>
@@ -176,7 +204,7 @@ export default async function LeadsPage({
       {/* L2 — toolbar. Search lives in the global top bar now, so this
             row holds filter + column + save-view on the left and the
             export / import actions on the right. */}
-      <div className="flex flex-col gap-3">
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-3 delay-150 duration-500">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
             <LeadsFilters lists={lists ?? []} />
@@ -215,7 +243,7 @@ export default async function LeadsPage({
         />
         <SelectAllBanner total={total} />
         {leads.length > 0 ? (
-          <div className="border-border overflow-x-auto rounded-lg border">
+          <div className="border-border animate-in fade-in slide-in-from-bottom-2 fill-mode-both overflow-x-auto rounded-lg border delay-200 duration-500">
             <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
@@ -246,7 +274,16 @@ export default async function LeadsPage({
               <TableBody>
                 {leads.map((lead) => (
                   <LeadRow key={lead.id} leadId={lead.id}>
-                    <TableCell className="w-10">
+                    {/* First cell carries a faint stage-colored left rail
+                        that only shows on row hover — a quiet wayfinding
+                        cue keyed to the lead's stage. The transparent base
+                        border is always present so the 2px never shifts the
+                        layout (a documented table-fixed caveat). */}
+                    <TableCell
+                      className={`w-10 border-l-2 border-l-transparent transition-colors ${statusRailClass(
+                        lead.status,
+                      )}`}
+                    >
                       <RowCheckbox leadId={lead.id} />
                     </TableCell>
                     {columns.map((col) => {

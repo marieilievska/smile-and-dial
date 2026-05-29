@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { formatPhone } from "@/lib/format-phone";
 import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
+import { exactDateTime, relativeTimeSigned } from "@/lib/relative-time";
 
 export type DisplayLead = {
   id: string;
@@ -21,6 +22,9 @@ export type DisplayLead = {
   listId: string | null;
   listName: string;
   ownerName: string;
+  /** True when the dialer has a call in flight for this lead right now —
+   *  drives the live "On call" pulse in the primary cell. */
+  onCall?: boolean;
 };
 
 export type LeadColumn = {
@@ -36,10 +40,6 @@ export type LeadColumn = {
    *  body cell so columns line up consistently across rows. */
   width?: string;
 };
-
-function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleDateString() : "—";
-}
 
 /** Date for CSV: blank rather than an em dash when there is no value. */
 function dateText(value: string | null): string {
@@ -70,6 +70,51 @@ export function statusVariant(
   return "secondary";
 }
 
+/** Tailwind class for a tiny tone dot beside the Last outcome label.
+ *  Same three-bucket logic as the Calls page outcome palette: wins are
+ *  emerald, hard stops rose, still-active work primary, everything else
+ *  a quiet muted dot. Keeps the column from being a wall of flat gray. */
+const WIN_OUTCOMES = new Set(["goal_met", "sale", "attended"]);
+const HARD_OUTCOMES = new Set([
+  "dnc",
+  "invalid_number",
+  "failed",
+  "not_interested",
+]);
+const ACTIVE_OUTCOMES = new Set([
+  "callback",
+  "dm_reached",
+  "transferred_to_human",
+  "gatekeeper",
+  "ai_receptionist",
+]);
+
+function outcomeDotClass(outcome: string): string {
+  if (WIN_OUTCOMES.has(outcome)) return "bg-emerald-500";
+  if (HARD_OUTCOMES.has(outcome)) return "bg-rose-500";
+  if (ACTIVE_OUTCOMES.has(outcome)) return "bg-primary";
+  return "bg-muted-foreground/40";
+}
+
+/** Faint stage-colored left rail revealed on row hover. Returns a
+ *  group-hover border-color class keyed to the same status buckets as
+ *  `statusVariant`. The transparent base border is always present so
+ *  the 2px never causes a layout shift — only the color changes. */
+export function statusRailClass(status: string): string {
+  switch (statusVariant(status)) {
+    case "coral":
+      return "group-hover:border-l-[color:var(--primary)]";
+    case "success":
+      return "group-hover:border-l-emerald-500";
+    case "warning":
+      return "group-hover:border-l-amber-500";
+    case "destructive":
+      return "group-hover:border-l-rose-400";
+    default:
+      return "group-hover:border-l-border";
+  }
+}
+
 export const LEAD_COLUMNS: LeadColumn[] = [
   {
     key: "company",
@@ -80,15 +125,37 @@ export const LEAD_COLUMNS: LeadColumn[] = [
      *  (mono, muted) underneath. One column carries the identity so
      *  rows scan as "lead cards" rather than wide flat strips. */
     cell: (l) => (
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-foreground truncate text-sm font-medium">
-          {l.company || "—"}
-        </span>
-        {l.business_phone ? (
-          <span className="text-muted-foreground truncate font-mono text-[11px]">
-            {formatPhone(l.business_phone)}
+      <div className="flex min-w-0 items-center gap-2">
+        {l.onCall ? (
+          <span
+            aria-hidden
+            title="On a call right now"
+            className="relative flex size-2 shrink-0"
+          >
+            <span
+              className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-70"
+              style={{ backgroundColor: "var(--primary)" }}
+            />
+            <span
+              className="relative inline-flex size-2 rounded-full"
+              style={{ backgroundColor: "var(--primary)" }}
+            />
           </span>
         ) : null}
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-foreground truncate text-sm font-medium">
+            {l.company || "—"}
+          </span>
+          {l.onCall ? (
+            <span className="text-primary truncate text-[11px] font-medium">
+              On call now
+            </span>
+          ) : l.business_phone ? (
+            <span className="text-muted-foreground truncate font-mono text-[11px]">
+              {formatPhone(l.business_phone)}
+            </span>
+          ) : null}
+        </div>
       </div>
     ),
     text: (l) => l.company ?? "",
@@ -134,11 +201,20 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "last_outcome",
     label: "Last outcome",
     width: "w-[150px]",
-    cell: (l) => (
-      <span className="text-muted-foreground">
-        {outcomeLabel(l.last_outcome)}
-      </span>
-    ),
+    cell: (l) =>
+      l.last_outcome ? (
+        <span className="text-foreground/80 inline-flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className={`size-1.5 shrink-0 rounded-full ${outcomeDotClass(
+              l.last_outcome,
+            )}`}
+          />
+          {outcomeLabel(l.last_outcome)}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
     text: (l) => (l.last_outcome ? outcomeLabel(l.last_outcome) : ""),
   },
   {
@@ -172,9 +248,11 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "conversations",
     label: "Conversations",
     sortKey: "conversations",
-    width: "w-[130px]",
+    width: "w-[130px] text-right",
     cell: (l) => (
-      <span className="text-muted-foreground">{l.conversations}</span>
+      <span className="text-foreground/80 block text-right tabular-nums">
+        {l.conversations}
+      </span>
     ),
     text: (l) => String(l.conversations),
   },
@@ -182,9 +260,11 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     key: "call_attempts",
     label: "Attempts",
     sortKey: "call_attempts",
-    width: "w-[100px]",
+    width: "w-[100px] text-right",
     cell: (l) => (
-      <span className="text-muted-foreground">{l.call_attempts}</span>
+      <span className="text-foreground/80 block text-right tabular-nums">
+        {l.call_attempts}
+      </span>
     ),
     text: (l) => String(l.call_attempts),
   },
@@ -193,9 +273,14 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     label: "Last call",
     sortKey: "last_call_at",
     width: "w-[110px]",
+    /** Relative time scans far faster than a raw date; the exact
+     *  timestamp stays one hover away in the title. */
     cell: (l) => (
-      <span className="text-muted-foreground">
-        {formatDate(l.last_call_at)}
+      <span
+        className="text-muted-foreground"
+        title={exactDateTime(l.last_call_at)}
+      >
+        {relativeTimeSigned(l.last_call_at)}
       </span>
     ),
     text: (l) => dateText(l.last_call_at),
@@ -205,9 +290,15 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     label: "Next call",
     sortKey: "next_call_at",
     width: "w-[110px]",
+    /** Future-facing relative time ("in 2h"). The precise value the
+     *  dialer schedules against is preserved in the hover title and the
+     *  CSV export. */
     cell: (l) => (
-      <span className="text-muted-foreground">
-        {formatDate(l.next_call_at)}
+      <span
+        className="text-muted-foreground"
+        title={exactDateTime(l.next_call_at)}
+      >
+        {relativeTimeSigned(l.next_call_at)}
       </span>
     ),
     text: (l) => dateText(l.next_call_at),
