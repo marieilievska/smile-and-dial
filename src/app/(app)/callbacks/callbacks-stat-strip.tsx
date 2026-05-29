@@ -39,6 +39,10 @@ export function CallbacksStatStrip({ stats }: { stats: CallbackStats }) {
         href="/callbacks?status=pending&range=overdue"
         tone="red"
         divider
+        // When anything is overdue this is a live alarm — the cron
+        // should have dialed these already. A gentle pulse pulls the
+        // eye to the one tile that needs human attention right now.
+        pulse={stats.overdue > 0}
       />
       <StatLink
         icon={<Mic className="size-3.5" />}
@@ -59,6 +63,7 @@ function StatLink({
   href,
   tone,
   divider,
+  pulse,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -66,6 +71,7 @@ function StatLink({
   href: string;
   tone: "coral" | "red" | "neutral";
   divider?: boolean;
+  pulse?: boolean;
 }) {
   const accent = {
     coral: "text-primary",
@@ -81,10 +87,24 @@ function StatLink({
       }`}
     >
       <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
-        <span className={accent}>{icon}</span>
+        {pulse ? (
+          <span className="relative inline-flex size-3.5 items-center justify-center">
+            <span
+              className="absolute inline-flex size-3.5 animate-ping rounded-full opacity-60"
+              style={{ backgroundColor: "var(--destructive)" }}
+            />
+            <span className={`relative ${accent}`}>{icon}</span>
+          </span>
+        ) : (
+          <span className={accent}>{icon}</span>
+        )}
         {label}
       </p>
-      <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
+      <p
+        className={`text-2xl leading-none font-medium tabular-nums ${
+          pulse ? "text-destructive" : "text-foreground"
+        }`}
+      >
         {value}
       </p>
     </Link>

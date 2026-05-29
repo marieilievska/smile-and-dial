@@ -1,4 +1,4 @@
-import { CalendarClock, ExternalLink, Mic } from "lucide-react";
+import { CalendarClock, CheckCircle2, ExternalLink, Mic } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -232,10 +232,35 @@ export default async function CallbacksPage({
 
   return (
     <div className="flex flex-col gap-5 p-6">
-      <div className="flex flex-col gap-1.5">
-        <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          Callbacks
-        </h1>
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-1.5 delay-75 duration-500">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <h1 className="text-foreground text-2xl font-bold tracking-tight">
+            Callbacks
+          </h1>
+          {/* Live "due within the hour" pulse — the autopilot is about
+              to dial these automatically, so the page reads as a live
+              operation, not a static schedule. Hidden when nothing is
+              imminent to avoid a permanent decoration. */}
+          {stats.dueWithinHour > 0 ? (
+            <Link
+              href="/callbacks?status=pending&range=today"
+              data-testid="callbacks-due-soon"
+              className="border-border bg-card text-foreground hover:bg-muted/60 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+            >
+              <span className="relative flex size-2 items-center justify-center">
+                <span
+                  className="absolute inline-flex size-2 animate-ping rounded-full opacity-70"
+                  style={{ backgroundColor: "var(--primary)" }}
+                />
+                <span
+                  className="relative inline-flex size-1.5 rounded-full"
+                  style={{ backgroundColor: "var(--primary)" }}
+                />
+              </span>
+              {stats.dueWithinHour.toLocaleString()} due within the hour
+            </Link>
+          ) : null}
+        </div>
         <p className="text-muted-foreground text-sm">
           Scheduled redials. Pending callbacks auto-dial at their scheduled time
           when the dialer cron is active.
@@ -244,9 +269,11 @@ export default async function CallbacksPage({
 
       {/* CB2 — at-a-glance stats: Due today / Due this week /
           Overdue / Repeat voicemails. */}
-      <CallbacksStatStrip stats={stats} />
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both delay-100 duration-500">
+        <CallbacksStatStrip stats={stats} />
+      </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-3 delay-150 duration-500">
         {/* CB3 — status tabs + CB1 filter popover share a single row. */}
         <div className="flex flex-wrap items-center gap-2">
           <CallbacksStatusTabs current={statusFilter} counts={tabCounts} />
@@ -256,7 +283,7 @@ export default async function CallbacksPage({
       </div>
 
       {callbacks.length > 0 ? (
-        <>
+        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-5 delay-200 duration-500">
           <div className="border-border overflow-x-auto rounded-lg border">
             <Table className="table-fixed">
               <TableHeader>
@@ -298,17 +325,27 @@ export default async function CallbacksPage({
                 {callbacks.map((cb) => {
                   const when = formatScheduledWhen(cb.scheduled_at, now);
                   const isPending = cb.status === "pending";
-                  const showUrgencyRail =
+                  // Two-tone urgency rail: overdue reads as an alarm
+                  // (destructive red), urgent (≤1h out) reads as
+                  // "about to happen" (coral). Everything else stays
+                  // transparent so the rail itself becomes a heat
+                  // scale you can scan top-to-bottom.
+                  const railColor =
+                    isPending && when.urgency === "overdue"
+                      ? "border-l-[color:var(--destructive)]"
+                      : isPending && when.urgency === "urgent"
+                        ? "border-l-[color:var(--primary)]"
+                        : "border-l-transparent";
+                  // The autopilot is about to dial overdue/urgent
+                  // pending callbacks automatically — surface that so
+                  // the row reads as live AI work, not a stale to-do.
+                  const showAutopilot =
                     isPending &&
                     (when.urgency === "overdue" || when.urgency === "urgent");
                   return (
                     <CallbackRow key={cb.id} leadId={cb.lead?.id ?? null}>
                       <TableCell
-                        className={`w-[34%] min-w-[260px] ${
-                          showUrgencyRail
-                            ? "border-l-[3px] border-l-[color:var(--primary)]"
-                            : "border-l-[3px] border-l-transparent"
-                        }`}
+                        className={`w-[34%] min-w-[260px] border-l-[3px] ${railColor}`}
                       >
                         <div className="flex min-w-0 flex-col gap-0.5">
                           <div className="flex min-w-0 items-center gap-2">
@@ -326,8 +363,16 @@ export default async function CallbacksPage({
                             )}
                             {cb.voicemail_attempts > 0 ? (
                               <span
-                                className="border-border text-muted-foreground inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
-                                title={`${cb.voicemail_attempts} voicemail attempt${cb.voicemail_attempts > 1 ? "s" : ""}`}
+                                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+                                  cb.voicemail_attempts >= 2
+                                    ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                                    : "border-border text-muted-foreground"
+                                }`}
+                                title={
+                                  cb.voicemail_attempts >= 2
+                                    ? `Voicemail ${cb.voicemail_attempts}× — the AI keeps reaching voicemail; a human may need to step in`
+                                    : "1 voicemail attempt"
+                                }
                               >
                                 <Mic className="size-2.5" />×
                                 {cb.voicemail_attempts}
@@ -366,6 +411,21 @@ export default async function CallbacksPage({
                               },
                             )}
                           </span>
+                          {showAutopilot ? (
+                            <span className="text-primary mt-0.5 inline-flex w-fit items-center gap-1.5 text-[10px] font-medium">
+                              <span className="relative flex size-1.5 items-center justify-center">
+                                <span
+                                  className="absolute inline-flex size-1.5 animate-ping rounded-full opacity-70"
+                                  style={{ backgroundColor: "var(--primary)" }}
+                                />
+                                <span
+                                  className="relative inline-flex size-1 rounded-full"
+                                  style={{ backgroundColor: "var(--primary)" }}
+                                />
+                              </span>
+                              Autopilot dialing soon
+                            </span>
+                          ) : null}
                         </div>
                       </TableCell>
 
@@ -417,7 +477,7 @@ export default async function CallbacksPage({
             total={total}
             basePath="/callbacks"
           />
-        </>
+        </div>
       ) : hasAnyFilter ? (
         <FilteredEmptyState
           clearHref={callbacksHref(params, {
@@ -460,12 +520,33 @@ function FilteredEmptyState({ clearHref }: { clearHref: string }) {
  *  (created by the AI agent during a call, or manually from the call
  *  detail modal) and a link out to /calls so the user can go there. */
 function NoCallbacksEmptyState({ statusFilter }: { statusFilter: string }) {
+  // Pending with zero rows isn't a dead end — it's a win. The autopilot
+  // simply has no redials queued, so reassure the operator rather than
+  // showing a neutral "nothing here" state.
+  if (statusFilter === "pending") {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-emerald-500/30 bg-emerald-500/[0.04] py-16 text-center">
+        <div className="flex size-12 items-center justify-center rounded-full bg-emerald-500/10">
+          <CheckCircle2 className="size-6 text-emerald-600 dark:text-emerald-400" />
+        </div>
+        <p className="text-foreground text-sm font-medium">
+          You&apos;re all caught up
+        </p>
+        <p className="text-muted-foreground max-w-md text-sm">
+          No callbacks are waiting. The autopilot schedules a redial here
+          automatically whenever a lead asks to be called back.
+        </p>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/calls">Browse recent calls</Link>
+        </Button>
+      </div>
+    );
+  }
+
   const headline =
-    statusFilter === "pending"
-      ? "No callbacks scheduled"
-      : statusFilter === "all"
-        ? "No callbacks yet"
-        : `No ${statusFilter} callbacks`;
+    statusFilter === "all"
+      ? "No callbacks yet"
+      : `No ${statusFilter} callbacks`;
   return (
     <div className="border-border flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
       <CalendarClock className="text-muted-foreground size-8" />

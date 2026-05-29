@@ -15,6 +15,11 @@ export type CallbackStats = {
   dueThisWeek: number;
   overdue: number;
   repeatVoicemail: number;
+  /** Pending callbacks scheduled to auto-dial within the next 60
+   *  minutes (now → now+1h). Drives the live "N due within the hour"
+   *  pulse in the page header so Callbacks reads as a live autopilot
+   *  operation, not a static schedule. */
+  dueWithinHour: number;
 };
 
 export async function fetchCallbackStats(
@@ -29,36 +34,45 @@ export async function fetchCallbackStats(
   endOfToday.setHours(23, 59, 59, 999);
   const weekFromNow = new Date(startOfToday);
   weekFromNow.setDate(weekFromNow.getDate() + 7);
+  const hourFromNow = new Date(now.getTime() + 60 * 60_000);
 
-  const [dueToday, dueThisWeek, overdue, repeatVoicemail] = await Promise.all([
-    supabase
-      .from("callbacks")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending")
-      .gte("scheduled_at", startOfToday.toISOString())
-      .lte("scheduled_at", endOfToday.toISOString()),
-    supabase
-      .from("callbacks")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending")
-      .gte("scheduled_at", startOfToday.toISOString())
-      .lt("scheduled_at", weekFromNow.toISOString()),
-    supabase
-      .from("callbacks")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending")
-      .lt("scheduled_at", now.toISOString()),
-    supabase
-      .from("callbacks")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending")
-      .gte("voicemail_attempts", 2),
-  ]);
+  const [dueToday, dueThisWeek, overdue, repeatVoicemail, dueWithinHour] =
+    await Promise.all([
+      supabase
+        .from("callbacks")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending")
+        .gte("scheduled_at", startOfToday.toISOString())
+        .lte("scheduled_at", endOfToday.toISOString()),
+      supabase
+        .from("callbacks")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending")
+        .gte("scheduled_at", startOfToday.toISOString())
+        .lt("scheduled_at", weekFromNow.toISOString()),
+      supabase
+        .from("callbacks")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending")
+        .lt("scheduled_at", now.toISOString()),
+      supabase
+        .from("callbacks")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending")
+        .gte("voicemail_attempts", 2),
+      supabase
+        .from("callbacks")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending")
+        .gte("scheduled_at", now.toISOString())
+        .lte("scheduled_at", hourFromNow.toISOString()),
+    ]);
 
   return {
     dueToday: dueToday.count ?? 0,
     dueThisWeek: dueThisWeek.count ?? 0,
     overdue: overdue.count ?? 0,
     repeatVoicemail: repeatVoicemail.count ?? 0,
+    dueWithinHour: dueWithinHour.count ?? 0,
   };
 }
