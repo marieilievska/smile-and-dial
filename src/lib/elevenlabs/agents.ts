@@ -2,9 +2,13 @@
  * Push agent configurations to ElevenLabs. Real API calls only run when
  * ELEVENLABS_LIVE=live; otherwise a deterministic mock generates a fake
  * agent id, so tests and development stay free.
+ *
+ * Round L1 — the ElevenLabs API key now comes from `ELEVENLABS_API_KEY`
+ * (server env), not from the `app_settings` table. One ElevenLabs
+ * account sits behind the whole product, so per-tenant config was
+ * the wrong shape. The voice-id allowlist is still per-workspace and
+ * still lives in `app_settings`.
  */
-
-import { createClient } from "@/lib/supabase/server";
 
 export type AgentSyncPayload = {
   name: string;
@@ -69,14 +73,13 @@ function isLive(): boolean {
   return process.env.ELEVENLABS_LIVE === "live";
 }
 
-async function fetchApiKey(): Promise<string | null> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("app_settings")
-    .select("elevenlabs_api_key")
-    .eq("id", 1)
-    .maybeSingle();
-  return data?.elevenlabs_api_key ?? null;
+/** The single ElevenLabs API key for the whole product. Returns null
+ *  if the env var is missing or empty so the caller can surface a
+ *  clean error instead of attempting a request with an undefined
+ *  Authorization header. */
+function fetchApiKey(): string | null {
+  const key = process.env.ELEVENLABS_API_KEY?.trim();
+  return key && key.length > 0 ? key : null;
 }
 
 /** Delete an ElevenLabs agent. Mocked unless ELEVENLABS_LIVE=live. */
@@ -85,7 +88,7 @@ export async function deleteAgentOnElevenLabs(
 ): Promise<{ error: string | null }> {
   if (!isLive()) return { error: null };
 
-  const apiKey = await fetchApiKey();
+  const apiKey = fetchApiKey();
   if (!apiKey) return { error: "ElevenLabs API key isn't set." };
 
   try {
@@ -131,11 +134,12 @@ async function liveSync(
   payload: AgentSyncPayload,
   existingId: string | null,
 ): Promise<SyncResult> {
-  const apiKey = await fetchApiKey();
+  const apiKey = fetchApiKey();
   if (!apiKey) {
     return {
       elevenlabsAgentId: null,
-      error: "ElevenLabs API key isn't set in Settings → Integrations.",
+      error:
+        "ElevenLabs API key isn't set. Add ELEVENLABS_API_KEY to the server env.",
     };
   }
 

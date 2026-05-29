@@ -4,19 +4,20 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { updateElevenLabsSettings } from "@/lib/integrations/actions";
 
-export function ElevenLabsForm({
-  hasApiKey,
-  voiceIds,
-}: {
-  hasApiKey: boolean;
-  voiceIds: string;
-}) {
-  const [apiKey, setApiKey] = useState("");
+/** Settings → Integrations → ElevenLabs panel.
+ *
+ *  Round L1 — the API key moved into the server env
+ *  (`ELEVENLABS_API_KEY`) since Smile & Dial uses a single ElevenLabs
+ *  account behind the whole product. This form now only manages the
+ *  voice-id allowlist, which is per-workspace (different tenants might
+ *  want different agent voices). The connection state in the parent
+ *  card reads from `process.env.ELEVENLABS_API_KEY` instead of the
+ *  database column. */
+export function ElevenLabsForm({ voiceIds }: { voiceIds: string }) {
   const [voices, setVoices] = useState(voiceIds);
   const [pending, startTransition] = useTransition();
 
@@ -24,15 +25,11 @@ export function ElevenLabsForm({
     event.preventDefault();
     startTransition(async () => {
       try {
-        const result = await updateElevenLabsSettings({
-          apiKey,
-          voiceIds: voices,
-        });
+        const result = await updateElevenLabsSettings({ voiceIds: voices });
         if (result.error) {
           toast.error(result.error);
         } else {
           toast.success("ElevenLabs settings saved.");
-          setApiKey("");
         }
       } catch {
         toast.error("Something went wrong. Please try again.");
@@ -43,20 +40,6 @@ export function ElevenLabsForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <Label htmlFor="el-api-key">API key</Label>
-        <Input
-          id="el-api-key"
-          type="password"
-          value={apiKey}
-          placeholder={
-            hasApiKey
-              ? "A key is saved — enter a new one to replace it"
-              : "Paste your ElevenLabs API key"
-          }
-          onChange={(event) => setApiKey(event.target.value)}
-        />
-      </div>
-      <div className="flex flex-col gap-2">
         <Label htmlFor="el-voice-ids">Allowed voice IDs</Label>
         <Textarea
           id="el-voice-ids"
@@ -66,7 +49,9 @@ export function ElevenLabsForm({
           onChange={(event) => setVoices(event.target.value)}
         />
         <p className="text-muted-foreground text-xs">
-          These populate the voice picker in the Agent Builder.
+          These populate the voice picker in the Agent Builder. The ElevenLabs
+          API key for the whole product lives in the server environment (
+          <code>ELEVENLABS_API_KEY</code>) and isn&apos;t configured here.
         </p>
       </div>
       <div>
