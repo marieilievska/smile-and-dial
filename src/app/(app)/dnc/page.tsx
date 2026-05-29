@@ -18,6 +18,7 @@ import { AddDncDialog } from "./add-dnc-dialog";
 import { DncBulkActionBar } from "./bulk-action-bar";
 import { CopyPhoneButton } from "./copy-phone";
 import { DncFilters } from "./dnc-filters";
+import { DncSparkline } from "./dnc-sparkline";
 import { DncStatStrip } from "./dnc-stat-strip";
 import { formatAddedAt } from "./format-added";
 import { RemoveDncDialog } from "./remove-dnc-dialog";
@@ -65,6 +66,15 @@ function dateStr(value: string | string[] | undefined): string {
 
 function str(value: string | string[] | undefined): string {
   return typeof value === "string" ? value : "";
+}
+
+/** Pretty-print a +1 US/Canada number as "+1 (212) 555-0101". Any other
+ *  shape (international, malformed) is shown as-is. The raw E.164 stays
+ *  the cell's accessible name + copy value — this only affects what the
+ *  eye reads. */
+function formatPhoneDisplay(e164: string): string {
+  const m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164);
+  return m ? `+1 (${m[1]}) ${m[2]}-${m[3]}` : e164;
 }
 
 function intParam(
@@ -170,7 +180,7 @@ export default async function DncPage({
       <div className="flex flex-col gap-5 p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="flex items-baseline gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-foreground text-2xl font-bold tracking-tight">
                 Do not call
               </h1>
@@ -180,6 +190,7 @@ export default async function DncPage({
                   {stats.total === 1 ? "number" : "numbers"}
                 </span>
               ) : null}
+              <DncSparkline values={stats.addedDaily} />
             </div>
             <p className="text-muted-foreground mt-1 text-sm">
               Workspace-wide list of phone numbers the dialer must skip.
@@ -261,12 +272,18 @@ export default async function DncPage({
                       <TableCell>
                         <RowCheckbox id={entry.id} phone={entry.phone} />
                       </TableCell>
-                      {/* Round 34 — DNC stays as raw E.164 in the
-                       *  cell. Both the Playwright contract and the
-                       *  compliance-paper-trail use case prefer the
-                       *  unambiguous canonical form here. */}
-                      <TableCell className="font-mono text-xs font-medium">
-                        {entry.phone}
+                      {/* Round 37 — show a human-readable phone for the
+                       *  eye, but keep the raw E.164 as the cell's
+                       *  accessible name (aria-label) + hover title so the
+                       *  compliance paper-trail and the Playwright contract
+                       *  still resolve to the canonical form. Copy button
+                       *  copies raw too. */}
+                      <TableCell
+                        className="font-mono text-xs font-medium"
+                        aria-label={entry.phone}
+                        title={entry.phone}
+                      >
+                        {formatPhoneDisplay(entry.phone)}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {entry.company_snapshot || "—"}

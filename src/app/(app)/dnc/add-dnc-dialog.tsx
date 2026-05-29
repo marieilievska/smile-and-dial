@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  AlertTriangle,
-  Building2,
-  CheckCircle2,
-  Phone,
-  Plus,
-  Tag,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -89,10 +82,10 @@ function normalizePhone(raw: string): string {
 
 type Validity = "idle" | "valid" | "invalid";
 
-/** Add a single number to the workspace DNC list. Round 18 — full
- *  rebuild with section icons, live phone validation, per-reason
- *  helper text, and an "Add another" affordance so an operator
- *  cleaning up post-call work can stay in the modal. */
+/** Add a single number to the workspace DNC list. Slim labeled
+ *  fields with live phone validation, per-reason helper text, and an
+ *  "Add another" affordance so an operator cleaning up post-call work
+ *  can stay in the modal. */
 export function AddDncDialog() {
   const [open, setOpen] = useState(false);
   const [phone, setPhone] = useState("");
@@ -154,97 +147,83 @@ export function AddDncDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-5">
-          {/* Phone — section icon + live validation cue */}
-          <Section
-            icon={<Phone className="size-3.5" />}
-            title="Phone"
-            description="E.164 format. We'll infer the +1 if you paste a plain 10-digit US number."
-          >
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="dnc-phone">Phone</Label>
-              <div className="relative">
-                <Input
-                  id="dnc-phone"
-                  type="tel"
-                  value={phone}
-                  onChange={(event) => setPhone(event.target.value)}
-                  placeholder="+1 212 555 0101"
-                  aria-invalid={validity === "invalid"}
-                  className={
-                    validity === "valid"
-                      ? "pr-9"
-                      : validity === "invalid"
-                        ? "aria-invalid:ring-destructive/30 aria-invalid:border-destructive pr-9"
-                        : "pr-9"
-                  }
-                  required
-                />
-                {validity === "valid" ? (
-                  <CheckCircle2 className="text-success absolute top-1/2 right-2.5 size-4 -translate-y-1/2" />
-                ) : validity === "invalid" ? (
-                  <AlertTriangle className="text-destructive absolute top-1/2 right-2.5 size-4 -translate-y-1/2" />
-                ) : null}
-              </div>
+        <div className="flex flex-col gap-4">
+          {/* Phone — live green/red validation as the operator types */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="dnc-phone">Phone</Label>
+            <div className="relative">
+              <Input
+                id="dnc-phone"
+                type="tel"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                placeholder="+1 212 555 0101"
+                aria-invalid={validity === "invalid"}
+                className={
+                  validity === "invalid"
+                    ? "aria-invalid:ring-destructive/30 aria-invalid:border-destructive pr-9"
+                    : "pr-9"
+                }
+                required
+              />
               {validity === "valid" ? (
-                <p className="text-success text-xs">
-                  Will be saved as{" "}
-                  <span className="font-mono font-medium">{normalised}</span>.
-                </p>
+                <CheckCircle2 className="text-success absolute top-1/2 right-2.5 size-4 -translate-y-1/2" />
               ) : validity === "invalid" ? (
-                <p className="text-destructive text-xs">
-                  That doesn&apos;t look like a valid phone. Use E.164 (e.g.
-                  +12125550101) or a 10-digit US number.
-                </p>
+                <AlertTriangle className="text-destructive absolute top-1/2 right-2.5 size-4 -translate-y-1/2" />
               ) : null}
             </div>
-          </Section>
-
-          {/* Reason — with per-option helper line */}
-          <Section
-            icon={<Tag className="size-3.5" />}
-            title="Reason"
-            description="Why is this number being added? Used for filtering and audit."
-          >
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="dnc-reason">Reason</Label>
-              <Select
-                value={reason}
-                onValueChange={(value) => setReason(value as DncReason)}
-              >
-                <SelectTrigger id="dnc-reason">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {REASONS.map((r) => (
-                    <SelectItem key={r.value} value={r.value}>
-                      {r.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-muted-foreground text-xs">
-                {reasonMeta.helper}
+            {validity === "valid" ? (
+              <p className="text-success text-xs">
+                Will be saved as{" "}
+                <span className="font-mono font-medium">{normalised}</span>.
               </p>
-            </div>
-          </Section>
+            ) : validity === "invalid" ? (
+              <p className="text-destructive text-xs">
+                That doesn&apos;t look like a valid phone. Use E.164 (e.g.
+                +12125550101) or a 10-digit US number.
+              </p>
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                E.164 format. We&apos;ll infer the +1 from a plain 10-digit US
+                number.
+              </p>
+            )}
+          </div>
+
+          {/* Reason — helper line reflects the current selection */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="dnc-reason">Reason</Label>
+            <Select
+              value={reason}
+              onValueChange={(value) => setReason(value as DncReason)}
+            >
+              <SelectTrigger id="dnc-reason">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REASONS.map((r) => (
+                  <SelectItem key={r.value} value={r.value}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-muted-foreground text-xs">{reasonMeta.helper}</p>
+          </div>
 
           {/* Company — optional context */}
-          <Section
-            icon={<Building2 className="size-3.5" />}
-            title="Company"
-            description="Optional. Stored as a snapshot so the row stays readable even if the lead is later deleted."
-          >
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="dnc-company">Company</Label>
-              <Input
-                id="dnc-company"
-                value={company}
-                onChange={(event) => setCompany(event.target.value)}
-                placeholder="ABC Fitness"
-              />
-            </div>
-          </Section>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="dnc-company">Company</Label>
+            <Input
+              id="dnc-company"
+              value={company}
+              onChange={(event) => setCompany(event.target.value)}
+              placeholder="ABC Fitness"
+            />
+            <p className="text-muted-foreground text-xs">
+              Optional. Saved as a snapshot so the row stays readable later.
+            </p>
+          </div>
         </div>
 
         <DialogFooter className="flex-row items-center justify-between gap-3 sm:justify-between">
@@ -262,40 +241,5 @@ export function AddDncDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Section({
-  icon,
-  title,
-  description,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-2">
-      <div className="flex items-baseline gap-2">
-        <span
-          className="text-primary inline-flex size-5 shrink-0 items-center justify-center rounded-md"
-          style={{
-            backgroundColor:
-              "color-mix(in oklab, var(--primary) 14%, transparent)",
-          }}
-        >
-          {icon}
-        </span>
-        <h3 className="text-foreground text-sm font-semibold">{title}</h3>
-      </div>
-      {description ? (
-        <p className="text-muted-foreground -mt-1 ml-7 text-xs">
-          {description}
-        </p>
-      ) : null}
-      <div className="ml-7">{children}</div>
-    </section>
   );
 }

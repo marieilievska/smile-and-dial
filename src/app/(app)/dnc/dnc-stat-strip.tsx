@@ -1,4 +1,4 @@
-import { Ban, CalendarPlus, FileDown, TrendingUp } from "lucide-react";
+import { Ban, CalendarPlus, PhoneOff, TrendingUp } from "lucide-react";
 import Link from "next/link";
 
 import type { DncStats } from "./stats-query";
@@ -21,8 +21,6 @@ export function DncStatStrip({ stats }: { stats: DncStats }) {
   const topLabel = stats.topReason
     ? (REASON_LABELS[stats.topReason.key] ?? stats.topReason.key)
     : "—";
-  const importedPct =
-    stats.total === 0 ? "—" : `${Math.round(stats.importedShare * 100)}%`;
 
   return (
     <section
@@ -54,11 +52,11 @@ export function DncStatStrip({ stats }: { stats: DncStats }) {
         divider
       />
       <StatTile
-        icon={<FileDown className="size-3.5" />}
-        label="Imported share"
-        value={importedPct}
-        href="/dnc?reason=imported"
-        tone="neutral"
+        icon={<PhoneOff className="size-3.5" />}
+        label="Caller requested"
+        value={stats.callerRequested.toLocaleString()}
+        href="/dnc?reason=dnc_requested"
+        tone="coral"
         divider
       />
     </section>

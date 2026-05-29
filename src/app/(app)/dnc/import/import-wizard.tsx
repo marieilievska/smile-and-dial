@@ -164,6 +164,34 @@ export function DncImportWizard() {
     return URL.createObjectURL(blob);
   }, [parsed, phoneHeader, companyHeader, result]);
 
+  // Pre-flight tally over EVERY row so the operator knows what the
+  // import will actually do before committing. We can detect invalid
+  // phones and in-file duplicates client-side; numbers already on the
+  // DNC list can only be known server-side, so we don't claim to.
+  const tally = useMemo(() => {
+    if (!parsed || !phoneHeader) return null;
+    let valid = 0;
+    let invalid = 0;
+    let fileDuplicates = 0;
+    const seen = new Set<string>();
+    for (const row of parsed.rows) {
+      const raw = row[phoneHeader] ?? "";
+      const normalised = normalizePhone(raw);
+      const ok = Boolean(normalised) && E164.test(normalised);
+      if (!ok) {
+        invalid += 1;
+        continue;
+      }
+      if (seen.has(normalised)) {
+        fileDuplicates += 1;
+        continue;
+      }
+      seen.add(normalised);
+      valid += 1;
+    }
+    return { valid, invalid, fileDuplicates, total: parsed.rows.length };
+  }, [parsed, phoneHeader]);
+
   // Live preview of the chosen phone column — first 3 non-empty
   // values, with a tiny status tag indicating whether each parses to
   // a valid E.164 number.
@@ -268,6 +296,31 @@ export function DncImportWizard() {
               </div>
             </div>
 
+            {/* Pre-flight tally over every row — what the import will
+             *  actually do, before the operator commits. */}
+            {tally ? (
+              <div
+                data-testid="dnc-import-preflight"
+                className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border"
+              >
+                <PreflightTile
+                  label="Ready to add"
+                  value={tally.valid}
+                  tone="success"
+                />
+                <PreflightTile
+                  label="Invalid phone"
+                  value={tally.invalid}
+                  tone="destructive"
+                />
+                <PreflightTile
+                  label="Dupes in file"
+                  value={tally.fileDuplicates}
+                  tone="muted"
+                />
+              </div>
+            ) : null}
+
             {/* Preview of the chosen phone column so the operator can
              *  spot a wrong mapping before the import runs. */}
             {phoneHeader && preview.length > 0 ? (
@@ -314,7 +367,10 @@ export function DncImportWizard() {
                 <ArrowLeft className="size-4" />
                 Back
               </Button>
-              <Button onClick={submit} disabled={pending || !phoneHeader}>
+              <Button
+                onClick={submit}
+                disabled={pending || !phoneHeader || tally?.valid === 0}
+              >
                 <Upload className="size-4" />
                 {pending ? "Importing…" : "Import"}
               </Button>
@@ -405,6 +461,35 @@ export function DncImportWizard() {
           </CardContent>
         </Card>
       ) : null}
+    </div>
+  );
+}
+
+/** One cell of the Map-step pre-flight tally. Coral/red/muted tone
+ *  signals whether the count is good news, a problem, or neutral. */
+function PreflightTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "success" | "destructive" | "muted";
+}) {
+  const valueClass = {
+    success: "text-success",
+    destructive: value > 0 ? "text-destructive" : "text-muted-foreground",
+    muted: "text-foreground",
+  }[tone];
+
+  return (
+    <div className="bg-card flex flex-col gap-0.5 p-3">
+      <span className="text-foreground text-2xl leading-none font-semibold tabular-nums">
+        <span className={valueClass}>{value.toLocaleString()}</span>
+      </span>
+      <span className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">
+        {label}
+      </span>
     </div>
   );
 }
