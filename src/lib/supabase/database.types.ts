@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5";
   };
-  graphql_public: {
-    Tables: {
-      [_ in never]: never;
-    };
-    Views: {
-      [_ in never]: never;
-    };
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json;
-          operationName?: string;
-          query?: string;
-          variables?: Json;
-        };
-        Returns: Json;
-      };
-    };
-    Enums: {
-      [_ in never]: never;
-    };
-    CompositeTypes: {
-      [_ in never]: never;
-    };
-  };
   public: {
     Tables: {
       agents: {
@@ -196,7 +171,6 @@ export type Database = {
           calendly_user_uri: string | null;
           close_api_key: string | null;
           close_connected_at: string | null;
-          elevenlabs_api_key: string | null;
           elevenlabs_voice_ids: string | null;
           id: number;
           updated_at: string;
@@ -210,7 +184,6 @@ export type Database = {
           calendly_user_uri?: string | null;
           close_api_key?: string | null;
           close_connected_at?: string | null;
-          elevenlabs_api_key?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
           updated_at?: string;
@@ -224,7 +197,6 @@ export type Database = {
           calendly_user_uri?: string | null;
           close_api_key?: string | null;
           close_connected_at?: string | null;
-          elevenlabs_api_key?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
           updated_at?: string;
@@ -1647,9 +1619,6 @@ export type CompositeTypes<
     : never;
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

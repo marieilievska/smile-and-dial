@@ -33,7 +33,7 @@ export default async function IntegrationsPage() {
     supabase
       .from("app_settings")
       .select(
-        "elevenlabs_api_key, elevenlabs_voice_ids, calendly_connected_at, calendly_last_sync_at, close_connected_at",
+        "elevenlabs_voice_ids, calendly_connected_at, calendly_last_sync_at, close_connected_at",
       )
       .eq("id", 1)
       .maybeSingle(),
@@ -43,7 +43,11 @@ export default async function IntegrationsPage() {
       .eq("active", true),
   ]);
 
-  const elevenLabsConnected = Boolean(settings?.elevenlabs_api_key);
+  // Round L1 — the ElevenLabs API key now lives in the server env, so
+  // "connected" is true whenever the deployment has the env var set.
+  // This is a server component so reading process.env is fine and
+  // never reaches the browser.
+  const elevenLabsConnected = Boolean(process.env.ELEVENLABS_API_KEY?.trim());
   const closeConnected = Boolean(settings?.close_connected_at);
   const calendlyConnected = Boolean(settings?.calendly_connected_at);
   const now = new Date();
@@ -64,13 +68,14 @@ export default async function IntegrationsPage() {
           title="ElevenLabs"
           description="The voice AI that powers calls. The voice IDs listed here are the ones available when building an agent."
           connected={elevenLabsConnected}
-          subtitle={elevenLabsConnected ? "API key on file" : undefined}
+          subtitle={
+            elevenLabsConnected
+              ? "API key in server env"
+              : "Set ELEVENLABS_API_KEY in the server env"
+          }
           delay={75}
         >
-          <ElevenLabsForm
-            hasApiKey={elevenLabsConnected}
-            voiceIds={settings?.elevenlabs_voice_ids ?? ""}
-          />
+          <ElevenLabsForm voiceIds={settings?.elevenlabs_voice_ids ?? ""} />
         </IntegrationCard>
 
         <IntegrationCard
