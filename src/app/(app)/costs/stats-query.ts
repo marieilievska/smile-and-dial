@@ -4,15 +4,19 @@ import { pickBreakdown } from "@/lib/analytics/costs";
 
 export type CostsHeadlineStats = {
   /** Spend across all calls today (workspace-wide, unaffected by
-   *  page slicers) — used for the "Today / MTD" context chip. */
+   *  page slicers) — used for the budget-pace tile. */
   todaySpend: number;
   /** Month-to-date spend across the workspace. */
   mtdSpend: number;
+  /** Straight-line projection of where month-end spend lands if the
+   *  current daily pace holds: mtd / daysElapsed × daysInMonth. */
+  projectedMonthSpend: number;
 };
 
-/** Pulls today + month-to-date spend in a single query. Used to add
- *  a quick orientation chip in the page header that doesn't shift
- *  when the user changes the page-level date filter. */
+/** Pulls today + month-to-date spend (and a month-end projection) in a
+ *  single query. Powers the budget-pace tile, which stays fixed when
+ *  the user changes the page-level date filter so it always answers
+ *  "am I on track this month?". */
 export async function fetchCostsHeadlineStats(
   supabase: SupabaseClient,
 ): Promise<CostsHeadlineStats> {
@@ -40,7 +44,17 @@ export async function fetchCostsHeadlineStats(
       todaySpend += breakdown.total;
     }
   }
-  return { todaySpend, mtdSpend };
+
+  // Linear month-end projection. dayOfMonth counts today as elapsed so
+  // the first of the month doesn't divide by zero.
+  const dayOfMonth = now.getUTCDate();
+  const daysInMonth = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  const projectedMonthSpend =
+    dayOfMonth > 0 ? (mtdSpend / dayOfMonth) * daysInMonth : mtdSpend;
+
+  return { todaySpend, mtdSpend, projectedMonthSpend };
 }
 
 export type CampaignCap = {

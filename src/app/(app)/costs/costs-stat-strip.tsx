@@ -1,4 +1,11 @@
-import { DollarSign, Sparkles, TrendingUp } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  CalendarRange,
+  DollarSign,
+  Target,
+  TrendingUp,
+} from "lucide-react";
 
 import type { Breakdown } from "@/lib/analytics/costs";
 
@@ -7,38 +14,65 @@ function usd(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
-/** 3-tile stat strip at the top of /costs — Total spend ·
- *  Cost / Goal Met · daily-spend sparkline. Round 21 — dropped the
- *  Cost-per-call tile because that figure already lives on the Calls
- *  page header strip; duplicating it here was noise. */
+/** 4-tile stat strip at the top of /costs:
+ *   - Total spend (with a vs-previous-period delta)
+ *   - Cost per Goal Met
+ *   - This month (month-to-date + month-end projection) — fixed to the
+ *     workspace, so it answers "am I on track?" regardless of the
+ *     page's date filter
+ *   - Daily-spend sparkline
+ */
 export function CostsStatStrip({
   spend,
   goalMet,
   daily,
+  spendDelta,
+  mtdSpend,
+  projectedMonthSpend,
+  todaySpend,
 }: {
   spend: Breakdown;
   goalMet: number;
   daily: number[];
+  /** Fractional change vs the previous equal-length window. null when
+   *  there was no spend in the prior window to compare against. */
+  spendDelta: number | null;
+  mtdSpend: number;
+  projectedMonthSpend: number;
+  todaySpend: number;
 }) {
   const perGoal = goalMet === 0 ? null : spend.total / goalMet;
   return (
     <section
       data-testid="costs-stat-strip"
-      className="border-border bg-card grid grid-cols-1 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-3"
+      className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-4 rounded-xl border px-5 py-4 lg:grid-cols-4"
     >
       <Tile
         icon={<DollarSign className="size-3.5" />}
         label="Total spend"
         value={usd(spend.total)}
-        tone="coral"
+        delta={spendDelta}
       />
       <Tile
-        icon={<Sparkles className="size-3.5" />}
+        icon={<Target className="size-3.5" />}
         label="Cost per Goal Met"
         value={perGoal == null ? "—" : usd(perGoal)}
-        tone="coral"
         divider
       />
+      <div className="lg:border-border/60 flex flex-col gap-1 lg:border-l lg:pl-4">
+        <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
+          <span className="text-primary">
+            <CalendarRange className="size-3.5" />
+          </span>
+          This month
+        </p>
+        <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
+          {usd(mtdSpend)}
+        </p>
+        <p className="text-muted-foreground text-[11px] tabular-nums">
+          ~{usd(projectedMonthSpend)} projected · {usd(todaySpend)} today
+        </p>
+      </div>
       <SparklineTile
         label="Daily trend"
         values={daily}
@@ -53,28 +87,54 @@ function Tile({
   icon,
   label,
   value,
-  tone,
+  delta,
   divider,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
-  tone: "coral" | "neutral";
+  delta?: number | null;
   divider?: boolean;
 }) {
-  const accent = tone === "coral" ? "text-primary" : "text-muted-foreground";
   return (
     <div
-      className={`flex flex-col gap-1 ${divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""}`}
+      className={`flex flex-col gap-1 ${divider ? "lg:border-border/60 lg:border-l lg:pl-4" : ""}`}
     >
       <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
-        <span className={accent}>{icon}</span>
+        <span className="text-primary">{icon}</span>
         {label}
       </p>
       <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
         {value}
       </p>
+      {delta != null ? <DeltaChip delta={delta} /> : null}
     </div>
+  );
+}
+
+/** vs-previous-period delta. Up is red here — for a cost page, rising
+ *  spend is the thing to notice, not celebrate. */
+function DeltaChip({ delta }: { delta: number }) {
+  const pct = Math.round(Math.abs(delta) * 100);
+  if (pct === 0) {
+    return (
+      <span className="text-muted-foreground text-[11px]">
+        Flat vs prev. period
+      </span>
+    );
+  }
+  const up = delta > 0;
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 text-[11px] tabular-nums ${up ? "text-destructive" : "text-success"}`}
+    >
+      {up ? (
+        <ArrowUpRight className="size-3" />
+      ) : (
+        <ArrowDownRight className="size-3" />
+      )}
+      {pct}% vs prev. period
+    </span>
   );
 }
 
@@ -91,7 +151,7 @@ function SparklineTile({
 }) {
   return (
     <div
-      className={`flex flex-col gap-1 ${divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""}`}
+      className={`flex flex-col gap-1 ${divider ? "lg:border-border/60 lg:border-l lg:pl-4" : ""}`}
     >
       <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
         <span className="text-primary">{icon}</span>

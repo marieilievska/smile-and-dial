@@ -1,4 +1,4 @@
-import { Download, Info } from "lucide-react";
+import { AlertTriangle, Download, Info } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -27,7 +27,9 @@ import { createClient } from "@/lib/supabase/server";
 
 import { BudgetProgress } from "./budget-progress";
 import { CostsDatePills } from "./costs-date-pills";
+import { CostsInsight } from "./costs-insight";
 import { CostsStatStrip } from "./costs-stat-strip";
+import { CostsVendorBreakdown } from "./costs-vendor-breakdown";
 import { CostsViewTabs } from "./costs-view-tabs";
 import { fmtRangeLabel } from "./format-time";
 import { PerCallTable } from "./per-call-table";
@@ -43,7 +45,6 @@ const ALLOWED_VIEWS = new Set([
   "per_goal",
   "per_user",
   "per_time",
-  "per_vendor",
 ]);
 
 function str(v: string | string[] | undefined): string {
@@ -104,13 +105,37 @@ export default async function CostsPage({
   const listId = UUID_RE.test(str(params.list)) ? str(params.list) : undefined;
   const slicers: Slicers = { from, to, campaignId, ownerId, listId };
 
-  const [rows, { data: campaigns }, { data: lists }, headlineStats] =
-    await Promise.all([
-      fetchCostRows(supabase, slicers),
-      supabase.from("campaigns").select("id, name").order("name"),
-      supabase.from("lists").select("id, name").order("name"),
-      fetchCostsHeadlineStats(supabase),
-    ]);
+  // Previous equal-length window, ending the day before `from`, so we
+  // can show a vs-previous-period delta on total spend.
+  const addDaysIso = (day: string, delta: number): string => {
+    const d = new Date(`${day}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + delta);
+    return d.toISOString().slice(0, 10);
+  };
+  const rangeLenDays =
+    Math.round(
+      (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+        86_400_000,
+    ) + 1;
+  const prevTo = addDaysIso(from, -1);
+  const prevFrom = addDaysIso(prevTo, -(rangeLenDays - 1));
+  const prevSlicers: Slicers = { ...slicers, from: prevFrom, to: prevTo };
+
+  const [
+    rows,
+    { data: campaigns },
+    { data: lists },
+    headlineStats,
+    prevRows,
+    campaignCaps,
+  ] = await Promise.all([
+    fetchCostRows(supabase, slicers),
+    supabase.from("campaigns").select("id, name").order("name"),
+    supabase.from("lists").select("id, name").order("name"),
+    fetchCostsHeadlineStats(supabase),
+    fetchCostRows(supabase, prevSlicers),
+    fetchCampaignCaps(supabase),
+  ]);
 
   // Owners are only needed by the Per-user rollup. Admin gate the
   // lookup the same way as before so members can't enumerate owners.
@@ -146,6 +171,62 @@ export default async function CostsPage({
   const mockMode = isMockMode();
   const rangeLabel = fmtRangeLabel(from, to);
 
+  // vs-previous-period delta on total spend. null when there was no
+  // spend in the prior window to compare against (avoids a fake ▲).
+  const prevTotal = rollupByVendor(prevRows).total;
+  const spendDelta =
+    prevTotal > 0 ? (summary.total - prevTotal) / prevTotal : null;
+
+  // Inputs for the deterministic ROI insight line.
+  const perCall = totalCalls === 0 ? 0 : summary.total / totalCalls;
+  const perGoal = totalGoalMet === 0 ? null : summary.total / totalGoalMet;
+  const campaignRollup = rollupByCampaign(rows);
+  const efficient = campaignRollup
+    .filter((c) => c.goalMet > 0)
+    .sort((a, b) => a.costPerGoalMet - b.costPerGoalMet)[0];
+  const bestCampaign = efficient
+    ? {
+        name: campaignName.get(efficient.campaignId) ?? "—",
+        costPerGoal: efficient.costPerGoalMet,
+      }
+    : null;
+  const vendorRanked = [
+    { label: "Twilio Calls", value: summary.twilio },
+    { label: "ElevenLabs", value: summary.elevenlabs },
+    { label: "OpenAI", value: summary.openai },
+    { label: "Twilio Lookup", value: summary.lookup },
+  ].sort((a, b) => b.value - a.value);
+  const topVendor =
+    summary.total > 0 && vendorRanked[0].value > 0
+      ? {
+          label: vendorRanked[0].label,
+          share: Math.round((vendorRanked[0].value / summary.total) * 100),
+        }
+      : null;
+  const showInsight = totalCalls > 0 && summary.total > 0;
+
+  // Nearest campaign to its spend cap — a workspace-level risk signal
+  // surfaced regardless of which view is active. Only flagged once a
+  // cap crosses 75% so the callout means "act soon", not noise.
+  let nearestCap: { name: string; pct: number; label: string } | null = null;
+  for (const c of campaignCaps.values()) {
+    const hasDay = c.dailySpendCap != null && c.dailySpendCap > 0;
+    const hasMonth = c.monthlySpendCap != null && c.monthlySpendCap > 0;
+    if (!hasDay && !hasMonth) continue;
+    const dayPct = hasDay
+      ? (c.daySpend / (c.dailySpendCap as number)) * 100
+      : 0;
+    const monthPct = hasMonth
+      ? (c.monthSpend / (c.monthlySpendCap as number)) * 100
+      : 0;
+    const useMonth = hasMonth && (monthPct >= dayPct || !hasDay);
+    const pct = useMonth ? monthPct : dayPct;
+    if (!nearestCap || pct > nearestCap.pct) {
+      nearestCap = { name: c.name, pct, label: useMonth ? "monthly" : "daily" };
+    }
+  }
+  const capAlert = nearestCap && nearestCap.pct >= 75 ? nearestCap : null;
+
   // Build URL for tab navigation that preserves slicers.
   function buildViewHref(nextView: string): string {
     const url = new URLSearchParams();
@@ -173,10 +254,6 @@ export default async function CostsPage({
   if (ownerId) exportParams.set("user", ownerId);
   const exportHref = `/costs/export?${exportParams.toString()}`;
 
-  // Pull campaign caps for the Per-campaign budget progress column.
-  const campaignCaps =
-    view === "per_campaign" ? await fetchCampaignCaps(supabase) : new Map();
-
   return (
     <div className="flex flex-col gap-5 p-6">
       {/* Header — title left, MTD / Today context badges + Export
@@ -199,26 +276,12 @@ export default async function CostsPage({
               total
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <div
-              className="border-border bg-card hidden flex-col items-end rounded-lg border px-3 py-1.5 text-xs sm:flex"
-              data-testid="costs-context"
-              title="Workspace-wide spend today and month-to-date. Unaffected by the date filter."
-            >
-              <span className="text-muted-foreground text-[10px] tracking-wide uppercase">
-                Today · MTD
-              </span>
-              <span className="text-foreground tabular-nums">
-                {usd(headlineStats.todaySpend)} · {usd(headlineStats.mtdSpend)}
-              </span>
-            </div>
-            <Button asChild variant="outline">
-              <a href={exportHref} download>
-                <Download className="size-4" />
-                Export CSV
-              </a>
-            </Button>
-          </div>
+          <Button asChild variant="outline">
+            <a href={exportHref} download>
+              <Download className="size-4" />
+              Export CSV
+            </a>
+          </Button>
         </div>
 
         <CostsDatePills
@@ -251,7 +314,52 @@ export default async function CostsPage({
         spend={summary}
         goalMet={totalGoalMet}
         daily={dailySpend}
+        spendDelta={spendDelta}
+        mtdSpend={headlineStats.mtdSpend}
+        projectedMonthSpend={headlineStats.projectedMonthSpend}
+        todaySpend={headlineStats.todaySpend}
       />
+
+      {capAlert ? (
+        <div
+          data-testid="costs-cap-alert"
+          className={`flex items-center gap-2.5 rounded-lg border px-4 py-2.5 text-sm ${
+            capAlert.pct >= 90
+              ? "border-destructive/30 bg-destructive/5 text-destructive"
+              : "text-primary border-primary/30 bg-primary/5"
+          }`}
+        >
+          <AlertTriangle className="size-4 shrink-0" />
+          <span>
+            <span className="font-semibold">{capAlert.name}</span> is at{" "}
+            <span className="font-semibold tabular-nums">
+              {capAlert.pct.toFixed(0)}%
+            </span>{" "}
+            of its {capAlert.label} spend cap.{" "}
+            <Link
+              href="/costs?view=per_campaign"
+              className="underline underline-offset-4"
+            >
+              Review campaigns
+            </Link>
+          </span>
+        </div>
+      ) : null}
+
+      <div className={showInsight ? "grid gap-4 lg:grid-cols-2" : "grid gap-4"}>
+        {showInsight ? (
+          <CostsInsight
+            rangeLabel={rangeLabel}
+            calls={totalCalls}
+            spend={summary.total}
+            perCall={perCall}
+            perGoal={perGoal}
+            bestCampaign={bestCampaign}
+            topVendor={topVendor}
+          />
+        ) : null}
+        <CostsVendorBreakdown summary={summary} />
+      </div>
 
       <CostsViewTabs current={view} buildHref={buildViewHref} />
 
@@ -285,7 +393,6 @@ export default async function CostsPage({
         <PerUserView rows={rows} ownerName={ownerName} supabase={supabase} />
       ) : null}
       {view === "per_time" ? <PerTimeChart data={dailyBuckets} /> : null}
-      {view === "per_vendor" ? <PerVendorView summary={summary} /> : null}
     </div>
   );
 }
@@ -334,7 +441,6 @@ function PerCampaignView({
             <TableHead className="text-right">Calls</TableHead>
             <TableHead className="text-right">Goal Met</TableHead>
             <TableHead className="text-right">Spend</TableHead>
-            <TableHead className="text-right">Share</TableHead>
             <TableHead className="text-right">Avg / call</TableHead>
             <TableHead className="text-right">Cost / Goal Met</TableHead>
             <TableHead className="text-right">Cap</TableHead>
@@ -343,7 +449,6 @@ function PerCampaignView({
         <TableBody>
           {data.map((d) => {
             const name = campaignName.get(d.campaignId) ?? "—";
-            const share = totalSpend === 0 ? 0 : d.spend.total / totalSpend;
             const barPct = (d.spend.total / maxSpend) * 100;
             const goalTone =
               d.goalMet === 0
@@ -382,9 +487,6 @@ function PerCampaignView({
                   </div>
                 </TableCell>
                 <TableCell className="text-muted-foreground text-right tabular-nums">
-                  {(share * 100).toFixed(0)}%
-                </TableCell>
-                <TableCell className="text-muted-foreground text-right tabular-nums">
                   {usd(d.avgPerCall)}
                 </TableCell>
                 <TableCell className="text-muted-foreground text-right tabular-nums">
@@ -410,9 +512,6 @@ function PerCampaignView({
             </TableCell>
             <TableCell className="text-foreground text-right font-semibold tabular-nums">
               {usd(totalSpend)}
-            </TableCell>
-            <TableCell className="text-muted-foreground text-right">
-              —
             </TableCell>
             <TableCell className="text-muted-foreground text-right tabular-nums">
               {totalCalls === 0 ? "—" : usd(totalSpend / totalCalls)}
@@ -731,82 +830,6 @@ async function PerListView({
           </TableRow>
         </TableFooter>
       </Table>
-    </div>
-  );
-}
-
-/** Per-vendor breakdown. Round 31 — recoloured monochromatically
- *  against `--primary`. The earlier rainbow (red / purple / green /
- *  slate, one colour per vendor) read as competing brands; the
- *  truer story is "four shares of one bill", so each row now uses
- *  the same primary blue at a different opacity. Bar length still
- *  carries magnitude. Ordering is by share descending so the
- *  opacity ramp lines up with importance instead of arbitrary
- *  vendor order. */
-function PerVendorView({
-  summary,
-}: {
-  summary: ReturnType<typeof rollupByVendor>;
-}) {
-  const items = [
-    { label: "Twilio", key: "twilio" as const, value: summary.twilio },
-    {
-      label: "ElevenLabs",
-      key: "elevenlabs" as const,
-      value: summary.elevenlabs,
-    },
-    { label: "OpenAI", key: "openai" as const, value: summary.openai },
-    { label: "Twilio Lookup", key: "lookup" as const, value: summary.lookup },
-  ].sort((a, b) => b.value - a.value);
-  const max = Math.max(0.01, ...items.map((i) => i.value));
-  // Opacity ramp — biggest share is solid, smallest is a quiet
-  // wash. Four steps because we have four vendors.
-  const opacities = [1, 0.7, 0.45, 0.25];
-  return (
-    <div
-      className="border-border bg-card flex flex-col gap-3 rounded-xl border p-5"
-      data-testid="per-vendor-chart"
-    >
-      <p className="text-foreground text-sm font-semibold">
-        Total across vendors: {usd(summary.total)}
-      </p>
-      <ul className="flex flex-col gap-3 text-sm">
-        {items.map((i, idx) => {
-          const pct = (i.value / max) * 100;
-          const share =
-            summary.total > 0
-              ? `${((i.value / summary.total) * 100).toFixed(0)}%`
-              : "—";
-          const opacity = opacities[idx] ?? 0.25;
-          return (
-            <li key={i.key} className="flex flex-col gap-1">
-              <div className="flex items-baseline justify-between">
-                <span className="text-foreground inline-flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className="inline-block size-2.5 rounded-full"
-                    style={{ background: "var(--primary)", opacity }}
-                  />
-                  {i.label}
-                </span>
-                <span className="text-muted-foreground tabular-nums">
-                  {usd(i.value)} ({share})
-                </span>
-              </div>
-              <div className="bg-muted h-3 w-full overflow-hidden rounded">
-                <div
-                  className="h-full"
-                  style={{
-                    width: `${Math.max(i.value > 0 ? 2 : 0, pct)}%`,
-                    background: "var(--primary)",
-                    opacity,
-                  }}
-                />
-              </div>
-            </li>
-          );
-        })}
-      </ul>
     </div>
   );
 }
