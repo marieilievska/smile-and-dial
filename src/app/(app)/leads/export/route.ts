@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
     call_attempts: l.call_attempts,
     last_call_at: l.last_call_at,
     next_call_at: l.next_call_at,
+    listId: l.list_id ?? null,
     listName: l.list?.name ?? "",
     ownerName: ownerName.get(l.owner_id) ?? "",
   }));

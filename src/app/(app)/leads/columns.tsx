@@ -15,6 +15,10 @@ export type DisplayLead = {
   call_attempts: number;
   last_call_at: string | null;
   next_call_at: string | null;
+  /** Round 36+ (I3) — added alongside `listName` so the inline list
+   *  cell can identify which option is currently selected without
+   *  matching by name (names can repeat across legacy data). */
+  listId: string | null;
   listName: string;
   ownerName: string;
 };
