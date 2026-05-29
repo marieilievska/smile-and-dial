@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import {
   bookingsByDay,
   buildFunnel,
+  buildInsights,
   computeKpis,
   fetchCallsForRange,
   outcomeDistribution,
@@ -17,7 +18,9 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 import { AnalyticsDatePills } from "./analytics-date-pills";
+import { AnalyticsEmpty } from "./analytics-empty";
 import { AnalyticsFilters } from "./analytics-filters";
+import { AnalyticsInsight } from "./analytics-insight";
 import { BookingsOverTime } from "./bookings-over-time";
 import { CampaignLeaderboard, FunnelChart, OutcomeBreakdown } from "./charts";
 import { HeroKpi } from "./hero-kpi";
@@ -145,6 +148,10 @@ export default async function AnalyticsPage({
     (campaigns ?? []).map((c) => [c.id, c.name] as const),
   );
   const ranking = rankCampaigns(rows, campaignNames);
+  // Deterministic "AI read" of the period — one plain-English sentence
+  // on the appointments trend + biggest funnel leak. No LLM call.
+  const insight = buildInsights({ kpis, prior, funnel, ranking });
+  const hasData = kpis.totalCalls > 0;
 
   // Build cross-page drill-down URLs that preserve the slicer state.
   const drillQs = new URLSearchParams();
@@ -228,125 +235,151 @@ export default async function AnalyticsPage({
         </div>
       ) : null}
 
-      {/* Layer 1 — Executive summary: NSM hero + 3 supporting KPIs in a
-       *  unified strip so the eye reads them as one band. */}
-      <section className="flex flex-col gap-3">
-        <Link href={goalMetCallsHref} className="block">
-          <HeroKpi
-            label="Appointments Booked"
-            value={kpis.goalMet.toLocaleString()}
-            priorValue={prior?.goalMet ?? null}
-            deltaPct={prior ? pctDelta(kpis.goalMet, prior.goalMet) : undefined}
-            sparkline={dailyBookings}
-            helper="Calls where the AI agent successfully booked a meeting"
-            cta="View calls"
-          />
-        </Link>
+      {hasData ? (
+        <>
+          {/* AI read of the period — the page's single interpretive moment.
+           *  Leads the body so the owner gets the "so what" before the
+           *  raw tiles. */}
+          <AnalyticsInsight insight={insight} />
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Link href={conversationsHref} className="block">
-            <KpiTile
-              label="Conversations"
-              value={kpis.conversations.toLocaleString()}
-              hint="Calls where we reached someone"
-              pctDelta={
-                prior
-                  ? pctDelta(kpis.conversations, prior.conversations)
-                  : undefined
-              }
-              cta="View"
-            />
-          </Link>
-          <KpiTile
-            label="Goal Met Rate"
-            value={fmtPct(kpis.goalMetRate)}
-            hint="Of conversations that booked"
-            pctDelta={
-              prior ? pctDelta(kpis.goalMetRate, prior.goalMetRate) : undefined
-            }
-          />
-          <Link href={costsHref} className="block">
-            <KpiTile
-              label="Cost per Appointment"
-              value={kpis.goalMet === 0 ? "—" : fmtUsd(kpis.costPerGoalMet)}
-              hint="All-in: Twilio + 11Labs + OpenAI"
-              pctDelta={
-                prior && kpis.goalMet > 0 && prior.goalMet > 0
-                  ? pctDelta(kpis.costPerGoalMet, prior.costPerGoalMet)
-                  : undefined
-              }
-              badge={mockMode ? { label: "Mock data", tone: "warn" } : null}
-              cta="View costs"
-            />
-          </Link>
-        </div>
-      </section>
+          {/* Layer 1 — Executive summary: NSM hero + 3 supporting KPIs in a
+           *  unified strip so the eye reads them as one band. */}
+          <section className="flex flex-col gap-3">
+            <Link href={goalMetCallsHref} className="block">
+              <HeroKpi
+                label="Appointments Booked"
+                value={kpis.goalMet.toLocaleString()}
+                priorValue={prior?.goalMet ?? null}
+                deltaPct={
+                  prior ? pctDelta(kpis.goalMet, prior.goalMet) : undefined
+                }
+                sparkline={dailyBookings}
+                helper="Calls where the AI agent successfully booked a meeting"
+                cta="View calls"
+              />
+            </Link>
 
-      <BookingsOverTime daily={dailyBookings} startDate={from} />
+            <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-1 gap-3 delay-100 duration-500 md:grid-cols-3">
+              <Link href={conversationsHref} className="block">
+                <KpiTile
+                  label="Conversations"
+                  value={kpis.conversations.toLocaleString()}
+                  hint="Calls where we reached someone"
+                  pctDelta={
+                    prior
+                      ? pctDelta(kpis.conversations, prior.conversations)
+                      : undefined
+                  }
+                  cta="View"
+                />
+              </Link>
+              <KpiTile
+                label="Goal Met Rate"
+                value={fmtPct(kpis.goalMetRate)}
+                hint="Of conversations that booked"
+                pctDelta={
+                  prior
+                    ? pctDelta(kpis.goalMetRate, prior.goalMetRate)
+                    : undefined
+                }
+              />
+              <Link href={costsHref} className="block">
+                <KpiTile
+                  label="Cost per Appointment"
+                  value={kpis.goalMet === 0 ? "—" : fmtUsd(kpis.costPerGoalMet)}
+                  hint="All-in: Twilio + 11Labs + OpenAI"
+                  pctDelta={
+                    prior && kpis.goalMet > 0 && prior.goalMet > 0
+                      ? pctDelta(kpis.costPerGoalMet, prior.costPerGoalMet)
+                      : undefined
+                  }
+                  badge={mockMode ? { label: "Mock data", tone: "warn" } : null}
+                  cta="View costs"
+                />
+              </Link>
+            </div>
+          </section>
 
-      {/* Layer 2 — Clarification */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <section className="border-border bg-card rounded-xl border p-5">
-          <h2 className="text-foreground text-sm font-semibold">
-            Conversion funnel
-          </h2>
-          <p className="text-muted-foreground mt-1 mb-3 text-xs">
-            Dialed → Connected → Conversation → DMs reached → Goal Met
-          </p>
-          <FunnelChart steps={funnel} />
-        </section>
+          <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both delay-150 duration-500">
+            <BookingsOverTime daily={dailyBookings} startDate={from} />
+          </div>
 
-        <section className="border-border bg-card rounded-xl border p-5">
-          <h2 className="text-foreground text-sm font-semibold">
-            Top campaigns
-          </h2>
-          <p className="text-muted-foreground mt-1 mb-3 text-xs">
-            Sorted by Goal Met. Top 3 wear the medal.
-          </p>
-          <CampaignLeaderboard rows={ranking} />
-        </section>
+          {/* Layer 2 — Clarification */}
+          <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-1 gap-4 delay-200 duration-500 lg:grid-cols-2">
+            <section className="border-border bg-card rounded-xl border p-5">
+              <h2 className="text-foreground text-sm font-semibold">
+                Conversion funnel
+              </h2>
+              <p className="text-muted-foreground mt-1 mb-3 text-xs">
+                Dialed → Connected → Conversation → DMs reached → Goal Met
+              </p>
+              <FunnelChart steps={funnel} />
+            </section>
 
-        <section className="border-border bg-card col-span-1 rounded-xl border p-5 lg:col-span-2">
-          <h2 className="text-foreground text-sm font-semibold">
-            Outcome distribution
-          </h2>
-          <p className="text-muted-foreground mt-1 mb-3 text-xs">
-            All call outcomes in this range.
-          </p>
-          <OutcomeBreakdown buckets={outcomeBuckets} total={kpis.totalCalls} />
-        </section>
-      </div>
+            <section className="border-border bg-card rounded-xl border p-5">
+              <h2 className="text-foreground text-sm font-semibold">
+                Top campaigns
+              </h2>
+              <p className="text-muted-foreground mt-1 mb-3 text-xs">
+                Sorted by Goal Met. Top 3 wear the medal.
+              </p>
+              <CampaignLeaderboard rows={ranking} />
+            </section>
 
-      {/* Inventory strip — six low-priority counts displayed as a grid of
-       *  mini-tiles instead of a single run-on line. */}
-      <section data-testid="inventory-strip" className="flex flex-col gap-2">
-        <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
-          Also in this period:
-        </p>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
-          <InventoryTile
-            label="DMs reached"
-            value={kpis.dmsReached.toLocaleString()}
-          />
-          <InventoryTile
-            label="Callbacks scheduled"
-            value={kpis.callbacksScheduled.toLocaleString()}
-          />
-          <InventoryTile
-            label="DNC additions"
-            value={kpis.dncAdditions.toLocaleString()}
-          />
-          <InventoryTile
-            label="Avg call"
-            value={fmtSeconds(kpis.avgDurationSeconds)}
-          />
-          <InventoryTile
-            label="Avg cost / call"
-            value={fmtUsd(kpis.avgCostPerCall)}
-          />
-          <InventoryTile label="Total spend" value={fmtUsd(kpis.totalSpend)} />
-        </div>
-      </section>
+            <section className="border-border bg-card col-span-1 rounded-xl border p-5 lg:col-span-2">
+              <h2 className="text-foreground text-sm font-semibold">
+                Outcome distribution
+              </h2>
+              <p className="text-muted-foreground mt-1 mb-3 text-xs">
+                All call outcomes in this range.
+              </p>
+              <OutcomeBreakdown
+                buckets={outcomeBuckets}
+                total={kpis.totalCalls}
+              />
+            </section>
+          </div>
+
+          {/* Inventory strip — six low-priority counts displayed as a grid
+           *  of mini-tiles instead of a single run-on line. */}
+          <section
+            data-testid="inventory-strip"
+            className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-2 delay-300 duration-500"
+          >
+            <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
+              Also in this period:
+            </p>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
+              <InventoryTile
+                label="DMs reached"
+                value={kpis.dmsReached.toLocaleString()}
+              />
+              <InventoryTile
+                label="Callbacks scheduled"
+                value={kpis.callbacksScheduled.toLocaleString()}
+              />
+              <InventoryTile
+                label="DNC additions"
+                value={kpis.dncAdditions.toLocaleString()}
+              />
+              <InventoryTile
+                label="Avg call"
+                value={fmtSeconds(kpis.avgDurationSeconds)}
+              />
+              <InventoryTile
+                label="Avg cost / call"
+                value={fmtUsd(kpis.avgCostPerCall)}
+              />
+              <InventoryTile
+                label="Total spend"
+                value={fmtUsd(kpis.totalSpend)}
+              />
+            </div>
+          </section>
+        </>
+      ) : (
+        <AnalyticsEmpty />
+      )}
     </div>
   );
 }

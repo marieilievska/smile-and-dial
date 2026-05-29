@@ -83,8 +83,8 @@ function DeltaBadge({ value }: { value: number | null }) {
   const color = isFlat
     ? "text-muted-foreground"
     : up
-      ? "text-emerald-600 dark:text-emerald-400"
-      : "text-rose-600 dark:text-rose-400";
+      ? "text-success"
+      : "text-destructive";
   return (
     <p
       data-testid="kpi-delta"

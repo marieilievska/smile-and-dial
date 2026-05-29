@@ -21,6 +21,25 @@ export function FunnelChart({ steps }: { steps: FunnelStep[] }) {
         const stepDrop =
           prev != null && prev > 0 ? ((prev - s.count) / prev) * 100 : null;
         const ofDialed = top > 0 ? (s.count / top) * 100 : 0;
+        // Tint the bar by how much we lost coming into this step: a steep
+        // drop-off is a leak, so it goes amber (>=35%) or red (>=60%). The
+        // top step (Dialed) has no prior, so it stays coral.
+        const barTone =
+          stepDrop == null
+            ? "bg-primary"
+            : stepDrop >= 60
+              ? "bg-destructive"
+              : stepDrop >= 35
+                ? "bg-warning"
+                : "bg-primary";
+        const dropTone =
+          stepDrop == null
+            ? "text-muted-foreground"
+            : stepDrop >= 60
+              ? "text-destructive"
+              : stepDrop >= 35
+                ? "text-warning"
+                : "text-muted-foreground";
         return (
           <div key={s.label} className="flex flex-col gap-1">
             <div className="flex items-baseline justify-between text-sm">
@@ -39,23 +58,16 @@ export function FunnelChart({ steps }: { steps: FunnelStep[] }) {
               title={`${s.label}: ${s.count.toLocaleString()}${stepDrop != null ? ` · ${stepDrop.toFixed(0)}% drop-off from prior step` : ""}`}
             >
               <div
-                className="bg-primary h-full"
+                className={`${barTone} h-full transition-[width] duration-300`}
                 style={{ width: `${Math.max(2, pct)}%` }}
               />
             </div>
             {stepDrop != null && stepDrop > 0 ? (
               <p
-                className="text-muted-foreground inline-flex items-center gap-1 self-end text-[11px]"
-                style={{
-                  color:
-                    "color-mix(in oklab, var(--primary) 80%, var(--muted-foreground))",
-                }}
+                className={`inline-flex items-center gap-1 self-end text-[11px] ${dropTone}`}
               >
-                <span
-                  className="size-1.5 rounded-full"
-                  style={{ background: "var(--primary)" }}
-                />
-                −{stepDrop.toFixed(0)}% drop-off from prior step
+                <span className="size-1.5 rounded-full bg-current" />−
+                {stepDrop.toFixed(0)}% drop-off from prior step
               </p>
             ) : null}
           </div>

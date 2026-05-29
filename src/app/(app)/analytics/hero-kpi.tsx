@@ -1,10 +1,4 @@
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpRight,
-  Minus,
-  Sparkles,
-} from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Minus } from "lucide-react";
 
 /** Hero KPI for the dashboard's North Star Metric.
  *
@@ -48,11 +42,10 @@ export function HeroKpi({
     >
       <div className="flex flex-1 flex-col gap-1">
         <div className="flex items-center gap-2">
-          {/* Round 25 — dropped the coral Sparkles. The Referrizer
-           *  spec calls out oversized marketing cues on operational
-           *  pages; a quieter label reads as one of many KPIs. */}
+          {/* Round 33 — the coral Sparkles cue moved up to the AI insight
+           *  card (the page's single "AI read" moment), so the hero label
+           *  is now a quiet KPI label like the comment always intended. */}
           <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase">
-            <Sparkles className="text-primary size-3.5" />
             {label}
           </p>
           {badge ? (
@@ -125,8 +118,8 @@ function DeltaLine({
   const color = isFlat
     ? "text-muted-foreground"
     : up
-      ? "text-emerald-600 dark:text-emerald-400"
-      : "text-rose-600 dark:text-rose-400";
+      ? "text-success"
+      : "text-destructive";
   return (
     <p className={`inline-flex items-center gap-1.5 text-sm ${color}`}>
       <Icon className="size-3.5" />

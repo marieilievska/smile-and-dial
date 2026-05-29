@@ -334,3 +334,92 @@ export function pctDelta(current: number, previous: number): number | null {
   if (previous === 0) return current === 0 ? 0 : null;
   return (current - previous) / previous;
 }
+
+export type AnalyticsInsight = {
+  /** One-sentence read on the headline metric (appointments + trend). */
+  headline: string;
+  /** Optional supporting sentence (biggest funnel leak + cost). */
+  detail: string | null;
+  /** Trend direction for the headline, used to tint the insight card.
+   *  "up" = improving, "down" = worsening, "flat" = no meaningful change,
+   *  "none" = no prior to compare against. */
+  tone: "up" | "down" | "flat" | "none";
+};
+
+/** Deterministic "AI read" of the period — no LLM call, no cost, no
+ *  flakiness. Turns the numbers we already compute into a plain-English
+ *  sentence or two, the way a 2026 product interprets a dashboard for
+ *  you instead of leaving you to eyeball it. */
+export function buildInsights(opts: {
+  kpis: Kpis;
+  prior: Kpis | null;
+  funnel: FunnelStep[];
+  ranking: CampaignRank[];
+}): AnalyticsInsight {
+  const { kpis, prior, funnel, ranking } = opts;
+
+  if (kpis.totalCalls === 0) {
+    return {
+      headline: "No calls landed in this window yet.",
+      detail: "Pick a wider date range, or let your campaigns keep dialing.",
+      tone: "none",
+    };
+  }
+
+  const appts = `${kpis.goalMet.toLocaleString()} appointment${
+    kpis.goalMet === 1 ? "" : "s"
+  }`;
+  const leader = ranking.find((r) => r.goalMet > 0);
+  const lead = leader ? `, led by ${leader.campaignName}` : "";
+
+  // Headline — appointments + trend vs the prior period when we have one.
+  let headline: string;
+  let tone: AnalyticsInsight["tone"];
+  const delta = prior ? pctDelta(kpis.goalMet, prior.goalMet) : null;
+  if (prior && prior.goalMet > 0 && delta != null) {
+    if (Math.abs(delta) < 0.005) {
+      headline = `You booked ${appts} — flat vs the prior period${lead}.`;
+      tone = "flat";
+    } else {
+      const dir = delta > 0 ? "up" : "down";
+      headline = `Appointments are ${dir} ${Math.abs(delta * 100).toFixed(
+        0,
+      )}% vs the prior period — ${appts} against ${prior.goalMet}${lead}.`;
+      tone = delta > 0 ? "up" : "down";
+    }
+  } else {
+    headline = `You booked ${appts} in this window${lead}.`;
+    tone = "none";
+  }
+
+  // Detail — biggest funnel leak (largest step-over-step drop), then the
+  // all-in cost per appointment when we have bookings.
+  const parts: string[] = [];
+  let worst: { from: string; to: string; drop: number } | null = null;
+  for (let i = 1; i < funnel.length; i++) {
+    const prev = funnel[i - 1].count;
+    const cur = funnel[i].count;
+    if (prev > 0) {
+      const drop = (prev - cur) / prev;
+      if (worst == null || drop > worst.drop) {
+        worst = { from: funnel[i - 1].label, to: funnel[i].label, drop };
+      }
+    }
+  }
+  if (worst && worst.drop > 0.005) {
+    parts.push(
+      `Biggest drop-off is ${worst.from} → ${worst.to}, losing ${(
+        worst.drop * 100
+      ).toFixed(0)}% of calls.`,
+    );
+  }
+  if (kpis.goalMet > 0 && kpis.costPerGoalMet > 0) {
+    parts.push(
+      `Each booked appointment costs $${kpis.costPerGoalMet.toFixed(
+        2,
+      )} all-in.`,
+    );
+  }
+
+  return { headline, detail: parts.length > 0 ? parts.join(" ") : null, tone };
+}
