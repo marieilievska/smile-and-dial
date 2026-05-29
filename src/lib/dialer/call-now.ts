@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
+import { placeLiveCall } from "@/lib/twilio/place-call";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient<Database>>;
 
@@ -58,12 +59,12 @@ export async function callNow(input: {
 }): Promise<CallNowResult> {
   const twilioLive = process.env.TWILIO_LIVE === "live";
   const elevenLive = process.env.ELEVENLABS_LIVE === "live";
-  if (twilioLive || elevenLive) {
-    return {
-      error:
-        "Live dialing isn't implemented yet — leave TWILIO_LIVE + ELEVENLABS_LIVE unset.",
-    };
-  }
+  // Round L3 — Twilio live dialing is now wired. ElevenLabs live still
+  // needs L4 work (Connect → Stream against ElevenLabs Convai); if
+  // someone flips both at once we fall through to the live Twilio
+  // path with the L3 placeholder TwiML, which says "the agent will be
+  // wired up next" and hangs up.
+  void elevenLive;
 
   // Authenticate via the user-scoped client so RLS guards the request.
   const userClient = await createClient();
@@ -73,10 +74,12 @@ export async function callNow(input: {
   if (!user) return { error: "You are not signed in." };
 
   // The user has to actually own the lead (or be admin) — RLS will block
-  // a stranger from reading it. Same for the campaign.
+  // a stranger from reading it. Same for the campaign. Round L3 — we
+  // also pull business_phone so the live Twilio path knows where to
+  // dial; mock mode never used it, but the live placeCall helper does.
   const { data: lead } = await userClient
     .from("leads")
-    .select("id, list_id, owner_id")
+    .select("id, list_id, owner_id, business_phone")
     .eq("id", input.leadId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -117,10 +120,106 @@ export async function callNow(input: {
     };
   }
 
-  // Fire the mock call via the service-role client so we don't trip RLS
-  // when stamping fields the user doesn't directly own.
+  // Use the service-role client so we don't trip RLS when stamping
+  // fields the user doesn't directly own (status updates, costs).
   const admin = makeServiceClient();
   const startedAt = new Date();
+
+  // Round L3 — fork: live Twilio dialing vs. mock-mode synthetic call.
+  if (twilioLive) {
+    if (!lead.business_phone) {
+      return { error: "Lead has no phone number on file." };
+    }
+    if (!campaign.twilio_number_id) {
+      return { error: "Campaign has no Twilio number assigned." };
+    }
+    const { data: twilioNumber } = await admin
+      .from("twilio_numbers")
+      .select("phone_number, released_at")
+      .eq("id", campaign.twilio_number_id)
+      .maybeSingle();
+    if (!twilioNumber || twilioNumber.released_at) {
+      return { error: "The campaign's Twilio number isn't available." };
+    }
+
+    // Insert the calls row first with status='queued' so the status
+    // webhook has a row to find even if its first callback beats our
+    // own update of `twilio_call_sid` here. We pass the row id back
+    // to Twilio via the callback URL's `call_id` query param so the
+    // status handler can resolve the row regardless of timing.
+    const { data: pending, error: pendingError } = await admin
+      .from("calls")
+      .insert({
+        lead_id: input.leadId,
+        campaign_id: input.campaignId,
+        agent_id: campaign.agent_id,
+        twilio_number_id: campaign.twilio_number_id,
+        direction: "outbound",
+        status: "queued",
+        outcome: null,
+        outcome_source: "twilio",
+      })
+      .select("id")
+      .single();
+    if (pendingError || !pending) {
+      return { error: "Could not record the call before dialing." };
+    }
+
+    const result = await placeLiveCall({
+      callId: pending.id,
+      from: twilioNumber.phone_number,
+      to: lead.business_phone,
+    });
+    if (!result.ok) {
+      // The row is left with status='queued' so it's visible in
+      // /calls with a clear "never dialed" state. The status webhook
+      // would never fire on it.
+      await admin
+        .from("calls")
+        .update({ status: "failed", outcome: "failed" })
+        .eq("id", pending.id);
+      return { error: result.error };
+    }
+
+    await admin
+      .from("calls")
+      .update({
+        twilio_call_sid: result.twilioCallSid,
+        started_at: startedAt.toISOString(),
+        status: "dialing",
+      })
+      .eq("id", pending.id);
+
+    // Bump the lead so the queue doesn't re-pick it immediately.
+    await admin
+      .from("leads")
+      .update({
+        last_call_at: startedAt.toISOString(),
+        next_call_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      })
+      .eq("id", input.leadId);
+
+    await admin.from("system_events").insert({
+      kind: "call_now",
+      actor_user_id: user.id,
+      ref_table: "calls",
+      ref_id: pending.id,
+      payload: {
+        lead_id: input.leadId,
+        campaign_id: input.campaignId,
+        twilio_call_sid: result.twilioCallSid,
+        mode: "live",
+      },
+    });
+
+    revalidatePath("/leads");
+    revalidatePath("/calls");
+    return { error: null, callId: pending.id };
+  }
+
+  // Mock-mode (default) — insert a believable `completed` call row
+  // with a fixed outcome so the rest of the system sees a real call
+  // landing without touching Twilio or ElevenLabs.
   const durationSeconds = 30;
   const { data: call, error: callError } = await admin
     .from("calls")

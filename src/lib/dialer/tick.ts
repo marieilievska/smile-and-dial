@@ -3,6 +3,7 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
+import { placeLiveCall } from "@/lib/twilio/place-call";
 
 import { type PreCallReason } from "./queue";
 
@@ -182,22 +183,18 @@ async function currentAttempts(
 
 /**
  * One dial-loop tick. Read the queue, pre-check each candidate, and place a
- * (mocked) call for everything that passes. Until live Twilio + ElevenLabs
- * are wired up (deferred from this step), the live path throws on purpose so
- * a misconfigured env doesn't quietly spend money.
+ * call for everything that passes. Round L3 — `TWILIO_LIVE=live` now
+ * flips each candidate to the real Twilio Calls API; otherwise the
+ * synthetic mock-call insert runs so tests and dev environments stay
+ * free. `ELEVENLABS_LIVE` is read here only to surface in the summary;
+ * the agent-vs-placeholder TwiML choice happens inside the
+ * voice-outbound route handler (L4).
  */
 export async function runDialerTick(
   options: { limit?: number; leadIds?: string[] } = {},
 ): Promise<TickSummary> {
   const twilioLive = process.env.TWILIO_LIVE === "live";
   const elevenLive = process.env.ELEVENLABS_LIVE === "live";
-  if (twilioLive || elevenLive) {
-    throw new Error(
-      "Live Twilio/ElevenLabs dialing is not implemented yet. Unset " +
-        "TWILIO_LIVE and ELEVENLABS_LIVE (or set them to 'mock') to run " +
-        "the dialer tick.",
-    );
-  }
 
   const supabase = makeServiceClient();
 
@@ -258,15 +255,105 @@ export async function runDialerTick(
       continue;
     }
 
-    const callId = await placeMockCall(supabase, {
+    if (twilioLive) {
+      // TS doesn't carry the lead_id / campaign_id null narrow from
+      // the guard above into this scope, so re-bind into a typed
+      // object the helper can take directly.
+      const callId = await placeLiveDialerCall(supabase, {
+        lead_id: c.lead_id,
+        campaign_id: c.campaign_id,
+        agent_id: c.agent_id,
+        twilio_number_id: c.twilio_number_id,
+        business_phone: c.business_phone,
+      });
+      if (callId) summary.dialed++;
+      else summary.errors++;
+    } else {
+      const callId = await placeMockCall(supabase, {
+        lead_id: c.lead_id,
+        campaign_id: c.campaign_id,
+        agent_id: c.agent_id,
+        twilio_number_id: c.twilio_number_id,
+      });
+      if (callId) summary.dialed++;
+      else summary.errors++;
+    }
+  }
+
+  return summary;
+}
+
+/** Round L3 — live counterpart to `placeMockCall`. Resolves the
+ *  campaign's Twilio number (the queue row only has its id), inserts
+ *  a `calls` row with status='queued', calls Twilio, and stamps the
+ *  returned CallSid. Status callbacks drive everything from here. */
+async function placeLiveDialerCall(
+  supabase: SupabaseAdmin,
+  c: {
+    lead_id: string;
+    campaign_id: string;
+    agent_id: string | null;
+    twilio_number_id: string | null;
+    business_phone: string | null;
+  },
+): Promise<string | null> {
+  if (!c.business_phone) return null;
+  if (!c.twilio_number_id) return null;
+
+  const { data: twilioNumber } = await supabase
+    .from("twilio_numbers")
+    .select("phone_number, released_at")
+    .eq("id", c.twilio_number_id)
+    .maybeSingle();
+  if (!twilioNumber || twilioNumber.released_at) return null;
+
+  const { data: pending, error: pendingError } = await supabase
+    .from("calls")
+    .insert({
       lead_id: c.lead_id,
       campaign_id: c.campaign_id,
       agent_id: c.agent_id,
       twilio_number_id: c.twilio_number_id,
-    });
-    if (callId) summary.dialed++;
-    else summary.errors++;
+      direction: "outbound",
+      status: "queued",
+      outcome: null,
+      outcome_source: "twilio",
+    })
+    .select("id")
+    .single();
+  if (pendingError || !pending) return null;
+
+  const startedAt = new Date();
+  const result = await placeLiveCall({
+    callId: pending.id,
+    from: twilioNumber.phone_number,
+    to: c.business_phone,
+  });
+  if (!result.ok) {
+    await supabase
+      .from("calls")
+      .update({ status: "failed", outcome: "failed" })
+      .eq("id", pending.id);
+    return null;
   }
 
-  return summary;
+  await supabase
+    .from("calls")
+    .update({
+      twilio_call_sid: result.twilioCallSid,
+      started_at: startedAt.toISOString(),
+      status: "dialing",
+    })
+    .eq("id", pending.id);
+
+  await supabase
+    .from("leads")
+    .update({
+      last_call_at: startedAt.toISOString(),
+      call_attempts: (await currentAttempts(supabase, c.lead_id)) + 1,
+      next_call_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    })
+    .eq("id", c.lead_id);
+
+  return pending.id;
 }
