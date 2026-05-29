@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { buildBridgeTwiml } from "@/lib/elevenlabs/twilio-stream";
 import type { Database } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -41,32 +42,39 @@ export function notInServiceTwiml(): string {
 }
 
 /**
- * TwiML that hands the call to ElevenLabs Conversational AI. In live mode
- * we'd return a `<Connect><Stream>` pointing at ElevenLabs's media stream
- * endpoint. In mock mode (default) we return a `<Say>` placeholder so the
- * call doesn't drop and tests can assert on the response body.
+ * TwiML that hands the call to ElevenLabs Conversational AI.
+ *
+ * Round L4 — live mode now actually bridges: it mints a single-use
+ * ElevenLabs Convai signed URL for the agent and returns
+ * `<Connect><Stream>` TwiML so Twilio relays the call's audio
+ * straight to ElevenLabs. If the signed-URL fetch fails (network
+ * blip, expired/revoked agent, key missing) we fall back to the
+ * mock placeholder so the call doesn't drop with a parse error.
+ *
+ * In mock mode (default) we return a `<Say>` placeholder so tests
+ * can assert on call_id / lead_id being passed through. Both the
+ * Playwright suite and inbound webhook tests rely on this body
+ * containing those ids.
  */
-export function connectToAgentTwiml(input: {
+export async function connectToAgentTwiml(input: {
   elevenLabsAgentId: string;
   callId: string;
   leadId: string;
   aiSummary: string | null;
-}): string {
+}): Promise<string> {
   if (process.env.ELEVENLABS_LIVE === "live") {
-    // Real Connect → Stream wiring against ElevenLabs Conversational AI
-    // belongs here. Deferred until live ElevenLabs is approved.
-    return (
-      `<?xml version="1.0" encoding="UTF-8"?>` +
-      `<Response>` +
-      `<Say voice="Polly.Joanna">` +
-      `Live ElevenLabs integration is not implemented yet.` +
-      `</Say>` +
-      `<Hangup/>` +
-      `</Response>`
-    );
+    const bridge = await buildBridgeTwiml({
+      elevenlabsAgentId: input.elevenLabsAgentId,
+    });
+    if (bridge) return bridge;
+    // Fall through to the placeholder so the inbound call still
+    // hears something rather than a Twilio "couldn't parse TwiML"
+    // error. The system_events row written by the route handler
+    // surfaces the silent fall-back to ops.
   }
-  // Mock mode: echo back a friendly placeholder. Tests assert on the
-  // call_id and lead_id being passed through so a real bridge can drop in.
+  // Mock mode (or live-mode fall-back): echo back a friendly
+  // placeholder. Tests assert on the call_id and lead_id being
+  // passed through so a real bridge can drop in.
   const note = input.aiSummary
     ? `Previous summary: ${input.aiSummary}`
     : "No prior summary on file.";
@@ -195,7 +203,7 @@ export async function routeInboundCall(input: {
     .maybeSingle();
   const elevenLabsAgentId = agent?.elevenlabs_agent_id ?? "unknown";
 
-  const twiml = connectToAgentTwiml({
+  const twiml = await connectToAgentTwiml({
     elevenLabsAgentId,
     callId: call.id,
     leadId,

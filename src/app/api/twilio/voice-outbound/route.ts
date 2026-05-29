@@ -2,22 +2,28 @@ import { NextResponse } from "next/server";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { buildBridgeTwiml } from "@/lib/elevenlabs/twilio-stream";
 import type { Database } from "@/lib/supabase/database.types";
 
-/** Round L3 — outbound TwiML responder.
+/** Outbound TwiML responder. Twilio fetches this URL after the callee
+ *  answers an outbound call and follows whatever instructions we
+ *  return as TwiML.
  *
- *  Twilio fetches this URL after the callee answers an outbound call
- *  and follows whatever instructions we return as TwiML. For L3 we
- *  return a simple `<Say>` so we can prove the dial → connect →
- *  status pipeline works end-to-end without ElevenLabs in the loop.
- *  L4 swaps the `<Say>` for `<Connect><Stream>` against an ElevenLabs
- *  agent.
+ *  Round L3 — returned a static `<Say>` test message so the dial →
+ *  connect → status pipeline could be proved end-to-end without
+ *  ElevenLabs.
+ *  Round L4 — looks up the call's agent, mints a single-use
+ *  ElevenLabs Convai signed URL, and returns `<Connect><Stream/>`
+ *  TwiML that bridges the Twilio audio to that URL. If anything
+ *  in that path fails (no agent on the call, no ElevenLabs id on
+ *  the agent, signed-URL request fails, or ELEVENLABS_LIVE isn't
+ *  set), we fall back to the L3 placeholder TwiML so the call
+ *  doesn't drop with a parse error.
  *
- *  We accept both GET and POST because Twilio's HTTP method preference
- *  drifts between accounts and we already told it `POST` when placing
- *  the call. The query string carries `call_id` so we can look up the
- *  matching `calls` row (mostly for future use — currently we don't
- *  need it for the placeholder TwiML). */
+ *  We accept GET and POST because Twilio's HTTP method preference
+ *  drifts between accounts. The query string carries `call_id` so
+ *  the handler can resolve the matching `calls` row to find the
+ *  agent. */
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
 
@@ -42,26 +48,59 @@ const TWIML_PLACEHOLDER = `<?xml version="1.0" encoding="UTF-8"?>
   <Hangup/>
 </Response>`;
 
+/** Resolve the ElevenLabs agent id from the call row. Returns null
+ *  on any error or missing piece so the caller falls back cleanly to
+ *  the placeholder TwiML. */
+async function resolveAgentId(
+  supabase: SupabaseAdmin,
+  callId: string | null,
+): Promise<string | null> {
+  if (!callId) return null;
+  const { data: call } = await supabase
+    .from("calls")
+    .select("agent_id")
+    .eq("id", callId)
+    .maybeSingle();
+  if (!call?.agent_id) return null;
+  const { data: agent } = await supabase
+    .from("agents")
+    .select("elevenlabs_agent_id")
+    .eq("id", call.agent_id)
+    .maybeSingle();
+  return agent?.elevenlabs_agent_id ?? null;
+}
+
 async function buildResponse(callId: string | null): Promise<string> {
-  // For L3 we don't actually need to read the call row, but we still
-  // want a recorded "Twilio asked us for TwiML" event in system_events
-  // so the operator can see the lifecycle on /system-health. Best-
-  // effort — if the insert fails we still hand Twilio a valid TwiML
-  // string so the call doesn't drop.
+  const supabase = makeServiceClient();
+
+  // Round L4 — attempt the live ElevenLabs bridge first. Falls back
+  // to the placeholder TwiML on any failure so callers never hear a
+  // parser error from Twilio.
+  let twiml: string | null = null;
+  const elevenlabsAgentId = await resolveAgentId(supabase, callId);
+  if (elevenlabsAgentId) {
+    twiml = await buildBridgeTwiml({ elevenlabsAgentId });
+  }
+
+  // Record what we served so the operator can see the bridge picking
+  // (live vs. placeholder) on /system-health. Best-effort.
   try {
-    const supabase = makeServiceClient();
     await supabase.from("system_events").insert({
       kind: "twilio_voice_outbound_twiml_served",
       actor_user_id: null,
       ref_table: "calls",
       ref_id: callId ?? null,
-      payload: { call_id: callId },
+      payload: {
+        call_id: callId,
+        mode: twiml ? "elevenlabs_bridge" : "placeholder",
+        elevenlabs_agent_id: elevenlabsAgentId,
+      },
     });
   } catch {
     // logging failure is not a reason to break the call
   }
 
-  return TWIML_PLACEHOLDER;
+  return twiml ?? TWIML_PLACEHOLDER;
 }
 
 export async function POST(request: Request): Promise<Response> {
