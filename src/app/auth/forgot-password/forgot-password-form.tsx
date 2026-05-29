@@ -21,7 +21,7 @@ export function ForgotPasswordForm() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-2">
+      <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-2 duration-500">
         <h2 className="text-foreground text-2xl font-semibold tracking-tight">
           Reset your password
         </h2>
@@ -30,7 +30,11 @@ export function ForgotPasswordForm() {
         </p>
       </div>
 
-      <form action={formAction} className="flex flex-col gap-5">
+      <form
+        action={formAction}
+        className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-5 duration-500"
+        style={{ animationDelay: "120ms", animationFillMode: "both" }}
+      >
         <div className="flex flex-col gap-2">
           <Label htmlFor="email">Email</Label>
           <Input

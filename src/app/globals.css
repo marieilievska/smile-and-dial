@@ -222,6 +222,20 @@
   }
 }
 
+/* Auth brand panel — the decorative "breathing" waveline. Each bar
+   scales on the Y axis on a slow loop; the panel staggers the delay
+   per bar so the wave undulates rather than pulsing in unison. Purely
+   ambient chrome, so the reduced-motion block below settles it flat. */
+@keyframes auth-wave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
 /* Round 27 — respect the OS-level reduced motion preference. Kills
    the animate-in cascade and any custom transitions for users who've
    asked the system not to animate. Doesn't disable functionality —
