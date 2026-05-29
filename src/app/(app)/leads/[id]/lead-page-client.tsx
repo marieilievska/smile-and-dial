@@ -16,7 +16,6 @@ import {
   CustomFieldEditor,
   GOOGLE_FIELDS,
   LOCATION_FIELDS,
-  formatDateTime,
   statusVariant,
   useLeadSaver,
   type CustomFieldDef,
@@ -24,6 +23,11 @@ import {
   type StandardField,
 } from "../lead-detail-parts";
 import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
+import {
+  exactDateTime,
+  relativeTime,
+  relativeTimeSigned,
+} from "@/lib/relative-time";
 import { MergeInboundDialog } from "../merge-inbound-dialog";
 import { EditableCompanyName } from "./editable-company-name";
 import { LeadHeroActions } from "./lead-hero-actions";
@@ -103,7 +107,7 @@ export function LeadPageClient({
           action cluster (Mark DNC, Delete, Call now) on the right.
           The destructive actions sit before Call now so the primary
           coral button retains the visual anchor at the trailing edge. */}
-      <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <header className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-3 delay-75 duration-500 md:flex-row md:items-start md:justify-between">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
           <EditableCompanyName
             initial={leadCompany}
@@ -112,6 +116,7 @@ export function LeadPageClient({
           <Badge variant={statusVariant(meta.status)} dot>
             {leadStatusLabel(meta.status)}
           </Badge>
+          {meta.onCall ? <OnCallChip startedAt={meta.onCallStartedAt} /> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <LeadHeroActions leadId={leadId} leadName={leadCompany} />
@@ -126,7 +131,7 @@ export function LeadPageClient({
       </header>
 
       {meta.isInbound ? (
-        <div className="border-border bg-muted/30 flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+        <div className="border-border bg-muted/30 animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex items-center justify-between gap-3 rounded-lg border px-3 py-2 delay-100 duration-500">
           <p className="text-muted-foreground text-sm">
             Auto-created from an inbound call. Merge into an existing lead if
             this caller already has a record.
@@ -140,7 +145,7 @@ export function LeadPageClient({
             summary and activity feed where every extra inch helps. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
         {/* LEFT */}
-        <div className="flex flex-col gap-3">
+        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-3 delay-150 duration-500">
           <CollapsibleSection title="Basics" defaultOpen>
             {renderFields(CONTACT_FIELDS)}
           </CollapsibleSection>
@@ -174,7 +179,8 @@ export function LeadPageClient({
               />
               <PipelineRow
                 label="Next call"
-                value={formatDateTime(meta.nextCallAt)}
+                value={relativeTimeSigned(meta.nextCallAt)}
+                title={exactDateTime(meta.nextCallAt)}
               />
               <PipelineRow
                 label="Retry"
@@ -182,36 +188,55 @@ export function LeadPageClient({
               />
               <PipelineRow
                 label="Resting until"
-                value={formatDateTime(meta.restingUntil)}
+                value={relativeTimeSigned(meta.restingUntil)}
+                title={exactDateTime(meta.restingUntil)}
               />
             </dl>
           </CollapsibleSection>
         </div>
 
         {/* RIGHT — AI summary then activity, stacked. */}
-        <div className="flex flex-col gap-4">
+        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-4 delay-200 duration-500">
+          {/* AI summary — a tinted, gradient-washed panel so it reads as
+              a generated artifact rather than a plain note field. A
+              freshness line (proxied off the last call, since summaries
+              are rolling and regenerate per call) reinforces that this is
+              kept current by the AI. */}
           <section
             data-testid="ai-summary-block"
-            className="bg-card flex flex-col gap-3 rounded-xl border p-5"
+            className="relative overflow-hidden rounded-xl border p-5"
             style={{
               borderColor:
                 "color-mix(in oklab, var(--primary) 25%, var(--border))",
+              backgroundImage:
+                "linear-gradient(135deg, color-mix(in oklab, var(--primary) 8%, var(--card)), var(--card) 60%)",
             }}
           >
-            <h2 className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
-              <Sparkles
-                className="size-4"
-                style={{ color: "var(--primary)" }}
-              />
-              AI summary
-            </h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
+                <Sparkles
+                  className="size-4"
+                  style={{ color: "var(--primary)" }}
+                />
+                AI summary
+              </h2>
+              {meta.aiSummary && meta.lastCallAt ? (
+                <span
+                  className="text-muted-foreground text-[11px]"
+                  title={exactDateTime(meta.lastCallAt)}
+                >
+                  Updated {relativeTime(meta.lastCallAt)}
+                </span>
+              ) : null}
+            </div>
             {meta.aiSummary ? (
-              <p className="text-foreground text-sm leading-relaxed whitespace-pre-line">
+              <p className="text-foreground mt-3 text-sm leading-relaxed whitespace-pre-line">
                 {meta.aiSummary}
               </p>
             ) : (
-              <p className="text-muted-foreground text-sm">
-                No summary yet — generated after the first call.
+              <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
+                The AI will write a running summary here after its first call —
+                what the contact said, where things stand, and what to do next.
               </p>
             )}
           </section>
@@ -238,15 +263,76 @@ export function LeadPageClient({
   );
 }
 
-/** Compact label/value pair for the Pipeline block. */
-function PipelineRow({ label, value }: { label: string; value: string }) {
+/** Compact label/value pair for the Pipeline block. An optional `title`
+ *  surfaces the exact timestamp on hover for the relative-time rows
+ *  (Next call / Resting until). */
+function PipelineRow({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+}) {
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-muted-foreground text-[10px] font-medium tracking-[0.1em] uppercase">
         {label}
       </dt>
-      <dd className="text-foreground text-sm">{value}</dd>
+      <dd className="text-foreground text-sm" title={title || undefined}>
+        {value}
+      </dd>
     </div>
+  );
+}
+
+/** Live "On call now" pulse + elapsed timer shown in the hero while the
+ *  dialer has a call in flight for this lead. The timer ticks client-side
+ *  from the call's start time; before the call connects (no startedAt yet)
+ *  we just show the pulse + label. Mirrors the leads-list on-call cue so
+ *  the page you opened to watch a lead reflects that it's being called. */
+function OnCallChip({ startedAt }: { startedAt: string | null }) {
+  const [elapsed, setElapsed] = useState<string | null>(null);
+  useEffect(() => {
+    if (!startedAt) return;
+    const start = new Date(startedAt).getTime();
+    if (!Number.isFinite(start)) return;
+    const tick = () => {
+      const secs = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      setElapsed(`${m}:${s.toString().padStart(2, "0")}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
+
+  return (
+    <span
+      data-testid="lead-on-call"
+      className="text-primary inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{
+        backgroundColor: "color-mix(in oklab, var(--primary) 12%, transparent)",
+      }}
+      title="On a call right now"
+    >
+      <span aria-hidden className="relative flex size-2">
+        <span
+          className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-70"
+          style={{ backgroundColor: "var(--primary)" }}
+        />
+        <span
+          className="relative inline-flex size-2 rounded-full"
+          style={{ backgroundColor: "var(--primary)" }}
+        />
+      </span>
+      On call now
+      {elapsed ? (
+        <span className="font-mono tabular-nums">{elapsed}</span>
+      ) : null}
+    </span>
   );
 }
 

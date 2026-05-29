@@ -118,8 +118,17 @@ export function LeadActivityFeed({
   return (
     <ol
       data-testid="lead-activity-feed"
-      className="flex flex-col gap-3 text-sm"
+      className="relative flex flex-col gap-3 text-sm"
     >
+      {/* Connecting rail behind the icon bubbles so the stream reads as a
+          chronological timeline rather than a flat list. The bubbles
+          (z-10) sit on top; the line aligns to their 14px center. */}
+      {items.length > 1 ? (
+        <span
+          aria-hidden
+          className="bg-border absolute top-3 bottom-3 left-[13.5px] w-px"
+        />
+      ) : null}
       {items.map((item) => {
         const body = (
           <>
@@ -183,7 +192,7 @@ function FeedIcon({ item }: { item: FeedItem }) {
   const { Icon, tone } = feedIconAndTone(item);
   return (
     <span
-      className={`bg-muted/40 mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full ${tone}`}
+      className={`bg-muted ring-card relative z-10 mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full ring-2 ${tone}`}
     >
       <Icon className="size-3.5" />
     </span>

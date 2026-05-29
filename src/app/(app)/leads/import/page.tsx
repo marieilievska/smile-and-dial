@@ -12,13 +12,34 @@ export default async function ImportLeadsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: lists }, { data: customFields }] = await Promise.all([
-    supabase.from("lists").select("id, name").order("name"),
-    supabase
-      .from("custom_field_defs")
-      .select("id, name")
-      .order("sort_order", { ascending: true }),
-  ]);
+  const [{ data: lists }, { data: customFields }, { data: attachmentRows }] =
+    await Promise.all([
+      supabase.from("lists").select("id, name").order("name"),
+      supabase
+        .from("custom_field_defs")
+        .select("id, name")
+        .order("sort_order", { ascending: true }),
+      // Which lists already have an *active* campaign attached? The Done
+      // step uses this to tell the user whether Autopilot will start
+      // dialing the freshly-imported leads, or whether they still need to
+      // attach a campaign first.
+      supabase
+        .from("list_campaign_attachments")
+        .select("list_id, campaign:campaigns(status)")
+        .is("detached_at", null),
+    ]);
+
+  type AttachmentJoin = {
+    list_id: string;
+    campaign: { status: string } | null;
+  };
+  const activeCampaignListIds = [
+    ...new Set(
+      ((attachmentRows ?? []) as unknown as AttachmentJoin[])
+        .filter((r) => r.campaign?.status === "active")
+        .map((r) => r.list_id),
+    ),
+  ];
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-8">
@@ -34,7 +55,11 @@ export default async function ImportLeadsPage() {
           number with Twilio and skip the ones we can&apos;t legally call.
         </p>
       </header>
-      <ImportWizard lists={lists ?? []} customFields={customFields ?? []} />
+      <ImportWizard
+        lists={lists ?? []}
+        customFields={customFields ?? []}
+        activeCampaignListIds={activeCampaignListIds}
+      />
     </div>
   );
 }

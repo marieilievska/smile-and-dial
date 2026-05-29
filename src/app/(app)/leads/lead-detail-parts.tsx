@@ -87,6 +87,12 @@ export type LeadMeta = {
   city: string | null;
   state: string | null;
   aiSummary: string | null;
+  /** True when the dialer has a call in flight for this lead right now —
+   *  drives the live "On call now" pulse in the hero. */
+  onCall: boolean;
+  /** ISO start time of that in-flight call, so the hero can tick a live
+   *  elapsed timer. Null when not on a call (or not yet connected). */
+  onCallStartedAt: string | null;
 };
 
 export type LeadEvent = {

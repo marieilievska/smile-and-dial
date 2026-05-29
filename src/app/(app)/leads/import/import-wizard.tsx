@@ -8,6 +8,7 @@ import {
   Download,
   FileSpreadsheet,
   Info,
+  Loader2,
   PhoneCall,
   Plus,
   Smartphone,
@@ -73,9 +74,13 @@ function plural(n: number, word: string): string {
 export function ImportWizard({
   lists: initialLists,
   customFields: initialCustomFields,
+  activeCampaignListIds,
 }: {
   lists: { id: string; name: string }[];
   customFields: { id: string; name: string }[];
+  /** List ids that already have an active campaign attached. The Done
+   *  step uses this to frame the Autopilot handoff. */
+  activeCampaignListIds: string[];
 }) {
   const [step, setStep] = useState<StepKey>("upload");
   const [parsed, setParsed] = useState<Parsed | null>(null);
@@ -244,6 +249,7 @@ export function ImportWizard({
         result={result}
         listId={listId}
         listName={selectedListName}
+        hasActiveCampaign={activeCampaignListIds.includes(listId)}
         onReset={resetWizard}
       />
     );
@@ -252,7 +258,10 @@ export function ImportWizard({
   // ----- Summary ----------------------------------------------------------
   if (step === "summary" && parsed && analysis) {
     return (
-      <div className="flex flex-col gap-6">
+      <div
+        key="summary"
+        className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6 duration-300"
+      >
         <StepIndicator current="summary" />
         <ReviewStep
           analysis={analysis}
@@ -270,7 +279,10 @@ export function ImportWizard({
   // ----- Map --------------------------------------------------------------
   if (step === "map" && parsed) {
     return (
-      <div className="flex flex-col gap-6">
+      <div
+        key="map"
+        className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6 duration-300"
+      >
         <StepIndicator current="map" />
         <MapStep
           parsed={parsed}
@@ -309,7 +321,10 @@ export function ImportWizard({
     parsed != null && !skipLookup ? parsed.rows.length * COST_PER_LOOKUP : 0;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div
+      key="upload"
+      className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6 duration-300"
+    >
       <StepIndicator current="upload" />
 
       <section className="flex flex-col gap-5">
@@ -608,14 +623,21 @@ function MapStep({
           Back
         </Button>
         <Button onClick={onContinue} disabled={pending}>
-          {pending
-            ? skipLookup
-              ? "Preparing import…"
-              : "Checking numbers…"
-            : skipLookup
-              ? "Review import"
-              : "Review import"}
-          <ArrowRight className="size-4" />
+          {pending ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              {skipLookup
+                ? "Preparing import…"
+                : `Verifying ${parsed.rows.length.toLocaleString()} ${
+                    parsed.rows.length === 1 ? "number" : "numbers"
+                  } with Twilio…`}
+            </>
+          ) : (
+            <>
+              Review import
+              <ArrowRight className="size-4" />
+            </>
+          )}
         </Button>
       </div>
     </section>
@@ -778,11 +800,16 @@ function DoneStep({
   result,
   listId,
   listName,
+  hasActiveCampaign,
   onReset,
 }: {
   result: ImportResult;
   listId: string;
   listName: string;
+  /** True when the destination list already has an active campaign
+   *  attached — so Autopilot will pick these leads up on its own.
+   *  When false we nudge the user to attach one. */
+  hasActiveCampaign: boolean;
   onReset: () => void;
 }) {
   const detailParts: string[] = [];
@@ -837,6 +864,37 @@ function DoneStep({
             </p>
           ) : null}
         </div>
+
+        {result.imported > 0 ? (
+          hasActiveCampaign ? (
+            <p
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
+              style={{
+                backgroundColor:
+                  "color-mix(in oklab, var(--primary) 12%, transparent)",
+                color: "color-mix(in oklab, var(--primary) 90%, black)",
+              }}
+            >
+              <Sparkles className="size-3.5" />
+              Autopilot will start dialing these shortly
+            </p>
+          ) : (
+            <div className="border-border bg-muted/30 flex max-w-md items-start gap-2 rounded-lg border px-3 py-2 text-left text-xs">
+              <Info className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
+              <p className="text-muted-foreground">
+                No active campaign is attached to this list yet, so these leads
+                are waiting.{" "}
+                <Link
+                  href="/campaigns"
+                  className="text-foreground hover:text-primary font-medium underline-offset-2 hover:underline"
+                >
+                  Attach a campaign
+                </Link>{" "}
+                to let Autopilot start dialing.
+              </p>
+            </div>
+          )
+        ) : null}
 
         <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
           <Button asChild>

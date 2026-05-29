@@ -32,6 +32,7 @@ export default async function LeadDetailPage({
     { data: callRows },
     { data: emailRows },
     { data: eventRows },
+    { data: activeCallRows },
   ] = await Promise.all([
     supabase
       .from("leads")
@@ -66,6 +67,17 @@ export default async function LeadDetailPage({
       .eq("ref_id", id)
       .order("created_at", { ascending: false })
       .limit(50),
+    // Is the dialer on a call for this lead right this second? Drives the
+    // live "On call now" pulse in the hero — same signal the leads list
+    // surfaces, but here we also grab started_at so the hero can tick a
+    // live elapsed timer.
+    supabase
+      .from("calls")
+      .select("id, started_at, status")
+      .eq("lead_id", id)
+      .in("status", ["queued", "dialing", "ringing", "in_progress"])
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
 
   if (!lead) notFound();
@@ -158,6 +170,7 @@ export default async function LeadDetailPage({
   }
   feedItems.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 
+  const activeCall = (activeCallRows ?? [])[0] ?? null;
   const meta = {
     status: lead.status,
     lastOutcome: lead.last_outcome,
@@ -171,6 +184,8 @@ export default async function LeadDetailPage({
     city: lead.city ?? null,
     state: lead.state ?? null,
     aiSummary: lead.ai_summary,
+    onCall: Boolean(activeCall),
+    onCallStartedAt: activeCall?.started_at ?? null,
   };
 
   // Lightweight projection of the feed for the "since-you-last-looked"
