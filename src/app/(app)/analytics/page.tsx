@@ -6,6 +6,7 @@ import {
   bookingsByDay,
   buildFunnel,
   buildInsights,
+  callsByDay,
   computeKpis,
   fetchCallsForRange,
   outcomeDistribution,
@@ -17,11 +18,11 @@ import {
 } from "@/lib/analytics/stats";
 import { createClient } from "@/lib/supabase/server";
 
+import { ActivityOverTime } from "./activity-over-time";
 import { AnalyticsDatePills } from "./analytics-date-pills";
 import { AnalyticsEmpty } from "./analytics-empty";
 import { AnalyticsFilters } from "./analytics-filters";
 import { AnalyticsInsight } from "./analytics-insight";
-import { BookingsOverTime } from "./bookings-over-time";
 import { CampaignLeaderboard, FunnelChart, OutcomeBreakdown } from "./charts";
 import { HeroKpi } from "./hero-kpi";
 import { KpiTile } from "./kpi-tile";
@@ -142,6 +143,11 @@ export default async function AnalyticsPage({
   const kpis = computeKpis(rows);
   const prior = compare ? computeKpis(priorRows) : null;
   const dailyBookings = bookingsByDay(rows, slicers);
+  // Daily call volume + spend — same pre-seeded day grid, so the trend
+  // toggle (Appointments / Calls / Spend) shares one x-axis.
+  const dailyActivity = callsByDay(rows, slicers);
+  const dailyCalls = dailyActivity.map((b) => b.count);
+  const dailySpend = dailyActivity.map((b) => b.spend);
   const funnel = buildFunnel(rows);
   const outcomeBuckets = outcomeDistribution(rows);
   const campaignNames = new Map(
@@ -259,7 +265,33 @@ export default async function AnalyticsPage({
               />
             </Link>
 
-            <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-1 gap-3 delay-100 duration-500 md:grid-cols-3">
+            {/* Supporting KPIs read left→right as the funnel: how many we
+             *  dialed, how often we connected, who we actually talked to,
+             *  how often that booked, and what each booking cost. */}
+            <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-2 gap-3 delay-100 duration-500 md:grid-cols-3 xl:grid-cols-5">
+              <Link href={conversationsHref} className="block">
+                <KpiTile
+                  label="Calls Placed"
+                  value={kpis.totalCalls.toLocaleString()}
+                  hint="Dials the AI made"
+                  pctDelta={
+                    prior
+                      ? pctDelta(kpis.totalCalls, prior.totalCalls)
+                      : undefined
+                  }
+                  cta="View"
+                />
+              </Link>
+              <KpiTile
+                label="Connect Rate"
+                value={fmtPct(kpis.connectRate)}
+                hint="Of dials that reached someone"
+                pctDelta={
+                  prior
+                    ? pctDelta(kpis.connectRate, prior.connectRate)
+                    : undefined
+                }
+              />
               <Link href={conversationsHref} className="block">
                 <KpiTile
                   label="Conversations"
@@ -301,7 +333,32 @@ export default async function AnalyticsPage({
           </section>
 
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both delay-150 duration-500">
-            <BookingsOverTime daily={dailyBookings} startDate={from} />
+            <ActivityOverTime
+              startDate={from}
+              series={[
+                {
+                  key: "appts",
+                  label: "Appointments",
+                  values: dailyBookings,
+                  format: "count",
+                  noun: "appointment",
+                },
+                {
+                  key: "calls",
+                  label: "Calls",
+                  values: dailyCalls,
+                  format: "count",
+                  noun: "call",
+                },
+                {
+                  key: "spend",
+                  label: "Spend",
+                  values: dailySpend,
+                  format: "usd",
+                  noun: "spend",
+                },
+              ]}
+            />
           </div>
 
           {/* Layer 2 — Clarification */}
@@ -349,11 +406,7 @@ export default async function AnalyticsPage({
             <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
               Also in this period:
             </p>
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
-              <InventoryTile
-                label="DMs reached"
-                value={kpis.dmsReached.toLocaleString()}
-              />
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
               <InventoryTile
                 label="Callbacks scheduled"
                 value={kpis.callbacksScheduled.toLocaleString()}
