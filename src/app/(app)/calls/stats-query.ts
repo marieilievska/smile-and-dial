@@ -6,7 +6,21 @@ export type CallStats = {
   callsToday: number;
   connectRateToday: number;
   goalMetToday: number;
+  /** Calls the dialer is actively working *right now* (queued through
+   *  in_progress). Drives the live "N in progress" pulse in the page
+   *  header so Calls reads as a live operation, not a log. */
+  inProgressNow: number;
 };
+
+/** Statuses that mean a call is live on the wire right now. Kept in
+ *  sync with ACTIVE_STATUSES in columns.tsx (which drives the per-row
+ *  pulse). */
+const ACTIVE_STATUSES = [
+  "queued",
+  "dialing",
+  "ringing",
+  "in_progress",
+] as const;
 
 /** Outcomes that count as a "connected" call for the connect-rate stat.
  *  Mirrors the rationale used on the Today page's pace strip. */
@@ -33,17 +47,27 @@ export async function fetchCallStats(
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
 
-  const { data, error } = await supabase
-    .from("calls")
-    .select("outcome, goal_met")
-    .gte("started_at", startOfToday.toISOString())
-    .limit(5000);
+  const [{ data, error }, { count: inProgressCount }] = await Promise.all([
+    supabase
+      .from("calls")
+      .select("outcome, goal_met")
+      .gte("started_at", startOfToday.toISOString())
+      .limit(5000),
+    // Live count is status-driven, not date-bound: a call queued
+    // yesterday that's still ringing should count. `head: true` makes
+    // this a cheap count-only query.
+    supabase
+      .from("calls")
+      .select("id", { count: "exact", head: true })
+      .in("status", ACTIVE_STATUSES as unknown as string[]),
+  ]);
 
   if (error || !data) {
     return {
       callsToday: 0,
       connectRateToday: 0,
       goalMetToday: 0,
+      inProgressNow: inProgressCount ?? 0,
     };
   }
 
@@ -60,5 +84,6 @@ export async function fetchCallStats(
     callsToday,
     connectRateToday,
     goalMetToday: goalMet,
+    inProgressNow: inProgressCount ?? 0,
   };
 }

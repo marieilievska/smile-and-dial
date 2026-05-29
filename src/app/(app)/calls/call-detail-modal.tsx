@@ -50,13 +50,10 @@ import {
 } from "@/lib/calls/actions";
 import { OVERRIDABLE_OUTCOMES, outcomeLabel } from "@/lib/calls/outcomes";
 import { callStatusLabel } from "@/lib/labels";
+import { exactDateTime, relativeTime } from "@/lib/relative-time";
+import { Skeleton } from "@/components/ui/skeleton";
 
-import { outcomeVariant, statusVariant } from "./columns";
-
-function fmtDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleString();
-}
+import { outcomeVariant, scoreTone, statusVariant } from "./columns";
 
 function fmtDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds <= 0) return "—";
@@ -309,13 +306,13 @@ export function CallDetailModal() {
               ) : null}
             </div>
           </SheetTitle>
-          <SheetDescription className="text-left">
+          <SheetDescription className="text-left" asChild>
             {call ? (
               <span className="font-mono text-xs">{call.leadPhone ?? "—"}</span>
             ) : loading ? (
-              "Loading…"
+              <Skeleton className="h-3.5 w-32" />
             ) : (
-              "Call not found."
+              <span>Call not found.</span>
             )}
           </SheetDescription>
         </SheetHeader>
@@ -341,6 +338,7 @@ export function CallDetailModal() {
                 <HeroMetric
                   label="Score"
                   value={call.score == null ? "—" : call.score.toFixed(1)}
+                  valueClassName={scoreTone(call.score)}
                 />
               </div>
 
@@ -350,7 +348,8 @@ export function CallDetailModal() {
                 <SecondaryMetric label="Agent" value={call.agentName} />
                 <SecondaryMetric
                   label="Started"
-                  value={fmtDateTime(call.startedAt)}
+                  value={relativeTime(call.startedAt)}
+                  title={exactDateTime(call.startedAt)}
                 />
               </dl>
 
@@ -414,38 +413,70 @@ export function CallDetailModal() {
                     />
                   }
                 >
-                  <ol className="border-border flex flex-col gap-1 rounded-lg border p-3">
+                  {/* Conversation view — the AI's actual work product
+                      should read like a chat, not a log. AI turns sit
+                      left in a neutral bubble; the Lead's replies sit
+                      right in a primary-tinted bubble. The seek
+                      timestamp moves to the meta line above each bubble
+                      and stays clickable when there's audio to scrub. */}
+                  <ol
+                    data-testid="call-transcript"
+                    className="flex flex-col gap-3"
+                  >
                     {call.transcript.map((turn, i) => {
                       const seconds = turnSeconds(turn, call.startedAt);
                       const canSeek =
                         Boolean(call.recordingPath) && seconds != null;
+                      const isLead = turn.role === "user";
+                      const speaker =
+                        turn.role === "agent"
+                          ? "AI"
+                          : isLead
+                            ? "Lead"
+                            : (turn.role ?? "—");
+                      const timeLabel = fmtTurnTime(seconds);
                       return (
-                        <li key={i} className="flex gap-3 py-1.5">
-                          {canSeek ? (
-                            <button
-                              type="button"
-                              onClick={() => seekTo(seconds!)}
-                              className="bg-muted text-foreground hover:bg-primary/15 hover:text-primary inline-flex h-6 w-14 shrink-0 items-center justify-center rounded-md font-mono text-xs tabular-nums transition-colors"
-                              aria-label={`Seek to ${fmtTurnTime(seconds)}`}
-                            >
-                              {fmtTurnTime(seconds)}
-                            </button>
-                          ) : (
-                            <span className="text-muted-foreground inline-flex h-6 w-14 shrink-0 items-center justify-center font-mono text-xs tabular-nums">
-                              {fmtTurnTime(seconds)}
-                            </span>
-                          )}
-                          <div className="flex-1">
-                            <p className="text-muted-foreground text-xs font-medium">
-                              {turn.role === "agent"
-                                ? "AI"
-                                : turn.role === "user"
-                                  ? "Lead"
-                                  : (turn.role ?? "—")}
-                            </p>
-                            <p className="text-foreground text-sm whitespace-pre-line">
-                              {turn.text ?? ""}
-                            </p>
+                        <li
+                          key={i}
+                          className={`flex flex-col gap-1 ${
+                            isLead ? "items-end" : "items-start"
+                          }`}
+                        >
+                          <div className="text-muted-foreground flex items-center gap-2 px-1 text-[11px] font-medium">
+                            <span>{speaker}</span>
+                            {timeLabel ? (
+                              canSeek ? (
+                                <button
+                                  type="button"
+                                  onClick={() => seekTo(seconds!)}
+                                  className="hover:text-primary font-mono tabular-nums underline-offset-2 transition-colors hover:underline"
+                                  aria-label={`Seek to ${timeLabel}`}
+                                >
+                                  {timeLabel}
+                                </button>
+                              ) : (
+                                <span className="font-mono tabular-nums">
+                                  {timeLabel}
+                                </span>
+                              )
+                            ) : null}
+                          </div>
+                          <div
+                            className={`text-foreground max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-line ${
+                              isLead
+                                ? "rounded-tr-sm"
+                                : "bg-muted rounded-tl-sm"
+                            }`}
+                            style={
+                              isLead
+                                ? {
+                                    backgroundColor:
+                                      "color-mix(in oklab, var(--primary) 12%, var(--card))",
+                                  }
+                                : undefined
+                            }
+                          >
+                            {turn.text ?? ""}
                           </div>
                         </li>
                       );
@@ -503,9 +534,11 @@ export function CallDetailModal() {
               </details>
             </div>
           </div>
+        ) : loading ? (
+          <CallDetailSkeleton />
         ) : (
           <div className="text-muted-foreground flex flex-1 items-center justify-center px-6 text-sm">
-            {loading ? "Loading…" : "Call not found."}
+            Call not found.
           </div>
         )}
 
@@ -532,21 +565,67 @@ export function CallDetailModal() {
   );
 }
 
+/** Shaped placeholder shown while the call detail is fetched client-
+ *  side. Mirrors the real body layout (hero metric row → secondary
+ *  meta → recording → summary → transcript bubbles) so the panel
+ *  doesn't jump when the data lands — feels instant instead of
+ *  flashing a centered "Loading…". */
+function CallDetailSkeleton() {
+  return (
+    <div
+      data-testid="call-detail-skeleton"
+      className="animate-in fade-in flex-1 overflow-y-auto px-6 py-5 duration-300"
+    >
+      <div className="flex flex-col gap-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex flex-col gap-1.5">
+              <Skeleton className="h-2.5 w-12" />
+              <Skeleton className="h-5 w-16" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex flex-col gap-1.5">
+              <Skeleton className="h-2 w-10" />
+              <Skeleton className="h-3 w-20" />
+            </div>
+          ))}
+        </div>
+        <Skeleton className="h-12 w-full rounded-lg" />
+        <Skeleton className="h-28 w-full rounded-xl" />
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-12 w-3/5 self-start rounded-2xl" />
+          <Skeleton className="h-10 w-1/2 self-end rounded-2xl" />
+          <Skeleton className="h-14 w-2/3 self-start rounded-2xl" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HeroMetric({
   label,
   value,
   sub,
+  valueClassName,
 }: {
   label: string;
   value: string;
   sub?: string;
+  /** Override the value color — used to tone the Score metric
+   *  (emerald / amber / rose) so a good call reads at a glance. */
+  valueClassName?: string;
 }) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-muted-foreground text-[10px] font-medium tracking-[0.1em] uppercase">
         {label}
       </span>
-      <span className="text-foreground text-xl font-semibold tabular-nums">
+      <span
+        className={`text-xl font-semibold tabular-nums ${valueClassName ?? "text-foreground"}`}
+      >
         {value}
       </span>
       {sub ? (
@@ -556,13 +635,26 @@ function HeroMetric({
   );
 }
 
-function SecondaryMetric({ label, value }: { label: string; value: string }) {
+function SecondaryMetric({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+}) {
   return (
     <div className="flex flex-col">
       <dt className="text-muted-foreground text-[10px] font-medium tracking-[0.08em] uppercase">
         {label}
       </dt>
-      <dd className="text-foreground truncate text-xs">{value}</dd>
+      <dd
+        className="text-foreground truncate text-xs"
+        title={title || undefined}
+      >
+        {value}
+      </dd>
     </div>
   );
 }

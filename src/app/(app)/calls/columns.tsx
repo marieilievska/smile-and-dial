@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { formatPhone } from "@/lib/format-phone";
 import { outcomeLabel } from "@/lib/labels";
+import { exactDateTime, relativeTime } from "@/lib/relative-time";
 
 /** A row passed to a column's `cell` renderer. */
 export type DisplayCall = {
@@ -59,16 +60,36 @@ const WIN_OUTCOMES = new Set(["goal_met", "transferred_to_human"]);
  *  AI error, etc.). */
 const HARD_OUTCOMES = new Set(["dnc", "ai_error"]);
 
+/** Call statuses that mean "the dialer is on this line right now."
+ *  Drives the live coral pulse in the Lead cell so the most call-
+ *  centric page in the app actually feels alive. */
+const ACTIVE_STATUSES = new Set([
+  "queued",
+  "dialing",
+  "ringing",
+  "in_progress",
+]);
+
+export function isActiveCall(status: string): boolean {
+  return ACTIVE_STATUSES.has(status);
+}
+
+/** Tailwind tone for a call's 0–10 score so a good call reads at a
+ *  glance instead of as a bare decimal. 8+ = strong (emerald),
+ *  5–7.9 = okay (amber), below 5 = weak (rose). Null scores stay
+ *  muted via the caller's "—" fallback. */
+export function scoreTone(score: number | null): string {
+  if (score == null) return "text-muted-foreground";
+  if (score >= 8) return "text-emerald-600 dark:text-emerald-400";
+  if (score >= 5) return "text-amber-600 dark:text-amber-400";
+  return "text-rose-600 dark:text-rose-400";
+}
+
 function fmtDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds <= 0) return "—";
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-function fmtDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  return new Date(value).toLocaleString();
 }
 
 function fmtCost(breakdown: unknown): string {
@@ -110,12 +131,30 @@ export const CALL_COLUMNS: CallColumn[] = [
         c.direction === "inbound"
           ? "text-emerald-600 dark:text-emerald-400"
           : "text-muted-foreground";
+      const live = isActiveCall(c.status);
       return (
         <div className="flex min-w-0 items-center gap-2.5">
-          <DirIcon
-            className={`size-4 shrink-0 ${dirTone}`}
-            aria-label={c.direction === "inbound" ? "Inbound" : "Outbound"}
-          />
+          {live ? (
+            <span
+              className="relative flex size-4 shrink-0 items-center justify-center"
+              aria-label="Live call in progress"
+              title="On a call right now"
+            >
+              <span
+                className="absolute inline-flex h-2.5 w-2.5 animate-ping rounded-full opacity-70"
+                style={{ backgroundColor: "var(--primary)" }}
+              />
+              <span
+                className="relative inline-flex size-2 rounded-full"
+                style={{ backgroundColor: "var(--primary)" }}
+              />
+            </span>
+          ) : (
+            <DirIcon
+              className={`size-4 shrink-0 ${dirTone}`}
+              aria-label={c.direction === "inbound" ? "Inbound" : "Outbound"}
+            />
+          )}
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             {/* Company name is the lead deep-link. Plain <Link>s give
                 us middle-click → new tab and cmd/ctrl-click → new tab
@@ -197,7 +236,12 @@ export const CALL_COLUMNS: CallColumn[] = [
     sortKey: "started_at",
     width: "w-[170px]",
     cell: (c) => (
-      <span className="text-muted-foreground">{fmtDateTime(c.started_at)}</span>
+      <span
+        className="text-muted-foreground"
+        title={exactDateTime(c.started_at)}
+      >
+        {relativeTime(c.started_at)}
+      </span>
     ),
   },
   {
@@ -247,7 +291,7 @@ export const CALL_COLUMNS: CallColumn[] = [
     label: "Score",
     width: "w-[80px]",
     cell: (c) => (
-      <span className="text-muted-foreground tabular-nums">
+      <span className={`font-medium tabular-nums ${scoreTone(c.score)}`}>
         {c.score == null ? "—" : c.score.toFixed(1)}
       </span>
     ),

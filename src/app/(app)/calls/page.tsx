@@ -196,19 +196,47 @@ export default async function CallsPage({
 
   return (
     <div className="flex flex-col gap-5 p-6">
-      <div className="flex flex-col gap-1.5">
-        <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          Calls
-        </h1>
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-1.5 delay-75 duration-500">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-foreground text-2xl font-bold tracking-tight">
+            Calls
+          </h1>
+          {stats.inProgressNow > 0 ? (
+            <span
+              data-testid="calls-live-now"
+              className="text-primary inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
+              style={{
+                backgroundColor:
+                  "color-mix(in oklab, var(--primary) 12%, transparent)",
+              }}
+              title="Calls the dialer is working right now"
+            >
+              <span aria-hidden className="relative flex size-2">
+                <span
+                  className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-70"
+                  style={{ backgroundColor: "var(--primary)" }}
+                />
+                <span
+                  className="relative inline-flex size-2 rounded-full"
+                  style={{ backgroundColor: "var(--primary)" }}
+                />
+              </span>
+              {stats.inProgressNow.toLocaleString()}{" "}
+              {stats.inProgressNow === 1 ? "call" : "calls"} in progress
+            </span>
+          ) : null}
+        </div>
         <p className="text-muted-foreground text-sm">
           What the AI dialed. Sortable, searchable, every recording one click
           away.
         </p>
       </div>
 
-      <CallsStatStrip stats={stats} />
+      <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both delay-100 duration-500">
+        <CallsStatStrip stats={stats} />
+      </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-3 delay-150 duration-500">
         <div className="flex flex-wrap items-center gap-1.5">
           <CallsFilters
             campaigns={campaignOptions}
@@ -227,7 +255,7 @@ export default async function CallsPage({
       </div>
 
       {calls.length > 0 ? (
-        <>
+        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-5 delay-200 duration-500">
           <div className="border-border overflow-x-auto rounded-lg border">
             <Table className="table-fixed">
               <TableHeader>
@@ -297,7 +325,7 @@ export default async function CallsPage({
             total={total}
             basePath="/calls"
           />
-        </>
+        </div>
       ) : hasAnyFilter ? (
         <FilteredEmptyState />
       ) : (
