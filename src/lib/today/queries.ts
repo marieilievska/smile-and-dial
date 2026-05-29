@@ -409,3 +409,33 @@ export async function fetch7dCallTrend(
   }
   return [...buckets.entries()].map(([day, count]) => ({ day, count }));
 }
+
+export type AutopilotStatus = {
+  /** Campaigns currently dialing. */
+  activeCampaigns: number;
+  /** Campaigns that exist but are paused. */
+  pausedCampaigns: number;
+};
+
+/** Lightweight read of campaign run-state for the Autopilot strip. There
+ *  is no single global on/off switch — the dialer runs per-campaign — so
+ *  "running" is simply "at least one campaign is active". RLS scopes the
+ *  counts to what the viewer is allowed to see. */
+export async function fetchAutopilotStatus(
+  supabase: SupabaseClient,
+): Promise<AutopilotStatus> {
+  const [{ count: active }, { count: paused }] = await Promise.all([
+    supabase
+      .from("campaigns")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "active"),
+    supabase
+      .from("campaigns")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "paused"),
+  ]);
+  return {
+    activeCampaigns: active ?? 0,
+    pausedCampaigns: paused ?? 0,
+  };
+}

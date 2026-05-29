@@ -140,6 +140,26 @@ function HourlySparkline({ hourly }: { hourly: number[] }) {
   const max = Math.max(1, ...hourly);
   const barW = innerW / 24;
   const currentHour = new Date().getHours();
+  const baseY = height - padding;
+
+  // Soft gradient area underlay that traces the booking curve up to the
+  // current hour — a calm "shape of the day" behind the precise bars.
+  // We only draw the area through `now`; the future has no data to plot.
+  const gradientId = "hero-spark-fill";
+  const pointX = (h: number) => padding + h * barW + barW / 2;
+  const pointY = (count: number) => padding + (innerH - (count / max) * innerH);
+  const areaThrough = Math.min(currentHour, 23);
+  const linePts = hourly
+    .slice(0, areaThrough + 1)
+    .map((count, h) => `${pointX(h).toFixed(1)},${pointY(count).toFixed(1)}`);
+  const areaPath =
+    linePts.length > 0
+      ? `M ${pointX(0).toFixed(1)},${baseY} L ${linePts.join(" L ")} L ${pointX(
+          areaThrough,
+        ).toFixed(1)},${baseY} Z`
+      : "";
+  const nowX = pointX(Math.min(currentHour, 23));
+
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
@@ -147,14 +167,23 @@ function HourlySparkline({ hourly }: { hourly: number[] }) {
       role="img"
       aria-label="Appointments booked per hour today"
     >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.22} />
+          <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
+        </linearGradient>
+      </defs>
+
+      {/* Gradient area underlay */}
+      {areaPath ? <path d={areaPath} fill={`url(#${gradientId})`} /> : null}
+
+      {/* Per-hour bars on top — opacity carries past/now/future */}
       {hourly.map((count, h) => {
         const bh = (count / max) * innerH;
         const x = padding + h * barW;
         const y = padding + (innerH - bh);
         const isFuture = h > currentHour;
         const isNow = h === currentHour;
-        // All bars use the primary blue; opacity carries the
-        // past/now/future distinction (see component-level comment).
         const fill = isFuture ? "var(--muted-foreground)" : "var(--primary)";
         const opacity = isFuture ? 0.18 : count === 0 ? 0.18 : isNow ? 1 : 0.45;
         return (
@@ -170,11 +199,27 @@ function HourlySparkline({ hourly }: { hourly: number[] }) {
           />
         );
       })}
+
+      {/* Faint "now" marker — a dashed vertical line + cap dot so the eye
+       *  lands on the current hour. */}
+      <line
+        x1={nowX}
+        y1={padding}
+        x2={nowX}
+        y2={baseY}
+        stroke="var(--primary)"
+        strokeOpacity={0.35}
+        strokeWidth={1}
+        strokeDasharray="2 3"
+      />
+      <circle cx={nowX} cy={padding + 1} r={1.6} fill="var(--primary)" />
+
+      {/* Baseline */}
       <line
         x1={padding}
-        y1={height - padding}
+        y1={baseY}
         x2={width - padding}
-        y2={height - padding}
+        y2={baseY}
         stroke="currentColor"
         strokeOpacity={0.12}
       />

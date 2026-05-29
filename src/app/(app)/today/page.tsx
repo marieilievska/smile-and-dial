@@ -16,12 +16,14 @@ import {
   fetchActionQueue,
   fetchActiveCalls,
   fetchAppointmentPace,
+  fetchAutopilotStatus,
   fetchHeroCounts,
   type ActionItem,
 } from "@/lib/today/queries";
 import { createClient } from "@/lib/supabase/server";
 
 import { ActionCard } from "./action-card";
+import { AutopilotStrip } from "./autopilot-strip";
 import { HeroPace } from "./hero-pace";
 import { LiveCallsBand } from "./live-calls-band";
 import { PaceStrip, type PaceItem } from "./pace-strip";
@@ -114,11 +116,12 @@ export default async function TodayPage() {
     .single();
   const isAdmin = profile?.role === "admin";
 
-  const [counts, queue, activeCalls, pace] = await Promise.all([
+  const [counts, queue, activeCalls, pace, autopilot] = await Promise.all([
     fetchHeroCounts(supabase, { isAdmin, ownerId: user.id }),
     fetchActionQueue(supabase, { isAdmin, ownerId: user.id }),
     fetchActiveCalls(supabase, 5),
     fetchAppointmentPace(supabase),
+    fetchAutopilotStatus(supabase),
   ]);
 
   // Greeting — time-of-day adjusted, first name only.
@@ -133,6 +136,13 @@ export default async function TodayPage() {
     day: "numeric",
   });
   const mockMode = isMockMode();
+
+  // Autopilot pace — rough calls/hour so far today. Guard the early-morning
+  // divide-by-near-zero with a half-hour floor so the figure stays sane.
+  const now = new Date();
+  const hoursElapsed = Math.max(0.5, now.getHours() + now.getMinutes() / 60);
+  const pacePerHour = Math.round(counts.callsToday / hoursElapsed);
+  const autopilotRunning = autopilot.activeCampaigns > 0;
 
   // AI-aware subtitle — server-computed one-liner that reflects what's
   // actually happening right now. Priority: overdue callbacks → live
@@ -189,83 +199,124 @@ export default async function TodayPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-8">
-      {/* Greeting + AI-aware subtitle + date. Round 26 — toned down
-       *  from the round T4 "bigger hero typography" treatment. The
-       *  greeting now reads as a product page header (2xl) rather
-       *  than a marketing splash (4xl). */}
+      {/* Greeting + AI-aware subtitle + date. The greeting carries a
+       *  whisper of brand tint (a soft gradient on the name) so the page
+       *  opens warm without shouting, and an "AI" chip sits beside the
+       *  subtitle to reinforce that this is an autonomous product. */}
       <header
         data-testid="today-greeting"
         className="animate-in fade-in slide-in-from-bottom-1 flex flex-col gap-1 duration-500"
       >
-        <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          {greeting}
+        <h1 className="text-2xl font-bold tracking-tight">
+          <span
+            className="bg-clip-text text-transparent"
+            style={{
+              backgroundImage:
+                "linear-gradient(100deg, var(--foreground), color-mix(in oklab, var(--primary) 65%, var(--foreground)))",
+            }}
+          >
+            {greeting}
+          </span>
         </h1>
-        <p
-          data-testid="today-subtitle"
-          className="text-muted-foreground text-sm"
-        >
-          {subtitle}
-        </p>
+        <div className="flex items-center gap-2">
+          <span
+            className="text-primary inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+            style={{
+              backgroundColor:
+                "color-mix(in oklab, var(--primary) 12%, transparent)",
+            }}
+          >
+            <Sparkles className="size-3" />
+            AI
+          </span>
+          <p
+            data-testid="today-subtitle"
+            className="text-muted-foreground text-sm"
+          >
+            {subtitle}
+          </p>
+        </div>
         <p className="text-muted-foreground/70 mt-1 text-[10px] tracking-wider uppercase">
           {dateStr}
         </p>
       </header>
 
-      {/* Live calls band — the AI heartbeat. Pulses while active. */}
-      <LiveCallsBand
-        rows={activeCalls.rows}
-        total={activeCalls.total}
+      {/* Autopilot status strip — the persistent "is the AI working?" bar */}
+      <AutopilotStrip
+        running={autopilotRunning}
+        activeCampaigns={autopilot.activeCampaigns}
+        pausedCampaigns={autopilot.pausedCampaigns}
+        pacePerHour={pacePerHour}
         mockMode={mockMode}
       />
 
-      {/* Hero appointment metric with inline hourly sparkline */}
-      <HeroPace
-        current={counts.appointmentsToday}
-        yesterdayByNow={pace.yesterdayByNow}
-        yesterdayTotal={pace.yesterdayTotal}
-        hourly={pace.hourly}
-      />
-
-      {/* Pace strip — supporting metrics, glanceable as a band */}
-      <PaceStrip items={paceItems} />
-
-      {/* Action queue — cards, not rows */}
-      <section
-        data-testid="action-queue"
-        className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-4 delay-300 duration-500"
-      >
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-foreground text-lg font-semibold tracking-tight">
-            Up next
-          </h2>
-          {queue.length > 0 ? (
-            <p className="text-muted-foreground text-xs">
-              {queue.length} item{queue.length === 1 ? "" : "s"} waiting
-            </p>
-          ) : null}
+      {/* Bento grid — asymmetric on large screens. The hero metric leads
+       *  the wide left, the live-calls heartbeat sits in the right rail,
+       *  then the pace strip and action queue run full-width below. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
+        {/* Hero appointment metric with inline hourly sparkline */}
+        <div className="lg:col-span-2">
+          <HeroPace
+            current={counts.appointmentsToday}
+            yesterdayByNow={pace.yesterdayByNow}
+            yesterdayTotal={pace.yesterdayTotal}
+            hourly={pace.hourly}
+          />
         </div>
 
-        {queue.length === 0 ? (
-          <EmptyState mockMode={mockMode} idle={activeCalls.total === 0} />
-        ) : (
-          <div className="flex flex-col gap-3">
-            {queue.map((item) => {
-              const pres = actionPresentation(item.kind, item.urgency);
-              return (
-                <ActionCard
-                  key={item.id}
-                  icon={pres.icon}
-                  iconTone={pres.tone}
-                  urgency={item.urgency}
-                  headline={item.message}
-                  primaryHref={item.href}
-                  primaryLabel={pres.primaryLabel}
-                />
-              );
-            })}
+        {/* Live calls band — the AI heartbeat. Quiet one-liner when idle,
+         *  expands to the call list while active. */}
+        <div className="lg:col-span-1">
+          <LiveCallsBand
+            rows={activeCalls.rows}
+            total={activeCalls.total}
+            mockMode={mockMode}
+          />
+        </div>
+
+        {/* Pace strip — supporting metrics, glanceable as a band */}
+        <div className="lg:col-span-3">
+          <PaceStrip items={paceItems} />
+        </div>
+
+        {/* Action queue — cards, not rows */}
+        <section
+          data-testid="action-queue"
+          className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-4 delay-300 duration-500 lg:col-span-3"
+        >
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-foreground text-lg font-semibold tracking-tight">
+              Up next
+            </h2>
+            {queue.length > 0 ? (
+              <p className="text-muted-foreground text-xs">
+                {queue.length} item{queue.length === 1 ? "" : "s"} waiting
+              </p>
+            ) : null}
           </div>
-        )}
-      </section>
+
+          {queue.length === 0 ? (
+            <EmptyState mockMode={mockMode} idle={activeCalls.total === 0} />
+          ) : (
+            <div className="flex flex-col gap-3">
+              {queue.map((item) => {
+                const pres = actionPresentation(item.kind, item.urgency);
+                return (
+                  <ActionCard
+                    key={item.id}
+                    icon={pres.icon}
+                    iconTone={pres.tone}
+                    urgency={item.urgency}
+                    headline={item.message}
+                    primaryHref={item.href}
+                    primaryLabel={pres.primaryLabel}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
