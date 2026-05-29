@@ -7,6 +7,7 @@ import { GOAL_STATUSES, type GoalStatus } from "@/lib/goals/goal-statuses";
 import { createClient } from "@/lib/supabase/server";
 
 import { PipelineBoard } from "./pipeline-board";
+import { PipelineFunnelBar } from "./pipeline-funnel-bar";
 import { PipelineStatStrip, type PipelineStats } from "./pipeline-stat-strip";
 import { PipelineTable } from "./pipeline-table";
 import { PipelineToolbar } from "./pipeline-toolbar";
@@ -198,9 +199,11 @@ export default async function GoalsPage({
     .map(([id, name]) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const hasPipeline = allPipelineLeads.length > 0;
+
   return (
     <div className="flex flex-col gap-5 p-6">
-      <div className="flex flex-col gap-1.5">
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-1.5 delay-75 duration-500">
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
           Pipeline
         </h1>
@@ -210,23 +213,32 @@ export default async function GoalsPage({
         </p>
       </div>
 
-      <PipelineStatStrip stats={stats} />
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-4 delay-100 duration-500">
+        <PipelineStatStrip stats={stats} />
+        {/* Glanceable funnel across the five stages — only when there's
+            actually a pipeline to summarize. */}
+        {hasPipeline ? <PipelineFunnelBar counts={tabCounts} /> : null}
+      </div>
 
-      <PipelineToolbar
-        goals={goals ?? []}
-        campaigns={campaignOptions}
-        currentStatus={statusFilter}
-        currentView={view}
-        counts={tabCounts}
-      />
+      <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both delay-150 duration-500">
+        <PipelineToolbar
+          goals={goals ?? []}
+          campaigns={campaignOptions}
+          currentStatus={statusFilter}
+          currentView={view}
+          counts={tabCounts}
+        />
+      </div>
 
-      {filtered.length === 0 ? (
-        <EmptyState filtered={allPipelineLeads.length > 0} />
-      ) : view === "board" ? (
-        <PipelineBoard leads={filtered} />
-      ) : (
-        <PipelineTable leads={filtered} />
-      )}
+      <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both delay-200 duration-500">
+        {filtered.length === 0 ? (
+          <EmptyState filtered={hasPipeline} />
+        ) : view === "board" ? (
+          <PipelineBoard leads={filtered} />
+        ) : (
+          <PipelineTable leads={filtered} />
+        )}
+      </div>
     </div>
   );
 }
@@ -254,13 +266,16 @@ function EmptyState({ filtered }: { filtered: boolean }) {
   }
   return (
     <div className="border-border flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
-      <Target className="text-muted-foreground size-8" />
+      <div className="bg-primary/10 flex size-12 items-center justify-center rounded-full">
+        <Target className="text-primary size-6" />
+      </div>
       <p className="text-foreground text-sm font-medium">
-        No leads in the pipeline yet
+        Your first win will land here
       </p>
       <p className="text-muted-foreground max-w-md text-sm">
-        Leads land here once a call&apos;s outcome is Goal Met. Until then the
-        pipeline is empty — head over to /calls to see what&apos;s happening.
+        Whenever the AI closes a goal on a call, that lead drops into the
+        pipeline automatically — then you move it through attended → sale →
+        closed as the real-world outcome lands.
       </p>
       <Button asChild variant="outline" size="sm">
         <Link href="/calls">Browse recent calls</Link>

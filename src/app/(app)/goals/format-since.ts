@@ -18,7 +18,7 @@
 export function formatSince(
   iso: string | null,
   now: Date = new Date(),
-): { label: string; stale: boolean } | null {
+): { label: string; stale: boolean; staleFor: string | null } | null {
   if (!iso) return null;
   const ms = new Date(iso).getTime();
   if (!Number.isFinite(ms)) return null;
@@ -30,22 +30,30 @@ export function formatSince(
   const hr = Math.floor(min / 60);
   const day = Math.floor(hr / 24);
   // "Stale" once the lead has been sitting in the pipeline for > 14
-  // days without progress — surfaces in the UI as a coral attention
-  // pill.
+  // days without progress — surfaces in the UI as an amber attention
+  // pill. `staleFor` gives the pill a duration ("3w", "45d") so a
+  // mildly-stale lead reads differently from a badly-stale one.
   const stale = day > 14;
+  const staleFor = stale
+    ? day < 30
+      ? `${Math.floor(day / 7)}w`
+      : `${day}d`
+    : null;
 
-  if (sec < 60) return { label: "Just now", stale };
-  if (min < 60) return { label: `${min}m ago`, stale };
-  if (hr < 24) return { label: `${hr}h ago`, stale };
-  if (day === 1) return { label: "Yesterday", stale };
-  if (day < 7) return { label: `${day}d ago`, stale };
-  if (day < 30) return { label: `${Math.floor(day / 7)}w ago`, stale };
+  if (sec < 60) return { label: "Just now", stale, staleFor };
+  if (min < 60) return { label: `${min}m ago`, stale, staleFor };
+  if (hr < 24) return { label: `${hr}h ago`, stale, staleFor };
+  if (day === 1) return { label: "Yesterday", stale, staleFor };
+  if (day < 7) return { label: `${day}d ago`, stale, staleFor };
+  if (day < 30)
+    return { label: `${Math.floor(day / 7)}w ago`, stale, staleFor };
 
   const d = new Date(iso);
   const monthDay = d.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
-  if (d.getFullYear() === now.getFullYear()) return { label: monthDay, stale };
-  return { label: `${monthDay}, ${d.getFullYear()}`, stale };
+  if (d.getFullYear() === now.getFullYear())
+    return { label: monthDay, stale, staleFor };
+  return { label: `${monthDay}, ${d.getFullYear()}`, stale, staleFor };
 }

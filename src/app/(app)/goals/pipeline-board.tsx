@@ -1,5 +1,6 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -36,6 +37,10 @@ export function PipelineBoard({
   const [, startTransition] = useTransition();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<GoalStatus | null>(null);
+  // Lead id that just landed in "Sale" — drives a brief emerald ring +
+  // sparkle pulse on the card as a small win celebration. Cleared after
+  // ~1.6s so it doesn't linger.
+  const [celebrateId, setCelebrateId] = useState<string | null>(null);
 
   // Re-sync local state when the server-rendered list changes (after a
   // router.refresh / filter change).
@@ -71,7 +76,18 @@ export function PipelineBoard({
         toast.error(result.error);
         return;
       }
-      toast.success(`Marked ${GOAL_STATUS_LABELS[target]}.`);
+      if (target === "sale") {
+        // A win — celebrate. Emerald ring + sparkle pulse on the card,
+        // plus an upbeat toast.
+        toast.success("Sale closed — nice work!");
+        setCelebrateId(id);
+        setTimeout(
+          () => setCelebrateId((cur) => (cur === id ? null : cur)),
+          1600,
+        );
+      } else {
+        toast.success(`Marked ${GOAL_STATUS_LABELS[target]}.`);
+      }
       router.refresh();
     });
   }
@@ -81,12 +97,13 @@ export function PipelineBoard({
       data-testid="pipeline-board"
       className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5"
     >
-      {GOAL_STATUSES.map((status) => {
+      {GOAL_STATUSES.map((status, index) => {
         const columnLeads = leads.filter((l) => l.status === status);
         const isOver = overColumn === status;
         return (
           <div
             key={status}
+            style={{ animationDelay: `${index * 60}ms` }}
             onDragOver={(event) => {
               // Required for `drop` to fire on this element.
               event.preventDefault();
@@ -101,7 +118,7 @@ export function PipelineBoard({
               }
             }}
             onDrop={(event) => onDrop(event, status)}
-            className={`flex min-h-[160px] flex-col gap-2 rounded-xl border p-3 transition-colors ${
+            className={`animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex min-h-[160px] flex-col gap-2 rounded-xl border p-3 transition-colors duration-500 ${
               isOver
                 ? "bg-primary/5 border-[color:var(--primary)]"
                 : "border-border bg-card"
@@ -126,6 +143,7 @@ export function PipelineBoard({
                     key={lead.id}
                     lead={lead}
                     isDragging={draggingId === lead.id}
+                    celebrating={celebrateId === lead.id}
                     onDragStart={() => setDraggingId(lead.id)}
                     onDragEnd={() => setDraggingId(null)}
                   />
@@ -142,11 +160,13 @@ export function PipelineBoard({
 function BoardCard({
   lead,
   isDragging,
+  celebrating,
   onDragStart,
   onDragEnd,
 }: {
   lead: PipelineLead;
   isDragging: boolean;
+  celebrating: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
 }) {
@@ -160,11 +180,20 @@ function BoardCard({
         onDragStart();
       }}
       onDragEnd={onDragEnd}
-      className={`bg-background border-border group flex flex-col gap-1.5 rounded-lg border p-3 transition-shadow ${
+      className={`bg-background border-border group relative flex flex-col gap-1.5 rounded-lg border p-3 transition-shadow ${
         isDragging ? "opacity-50" : "hover:shadow-sm"
-      }`}
+      } ${celebrating ? "ring-2 ring-emerald-500/60" : ""}`}
       title="Drag to move; click to open lead"
     >
+      {celebrating ? (
+        <span
+          className="pointer-events-none absolute -top-1.5 -right-1.5 text-emerald-500"
+          aria-hidden
+        >
+          <Sparkles className="size-4 animate-ping" />
+          <Sparkles className="absolute inset-0 size-4" />
+        </span>
+      ) : null}
       <div className="flex min-w-0 items-start justify-between gap-2">
         <Link
           href={`/leads/${lead.id}`}
@@ -175,10 +204,10 @@ function BoardCard({
         </Link>
         {since?.stale ? (
           <span
-            className="bg-primary/10 text-primary inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-            title="Sitting in the pipeline for 2+ weeks"
+            className="inline-flex shrink-0 items-center rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+            title="Sitting in the pipeline without progress for 2+ weeks"
           >
-            Stale
+            Stale{since.staleFor ? ` · ${since.staleFor}` : ""}
           </span>
         ) : null}
       </div>

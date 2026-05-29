@@ -50,6 +50,10 @@ export function PipelineStatStrip({ stats }: { stats: PipelineStats }) {
         href="/goals?status=sale"
         tone="emerald"
         divider
+        // Wins are the whole point of this page — when there are any
+        // this week, give the tile a soft emerald glow as positive
+        // reinforcement (the upbeat inverse of the overdue alarm).
+        glow={stats.salesThisWeek > 0}
       />
     </section>
   );
@@ -62,6 +66,7 @@ function StatLink({
   href,
   tone,
   divider,
+  glow,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -69,6 +74,7 @@ function StatLink({
   href: string;
   tone: "coral" | "emerald" | "red" | "neutral";
   divider?: boolean;
+  glow?: boolean;
 }) {
   const accent = {
     coral: "text-primary",
@@ -80,15 +86,21 @@ function StatLink({
   return (
     <Link
       href={href}
-      className={`group focus-visible:ring-ring/60 hover:bg-muted/40 -mx-2 flex flex-col gap-1 rounded-lg px-2 py-1 transition-colors focus-visible:ring-2 focus-visible:outline-none ${
-        divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""
-      }`}
+      className={`group focus-visible:ring-ring/60 -mx-2 flex flex-col gap-1 rounded-lg px-2 py-1 transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+        glow
+          ? "bg-emerald-500/[0.07] ring-1 ring-emerald-500/25 hover:bg-emerald-500/10"
+          : "hover:bg-muted/40"
+      } ${divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""}`}
     >
       <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
         <span className={accent}>{icon}</span>
         {label}
       </p>
-      <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
+      <p
+        className={`text-2xl leading-none font-medium tabular-nums ${
+          glow ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"
+        }`}
+      >
         {value}
       </p>
     </Link>

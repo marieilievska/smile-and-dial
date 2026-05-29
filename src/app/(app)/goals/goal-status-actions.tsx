@@ -59,6 +59,7 @@ export function GoalStatusActions({
     startTransition(async () => {
       const result = await transitionLeadGoalStatus({ leadId, status });
       if (result.error) toast.error(result.error);
+      else if (status === "sale") toast.success("Sale closed — nice work!");
       else toast.success(`Marked ${GOAL_STATUS_LABELS[status]}.`);
     });
   }

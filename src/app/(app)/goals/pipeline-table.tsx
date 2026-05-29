@@ -84,10 +84,10 @@ export function PipelineTable({ leads }: { leads: PipelineLead[] }) {
                       </Link>
                       {since?.stale ? (
                         <span
-                          className="bg-primary/10 text-primary inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                          title="Sitting in the pipeline for 2+ weeks — worth a nudge"
+                          className="inline-flex items-center rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400"
+                          title="Sitting in the pipeline without progress for 2+ weeks — worth a nudge"
                         >
-                          Stale
+                          Stale{since.staleFor ? ` · ${since.staleFor}` : ""}
                         </span>
                       ) : null}
                     </div>
