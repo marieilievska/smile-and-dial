@@ -1361,7 +1361,9 @@ export type Database = {
           phone_number: string;
           purchased_at: string;
           released_at: string | null;
+          status_webhook_url: string | null;
           twilio_sid: string | null;
+          voice_webhook_url: string | null;
         };
         Insert: {
           attached_campaign_id?: string | null;
@@ -1376,7 +1378,9 @@ export type Database = {
           phone_number: string;
           purchased_at?: string;
           released_at?: string | null;
+          status_webhook_url?: string | null;
           twilio_sid?: string | null;
+          voice_webhook_url?: string | null;
         };
         Update: {
           attached_campaign_id?: string | null;
@@ -1391,7 +1395,9 @@ export type Database = {
           phone_number?: string;
           purchased_at?: string;
           released_at?: string | null;
+          status_webhook_url?: string | null;
           twilio_sid?: string | null;
+          voice_webhook_url?: string | null;
         };
         Relationships: [
           {
