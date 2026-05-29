@@ -59,7 +59,14 @@ export async function forgotPassword(
   // The reset link arrives via email and lands on /auth/confirm, which
   // exchanges the token for a session, then redirects to
   // /auth/set-password — the same page the invite flow uses.
-  const origin = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  // Prefer an explicit site URL, then the canonical deployment URL
+  // (NEXT_PUBLIC_APP_URL, the one actually set in Vercel), then local
+  // dev. Without this, reset emails built on prod fell back to
+  // localhost and the link wouldn't load.
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    "http://localhost:3000";
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${origin}/auth/confirm?next=/auth/set-password`,
   });
