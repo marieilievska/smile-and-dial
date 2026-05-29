@@ -1,4 +1,4 @@
-import { Phone } from "lucide-react";
+import { CircleAlert, CircleCheck, Phone } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
@@ -11,11 +11,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
+import { appWebhookUrls } from "@/lib/twilio/numbers";
 
 import { formatCreatedAt } from "../format-created";
 import { BuyNumberDialog } from "./buy-number-dialog";
 import { ReleaseNumberDialog } from "./release-number-dialog";
+import { RepointWebhooksButton } from "./repoint-button";
 import { TwilioNumbersStatusTabs } from "./status-tabs";
+import { TwilioSyncButton } from "./sync-button";
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
@@ -47,10 +50,16 @@ export default async function TwilioNumbersPage({
   const { data: rawNumbers } = await supabase
     .from("twilio_numbers")
     .select(
-      "id, phone_number, friendly_name, country, monthly_cost, released_at, purchased_at",
+      "id, phone_number, friendly_name, country, monthly_cost, released_at, purchased_at, voice_webhook_url, status_webhook_url",
     )
     .order("purchased_at", { ascending: false });
   const numbers = rawNumbers ?? [];
+
+  // The webhook URLs we *expect* every number to be set to, based on
+  // this deployment's NEXT_PUBLIC_APP_URL. Used to render an
+  // "ok / mismatch / unset" indicator in the Webhooks column. Null
+  // means the env var isn't set on this deployment.
+  const expectedWebhooks = appWebhookUrls();
 
   const counts = {
     all: numbers.length,
@@ -83,7 +92,13 @@ export default async function TwilioNumbersPage({
             The pool of phone numbers your campaigns dial from.
           </p>
         </div>
-        <BuyNumberDialog />
+        {/* Round L2 — Sync sits to the left of Buy. The two buttons
+         *  read as a pair: "Buy a new number" vs "Pull in whatever
+         *  Twilio already has on file." */}
+        <div className="flex items-center gap-2">
+          <TwilioSyncButton />
+          <BuyNumberDialog />
+        </div>
       </div>
 
       {numbers.length > 0 ? (
@@ -108,8 +123,9 @@ export default async function TwilioNumbersPage({
                     <TableHead>Country</TableHead>
                     <TableHead>Monthly cost</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Webhooks</TableHead>
                     <TableHead>Purchased</TableHead>
-                    <TableHead className="w-28" />
+                    <TableHead className="w-48" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -144,6 +160,14 @@ export default async function TwilioNumbersPage({
                           </Badge>
                         )}
                       </TableCell>
+                      <TableCell>
+                        <WebhookStatus
+                          voice={number.voice_webhook_url}
+                          status={number.status_webhook_url}
+                          expected={expectedWebhooks}
+                          released={Boolean(number.released_at)}
+                        />
+                      </TableCell>
                       <TableCell
                         className="text-muted-foreground tabular-nums"
                         title={new Date(number.purchased_at).toLocaleString()}
@@ -152,7 +176,8 @@ export default async function TwilioNumbersPage({
                       </TableCell>
                       <TableCell>
                         {number.released_at ? null : (
-                          <div className="flex justify-end opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                            <RepointWebhooksButton id={number.id} />
                             <ReleaseNumberDialog
                               number={{
                                 id: number.id,
@@ -189,5 +214,82 @@ export default async function TwilioNumbersPage({
         </div>
       )}
     </div>
+  );
+}
+
+/** Round L2 — small visual indicator for the Webhooks column. Three
+ *  states matter to the operator:
+ *    · "Pointed here"   — both URLs match the deployment's expected
+ *                          values. Green check, no action needed.
+ *    · "Pointed elsewhere" — Twilio has SOME URL on file, but it's
+ *                          not us. Amber. The "Point webhooks"
+ *                          button in the row actions fixes it.
+ *    · "Not set"        — Twilio has nothing configured (or the
+ *                          sync hasn't run yet). Muted dash.
+ *    · "Released"       — short-circuit muted dash; the column is
+ *                          irrelevant for released numbers.
+ *  When the deployment doesn't have NEXT_PUBLIC_APP_URL set, we
+ *  can't compute "ok / mismatch" so we say "deployment URL
+ *  missing." */
+function WebhookStatus({
+  voice,
+  status,
+  expected,
+  released,
+}: {
+  voice: string | null;
+  status: string | null;
+  expected: { voiceUrl: string; statusCallback: string } | null;
+  released: boolean;
+}) {
+  if (released) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+  if (!expected) {
+    return (
+      <span
+        className="text-muted-foreground inline-flex items-center gap-1 text-xs"
+        title="NEXT_PUBLIC_APP_URL isn't set on this deployment."
+      >
+        <CircleAlert className="size-3.5" />
+        Deployment URL missing
+      </span>
+    );
+  }
+  if (!voice && !status) {
+    return (
+      <span
+        className="text-muted-foreground inline-flex items-center gap-1 text-xs"
+        title="Hit Sync to refresh from Twilio, or Point webhooks to wire this number."
+      >
+        <CircleAlert className="size-3.5" />
+        Not set
+      </span>
+    );
+  }
+  const voiceMatch = voice === expected.voiceUrl;
+  const statusMatch = status === expected.statusCallback;
+  if (voiceMatch && statusMatch) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400"
+        title={`Voice → ${expected.voiceUrl}\nStatus → ${expected.statusCallback}`}
+      >
+        <CircleCheck className="size-3.5" />
+        Pointed here
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400"
+      title={[
+        `Voice → ${voice ?? "(unset)"} (expected ${expected.voiceUrl})`,
+        `Status → ${status ?? "(unset)"} (expected ${expected.statusCallback})`,
+      ].join("\n")}
+    >
+      <CircleAlert className="size-3.5" />
+      Pointed elsewhere
+    </span>
   );
 }
