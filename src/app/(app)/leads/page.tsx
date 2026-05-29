@@ -17,6 +17,8 @@ import { ActiveFilterChips } from "./active-filter-chips";
 import { BulkActionBar } from "./bulk-action-bar";
 import { ColumnPicker } from "./column-picker";
 import { DEFAULT_COLUMN_KEYS, LEAD_COLUMNS, type DisplayLead } from "./columns";
+import { InlineListCell } from "./inline-list-cell";
+import { InlineStatusCell } from "./inline-status-cell";
 import { LeadRow } from "./lead-row";
 import { LeadRowActions } from "./lead-row-actions";
 import { LeadsFilters } from "./leads-filters";
@@ -98,6 +100,7 @@ export default async function LeadsPage({
     call_attempts: l.call_attempts,
     last_call_at: l.last_call_at,
     next_call_at: l.next_call_at,
+    listId: l.list_id ?? null,
     listName: l.list?.name ?? "—",
     ownerName: ownerName.get(l.owner_id) ?? "—",
   }));
@@ -246,11 +249,38 @@ export default async function LeadsPage({
                     <TableCell className="w-10">
                       <RowCheckbox leadId={lead.id} />
                     </TableCell>
-                    {columns.map((col) => (
-                      <TableCell key={col.key} className={col.width}>
-                        {col.cell(lead)}
-                      </TableCell>
-                    ))}
+                    {columns.map((col) => {
+                      // I3 — Inline editable cells for the columns where
+                      // a per-row picker is the right UX. Everything else
+                      // falls through to the static `col.cell(lead)` so
+                      // there's exactly one place in the page where the
+                      // editable-vs-read-only decision lives.
+                      let body: React.ReactNode;
+                      if (col.key === "status") {
+                        body = (
+                          <InlineStatusCell
+                            leadId={lead.id}
+                            status={lead.status}
+                          />
+                        );
+                      } else if (col.key === "list") {
+                        body = (
+                          <InlineListCell
+                            leadId={lead.id}
+                            listId={lead.listId}
+                            listName={lead.listName}
+                            options={lists ?? []}
+                          />
+                        );
+                      } else {
+                        body = col.cell(lead);
+                      }
+                      return (
+                        <TableCell key={col.key} className={col.width}>
+                          {body}
+                        </TableCell>
+                      );
+                    })}
                     <TableCell className="w-[100px] text-right">
                       <LeadRowActions
                         leadId={lead.id}
