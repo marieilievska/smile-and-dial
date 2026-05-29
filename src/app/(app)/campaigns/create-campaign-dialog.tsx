@@ -73,6 +73,13 @@ export function CreateCampaignDialog({
   const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
   const [goalId, setGoalId] = useState(goals[0]?.id ?? "");
   const [selectedListIds, setSelectedListIds] = useState<string[]>([]);
+  // Inline field errors (round 16) — replaces toast-only validation so
+  // the user sees what's missing right at the field, not in a corner.
+  const [errors, setErrors] = useState<{
+    name?: boolean;
+    agent?: boolean;
+    goal?: boolean;
+  }>({});
 
   function reset() {
     setStep(1);
@@ -80,6 +87,7 @@ export function CreateCampaignDialog({
     setAgentId(agents[0]?.id ?? "");
     setGoalId(goals[0]?.id ?? "");
     setSelectedListIds([]);
+    setErrors({});
   }
 
   function toggleList(id: string) {
@@ -89,18 +97,16 @@ export function CreateCampaignDialog({
   }
 
   function goToStep2() {
-    if (!name.trim()) {
-      toast.error("Give the campaign a name.");
+    const next = {
+      name: !name.trim(),
+      agent: !agentId,
+      goal: !goalId,
+    };
+    if (next.name || next.agent || next.goal) {
+      setErrors(next);
       return;
     }
-    if (!agentId) {
-      toast.error("Pick an agent.");
-      return;
-    }
-    if (!goalId) {
-      toast.error("Pick a goal.");
-      return;
-    }
+    setErrors({});
     setStep(2);
   }
 
@@ -135,7 +141,7 @@ export function CreateCampaignDialog({
           return;
         }
       }
-      toast.success("Campaign created.");
+      toast.success("Campaign created. Your AI is ready to dial.");
       setOpen(false);
       reset();
     });
@@ -149,7 +155,7 @@ export function CreateCampaignDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button>
+        <Button size="lg">
           <Plus className="size-4" />
           New campaign
         </Button>
@@ -168,7 +174,7 @@ export function CreateCampaignDialog({
             <StepDots current={step} />
           </div>
           <DialogTitle className="text-xl">
-            {step === 1 ? "New campaign" : "Attach lists (optional)"}
+            {step === 1 ? "Put your AI to work" : "Attach lists (optional)"}
           </DialogTitle>
           <DialogDescription>
             {step === 1
@@ -184,11 +190,16 @@ export function CreateCampaignDialog({
               label="Name"
               htmlFor="create-campaign-name"
               hint="Short, scannable — appears in the leads table and on reports."
+              error={errors.name ? "Give the campaign a name." : undefined}
             >
               <Input
                 id="create-campaign-name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (errors.name) setErrors((p) => ({ ...p, name: false }));
+                }}
+                aria-invalid={errors.name || undefined}
                 placeholder="Q1 Outbound"
                 required
               />
@@ -199,10 +210,21 @@ export function CreateCampaignDialog({
               label="Agent"
               htmlFor="create-campaign-agent"
               hint="The AI personality + prompt that dials. Build new ones under Settings → Agents."
+              error={errors.agent ? "Pick an agent." : undefined}
             >
               {agents.length > 0 ? (
-                <Select value={agentId} onValueChange={setAgentId}>
-                  <SelectTrigger id="create-campaign-agent">
+                <Select
+                  value={agentId}
+                  onValueChange={(v) => {
+                    setAgentId(v);
+                    if (errors.agent)
+                      setErrors((p) => ({ ...p, agent: false }));
+                  }}
+                >
+                  <SelectTrigger
+                    id="create-campaign-agent"
+                    aria-invalid={errors.agent || undefined}
+                  >
                     <SelectValue placeholder="Choose an agent" />
                   </SelectTrigger>
                   <SelectContent>
@@ -225,10 +247,20 @@ export function CreateCampaignDialog({
               label="Goal"
               htmlFor="create-campaign-goal"
               hint="What the AI is trying to achieve on each call."
+              error={errors.goal ? "Pick a goal." : undefined}
             >
               {goals.length > 0 ? (
-                <Select value={goalId} onValueChange={setGoalId}>
-                  <SelectTrigger id="create-campaign-goal">
+                <Select
+                  value={goalId}
+                  onValueChange={(v) => {
+                    setGoalId(v);
+                    if (errors.goal) setErrors((p) => ({ ...p, goal: false }));
+                  }}
+                >
+                  <SelectTrigger
+                    id="create-campaign-goal"
+                    aria-invalid={errors.goal || undefined}
+                  >
                     <SelectValue placeholder="Choose a goal" />
                   </SelectTrigger>
                   <SelectContent>
@@ -315,8 +347,8 @@ export function CreateCampaignDialog({
           </div>
         )}
 
-        <DialogFooter className="flex flex-row justify-between sm:justify-between">
-          <div>
+        <DialogFooter className="flex flex-row items-center justify-between sm:justify-between">
+          <div className="flex items-center gap-3">
             {step === 2 ? (
               <Button
                 type="button"
@@ -326,6 +358,24 @@ export function CreateCampaignDialog({
               >
                 Back
               </Button>
+            ) : null}
+            {/* Round 16 — explain why Continue is disabled rather than
+                leaving the user staring at a dead button. */}
+            {step === 1 && (agents.length === 0 || goals.length === 0) ? (
+              <p className="text-muted-foreground text-xs">
+                {agents.length === 0 && goals.length === 0
+                  ? "Add an agent and a goal first."
+                  : agents.length === 0
+                    ? "Add an agent first."
+                    : "Add a goal first."}
+              </p>
+            ) : null}
+            {/* Step 2 — reinforce the payoff right next to the create
+                button so the user knows what happens when they click. */}
+            {step === 2 ? (
+              <p className="text-muted-foreground text-xs">
+                Once created, your AI starts dialing inside calling hours.
+              </p>
             ) : null}
           </div>
           <div className="flex gap-2">
@@ -386,12 +436,14 @@ function FieldRow({
   label,
   htmlFor,
   hint,
+  error,
   children,
 }: {
   icon: React.ReactNode;
   label: string;
   htmlFor: string;
   hint?: string;
+  error?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -404,7 +456,14 @@ function FieldRow({
         {label}
       </Label>
       {children}
-      {hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
+      {/* Error takes the hint's slot when present so the row never grows
+          a second line — keeps the form height stable as the user fixes
+          things. */}
+      {error ? (
+        <p className="text-destructive text-xs">{error}</p>
+      ) : hint ? (
+        <p className="text-muted-foreground text-xs">{hint}</p>
+      ) : null}
     </div>
   );
 }
