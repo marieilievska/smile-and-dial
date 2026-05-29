@@ -1,7 +1,6 @@
-import { Clock, Megaphone, Phone } from "lucide-react";
+import { Megaphone, Phone } from "lucide-react";
 import { redirect } from "next/navigation";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -13,12 +12,20 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
 
+import { CampaignBoard, type CampaignCardItem } from "./campaign-board";
+import {
+  attentionRail,
+  CampaignStatusBadge,
+  DialingNowChip,
+  HoursLabel,
+  ListsBadge,
+  OutsideHoursChip,
+  SpendCapBar,
+} from "./campaign-cells";
 import { CampaignNameTrigger } from "./campaign-name-trigger";
 import { CampaignRowActions } from "./campaign-row-actions";
-import {
-  type CampaignData,
-  type TwilioOption,
-} from "./campaign-settings-dialog";
+import { type CampaignData } from "./campaign-settings-dialog";
+import { CampaignViewToggle } from "./campaign-view-toggle";
 import {
   CampaignsStatusTabs,
   type CampaignCounts,
@@ -26,30 +33,12 @@ import {
 import { CampaignsStatStrip } from "./campaigns-stat-strip";
 import { CreateCampaignDialog } from "./create-campaign-dialog";
 import { DeleteCampaignDialog } from "./delete-campaign-dialog";
-import { formatCallingHours, isInsideCallingHours } from "./format-hours";
+import { isInsideCallingHours } from "./format-hours";
 import { fetchCampaignStats, fetchPerCampaignSpend } from "./stats-query";
 
 type Option = { id: string; name: string };
 
 const STATUS_VALUES = new Set(["active", "paused", "draft", "ended", "all"]);
-
-function humanize(status: string): string {
-  return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
-/** Campaign lifecycle palette.
- *  - active  → success (green, dialing right now)
- *  - paused  → warning (yellow, intentionally stopped; needs attention)
- *  - draft   → secondary (grey, not running yet)
- *  - ended   → destructive (red, permanently off; audit only) */
-function statusVariant(
-  status: string,
-): "success" | "warning" | "destructive" | "secondary" {
-  if (status === "active") return "success";
-  if (status === "paused") return "warning";
-  if (status === "ended") return "destructive";
-  return "secondary";
-}
 
 function str(value: string | string[] | undefined): string {
   return typeof value === "string" ? value : "";
@@ -58,12 +47,16 @@ function str(value: string | string[] | undefined): string {
 export default async function CampaignsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; view?: string }>;
 }) {
   const params = await searchParams;
   const statusFilter = STATUS_VALUES.has(str(params.status))
     ? str(params.status)
     : "active";
+  // Board is the default lens — it reads like a live operations board.
+  // ?view=table opts into the dense sortable columns.
+  const view: "table" | "board" =
+    str(params.view) === "table" ? "table" : "board";
 
   const supabase = await createClient();
   const {
@@ -158,7 +151,7 @@ export default async function CampaignsPage({
 
   const allNumbers = rawNumbers ?? [];
   const unattachedNumbers = allNumbers.filter((n) => !n.attached_campaign_id);
-  function numbersForCampaign(twilioNumberId: string | null): TwilioOption[] {
+  function numbersForCampaign(twilioNumberId: string | null) {
     const list = unattachedNumbers.map((n) => ({
       id: n.id,
       phone_number: n.phone_number,
@@ -223,9 +216,54 @@ export default async function CampaignsPage({
     statusFilter === "all" ? true : c.status === statusFilter,
   );
 
+  // Build the view model once — the table and the board both render
+  // from this, so the live signals stay identical across views.
+  const viewModels: CampaignCardItem[] = campaigns.map((campaign) => {
+    const data: CampaignData = {
+      id: campaign.id,
+      name: campaign.name,
+      description: campaign.description,
+      agent_id: campaign.agent_id,
+      goal_id: campaign.goal_id,
+      twilio_number_id: campaign.twilio_number_id,
+      calling_hours_start: campaign.calling_hours_start,
+      calling_hours_end: campaign.calling_hours_end,
+      calls_per_hour_cap: campaign.calls_per_hour_cap,
+      calls_per_day_cap: campaign.calls_per_day_cap,
+      concurrency_cap_per_user: campaign.concurrency_cap_per_user,
+      transfer_destination_phone: campaign.transfer_destination_phone,
+      daily_spend_cap: campaign.daily_spend_cap,
+      monthly_spend_cap: campaign.monthly_spend_cap,
+    };
+    const today = perCampaignSpend.get(campaign.id);
+    return {
+      data,
+      status: campaign.status,
+      agentName: campaign.agent_name,
+      goalName: campaign.goal_name,
+      twilioPhone: campaign.twilio_phone,
+      description: campaign.description,
+      listCount: (campaignToListIds.get(campaign.id) ?? []).length,
+      callsToday: today?.callsToday ?? 0,
+      spendToday: today?.spendToday ?? 0,
+      dailyCap: campaign.daily_spend_cap,
+      insideHours: isInsideCallingHours(
+        campaign.calling_hours_start,
+        campaign.calling_hours_end,
+        now,
+      ),
+      isActive: campaign.status === "active",
+      callingHoursStart: campaign.calling_hours_start,
+      callingHoursEnd: campaign.calling_hours_end,
+      twilioNumbers: numbersForCampaign(campaign.twilio_number_id),
+      eligibleLists: eligibleListsFor(campaign.id),
+      currentListIds: campaignToListIds.get(campaign.id) ?? [],
+    };
+  });
+
   return (
     <div className="flex flex-col gap-5 p-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex items-start justify-between gap-4 delay-75 duration-500">
         <div className="flex flex-col gap-1.5">
           <h1 className="text-foreground text-2xl font-bold tracking-tight">
             Campaigns
@@ -242,224 +280,158 @@ export default async function CampaignsPage({
         />
       </div>
 
-      <CampaignsStatStrip stats={stats} />
-
-      <div className="flex flex-wrap items-center gap-2">
-        <CampaignsStatusTabs current={statusFilter} counts={tabCounts} />
+      <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both delay-100 duration-500">
+        <CampaignsStatStrip stats={stats} />
       </div>
 
-      {campaigns.length > 0 ? (
-        <div className="border-border overflow-x-auto rounded-lg border">
-          <Table className="table-fixed">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[28%] min-w-[240px]">
-                  Campaign
-                </TableHead>
-                <TableHead className="w-[110px]">Status</TableHead>
-                <TableHead className="w-[150px]">Agent</TableHead>
-                <TableHead className="w-[130px]">Goal</TableHead>
-                <TableHead className="w-[80px]">Lists</TableHead>
-                <TableHead className="w-[120px]">Hours</TableHead>
-                <TableHead className="w-[110px]">Calls today</TableHead>
-                <TableHead className="w-[160px]">Spend today</TableHead>
-                <TableHead
-                  className="bg-background sticky right-0 z-10 w-[280px] shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)]"
-                  aria-label="Row actions"
-                />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {campaigns.map((campaign) => {
-                const data: CampaignData = {
-                  id: campaign.id,
-                  name: campaign.name,
-                  description: campaign.description,
-                  agent_id: campaign.agent_id,
-                  goal_id: campaign.goal_id,
-                  twilio_number_id: campaign.twilio_number_id,
-                  calling_hours_start: campaign.calling_hours_start,
-                  calling_hours_end: campaign.calling_hours_end,
-                  calls_per_hour_cap: campaign.calls_per_hour_cap,
-                  calls_per_day_cap: campaign.calls_per_day_cap,
-                  concurrency_cap_per_user: campaign.concurrency_cap_per_user,
-                  transfer_destination_phone:
-                    campaign.transfer_destination_phone,
-                  daily_spend_cap: campaign.daily_spend_cap,
-                  monthly_spend_cap: campaign.monthly_spend_cap,
-                };
-                const listCount = (campaignToListIds.get(campaign.id) ?? [])
-                  .length;
-                const today = perCampaignSpend.get(campaign.id);
-                const callsToday = today?.callsToday ?? 0;
-                const spendToday = today?.spendToday ?? 0;
-                const dailyCap = campaign.daily_spend_cap;
-                const insideHours = isInsideCallingHours(
-                  campaign.calling_hours_start,
-                  campaign.calling_hours_end,
-                  now,
-                );
-                const isActive = campaign.status === "active";
-                return (
-                  <TableRow key={campaign.id} className="group">
-                    {/* Primary cell — campaign name is a Settings
-                        trigger. Description (when present) folds onto
-                        the second line as muted small text. */}
-                    <TableCell className="w-[28%] min-w-[240px]">
-                      <div className="flex min-w-0 flex-col gap-0.5">
-                        <CampaignNameTrigger
-                          name={campaign.name}
-                          campaign={data}
-                          agents={agentOptions}
-                          goals={goalOptions}
-                          twilioNumbers={numbersForCampaign(
-                            campaign.twilio_number_id,
-                          )}
-                          kbsByAgent={kbsByAgent}
-                          eligibleLists={eligibleListsFor(campaign.id)}
-                          currentListIds={
-                            campaignToListIds.get(campaign.id) ?? []
-                          }
-                        />
-                        {campaign.twilio_phone || campaign.description ? (
-                          <span className="text-muted-foreground truncate text-[11px]">
-                            {campaign.twilio_phone ? (
-                              <span className="font-mono">
-                                {campaign.twilio_phone}
-                              </span>
-                            ) : null}
-                            {campaign.twilio_phone && campaign.description
-                              ? " · "
-                              : ""}
-                            {campaign.description ?? ""}
-                          </span>
-                        ) : null}
-                      </div>
-                    </TableCell>
+      <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-wrap items-center gap-2 delay-150 duration-500">
+        <CampaignsStatusTabs current={statusFilter} counts={tabCounts} />
+        <div className="flex-1" />
+        <CampaignViewToggle current={view} />
+      </div>
 
-                    <TableCell className="w-[110px]">
-                      <Badge variant={statusVariant(campaign.status)} dot>
-                        {humanize(campaign.status)}
-                      </Badge>
-                    </TableCell>
+      <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both delay-200 duration-500">
+        {campaigns.length === 0 ? (
+          <EmptyState filtered={allCampaigns.length > 0} />
+        ) : view === "board" ? (
+          <CampaignBoard
+            campaigns={viewModels}
+            agents={agentOptions}
+            goals={goalOptions}
+            kbsByAgent={kbsByAgent}
+          />
+        ) : (
+          <div className="border-border overflow-x-auto rounded-lg border">
+            <Table className="table-fixed">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[28%] min-w-[240px]">
+                    Campaign
+                  </TableHead>
+                  <TableHead className="w-[120px]">Status</TableHead>
+                  <TableHead className="w-[150px]">Agent</TableHead>
+                  <TableHead className="w-[130px]">Goal</TableHead>
+                  <TableHead className="w-[80px]">Lists</TableHead>
+                  <TableHead className="w-[120px]">Hours</TableHead>
+                  <TableHead className="w-[110px]">Calls today</TableHead>
+                  <TableHead className="w-[160px]">Spend today</TableHead>
+                  <TableHead
+                    className="bg-background sticky right-0 z-10 w-[280px] shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)]"
+                    aria-label="Row actions"
+                  />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {viewModels.map((c) => {
+                  const rail = attentionRail({
+                    isActive: c.isActive,
+                    insideHours: c.insideHours,
+                    listCount: c.listCount,
+                  });
+                  return (
+                    <TableRow key={c.data.id} className="group">
+                      {/* Primary cell — campaign name is a Settings
+                          trigger. Phone + description fold onto the
+                          second line. Left rail flags rows needing a
+                          look. */}
+                      <TableCell
+                        className={`w-[28%] min-w-[240px] border-l-[3px] ${rail}`}
+                      >
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                          <CampaignNameTrigger
+                            name={c.data.name}
+                            campaign={c.data}
+                            agents={agentOptions}
+                            goals={goalOptions}
+                            twilioNumbers={c.twilioNumbers}
+                            kbsByAgent={kbsByAgent}
+                            eligibleLists={c.eligibleLists}
+                            currentListIds={c.currentListIds}
+                          />
+                          {c.twilioPhone || c.description ? (
+                            <span className="text-muted-foreground truncate text-[11px]">
+                              {c.twilioPhone ? (
+                                <span className="font-mono">
+                                  {c.twilioPhone}
+                                </span>
+                              ) : null}
+                              {c.twilioPhone && c.description ? " · " : ""}
+                              {c.description ?? ""}
+                            </span>
+                          ) : null}
+                        </div>
+                      </TableCell>
 
-                    <TableCell className="text-muted-foreground w-[150px] truncate">
-                      {campaign.agent_name}
-                    </TableCell>
+                      <TableCell className="w-[120px]">
+                        <div className="flex flex-col items-start gap-1">
+                          <CampaignStatusBadge status={c.status} />
+                          {c.isActive && c.insideHours ? (
+                            <DialingNowChip />
+                          ) : null}
+                        </div>
+                      </TableCell>
 
-                    <TableCell className="text-muted-foreground w-[130px] truncate">
-                      {campaign.goal_name}
-                    </TableCell>
+                      <TableCell className="text-muted-foreground w-[150px] truncate">
+                        {c.agentName}
+                      </TableCell>
 
-                    <TableCell className="w-[80px]">
-                      {listCount === 0 ? (
-                        <span
-                          className="bg-primary/10 text-primary inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                          title="No lists attached — this campaign won't dial."
-                        >
-                          0 lists
+                      <TableCell className="text-muted-foreground w-[130px] truncate">
+                        {c.goalName}
+                      </TableCell>
+
+                      <TableCell className="w-[80px]">
+                        <ListsBadge count={c.listCount} />
+                      </TableCell>
+
+                      <TableCell className="w-[120px]">
+                        <div className="flex flex-col gap-0.5">
+                          <HoursLabel
+                            start={c.callingHoursStart}
+                            end={c.callingHoursEnd}
+                          />
+                          {c.isActive && !c.insideHours ? (
+                            <OutsideHoursChip />
+                          ) : null}
+                        </div>
+                      </TableCell>
+
+                      <TableCell className="w-[110px]">
+                        <span className="text-foreground inline-flex items-center gap-1 text-xs tabular-nums">
+                          <Phone className="size-3 shrink-0" />
+                          {c.callsToday.toLocaleString()}
                         </span>
-                      ) : (
-                        <span className="text-foreground text-xs tabular-nums">
-                          {listCount} list{listCount === 1 ? "" : "s"}
-                        </span>
-                      )}
-                    </TableCell>
+                      </TableCell>
 
-                    <TableCell className="w-[120px]">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-foreground inline-flex items-center gap-1 text-xs">
-                          <Clock className="size-3 shrink-0" />
-                          {formatCallingHours(
-                            campaign.calling_hours_start,
-                            campaign.calling_hours_end,
-                          )}
-                        </span>
-                        {isActive && !insideHours ? (
-                          <span
-                            className="text-warning text-[10px]"
-                            title="Current time is outside calling hours; the dialer won't start new calls."
-                          >
-                            Outside hours
-                          </span>
-                        ) : null}
-                      </div>
-                    </TableCell>
+                      <TableCell className="w-[160px]">
+                        <SpendCapBar spend={c.spendToday} cap={c.dailyCap} />
+                      </TableCell>
 
-                    <TableCell className="w-[110px]">
-                      <span className="text-foreground inline-flex items-center gap-1 text-xs tabular-nums">
-                        <Phone className="size-3 shrink-0" />
-                        {callsToday.toLocaleString()}
-                      </span>
-                    </TableCell>
-
-                    <TableCell className="w-[160px]">
-                      <SpendCapBar spend={spendToday} cap={dailyCap} />
-                    </TableCell>
-
-                    <TableCell className="bg-background sticky right-0 z-10 w-[280px] text-right shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)] transition-colors group-hover:bg-[color-mix(in_oklab,var(--muted)_50%,var(--background))]">
-                      <div className="ml-auto flex items-center justify-end gap-1">
-                        <CampaignRowActions
-                          campaign={{
-                            id: campaign.id,
-                            name: campaign.name,
-                            status: campaign.status,
-                          }}
-                        />
-                        <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                          <DeleteCampaignDialog
+                      <TableCell className="bg-background sticky right-0 z-10 w-[280px] text-right shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)] transition-colors group-hover:bg-[color-mix(in_oklab,var(--muted)_50%,var(--background))]">
+                        <div className="ml-auto flex items-center justify-end gap-1">
+                          <CampaignRowActions
                             campaign={{
-                              id: campaign.id,
-                              name: campaign.name,
+                              id: c.data.id,
+                              name: c.data.name,
+                              status: c.status,
                             }}
                           />
+                          <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                            <DeleteCampaignDialog
+                              campaign={{
+                                id: c.data.id,
+                                name: c.data.name,
+                              }}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      ) : (
-        <EmptyState filtered={allCampaigns.length > 0} />
-      )}
-    </div>
-  );
-}
-
-/** Inline spend-cap bar in the Spend today column. Renders the
- *  current spend with a thin progress bar against the daily cap.
- *  Coral when nearing the cap (>80%), red when over. Falls back to
- *  the dollar number alone when no cap is set. */
-function SpendCapBar({ spend, cap }: { spend: number; cap: number | null }) {
-  const dollars = `$${spend.toFixed(2)}`;
-  if (!cap || cap <= 0) {
-    return (
-      <span className="text-foreground font-mono text-xs tabular-nums">
-        {dollars}
-      </span>
-    );
-  }
-  const pct = Math.min(100, Math.round((spend / cap) * 100));
-  const tone =
-    pct >= 100
-      ? "bg-destructive"
-      : pct >= 80
-        ? "bg-primary"
-        : "bg-foreground/70";
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-foreground font-mono text-xs tabular-nums">
-        {dollars}{" "}
-        <span className="text-muted-foreground">/ ${cap.toFixed(0)}</span>
-      </span>
-      <div className="bg-muted h-1 w-full overflow-hidden rounded-full">
-        <div
-          className={`h-full ${tone} transition-[width] duration-300`}
-          style={{ width: `${pct}%` }}
-        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -487,12 +459,18 @@ function EmptyState({ filtered }: { filtered: boolean }) {
   // avoids strict-mode collisions in Playwright + cuts client bundle.
   return (
     <div className="border-border flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
-      <Megaphone className="text-muted-foreground size-8" />
-      <p className="text-foreground text-sm font-medium">No campaigns yet</p>
+      <div className="bg-primary/10 flex size-12 items-center justify-center rounded-full">
+        <Megaphone className="text-primary size-6" />
+      </div>
+      <p className="text-foreground text-sm font-medium">
+        Put your AI callers to work
+      </p>
       <p className="text-muted-foreground max-w-md text-sm">
-        Click <span className="font-medium">New campaign</span> above to build
-        your first one — you&apos;ll pick an agent, a goal, a Twilio number, and
-        the lists to call.
+        A campaign is what sets the AI dialing — point it at an agent, a goal,
+        and the lists to call, and it works the phones for you within the hours
+        and caps you set. Click{" "}
+        <span className="font-medium">New campaign</span> above to launch your
+        first one.
       </p>
     </div>
   );

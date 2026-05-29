@@ -144,7 +144,10 @@ test.describe("Campaigns", () => {
 
     // Round 14 — default tab is Active; lifecycle ends with Ended,
     // so use ?status=all to keep the row visible through every state.
-    await page.goto("/campaigns?status=all");
+    // Round (campaigns modernize) — /campaigns now defaults to the
+    // board (card) view; this lifecycle test asserts on table `row`
+    // semantics, so pin it to ?view=table.
+    await page.goto("/campaigns?status=all&view=table");
     // Scope to the original row, not the cloned "(copy)" row that
     // appears partway through the test. The row's accessible name
     // includes phone+description etc, so match on hasText.

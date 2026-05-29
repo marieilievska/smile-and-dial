@@ -38,8 +38,12 @@ import {
  *  rendered alongside this one. */
 export function CampaignRowActions({
   campaign,
+  variant = "row",
 }: {
   campaign: { id: string; name: string; status: string };
+  /** `row` = hover-only on a table row; `card` = always visible on a
+   *  board card. */
+  variant?: "row" | "card";
 }) {
   const [pending, startTransition] = useTransition();
   const [endOpen, setEndOpen] = useState(false);
@@ -68,7 +72,11 @@ export function CampaignRowActions({
       data-testid="campaign-row-actions"
       onClick={stop}
       onKeyDown={stop}
-      className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+      className={
+        variant === "row"
+          ? "ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+          : "flex flex-wrap items-center gap-1"
+      }
     >
       {isActive ? (
         <Button

@@ -18,6 +18,9 @@ export function CampaignsStatStrip({ stats }: { stats: CampaignStats }) {
         value={stats.active.toLocaleString()}
         href="/campaigns?status=active"
         tone="coral"
+        // When campaigns are live, the tile goes green with a soft
+        // pulse — the AI is dialing right now.
+        pulse={stats.active > 0}
       />
       <StatLink
         icon={<PauseCircle className="size-3.5" />}
@@ -52,6 +55,7 @@ function StatLink({
   href,
   tone,
   divider,
+  pulse,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -59,8 +63,10 @@ function StatLink({
   href: string;
   tone: "coral" | "warning" | "neutral";
   divider?: boolean;
+  pulse?: boolean;
 }) {
-  const accent = toneClass(tone);
+  // A live tile goes green with a soft pulse around the icon.
+  const accent = pulse ? "text-success" : toneClass(tone);
   return (
     <Link
       href={href}
@@ -69,10 +75,22 @@ function StatLink({
       }`}
     >
       <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
-        <span className={accent}>{icon}</span>
+        <span className={`relative inline-flex ${accent}`}>
+          {pulse ? (
+            <span
+              className="bg-success absolute -inset-1 inline-flex animate-ping rounded-full opacity-50"
+              aria-hidden
+            />
+          ) : null}
+          <span className="relative">{icon}</span>
+        </span>
         {label}
       </p>
-      <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
+      <p
+        className={`text-2xl leading-none font-medium tabular-nums ${
+          pulse ? "text-success" : "text-foreground"
+        }`}
+      >
         {value}
       </p>
     </Link>
