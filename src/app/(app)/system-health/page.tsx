@@ -11,7 +11,9 @@ import {
   type SystemEvent,
 } from "./system-events-table";
 import { SystemHealthFilters } from "./system-health-filters";
+import { SystemHealthKindBreakdown } from "./system-health-kind-breakdown";
 import { SystemHealthStatStrip } from "./system-health-stat-strip";
+import { SystemHealthVerdict } from "./system-health-verdict";
 import {
   countBySeverity,
   fetchSystemHealthStats,
@@ -163,19 +165,29 @@ export default async function SystemHealthPage({
             System Health
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Last {RESULT_CAP} events ·{" "}
+            Errors and warnings first ·{" "}
             <span className="text-foreground font-medium tabular-nums">
               {decorated.length.toLocaleString()}
             </span>{" "}
-            match current filters
+            of the last {RESULT_CAP} events match your filters
           </p>
         </div>
         <AutoRefresh enabled={auto} />
       </div>
 
+      <SystemHealthVerdict
+        errors={headlineStats.errors24h}
+        warns={headlineStats.warns24h}
+      />
+
       <SystemHealthStatStrip
         stats={headlineStats}
         now={new Date().toISOString()}
+      />
+
+      <SystemHealthKindBreakdown
+        byKind={headlineStats.byKind}
+        total={headlineStats.total24h}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -212,14 +224,15 @@ export default async function SystemHealthPage({
           data-testid="system-events-empty"
           className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center"
         >
-          <ListChecks className="text-muted-foreground size-8" />
+          <ListChecks className="text-success size-8" />
           <p className="text-foreground text-sm font-medium">
-            No system events match these filters
+            Nothing here — all quiet
           </p>
           <p className="text-muted-foreground max-w-sm text-sm">
-            Events are written by the dialer, the spend-cap and connect-rate
-            monitors, manual outcome overrides, and merge / cancel flows. Try
-            widening the date range or switching the severity tab.
+            No system events match these filters. Events are written by the
+            dialer, the spend-cap and connect-rate monitors, manual outcome
+            overrides, and merge / cancel flows. Try widening the date range or
+            switching the severity tab.
           </p>
         </div>
       )}

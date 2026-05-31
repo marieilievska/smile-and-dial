@@ -6,9 +6,11 @@ import {
   Check,
   Copy,
   ExternalLink,
+  Layers,
+  List,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,17 +41,28 @@ export type SystemEvent = {
   created_at: string;
 };
 
-/** Table for the system_events list. Round 22 — replaces the
- *  always-truncated single-line table with an expandable row pattern:
+function sevVariantFor(
+  severity: Severity,
+): "destructive" | "warning" | "secondary" {
+  return severity === "error"
+    ? "destructive"
+    : severity === "warn"
+      ? "warning"
+      : "secondary";
+}
+
+function sevLabelFor(severity: Severity): string {
+  return severity[0].toUpperCase() + severity.slice(1);
+}
+
+/** Table for the system_events list.
  *
- *  - Each row click toggles an expanded panel beneath it that shows
- *    the full pretty-printed payload + a "Copy JSON" button.
- *  - The Kind column shows the humanized label + raw snake_case
- *    underneath, so admins can scan AND copy.
- *  - Ref column links to the underlying object when the ref_table is
- *    known.
- *  - "When" humanizes to "2m ago" / "Yesterday" / "May 12" with the
- *    absolute timestamp on hover. */
+ *  Flat mode (default) shows one expandable row per event. "Group
+ *  similar" collapses events of the same kind into a single cluster
+ *  row ("Dialer failure ×40 · latest 2m ago") that expands to its
+ *  members — so a noisy incident reads as one line instead of a wall.
+ *  Each row / member expands again to the pretty-printed payload with
+ *  a Copy JSON button. */
 export function SystemEventsTable({
   events,
   now,
@@ -59,6 +72,7 @@ export function SystemEventsTable({
   now: string;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [grouped, setGrouped] = useState(false);
 
   function toggle(id: string) {
     setExpanded((prev) => {
@@ -71,39 +85,229 @@ export function SystemEventsTable({
 
   const nowDate = new Date(now);
 
+  // Cluster by kind, count-descending. Events arrive newest-first, so
+  // members keep that order and the cluster's "latest" is its first.
+  const clusters = useMemo(() => {
+    const byKind = new Map<string, SystemEvent[]>();
+    for (const e of events) {
+      const list = byKind.get(e.kind);
+      if (list) list.push(e);
+      else byKind.set(e.kind, [e]);
+    }
+    return Array.from(byKind.entries())
+      .map(([kind, members]) => ({ kind, members }))
+      .sort((a, b) => b.members.length - a.members.length);
+  }, [events]);
+
   return (
-    <div
-      data-testid="system-events-table"
-      className="border-border overflow-hidden rounded-lg border"
-    >
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-8" />
-            <TableHead className="w-32">When</TableHead>
-            <TableHead className="w-28">Severity</TableHead>
-            <TableHead>Event</TableHead>
-            <TableHead>Reference</TableHead>
-            <TableHead>Actor</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {events.map((e) => {
-            const isExpanded = expanded.has(e.id);
-            return (
-              <EventRow
-                key={e.id}
-                event={e}
-                whenLabel={formatEventWhen(e.created_at, nowDate)}
-                whenTooltip={new Date(e.created_at).toLocaleString()}
-                isExpanded={isExpanded}
-                onToggle={() => toggle(e.id)}
-              />
-            );
-          })}
-        </TableBody>
-      </Table>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-muted-foreground text-xs">
+          {grouped
+            ? `${clusters.length.toLocaleString()} event ${clusters.length === 1 ? "kind" : "kinds"}`
+            : `${events.length.toLocaleString()} ${events.length === 1 ? "event" : "events"}`}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setGrouped((g) => !g)}
+          data-testid="group-similar-toggle"
+          data-grouped={grouped ? "true" : "false"}
+        >
+          {grouped ? (
+            <>
+              <List className="size-3.5" />
+              Show individually
+            </>
+          ) : (
+            <>
+              <Layers className="size-3.5" />
+              Group similar
+            </>
+          )}
+        </Button>
+      </div>
+
+      <div
+        data-testid="system-events-table"
+        className="border-border overflow-hidden rounded-lg border"
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-8" />
+              <TableHead className="w-32">When</TableHead>
+              <TableHead className="w-28">Severity</TableHead>
+              <TableHead>Event</TableHead>
+              {grouped ? null : <TableHead>Reference</TableHead>}
+              {grouped ? null : <TableHead>Actor</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {grouped
+              ? clusters.map((c) => (
+                  <ClusterRow
+                    key={c.kind}
+                    kind={c.kind}
+                    members={c.members}
+                    nowDate={nowDate}
+                    isExpanded={expanded.has(`cluster:${c.kind}`)}
+                    onToggle={() => toggle(`cluster:${c.kind}`)}
+                  />
+                ))
+              : events.map((e) => (
+                  <EventRow
+                    key={e.id}
+                    event={e}
+                    whenLabel={formatEventWhen(e.created_at, nowDate)}
+                    whenTooltip={new Date(e.created_at).toLocaleString()}
+                    isExpanded={expanded.has(e.id)}
+                    onToggle={() => toggle(e.id)}
+                  />
+                ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
+  );
+}
+
+function ClusterRow({
+  kind,
+  members,
+  nowDate,
+  isExpanded,
+  onToggle,
+}: {
+  kind: string;
+  members: SystemEvent[];
+  nowDate: Date;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const severity = members[0]?.severity ?? "info";
+  const latest = members[0]?.created_at;
+  const count = members.length;
+  return (
+    <>
+      <TableRow
+        className="hover:bg-muted/40 group cursor-pointer transition-colors"
+        data-severity={severity}
+        onClick={onToggle}
+      >
+        <TableCell className="w-8 align-middle">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? "Hide events" : "Show events"}
+            className="text-muted-foreground hover:text-foreground hover:bg-muted/60 inline-flex size-6 items-center justify-center rounded-md transition-colors"
+          >
+            {isExpanded ? (
+              <ChevronDown className="size-3.5" />
+            ) : (
+              <ChevronRight className="size-3.5" />
+            )}
+          </button>
+        </TableCell>
+        <TableCell className="text-muted-foreground tabular-nums">
+          {latest ? formatEventWhen(latest, nowDate) : "—"}
+        </TableCell>
+        <TableCell>
+          <Badge variant={sevVariantFor(severity)} dot>
+            {sevLabelFor(severity)}
+          </Badge>
+        </TableCell>
+        <TableCell colSpan={3}>
+          <div className="flex items-center gap-2">
+            <span className="text-foreground font-medium">
+              {humanizeKind(kind)}
+            </span>
+            <Badge variant="secondary" className="tabular-nums">
+              ×{count.toLocaleString()}
+            </Badge>
+            <code className="text-muted-foreground/80 font-mono text-[10px]">
+              {kind}
+            </code>
+          </div>
+        </TableCell>
+      </TableRow>
+      {isExpanded ? (
+        <TableRow className="bg-muted/30">
+          <TableCell />
+          <TableCell colSpan={5}>
+            <ul className="flex flex-col gap-1 py-1">
+              {members.map((m) => (
+                <ClusterMember key={m.id} event={m} nowDate={nowDate} />
+              ))}
+            </ul>
+          </TableCell>
+        </TableRow>
+      ) : null}
+    </>
+  );
+}
+
+function ClusterMember({
+  event,
+  nowDate,
+}: {
+  event: SystemEvent;
+  nowDate: Date;
+}) {
+  const [open, setOpen] = useState(false);
+  const refHref = refHrefFor(event.ref_table, event.ref_id);
+  return (
+    <li className="border-border/50 flex flex-col gap-1 border-b py-1.5 last:border-b-0">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+        >
+          {open ? (
+            <ChevronDown className="size-3" />
+          ) : (
+            <ChevronRight className="size-3" />
+          )}
+          <span
+            className="tabular-nums"
+            title={new Date(event.created_at).toLocaleString()}
+          >
+            {formatEventWhen(event.created_at, nowDate)}
+          </span>
+        </button>
+        {event.ref_table ? (
+          <span className="text-muted-foreground inline-flex items-center gap-1">
+            {refLabelFor(event.ref_table)}
+            {refHref ? (
+              <Link
+                href={refHref}
+                className="hover:text-foreground inline-flex items-center gap-1 font-mono text-[10px] underline-offset-4 hover:underline"
+              >
+                {(event.ref_id ?? "—").slice(0, 8)}
+                <ExternalLink className="size-2.5" />
+              </Link>
+            ) : (
+              <code className="font-mono text-[10px]">
+                {(event.ref_id ?? "—").slice(0, 8)}
+              </code>
+            )}
+          </span>
+        ) : null}
+        <span className="text-muted-foreground">
+          {event.actor_name ?? (event.actor_user_id ? "—" : "system")}
+        </span>
+      </div>
+      {open ? (
+        <PayloadPanel payload={event.payload} eventId={event.id} />
+      ) : null}
+    </li>
   );
 }
 
@@ -121,13 +325,6 @@ function EventRow({
   onToggle: () => void;
 }) {
   const refHref = refHrefFor(event.ref_table, event.ref_id);
-  const sevVariant: "destructive" | "warning" | "secondary" =
-    event.severity === "error"
-      ? "destructive"
-      : event.severity === "warn"
-        ? "warning"
-        : "secondary";
-  const sevLabel = event.severity[0].toUpperCase() + event.severity.slice(1);
   return (
     <>
       <TableRow
@@ -162,8 +359,8 @@ function EventRow({
           {whenLabel}
         </TableCell>
         <TableCell>
-          <Badge variant={sevVariant} dot>
-            {sevLabel}
+          <Badge variant={sevVariantFor(event.severity)} dot>
+            {sevLabelFor(event.severity)}
           </Badge>
         </TableCell>
         <TableCell>

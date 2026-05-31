@@ -1,13 +1,21 @@
-import { Activity, AlertCircle, AlertTriangle, Clock } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
+  Clock,
+} from "lucide-react";
 import Link from "next/link";
 
 import { formatEventWhen } from "./format-when";
 import type { SystemHealthStats } from "./stats-query";
 
 /** 4-tile stat strip at the top of /system-health. Errors / Warnings /
- *  Total events / Last event time across the last 24h. The Errors and
- *  Warnings tiles are clickable filter shortcuts; Last event is
- *  read-only context. */
+ *  Total events / Last event time across the last 24h. Errors and
+ *  Warnings are clickable filter shortcuts and each carries a
+ *  vs-yesterday delta (up = bad here, so up is red). Events shows an
+ *  events-per-hour sparkline; Last event is read-only context. */
 export function SystemHealthStatStrip({
   stats,
   now,
@@ -21,6 +29,13 @@ export function SystemHealthStatStrip({
   const lastEventLabel = stats.lastEventAt
     ? formatEventWhen(stats.lastEventAt, nowDate)
     : "—";
+
+  // Fractional change vs the previous 24h window. null when there was
+  // nothing in the prior window to compare against (avoids /0 and a
+  // misleading "+∞%").
+  const delta = (current: number, prev: number): number | null =>
+    prev > 0 ? (current - prev) / prev : null;
+
   return (
     <section
       data-testid="system-health-stat-strip"
@@ -32,13 +47,15 @@ export function SystemHealthStatStrip({
         value={stats.errors24h.toLocaleString()}
         href="/system-health?severity=error"
         tone="red"
+        delta={delta(stats.errors24h, stats.prevErrors24h)}
       />
       <StatLink
         icon={<AlertTriangle className="size-3.5" />}
         label="Warnings · 24h"
         value={stats.warns24h.toLocaleString()}
         href="/system-health?severity=warn"
-        tone="coral"
+        tone="amber"
+        delta={delta(stats.warns24h, stats.prevWarns24h)}
         divider
       />
       <StatLink
@@ -47,6 +64,7 @@ export function SystemHealthStatStrip({
         value={stats.total24h.toLocaleString()}
         href="/system-health"
         tone="neutral"
+        spark={stats.hourly}
         divider
       />
       <StatTile
@@ -71,17 +89,21 @@ function StatLink({
   value,
   href,
   tone,
+  delta,
+  spark,
   divider,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   href: string;
-  tone: "coral" | "red" | "neutral";
+  tone: "amber" | "red" | "neutral";
+  delta?: number | null;
+  spark?: number[];
   divider?: boolean;
 }) {
   const accent = {
-    coral: "text-primary",
+    amber: "text-warning",
     red: "text-destructive",
     neutral: "text-muted-foreground",
   }[tone];
@@ -99,7 +121,67 @@ function StatLink({
       <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
         {value}
       </p>
+      {delta != null ? <DeltaChip delta={delta} /> : null}
+      {spark && spark.length >= 2 ? <Sparkline values={spark} /> : null}
     </Link>
+  );
+}
+
+/** vs-previous-24h delta. Up is red — for a health page, more errors /
+ *  warnings is the thing to notice, not celebrate. */
+function DeltaChip({ delta }: { delta: number }) {
+  const pct = Math.round(Math.abs(delta) * 100);
+  if (pct === 0) {
+    return (
+      <span className="text-muted-foreground text-[11px]">
+        Flat vs prev 24h
+      </span>
+    );
+  }
+  const up = delta > 0;
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 text-[11px] tabular-nums ${up ? "text-destructive" : "text-success"}`}
+    >
+      {up ? (
+        <ArrowUpRight className="size-3" />
+      ) : (
+        <ArrowDownRight className="size-3" />
+      )}
+      {pct}% vs prev 24h
+    </span>
+  );
+}
+
+function Sparkline({ values }: { values: number[] }) {
+  const width = 120;
+  const height = 22;
+  const max = Math.max(0.01, ...values);
+  const step = width / (values.length - 1);
+  const points = values
+    .map((v, i) => {
+      const x = i * step;
+      const y = height - (v / max) * height;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="mt-0.5 h-5 w-full"
+      role="img"
+      aria-label="Events per hour over the last 24 hours"
+      style={{ color: "var(--muted-foreground)" }}
+    >
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

@@ -21,50 +21,106 @@ const SEVERITY_BY_KIND: Record<string, "info" | "warn" | "error"> = {
   merge_completed: "info",
 };
 
+export type Severity = "info" | "warn" | "error";
+
+export type KindCount = {
+  kind: string;
+  count: number;
+  severity: Severity;
+};
+
 export type SystemHealthStats = {
   /** Counts within the last 24h, by severity. */
   errors24h: number;
   warns24h: number;
   info24h: number;
   total24h: number;
+  /** Same counts for the *previous* 24h window (24–48h ago), so the
+   *  stat strip can show a vs-yesterday delta. */
+  prevErrors24h: number;
+  prevWarns24h: number;
+  prevTotal24h: number;
+  /** Events per hour across the last 24h, oldest → newest (length 24).
+   *  Powers the sparkline on the Events tile. */
+  hourly: number[];
+  /** Event kinds in the last 24h, count-descending, for the
+   *  "what's happening" breakdown. */
+  byKind: KindCount[];
   /** ISO of the most recent event, or null if no events at all. */
   lastEventAt: string | null;
 };
 
-/** Last-24h counts by severity for the stat strip + the most recent
- *  event timestamp. Single query — we walk every row in the 24h
- *  window in JS since the severity isn't stored. */
+/** Headline stats for the stat strip + verdict banner + kind
+ *  breakdown. One query over the last 48h (so we can split into the
+ *  current and previous 24h windows for a delta); everything else is
+ *  a pure JS rollup since severity isn't stored. */
 export async function fetchSystemHealthStats(
   supabase: SupabaseClient,
 ): Promise<SystemHealthStats> {
-  const since = new Date();
-  since.setUTCHours(since.getUTCHours() - 24);
+  const now = new Date();
+  const since48 = new Date(now);
+  since48.setUTCHours(since48.getUTCHours() - 48);
+  const cut24Ms = now.getTime() - 24 * 60 * 60 * 1000;
 
   const { data } = await supabase
     .from("system_events")
     .select("kind, created_at")
-    .gte("created_at", since.toISOString());
+    .gte("created_at", since48.toISOString());
 
   let errors = 0;
   let warns = 0;
   let info = 0;
+  let prevErrors = 0;
+  let prevWarns = 0;
+  let prevTotal = 0;
   let lastEventAt: string | null = null;
+  const hourly = new Array<number>(24).fill(0);
+  const kindMap = new Map<string, number>();
+
   for (const row of data ?? []) {
     const r = row as { kind: string; created_at: string };
     const sev = SEVERITY_BY_KIND[r.kind] ?? "info";
-    if (sev === "error") errors += 1;
-    else if (sev === "warn") warns += 1;
-    else info += 1;
-    if (!lastEventAt || r.created_at > lastEventAt) {
-      lastEventAt = r.created_at;
+    const t = new Date(r.created_at).getTime();
+    if (t >= cut24Ms) {
+      // Current 24h window.
+      if (sev === "error") errors += 1;
+      else if (sev === "warn") warns += 1;
+      else info += 1;
+      if (!lastEventAt || r.created_at > lastEventAt) {
+        lastEventAt = r.created_at;
+      }
+      kindMap.set(r.kind, (kindMap.get(r.kind) ?? 0) + 1);
+      const hoursAgo = Math.floor((now.getTime() - t) / (60 * 60 * 1000));
+      // Bucket 23 = most recent hour; 0 = ~24h ago. So the array reads
+      // oldest → newest for a left-to-right sparkline.
+      const idx = 23 - Math.min(23, Math.max(0, hoursAgo));
+      hourly[idx] += 1;
+    } else {
+      // Previous 24h window (24–48h ago).
+      if (sev === "error") prevErrors += 1;
+      else if (sev === "warn") prevWarns += 1;
+      prevTotal += 1;
     }
   }
+
+  const byKind: KindCount[] = Array.from(kindMap.entries())
+    .map(([kind, count]) => ({
+      kind,
+      count,
+      severity: SEVERITY_BY_KIND[kind] ?? "info",
+    }))
+    .sort((a, b) => b.count - a.count);
 
   return {
     errors24h: errors,
     warns24h: warns,
     info24h: info,
     total24h: errors + warns + info,
+    prevErrors24h: prevErrors,
+    prevWarns24h: prevWarns,
+    prevTotal24h: prevTotal,
+    hourly,
+    byKind,
     lastEventAt,
   };
 }
