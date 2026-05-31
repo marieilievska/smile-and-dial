@@ -33,7 +33,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { createAgent, updateAgent } from "@/lib/agents/actions";
+import {
+  createAgent,
+  draftAgentFromDescription,
+  updateAgent,
+} from "@/lib/agents/actions";
 import {
   ALL_TOOLS,
   TOOL_LABELS,
@@ -194,6 +198,40 @@ export function AgentWizard({
   const [copied, setCopied] = useState(false);
   const [pending, startTransition] = useTransition();
 
+  // AI draft — describe the agent once, let the model fill the prompt
+  // blocks, then refine the pre-filled steps. Separate transition from
+  // save so the two spinners never collide.
+  const [description, setDescription] = useState("");
+  const [drafting, startDrafting] = useTransition();
+  const [drafted, setDrafted] = useState(false);
+
+  function onDraft() {
+    startDrafting(async () => {
+      try {
+        const result = await draftAgentFromDescription(description);
+        if (result.error || !result.draft) {
+          toast.error(result.error ?? "Couldn't draft the agent.");
+          return;
+        }
+        const d = result.draft;
+        if (!name.trim() && d.name) setName(d.name);
+        setPersonality(d.personality);
+        setEnvironment(d.environment);
+        setTone(d.tone);
+        setGoal(d.goal);
+        setGuardrails(d.guardrails);
+        setDrafted(true);
+        toast.success(
+          d.source === "openai"
+            ? "Draft ready — review the next steps and tweak anything."
+            : "Sample draft ready — review the next steps and tweak anything.",
+        );
+      } catch {
+        toast.error("Something went wrong. Please try again.");
+      }
+    });
+  }
+
   function next() {
     if (step === 8) {
       setSystemPrompt(
@@ -299,6 +337,80 @@ export function AgentWizard({
         <CardContent className="flex flex-col gap-4">
           {step === 1 ? (
             <>
+              <div
+                className="border-primary/30 flex flex-col gap-3 rounded-xl border p-4"
+                style={{
+                  backgroundColor:
+                    "color-mix(in oklab, var(--primary) 5%, transparent)",
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className="text-primary flex size-9 shrink-0 items-center justify-center rounded-lg"
+                    style={{
+                      backgroundColor:
+                        "color-mix(in oklab, var(--primary) 14%, transparent)",
+                    }}
+                  >
+                    <Sparkles className="size-5" />
+                  </span>
+                  <div className="flex flex-col gap-0.5">
+                    <h3 className="text-foreground text-sm font-semibold">
+                      Describe it — AI drafts the rest
+                    </h3>
+                    <p className="text-muted-foreground text-xs leading-snug">
+                      Say what this agent should do in plain English. We&apos;ll
+                      fill in the personality, tone, goal, and guardrails for
+                      you to review.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="agent-description" className="sr-only">
+                    What should this agent do?
+                  </Label>
+                  <Textarea
+                    id="agent-description"
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    rows={3}
+                    placeholder="e.g. Call gym leads who booked a free trial, confirm they're coming, and book a tour with a coach."
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  {drafted ? (
+                    <span className="text-success inline-flex items-center gap-1 text-xs font-medium">
+                      <Check className="size-3.5" />
+                      Draft filled in — review the next steps
+                    </span>
+                  ) : (
+                    <span aria-hidden />
+                  )}
+                  <Button
+                    type="button"
+                    onClick={onDraft}
+                    disabled={drafting || description.trim().length < 10}
+                  >
+                    <Sparkles className="size-4" />
+                    {drafting
+                      ? "Drafting…"
+                      : drafted
+                        ? "Redraft"
+                        : "Draft with AI"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="bg-border h-px flex-1" />
+                <span className="text-muted-foreground text-[10px] font-medium tracking-[0.16em] uppercase">
+                  Or set up by hand
+                </span>
+                <div className="bg-border h-px flex-1" />
+              </div>
+
               <div className="flex flex-col gap-2">
                 <Label htmlFor="agent-name">Name</Label>
                 <Input
