@@ -32,7 +32,7 @@ const ADMIN_TABS: Tab[] = [
   { label: "Custom fields", href: "/settings/custom-fields" },
   { label: "Twilio numbers", href: "/settings/twilio-numbers" },
   { label: "Integrations", href: "/settings/integrations" },
-  { label: "API", href: "/settings/api" },
+  { label: "API keys", href: "/settings/api" },
 ];
 
 export function SettingsNav({

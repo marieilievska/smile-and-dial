@@ -2,11 +2,13 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 
-/** Settings landing route. Round 23 — kept as a role-aware redirect
- *  rather than a fresh overview surface. The Settings sidebar link
- *  should drop the user on the first sub-page they actually need,
- *  not an in-between hub. The grouped sub-nav (Workspace /
- *  Administration) handles the "where am I?" question. */
+/** Settings landing route. Round 30 — now drops everyone on the
+ *  overview hub instead of a deep sub-page. The hub is no longer a
+ *  passive card index: it shows what's configured vs missing and the
+ *  single most important next step, so the Settings link answers
+ *  "is my workspace ready to make calls?" at a glance. The grouped
+ *  left rail still handles direct navigation once you know where you
+ *  want to go. */
 export default async function SettingsPage() {
   const supabase = await createClient();
   const {
@@ -14,11 +16,5 @@ export default async function SettingsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  redirect(profile?.role === "admin" ? "/settings/users" : "/settings/lists");
+  redirect("/settings/overview");
 }

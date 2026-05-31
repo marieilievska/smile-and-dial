@@ -6,16 +6,16 @@ const memberEmail = process.env.E2E_MEMBER_EMAIL ?? "";
 test.describe("users management — admin", () => {
   test.use({ storageState: "playwright/.auth/user.json" });
 
-  test("the Settings nav item opens the Users page", async ({ page }) => {
+  test("the Settings nav item opens the overview hub", async ({ page }) => {
     await page.goto("/leads");
     await page
       .getByRole("navigation")
       .getByRole("link", { name: "Settings" })
       .click();
 
-    await expect(page).toHaveURL(/\/settings\/users$/);
+    await expect(page).toHaveURL(/\/settings\/overview$/);
     await expect(
-      page.getByRole("heading", { level: 1, name: "Users" }),
+      page.getByRole("heading", { level: 1, name: "Settings" }),
     ).toBeVisible();
   });
 
