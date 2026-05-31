@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark } from "lucide-react";
+import { Bookmark, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
@@ -193,6 +193,15 @@ export function AppSidebar({
                             </li>
                           );
                         })}
+                        <li>
+                          <Link
+                            href={item.href}
+                            className="text-sidebar-foreground/40 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors"
+                          >
+                            <Plus className="size-3 shrink-0" />
+                            <span className="truncate">New view</span>
+                          </Link>
+                        </li>
                       </ul>
                     ) : null}
                   </div>
