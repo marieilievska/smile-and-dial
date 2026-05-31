@@ -133,6 +133,12 @@ export default async function ListsPage() {
           <p className="text-muted-foreground text-sm">
             Create your first list to start grouping leads.
           </p>
+          <div className="mt-2">
+            <ListFormDialog
+              mode="create"
+              triggerLabel="Create your first list"
+            />
+          </div>
         </div>
       )}
     </div>

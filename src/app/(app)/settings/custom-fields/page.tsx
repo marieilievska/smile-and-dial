@@ -77,7 +77,7 @@ export default async function CustomFieldsPage() {
                 <TableHead>Field key</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Required</TableHead>
-                <TableHead className="w-48" />
+                <TableHead className="w-56" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -122,6 +122,12 @@ export default async function CustomFieldsPage() {
           <p className="text-muted-foreground text-sm">
             Add fields to capture extra information on every lead.
           </p>
+          <div className="mt-2">
+            <CustomFieldDialog
+              mode="create"
+              triggerLabel="Create your first field"
+            />
+          </div>
         </div>
       )}
     </div>

@@ -41,9 +41,11 @@ export type KbData = {
 export function KbFormDialog({
   mode,
   kb,
+  triggerLabel,
 }: {
   mode: "create" | "edit";
   kb?: KbData;
+  triggerLabel?: string;
 }) {
   const isEdit = mode === "edit";
   const [open, setOpen] = useState(false);
@@ -94,7 +96,7 @@ export function KbFormDialog({
         ) : (
           <Button>
             <Plus className="size-4" />
-            New knowledge base
+            {triggerLabel ?? "New knowledge base"}
           </Button>
         )}
       </DialogTrigger>

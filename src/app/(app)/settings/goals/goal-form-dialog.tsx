@@ -35,9 +35,11 @@ export type GoalData = {
 export function GoalFormDialog({
   mode,
   goal,
+  triggerLabel,
 }: {
   mode: "create" | "edit";
   goal?: GoalData;
+  triggerLabel?: string;
 }) {
   const isEdit = mode === "edit";
   const [open, setOpen] = useState(false);
@@ -86,7 +88,7 @@ export function GoalFormDialog({
         ) : (
           <Button>
             <Plus className="size-4" />
-            New goal
+            {triggerLabel ?? "New goal"}
           </Button>
         )}
       </DialogTrigger>

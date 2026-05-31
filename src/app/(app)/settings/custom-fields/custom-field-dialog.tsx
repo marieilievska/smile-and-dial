@@ -98,9 +98,11 @@ function previewSlug(name: string): string {
 export function CustomFieldDialog({
   mode,
   field,
+  triggerLabel,
 }: {
   mode: "create" | "edit";
   field?: CustomFieldData;
+  triggerLabel?: string;
 }) {
   const isEdit = mode === "edit";
   const [open, setOpen] = useState(false);
@@ -153,15 +155,16 @@ export function CustomFieldDialog({
         {isEdit ? (
           <Button
             variant="ghost"
-            size="icon-sm"
+            size="sm"
             aria-label={`Edit ${field?.name ?? "field"}`}
           >
             <Pencil className="size-4" />
+            Edit
           </Button>
         ) : (
           <Button>
             <Plus className="size-4" />
-            New field
+            {triggerLabel ?? "New field"}
           </Button>
         )}
       </DialogTrigger>

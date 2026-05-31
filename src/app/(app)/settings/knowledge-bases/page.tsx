@@ -134,6 +134,12 @@ export default async function KnowledgeBasesPage() {
           <p className="text-muted-foreground text-sm">
             Create one to give your AI agents reference material.
           </p>
+          <div className="mt-2">
+            <KbFormDialog
+              mode="create"
+              triggerLabel="Create your first knowledge base"
+            />
+          </div>
         </div>
       )}
     </div>

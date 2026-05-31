@@ -116,7 +116,10 @@ export default async function ApiPage() {
                     <TableCell>
                       <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                         {!k.revoked_at ? (
-                          <ApiKeyRevokeButton apiKeyId={k.id} />
+                          <ApiKeyRevokeButton
+                            apiKeyId={k.id}
+                            keyName={k.name}
+                          />
                         ) : null}
                       </div>
                     </TableCell>

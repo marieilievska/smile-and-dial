@@ -70,12 +70,9 @@ export function CustomFieldRowActions({
       <CustomFieldDialog mode="edit" field={field} />
       <AlertDialog>
         <AlertDialogTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Delete ${field.name}`}
-          >
+          <Button variant="ghost" size="sm" aria-label={`Delete ${field.name}`}>
             <Trash2 className="size-4" />
+            Delete
           </Button>
         </AlertDialogTrigger>
         <AlertDialogContent>

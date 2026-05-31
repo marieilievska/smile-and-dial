@@ -158,6 +158,12 @@ export default async function SettingsGoalsPage() {
           <p className="text-muted-foreground text-sm">
             Create your first goal to start building campaigns.
           </p>
+          <div className="mt-2">
+            <GoalFormDialog
+              mode="create"
+              triggerLabel="Create your first goal"
+            />
+          </div>
         </div>
       )}
     </div>

@@ -31,9 +31,11 @@ type ListData = { id: string; name: string; description: string | null };
 export function ListFormDialog({
   mode,
   list,
+  triggerLabel,
 }: {
   mode: "create" | "edit";
   list?: ListData;
+  triggerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -80,7 +82,7 @@ export function ListFormDialog({
         ) : (
           <Button>
             <Plus className="size-4" />
-            New list
+            {triggerLabel ?? "New list"}
           </Button>
         )}
       </DialogTrigger>

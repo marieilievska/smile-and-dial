@@ -157,6 +157,12 @@ export default async function AgentsPage() {
           <p className="text-muted-foreground text-sm">
             Build your first agent to start running campaigns.
           </p>
+          <Button asChild className="mt-2">
+            <Link href="/settings/agents/new">
+              <Plus className="size-4" />
+              Build your first agent
+            </Link>
+          </Button>
         </div>
       )}
     </div>
