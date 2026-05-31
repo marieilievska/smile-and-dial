@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { draftAgent, type AgentDraft } from "@/lib/ai/draft-agent";
 import {
   deleteAgentOnElevenLabs,
   syncAgentToElevenLabs,
@@ -197,4 +198,32 @@ export async function deleteAgent(id: string): Promise<AgentResult> {
 
   revalidatePath("/settings/agents");
   return { error: null, agentId: id };
+}
+
+/** Draft the prompt blocks from a plain-English description so an operator
+ *  can describe the agent once and refine the pre-filled steps, instead of
+ *  writing every block by hand. Uses OpenAI in live mode, a deterministic
+ *  sample draft otherwise. */
+export async function draftAgentFromDescription(
+  description: string,
+): Promise<{ draft?: AgentDraft; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const trimmed = description.trim();
+  if (trimmed.length < 10) {
+    return {
+      error: "Add a sentence or two describing what this agent should do.",
+    };
+  }
+
+  try {
+    const draft = await draftAgent(trimmed);
+    return { draft };
+  } catch {
+    return { error: "Couldn't draft the agent. Please try again." };
+  }
 }
