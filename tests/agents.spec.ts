@@ -88,8 +88,7 @@ test.describe("Agent builder", () => {
     await page.getByLabel(kbName).check();
     await page.getByRole("button", { name: "Next" }).click();
 
-    // Step 9 — Review. Scope to the textbox role: a "Copy system prompt"
-    // button shares the "System prompt" accessible name otherwise.
+    // Step 9 — Review.
     const prompt = page.getByRole("textbox", { name: "System prompt" });
     await expect(prompt).toContainText("# Personality");
     await expect(prompt).toContainText("Friendly and direct.");
@@ -141,7 +140,9 @@ test.describe("Agent builder", () => {
     await page.goto("/settings/agents");
     await page.getByRole("link", { name: `Edit ${original}` }).click();
     await expect(page).toHaveURL(/\/edit$/);
-    await expect(page.getByText("Edit agent")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Edit agent" }),
+    ).toBeVisible();
 
     // Pre-filled name is the original; change it.
     const nameInput = page.getByLabel("Name", { exact: true });
