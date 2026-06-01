@@ -72,7 +72,10 @@ test.describe("Public API: POST /api/v1/leads", () => {
       .delete()
       .eq("owner_id", ownerId)
       .eq("name", "API Inbound");
-    if (apiKeyId) await admin.from("api_keys").delete().eq("id", apiKeyId);
+    if (apiKeyId) {
+      await admin.from("api_rate_limits").delete().eq("api_key_id", apiKeyId);
+      await admin.from("api_keys").delete().eq("id", apiKeyId);
+    }
   });
 
   test("missing key → 401", async ({ baseURL }) => {
@@ -160,5 +163,52 @@ test.describe("Public API: POST /api/v1/leads", () => {
       .eq("owner_id", ownerId)
       .eq("business_phone", phone);
     expect(rows?.length).toBe(1);
+  });
+
+  test("requests over the per-key rate limit get 429", async ({ baseURL }) => {
+    // Use a dedicated key so we don't disturb the other tests' counts, and
+    // pre-seed its current-window counter to the limit (120) so the very
+    // next request is the one that crosses the threshold — far faster and
+    // less flaky than actually firing 121 requests.
+    const random = randomBytes(24)
+      .toString("base64url")
+      .replace(/=+$/g, "")
+      .slice(0, 32);
+    const rlRawKey = `sk_${random}`;
+    const { data: rlKey } = await admin
+      .from("api_keys")
+      .insert({
+        owner_id: ownerId,
+        name: `E2E RL key ${stamp}`,
+        key_prefix: random.slice(0, 8),
+        key_hash: createHash("sha256").update(random).digest("hex"),
+      })
+      .select("id")
+      .single();
+
+    // Floor now() to the same 60s window the route uses.
+    const windowStart = new Date(
+      Math.floor(Date.now() / 1000 / 60) * 60 * 1000,
+    ).toISOString();
+    await admin.from("api_rate_limits").insert({
+      api_key_id: rlKey!.id,
+      window_start: windowStart,
+      request_count: 120,
+    });
+
+    try {
+      const api = await playwrightRequest.newContext({ baseURL });
+      const r = await api.post("/api/v1/leads", {
+        headers: { authorization: `Bearer ${rlRawKey}` },
+        data: { business_phone: `+1777${tail}99` },
+      });
+      expect(r.status()).toBe(429);
+      expect(r.headers()["retry-after"]).toBeTruthy();
+      const body = await r.json();
+      expect(body.error).toBe("rate_limited");
+    } finally {
+      await admin.from("api_rate_limits").delete().eq("api_key_id", rlKey!.id);
+      await admin.from("api_keys").delete().eq("id", rlKey!.id);
+    }
   });
 });

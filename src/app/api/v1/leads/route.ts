@@ -55,6 +55,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // --- Rate limit: fixed window per key, enforced before any writes so a
+  //     runaway loop can't exhaust the DB or amplify downstream call cost.
+  //     120 requests / 60s is generous for legit partner integrations. A
+  //     failure to record the hit must NOT block legit traffic, so we only
+  //     reject when the RPC succeeds and reports over the limit. ---
+  const RATE_LIMIT = 120;
+  const RATE_WINDOW_SECONDS = 60;
+  const { data: rlCount, error: rlError } = await supabase.rpc(
+    "bump_api_rate_limit",
+    { in_api_key_id: keyRow.id, in_window_seconds: RATE_WINDOW_SECONDS },
+  );
+  if (!rlError && typeof rlCount === "number" && rlCount > RATE_LIMIT) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(RATE_WINDOW_SECONDS) },
+      },
+    );
+  }
+
   // --- Idempotency: replay the cached response if we've seen this key. ---
   const idemKey = request.headers.get("idempotency-key");
   if (idemKey) {
