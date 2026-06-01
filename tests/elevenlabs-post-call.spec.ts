@@ -671,6 +671,13 @@ test.describe("ElevenLabs post-call webhook", () => {
         .from("call-recordings")
         .download(`${call!.id}.mp3`);
       expect(dl).not.toBeNull();
+
+      // And it's playable: a signed URL can be minted for it (this is what
+      // getCallDetail returns as recordingUrl for the modal's <audio src>).
+      const { data: signed } = await admin.storage
+        .from("call-recordings")
+        .createSignedUrl(`${call!.id}.mp3`, 60);
+      expect(signed?.signedUrl).toBeTruthy();
       await ctx.dispose();
     } finally {
       await admin.storage.from("call-recordings").remove([`${call!.id}.mp3`]);

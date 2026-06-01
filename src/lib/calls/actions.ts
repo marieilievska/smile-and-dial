@@ -24,6 +24,10 @@ export type CallDetail = {
   durationSeconds: number | null;
   talkTimeSeconds: number | null;
   recordingPath: string | null;
+  /** A directly-playable URL for the recording: a short-lived signed URL
+   *  when recording_path is a storage object, or the stored URL as-is for
+   *  legacy rows that kept a full ElevenLabs URL. null when no recording. */
+  recordingUrl: string | null;
   score: number | null;
   summary: string | null;
   transcript: TranscriptTurn[];
@@ -114,6 +118,22 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
     transcript = (tj as { turns: TranscriptTurn[] }).turns;
   }
 
+  // Resolve a playable URL. The recording lives in the private
+  // `call-recordings` bucket (object path like "<callId>.mp3"), so mint a
+  // short-lived signed URL. Legacy rows may hold a full http(s) URL instead
+  // — pass those through unchanged.
+  let recordingUrl: string | null = null;
+  if (data.recording_path) {
+    if (/^https?:\/\//i.test(data.recording_path)) {
+      recordingUrl = data.recording_path;
+    } else {
+      const { data: signed } = await supabase.storage
+        .from("call-recordings")
+        .createSignedUrl(data.recording_path, 60 * 60);
+      recordingUrl = signed?.signedUrl ?? null;
+    }
+  }
+
   return {
     error: null,
     call: {
@@ -129,6 +149,7 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
       durationSeconds: data.duration_seconds,
       talkTimeSeconds: data.talk_time_seconds,
       recordingPath: data.recording_path,
+      recordingUrl,
       score: data.score == null ? null : Number(data.score),
       summary: data.summary,
       transcript,

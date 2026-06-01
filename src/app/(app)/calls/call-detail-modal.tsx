@@ -353,15 +353,17 @@ export function CallDetailModal() {
                 />
               </dl>
 
-              {/* M4 — Recording (or a useful empty state). */}
-              {call.recordingPath ? (
+              {/* M4 — Recording (or a useful empty state). The audio src is
+                  a short-lived signed URL minted server-side (recordingUrl),
+                  not the raw storage path. */}
+              {call.recordingUrl ? (
                 <Section title="Recording">
                   <audio
                     ref={audioRef}
                     controls
                     preload="metadata"
                     className="w-full"
-                    src={call.recordingPath}
+                    src={call.recordingUrl}
                   />
                 </Section>
               ) : (
@@ -426,7 +428,7 @@ export function CallDetailModal() {
                     {call.transcript.map((turn, i) => {
                       const seconds = turnSeconds(turn, call.startedAt);
                       const canSeek =
-                        Boolean(call.recordingPath) && seconds != null;
+                        Boolean(call.recordingUrl) && seconds != null;
                       const isLead = turn.role === "user";
                       const speaker =
                         turn.role === "agent"
