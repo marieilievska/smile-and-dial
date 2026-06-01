@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database, Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
 import { IMPORTABLE_FIELDS } from "./import-fields";
@@ -212,45 +212,21 @@ export async function mergeInboundLead(input: {
       (patch as Record<string, unknown>)[key] = srcValue;
     }
   }
-  if (Object.keys(patch).length > 0) {
-    const { error: patchError } = await supabase
-      .from("leads")
-      .update(patch)
-      .eq("id", input.destinationLeadId);
-    if (patchError) return { error: "Could not copy fields." };
-  }
-
-  // Repoint calls + callbacks to the destination.
-  const { error: callsError } = await supabase
-    .from("calls")
-    .update({ lead_id: input.destinationLeadId })
-    .eq("lead_id", input.sourceLeadId);
-  if (callsError) return { error: "Could not move call history." };
-
-  const { error: callbacksError } = await supabase
-    .from("callbacks")
-    .update({ lead_id: input.destinationLeadId })
-    .eq("lead_id", input.sourceLeadId);
-  if (callbacksError) return { error: "Could not move callbacks." };
-
-  // Soft-delete the inbound source so it disappears from the Leads page.
-  const { error: deleteError } = await supabase
-    .from("leads")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", input.sourceLeadId);
-  if (deleteError) return { error: "Could not archive the source lead." };
-
-  // Audit log.
-  await supabase.from("system_events").insert({
-    kind: "lead_merged",
-    actor_user_id: user.id,
-    ref_table: "leads",
-    ref_id: input.destinationLeadId,
-    payload: {
-      from: input.sourceLeadId,
-      to: input.destinationLeadId,
-    },
+  // Apply the whole merge atomically in one Postgres transaction
+  // (merge_inbound_lead): patch the destination's empty fields, repoint
+  // calls + callbacks, soft-delete the source, write the audit row. Either
+  // all of it commits or none of it does — a mid-sequence failure can no
+  // longer leave call/callback ownership half-moved with the source still
+  // live. The function re-verifies ownership + inbound-default server-side.
+  const { error: mergeError } = await supabase.rpc("merge_inbound_lead", {
+    in_source_lead_id: input.sourceLeadId,
+    in_destination_lead_id: input.destinationLeadId,
+    in_patch: patch as Json,
+    in_actor: user.id,
   });
+  if (mergeError) {
+    return { error: "Could not merge the lead. Nothing was changed." };
+  }
 
   revalidatePath("/leads");
   return { error: null };

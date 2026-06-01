@@ -1488,6 +1488,15 @@ export type Database = {
         Args: { hours_end: string; hours_start: string; lead_timezone: string };
         Returns: boolean;
       };
+      merge_inbound_lead: {
+        Args: {
+          in_actor: string;
+          in_destination_lead_id: string;
+          in_patch: Json;
+          in_source_lead_id: string;
+        };
+        Returns: undefined;
+      };
       monitor_campaign_spend_caps: { Args: never; Returns: number };
       monitor_twilio_connect_rates: { Args: never; Returns: number };
       pre_call_check: {
