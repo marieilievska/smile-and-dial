@@ -169,6 +169,34 @@ async function placeMockCall(
   return call.id;
 }
 
+/**
+ * Atomically claim a lead for dialing by pushing its `next_call_at` into the
+ * future, but ONLY if it's still due right now. Two racing ticks both read
+ * the queue and pass pre_call_check, but only one UPDATE can match the
+ * "still due" predicate — Postgres serializes the row write, the first
+ * commits a future next_call_at, and the second's predicate no longer
+ * matches so it returns zero rows. Returns true iff this caller won the claim.
+ *
+ * The 2-minute hold is a short lease: long enough that the dial completes and
+ * sets its own real next_call_at, short enough that a crash mid-dial doesn't
+ * strand the lead for long.
+ */
+async function claimLeadForDial(
+  supabase: SupabaseAdmin,
+  leadId: string,
+): Promise<boolean> {
+  const lease = new Date(Date.now() + 2 * 60 * 1000).toISOString();
+  const nowIso = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("leads")
+    .update({ next_call_at: lease })
+    .eq("id", leadId)
+    .or(`next_call_at.is.null,next_call_at.lte.${nowIso}`)
+    .select("id");
+  if (error) return false;
+  return (data?.length ?? 0) > 0;
+}
+
 async function currentAttempts(
   supabase: SupabaseAdmin,
   leadId: string,
@@ -252,6 +280,20 @@ export async function runDialerTick(
           next_call_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
         })
         .eq("id", c.lead_id);
+      continue;
+    }
+
+    // Atomically CLAIM the lead before dialing. Bumping next_call_at with a
+    // guard on its current value means two overlapping ticks (or a tick +
+    // Call-Now) racing on the same lead can't both proceed — only the first
+    // UPDATE matches the `due` predicate; the loser gets 0 rows and skips.
+    // This closes the double-dial-the-same-person window that existed when
+    // next_call_at was only bumped AFTER the call was placed.
+    const claimed = await claimLeadForDial(supabase, c.lead_id);
+    if (!claimed) {
+      summary.blocked++;
+      summary.blockedReasons["already_claimed"] =
+        (summary.blockedReasons["already_claimed"] ?? 0) + 1;
       continue;
     }
 

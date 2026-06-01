@@ -108,10 +108,21 @@ export async function callNow(input: {
   }
 
   // The pre-call check is the same one the cron uses. Returns null when safe.
-  const { data: reason } = await userClient.rpc("pre_call_check", {
-    in_lead_id: input.leadId,
-    in_campaign_id: input.campaignId,
-  });
+  // Fail CLOSED: if the RPC itself errors we must NOT dial — a thrown
+  // pre_call_check would otherwise leave `reason` null and silently bypass
+  // every gate (DNC, calling hours, caps, concurrency).
+  const { data: reason, error: preCallError } = await userClient.rpc(
+    "pre_call_check",
+    {
+      in_lead_id: input.leadId,
+      in_campaign_id: input.campaignId,
+    },
+  );
+  if (preCallError) {
+    return {
+      error: "Couldn't run the pre-call safety check. Please try again.",
+    };
+  }
   if (reason) {
     return {
       error:
