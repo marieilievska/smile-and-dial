@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabase/server";
 
 import { formatCreatedAt } from "../format-created";
 import { DeleteAgentDialog } from "./delete-agent-dialog";
+import { ResyncAgentsButton } from "./resync-agents-button";
 
 export default async function AgentsPage() {
   const supabase = await createClient();
@@ -58,12 +59,15 @@ export default async function AgentsPage() {
             AI agents your campaigns hand a call to.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/settings/agents/new">
-            <Plus className="size-4" />
-            Build new agent
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          {totalAgents > 0 ? <ResyncAgentsButton /> : null}
+          <Button asChild>
+            <Link href="/settings/agents/new">
+              <Plus className="size-4" />
+              Build new agent
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {totalAgents > 0 ? (

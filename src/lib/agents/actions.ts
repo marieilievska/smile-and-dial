@@ -229,6 +229,79 @@ export async function deleteAgent(id: string): Promise<AgentResult> {
   return { error: null, agentId: id };
 }
 
+export type ResyncResult = {
+  error: string | null;
+  synced?: number;
+  failed?: number;
+};
+
+/** Re-push every agent's current config to ElevenLabs. Use after a sync-layer
+ *  change (new defaults, webhooks, dynamic-variable placeholders) so agents
+ *  created/edited before the change pick it up without opening each one.
+ *  Admin-only; processes sequentially to stay within ElevenLabs rate limits.
+ *  Returns counts; individual failures don't abort the run. */
+export async function resyncAllAgents(): Promise<ResyncResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  if (me?.role !== "admin") {
+    return { error: "Only an admin can re-sync agents." };
+  }
+
+  const { data: agents, error } = await supabase
+    .from("agents")
+    .select(
+      "id, name, voice_id, ai_model, system_prompt, prompt_goal, elevenlabs_agent_id, extra_data_collection, extra_evaluation",
+    )
+    .order("created_at", { ascending: true });
+  if (error) return { error: "Could not load agents." };
+  if (!agents || agents.length === 0) {
+    return { error: null, synced: 0, failed: 0 };
+  }
+
+  let synced = 0;
+  let failed = 0;
+  for (const a of agents) {
+    const sync = await syncAgentToElevenLabs(
+      {
+        name: a.name,
+        systemPrompt: a.system_prompt ?? "",
+        voiceId: a.voice_id?.trim() || null,
+        aiModel: a.ai_model?.trim() || null,
+        goal: a.prompt_goal?.trim() || null,
+        extraDataCollection: normalizeDataCollection(a.extra_data_collection),
+        extraEvaluation: normalizeEvaluation(a.extra_evaluation),
+      },
+      a.elevenlabs_agent_id,
+    );
+    if (sync.error) {
+      failed += 1;
+      continue;
+    }
+    if (
+      sync.elevenlabsAgentId &&
+      sync.elevenlabsAgentId !== a.elevenlabs_agent_id
+    ) {
+      await supabase
+        .from("agents")
+        .update({ elevenlabs_agent_id: sync.elevenlabsAgentId })
+        .eq("id", a.id);
+    }
+    synced += 1;
+  }
+
+  revalidatePath("/settings/agents");
+  return { error: null, synced, failed };
+}
+
 /** Draft the prompt blocks from a plain-English description so an operator
  *  can describe the agent once and refine the pre-filled steps, instead of
  *  writing every block by hand. Uses OpenAI in live mode, a deterministic
