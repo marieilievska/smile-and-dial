@@ -27,6 +27,9 @@ export type DisplayCall = {
   campaignName: string;
   agentName: string;
   ownerName: string;
+  /** ElevenLabs per-call AI summary. Surfaced as a third line in the Lead
+   *  cell so the call log reads as "what the AI heard," not just metadata. */
+  summary: string | null;
 };
 
 export type CallColumn = {
@@ -185,6 +188,15 @@ export const CALL_COLUMNS: CallColumn[] = [
               {c.business_phone && c.campaignName !== "—" ? " · " : ""}
               {c.campaignName !== "—" ? c.campaignName : ""}
             </span>
+            {c.summary ? (
+              <span
+                className="text-muted-foreground/90 inline-flex min-w-0 items-center gap-1 truncate text-[11px]"
+                title={c.summary}
+              >
+                <Mic className="size-2.5 shrink-0" />
+                <span className="truncate">{c.summary}</span>
+              </span>
+            ) : null}
           </div>
         </div>
       );

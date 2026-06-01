@@ -13,7 +13,7 @@ const UUID_RE = /^[0-9a-f-]{36}$/i;
  * names in one round trip.
  */
 export const CALLS_SELECT =
-  "id, direction, status, outcome, goal_met, started_at, answered_at, ended_at, duration_seconds, talk_time_seconds, recording_path, score, cost_breakdown, created_at, lead:leads(id, company, business_phone, owner_id), campaign:campaigns(id, name), agent:agents(id, name)";
+  "id, direction, status, outcome, goal_met, started_at, answered_at, ended_at, duration_seconds, talk_time_seconds, recording_path, score, cost_breakdown, summary, created_at, lead:leads(id, company, business_phone, owner_id), campaign:campaigns(id, name), agent:agents(id, name)";
 
 /** Columns the table allows sorting by. */
 export const SORT_KEYS = new Set<string>([

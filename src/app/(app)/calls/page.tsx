@@ -165,6 +165,7 @@ export default async function CallsPage({
     ownerName: c.lead?.owner_id
       ? (ownerNameById.get(c.lead.owner_id) ?? "—")
       : "—",
+    summary: c.summary ?? null,
   }));
 
   // Visible columns (URL param `cols` overrides the default set).

@@ -114,6 +114,7 @@ export default async function LeadsPage({
     }
   }
 
+  const newCutoff = new Date().getTime() - 24 * 60 * 60 * 1000;
   const leads: DisplayLead[] = rawLeads.map((l) => ({
     id: l.id,
     company: l.company,
@@ -131,6 +132,8 @@ export default async function LeadsPage({
     listName: l.list?.name ?? "—",
     ownerName: ownerName.get(l.owner_id) ?? "—",
     onCall: onCallIds.has(l.id),
+    aiSummary: l.ai_summary,
+    isNew: l.created_at ? new Date(l.created_at).getTime() >= newCutoff : false,
   }));
 
   // Visible columns.
