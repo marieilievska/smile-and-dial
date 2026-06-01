@@ -18,6 +18,7 @@ import {
   ActiveCampaignChip,
   type ActiveCampaignOption,
 } from "./active-campaign-chip";
+import { AskSmile } from "./ask-smile";
 import { GlobalSearch } from "./global-search";
 import { NotificationBell, type NotificationItem } from "./notification-bell";
 import { ThemeToggle } from "./theme-toggle";
@@ -60,9 +61,10 @@ export function TopBar({
       <div className="flex-1">
         <GlobalSearch />
       </div>
-      {/* Round 27 — operator-scoped chrome: active campaign chip,
-       *  theme toggle, notifications, user. Active campaign drives
-       *  manual call destinations. */}
+      {/* Round 27 — operator-scoped chrome: ask-smile co-pilot, active
+       *  campaign chip, theme toggle, notifications, user. Active
+       *  campaign drives manual call destinations. */}
+      <AskSmile />
       <ActiveCampaignChip
         activeCampaign={activeCampaign}
         campaigns={campaigns}
