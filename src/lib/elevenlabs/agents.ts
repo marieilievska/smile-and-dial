@@ -125,6 +125,30 @@ function isLive(): boolean {
   return process.env.ELEVENLABS_LIVE === "live";
 }
 
+/** Optional workspace-level ElevenLabs resources, supplied via env so they
+ *  aren't hard-coded per environment. Each returns undefined when unset so
+ *  the corresponding block is simply omitted from the agent body.
+ *
+ *  - ELEVENLABS_PRONUNCIATION_DICTIONARY_ID: applied to every agent's TTS so
+ *    brand/industry terms are said correctly.
+ *  - ELEVENLABS_ANALYSIS_LLM: the model that runs post-call analysis
+ *    (data collection + evaluation), e.g. "claude-sonnet-4-6".
+ *  - ELEVENLABS_POST_CALL_WEBHOOK_ID: the workspace post-call webhook every
+ *    agent reports to — this is how we receive transcript / audio / failure
+ *    events. Created once in the ElevenLabs dashboard; its id goes here. */
+function pronunciationDictionaryId(): string | undefined {
+  const v = process.env.ELEVENLABS_PRONUNCIATION_DICTIONARY_ID?.trim();
+  return v && v.length > 0 ? v : undefined;
+}
+function analysisLlm(): string | undefined {
+  const v = process.env.ELEVENLABS_ANALYSIS_LLM?.trim();
+  return v && v.length > 0 ? v : undefined;
+}
+function postCallWebhookId(): string | undefined {
+  const v = process.env.ELEVENLABS_POST_CALL_WEBHOOK_ID?.trim();
+  return v && v.length > 0 ? v : undefined;
+}
+
 /** The single ElevenLabs API key for the whole product. Returns null
  *  if the env var is missing or empty so the caller can surface a
  *  clean error instead of attempting a request with an undefined
@@ -210,6 +234,32 @@ async function liveSync(
   //    below is what our post-call webhook parses for sales agents.
   //  - transfer_to_number — the destination is per-campaign, injected at
   //    call time (see the call-initiation webhook), so it isn't baked in.
+  // Optional workspace resources, omitted entirely when their env vars
+  // aren't set so the agent body stays valid in every environment.
+  const dictId = pronunciationDictionaryId();
+  const dictLocators = dictId
+    ? [{ pronunciation_dictionary_id: dictId, version_id: null }]
+    : undefined;
+  const ttsBase: Record<string, unknown> = {
+    model_id: "eleven_v3_conversational",
+    expressive_mode: true,
+    stability: 0.5,
+    speed: 1,
+    similarity_boost: 0.8,
+    text_normalisation_type: "elevenlabs",
+    optimize_streaming_latency: 3,
+    ...(payload.voiceId ? { voice_id: payload.voiceId } : {}),
+    ...(dictLocators
+      ? { pronunciation_dictionary_locators: dictLocators }
+      : {}),
+  };
+  // Include the tts block whenever we have a voice OR a pronunciation dict
+  // to apply (a dict is useful even on the account default voice).
+  const includeTts = Boolean(payload.voiceId) || Boolean(dictLocators);
+
+  const analysis = analysisLlm();
+  const webhookId = postCallWebhookId();
+
   const body: Record<string, unknown> = {
     name: payload.name,
     conversation_config: {
@@ -255,20 +305,7 @@ async function liveSync(
           built_in_tools: BUILT_IN_TOOLS,
         },
       },
-      ...(payload.voiceId
-        ? {
-            tts: {
-              voice_id: payload.voiceId,
-              model_id: "eleven_v3_conversational",
-              expressive_mode: true,
-              stability: 0.5,
-              speed: 1,
-              similarity_boost: 0.8,
-              text_normalisation_type: "elevenlabs",
-              optimize_streaming_latency: 3,
-            },
-          }
-        : {}),
+      ...(includeTts ? { tts: ttsBase } : {}),
     },
     platform_settings: {
       data_collection: DATA_COLLECTION_FIELDS,
@@ -284,6 +321,24 @@ async function liveSync(
         ],
       },
       guardrails: GUARDRAILS,
+      // The model that runs post-call analysis (data collection + eval).
+      ...(analysis ? { analysis_llm: analysis } : {}),
+      // Every agent reports to the one workspace post-call webhook — this is
+      // how we receive transcript / audio / call-failure events. The webhook
+      // itself is created once in the ElevenLabs dashboard; its id is set in
+      // ELEVENLABS_POST_CALL_WEBHOOK_ID.
+      ...(webhookId
+        ? {
+            workspace_overrides: {
+              webhooks: {
+                post_call_webhook_id: webhookId,
+                events: ["transcript", "audio", "call_initiation_failure"],
+                transcript_format: "opentelemetry",
+                send_audio: false,
+              },
+            },
+          }
+        : {}),
     },
   };
 
