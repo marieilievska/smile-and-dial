@@ -67,13 +67,24 @@ export type ElevenLabsPostCallPayload = {
 };
 
 /**
- * Validate ElevenLabs's webhook signature.
+ * Validate ElevenLabs's webhook signature (HMAC auth mode).
  *
- * ElevenLabs signs the request body with HMAC-SHA256 using a shared signing
- * secret, and sends the hex digest in `ElevenLabs-Signature`. In mock mode
- * (`ELEVENLABS_LIVE != "live"`) validation is skipped so tests can post
- * freely without a real secret.
+ * ElevenLabs sends a Svix/Stripe-style header:
+ *   ElevenLabs-Signature: t=<unix_seconds>,v0=<hex_hmac>[,v0=<hex_hmac>...]
+ * where the HMAC-SHA256 is computed over `${timestamp}.${rawBody}` with the
+ * webhook signing secret, hex-encoded. The header may carry more than one
+ * v0= during secret rotation — any match passes. A 30-minute timestamp
+ * tolerance guards against replay. (Format verified against the ElevenLabs
+ * JS/Python SDK source.)
+ *
+ * IMPORTANT: `body` must be the RAW request text, byte-for-byte — re-
+ * serializing parsed JSON would change the bytes and break the signature.
+ *
+ * In mock mode (`ELEVENLABS_LIVE != "live"`) validation is skipped so tests
+ * can post freely without a real secret.
  */
+const SIGNATURE_TOLERANCE_SECONDS = 30 * 60;
+
 export function isValidElevenLabsSignature(input: {
   body: string;
   signature: string | null;
@@ -83,18 +94,38 @@ export function isValidElevenLabsSignature(input: {
   const secret = process.env.ELEVENLABS_WEBHOOK_SECRET ?? "";
   if (!secret) return false;
 
+  // Parse "t=..." and one-or-more "v0=..." from the comma-separated header.
+  const parts = input.signature.split(",");
+  const timestamp = parts
+    .find((p) => p.startsWith("t="))
+    ?.slice(2)
+    .trim();
+  const provided = parts
+    .filter((p) => p.startsWith("v0="))
+    .map((p) => p.slice(3).trim());
+  if (!timestamp || provided.length === 0) return false;
+
+  // Replay guard: reject timestamps outside ±30 minutes.
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts)) return false;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSeconds - ts) > SIGNATURE_TOLERANCE_SECONDS) return false;
+
   const expected = createHmac("sha256", secret)
-    .update(input.body)
+    .update(`${timestamp}.${input.body}`)
     .digest("hex");
-  if (expected.length !== input.signature.length) return false;
-  try {
-    return timingSafeEqual(
-      Buffer.from(expected, "utf8"),
-      Buffer.from(input.signature, "utf8"),
-    );
-  } catch {
-    return false;
-  }
+  const expectedBuf = Buffer.from(expected, "utf8");
+
+  // Constant-time compare against each provided v0= (rotation-safe).
+  return provided.some((sig) => {
+    const sigBuf = Buffer.from(sig, "utf8");
+    if (sigBuf.length !== expectedBuf.length) return false;
+    try {
+      return timingSafeEqual(sigBuf, expectedBuf);
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Pull our internal call_id back out of the post-call payload. We attached
