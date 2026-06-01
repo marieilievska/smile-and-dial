@@ -35,7 +35,33 @@ export async function setCampaignLists(input: {
   );
   const nextListIds = new Set(input.listIds);
 
-  // Detach the ones no longer wanted.
+  // Attach the new ones FIRST. The insert is the only operation that can
+  // fail on a real constraint (the partial-unique index that stops a list
+  // being actively attached to two campaigns). Doing it before the detach
+  // means a constraint failure leaves the prior state fully intact rather
+  // than detaching the removed lists and then failing to attach the new
+  // ones — which would silently leave the campaign with the wrong set.
+  const toAttach = [...nextListIds].filter((id) => !currentListIds.has(id));
+  if (toAttach.length > 0) {
+    const { error } = await supabase.from("list_campaign_attachments").insert(
+      toAttach.map((listId) => ({
+        list_id: listId,
+        campaign_id: input.campaignId,
+      })),
+    );
+    if (error) {
+      // Most likely cause: list already attached to another active campaign.
+      // Nothing has been detached yet, so the campaign's list set is
+      // unchanged and the user can correct the selection and retry.
+      return {
+        error:
+          "One of those lists is already attached to another active campaign.",
+      };
+    }
+  }
+
+  // Detach the ones no longer wanted. Detach can't hit the unique index, so
+  // by this point the operation is safe to complete.
   const toDetach = (currentAttachments ?? []).filter(
     (row) => !nextListIds.has(row.list_id),
   );
@@ -48,24 +74,6 @@ export async function setCampaignLists(input: {
         toDetach.map((row) => row.id),
       );
     if (error) return { error: "Could not detach those lists." };
-  }
-
-  // Attach the new ones.
-  const toAttach = [...nextListIds].filter((id) => !currentListIds.has(id));
-  if (toAttach.length > 0) {
-    const { error } = await supabase.from("list_campaign_attachments").insert(
-      toAttach.map((listId) => ({
-        list_id: listId,
-        campaign_id: input.campaignId,
-      })),
-    );
-    if (error) {
-      // Most likely cause: list already attached to another active campaign.
-      return {
-        error:
-          "One of those lists is already attached to another active campaign.",
-      };
-    }
   }
 
   revalidatePath(CAMPAIGNS_PATH);

@@ -48,11 +48,11 @@ function slugify(name: string): string {
  *  inline-create affordance) can auto-map the column to the new field
  *  without a round-trip through Settings.
  *
- *  Mirrors the implicit "newcustom" path inside `importLeads` — that
- *  one already inserts rows for non-admins, so this stays consistent.
- *  Limits the type set to the four primitive types since picking
- *  options for a "select" field requires more UI than the inline
- *  dialog should carry. */
+ *  Creating a field requires admin (RLS on custom_field_defs); the inline
+ *  dialog is only offered to admins and the import wizard's "newcustom"
+ *  path is gated the same way in importLeads. Limits the type set to the
+ *  four primitive types since picking options for a "select" field
+ *  requires more UI than the inline dialog should carry. */
 export async function createCustomFieldInline(input: {
   name: string;
   type: "text" | "number" | "date" | "boolean";

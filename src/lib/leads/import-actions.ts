@@ -165,6 +165,30 @@ export async function importLeads(input: {
     .maybeSingle();
   if (!list) return { ...base, error: "Choose a valid list to import into." };
 
+  // Creating a NEW custom field requires admin (RLS on custom_field_defs).
+  // Catch this BEFORE inserting any leads so a non-admin doesn't get a
+  // confusing mid-flow "Could not create a custom field" after some rows
+  // may already exist. We only need to create a field for headers mapped to
+  // "newcustom" whose slug doesn't already exist — but checking the role
+  // up front and giving a clear, actionable message is simpler and safer.
+  const wantsNewCustom = Object.values(input.mapping).some(
+    (t) => t === "newcustom",
+  );
+  if (wantsNewCustom) {
+    const { data: me } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+    if (me?.role !== "admin") {
+      return {
+        ...base,
+        error:
+          "Creating a new custom field needs an admin. Ask an admin to add the field under Settings → Custom fields, then map your column to it — or remove the new-field columns and import the rest.",
+      };
+    }
+  }
+
   // Resolve custom-field columns: create new fields, reuse existing ones.
   const headerToCustomId = new Map<string, string>();
   for (const [header, target] of Object.entries(input.mapping)) {
