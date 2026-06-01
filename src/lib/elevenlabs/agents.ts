@@ -306,11 +306,23 @@ async function liveSync(
       },
       agent: {
         language: "en",
+        // Declared placeholders for every dynamic variable our
+        // conversation-init webhook returns (lib/elevenlabs/conversation-init).
+        // An agent can only reference {{var}} in its prompt if the variable
+        // is declared here, so this MUST stay in lockstep with that webhook's
+        // response keys. Values come per-call from the lead/campaign; the ""
+        // here are just the declared defaults when a field is empty.
         dynamic_variables: {
           dynamic_variable_placeholders: {
             call_type: "",
             last_callback_notes: "",
             last_call_summary: "",
+            transfer_number: "",
+            owner_name: "",
+            city: "",
+            category: "",
+            google_rating: "",
+            google_reviews: "",
           },
         },
         prompt: {
