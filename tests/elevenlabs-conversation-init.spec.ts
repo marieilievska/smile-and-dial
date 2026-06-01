@@ -107,6 +107,11 @@ test.describe("ElevenLabs conversation-init webhook", () => {
         business_phone: `+1555${tail}55`,
         ai_summary: "we know they run a busy gym / we last left off mid-pitch",
         status: "ready_to_call",
+        owner_name: "Dana Owner",
+        city: "Austin",
+        category: "Fitness",
+        google_rating: 4.6,
+        google_reviews: 212,
       })
       .select("id")
       .single();
@@ -177,6 +182,12 @@ test.describe("ElevenLabs conversation-init webhook", () => {
       expect(body.dynamic_variables.last_call_summary).toContain("busy gym");
       expect(body.dynamic_variables.transfer_number).toBe(transferNumber);
       expect(body.dynamic_variables.last_callback_notes).toBe("");
+      // Lead-context fields (numbers stringified).
+      expect(body.dynamic_variables.owner_name).toBe("Dana Owner");
+      expect(body.dynamic_variables.city).toBe("Austin");
+      expect(body.dynamic_variables.category).toBe("Fitness");
+      expect(body.dynamic_variables.google_rating).toBe("4.6");
+      expect(body.dynamic_variables.google_reviews).toBe("212");
       await api.dispose();
     } finally {
       await admin.from("calls").delete().eq("id", call!.id);
@@ -255,6 +266,8 @@ test.describe("ElevenLabs conversation-init webhook", () => {
     expect(body.dynamic_variables.call_type).toBe("cold");
     expect(body.dynamic_variables.last_call_summary).toBe("");
     expect(body.dynamic_variables.transfer_number).toBe("");
+    expect(body.dynamic_variables.owner_name).toBe("");
+    expect(body.dynamic_variables.google_rating).toBe("");
     await api.dispose();
   });
 });

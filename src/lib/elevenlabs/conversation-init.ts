@@ -42,6 +42,14 @@ export type ConversationInitResponse = {
     last_call_summary: string;
     last_callback_notes: string;
     transfer_number: string;
+    // Lead context for the agent's opening + personalization. All strings
+    // (ElevenLabs dynamic variables are string-valued); numbers are
+    // stringified, blank when we have no value.
+    owner_name: string;
+    city: string;
+    category: string;
+    google_rating: string;
+    google_reviews: string;
   };
 };
 
@@ -88,7 +96,18 @@ function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
     last_call_summary: "",
     last_callback_notes: "",
     transfer_number: "",
+    owner_name: "",
+    city: "",
+    category: "",
+    google_rating: "",
+    google_reviews: "",
   };
+}
+
+/** Stringify a numeric column for a dynamic variable: blank when null,
+ *  otherwise the plain number as text (no trailing ".0"). */
+function numStr(v: number | null | undefined): string {
+  return typeof v === "number" && Number.isFinite(v) ? String(v) : "";
 }
 
 export async function buildConversationInitData(
@@ -121,7 +140,9 @@ export async function buildConversationInitData(
     await Promise.all([
       supabase
         .from("leads")
-        .select("ai_summary, status")
+        .select(
+          "ai_summary, status, owner_name, city, category, google_rating, google_reviews",
+        )
         .eq("id", call.lead_id)
         .maybeSingle(),
       supabase
@@ -160,5 +181,10 @@ export async function buildConversationInitData(
     last_call_summary: lead?.ai_summary?.trim() ?? "",
     last_callback_notes: lastCallbackNotes,
     transfer_number: campaign?.transfer_destination_phone?.trim() ?? "",
+    owner_name: lead?.owner_name?.trim() ?? "",
+    city: lead?.city?.trim() ?? "",
+    category: lead?.category?.trim() ?? "",
+    google_rating: numStr(lead?.google_rating),
+    google_reviews: numStr(lead?.google_reviews),
   });
 }
