@@ -78,8 +78,18 @@ export type TimeBucket = { day: string; count: number; spend: number };
 
 function pickCostTotal(value: unknown): number {
   if (!value || typeof value !== "object") return 0;
-  const total = (value as { total?: unknown }).total;
-  return typeof total === "number" && Number.isFinite(total) ? total : 0;
+  const v = value as Record<string, unknown>;
+  const n = (k: string) =>
+    typeof v[k] === "number" && Number.isFinite(v[k] as number)
+      ? (v[k] as number)
+      : 0;
+  // Prefer the sum of itemized vendor costs over the stored `total`, which
+  // can be missing or stale relative to the parts. Fall back to the stored
+  // total only when there's no itemization (legacy rows), so a real-but-
+  // unitemized cost is never dropped. Mirrors pickBreakdown in costs.ts.
+  const componentSum =
+    n("twilio") + n("elevenlabs") + n("openai") + n("lookup");
+  return componentSum > 0 ? componentSum : n("total");
 }
 
 function startOfDay(day: string): string {

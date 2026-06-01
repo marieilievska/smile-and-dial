@@ -45,13 +45,19 @@ export function pickBreakdown(value: unknown): Breakdown {
     typeof v[k] === "number" && Number.isFinite(v[k] as number)
       ? (v[k] as number)
       : 0;
-  return {
-    twilio: n("twilio"),
-    elevenlabs: n("elevenlabs"),
-    openai: n("openai"),
-    lookup: n("lookup"),
-    total: n("total"),
-  };
+  const twilio = n("twilio");
+  const elevenlabs = n("elevenlabs");
+  const openai = n("openai");
+  const lookup = n("lookup");
+  // Derive total from the itemized vendor components rather than trusting
+  // the stored `total`, which can be missing or stale relative to the parts
+  // (e.g. a row where vendor costs were written but total wasn't recomputed).
+  // Only fall back to the stored total for legacy rows that carry a total
+  // with no itemization, so we never lose a real-but-unitemized cost.
+  const componentSum = twilio + elevenlabs + openai + lookup;
+  const storedTotal = n("total");
+  const total = componentSum > 0 ? componentSum : storedTotal;
+  return { twilio, elevenlabs, openai, lookup, total };
 }
 
 function addInto(acc: Breakdown, b: Breakdown) {
