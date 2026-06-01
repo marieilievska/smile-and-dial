@@ -5,8 +5,11 @@ import {
   ArrowRight,
   Check,
   Copy,
+  Lock,
+  Plus,
   Save,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -38,6 +41,13 @@ import {
   draftAgentFromDescription,
   updateAgent,
 } from "@/lib/agents/actions";
+import {
+  DATA_COLLECTION_TYPES,
+  toFieldId,
+  type DataCollectionType,
+  type ExtraDataCollectionField,
+  type ExtraEvaluationCriterion,
+} from "@/lib/agents/data-collection";
 import {
   ALL_TOOLS,
   TOOL_LABELS,
@@ -103,6 +113,11 @@ const STEPS = [
     description: "Which knowledge bases should the agent draw on?",
   },
   {
+    title: "Data & evaluation",
+    description:
+      "What the agent should capture from each call, and how success is judged.",
+  },
+  {
     title: "Review",
     description: "Final prompt — tweak anything before saving.",
   },
@@ -123,6 +138,8 @@ export type AgentInitial = {
   systemPrompt: string;
   toolsEnabled: ToolsEnabled;
   knowledgeBaseIds: string[];
+  extraDataCollection: ExtraDataCollectionField[];
+  extraEvaluation: ExtraEvaluationCriterion[];
 };
 
 /** Step indicator pip row. Round 24 — replaces the "Step X of 9" text
@@ -194,6 +211,12 @@ export function AgentWizard({
   const [guardrails, setGuardrails] = useState(agent?.guardrails ?? "");
   const [tools, setTools] = useState<ToolsEnabled>(agent?.toolsEnabled ?? {});
   const [kbIds, setKbIds] = useState<string[]>(agent?.knowledgeBaseIds ?? []);
+  const [dataFields, setDataFields] = useState<ExtraDataCollectionField[]>(
+    agent?.extraDataCollection ?? [],
+  );
+  const [evalCriteria, setEvalCriteria] = useState<ExtraEvaluationCriterion[]>(
+    agent?.extraEvaluation ?? [],
+  );
   const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? "");
   const [copied, setCopied] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -233,7 +256,9 @@ export function AgentWizard({
   }
 
   function next() {
-    if (step === 8) {
+    // Assemble the prompt as we enter the Review step (now step 10 after
+    // the Data & evaluation step was inserted at 9).
+    if (step === STEPS.length - 1) {
       setSystemPrompt(
         assemblePrompt({
           personality,
@@ -245,7 +270,7 @@ export function AgentWizard({
         }),
       );
     }
-    setStep((s) => Math.min(9, s + 1));
+    setStep((s) => Math.min(STEPS.length, s + 1));
   }
 
   function back() {
@@ -286,6 +311,8 @@ export function AgentWizard({
         systemPrompt,
         toolsEnabled: tools,
         knowledgeBaseIds: kbIds,
+        extraDataCollection: dataFields,
+        extraEvaluation: evalCriteria,
       };
       const result =
         isEdit && agent
@@ -594,6 +621,15 @@ export function AgentWizard({
           ) : null}
 
           {step === 9 ? (
+            <DataEvalStep
+              dataFields={dataFields}
+              setDataFields={setDataFields}
+              evalCriteria={evalCriteria}
+              setEvalCriteria={setEvalCriteria}
+            />
+          ) : null}
+
+          {step === 10 ? (
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="agent-prompt">System prompt</Label>
@@ -636,7 +672,7 @@ export function AgentWizard({
             <ArrowLeft className="size-4" />
             Back
           </Button>
-          {step < 9 ? (
+          {step < STEPS.length ? (
             <Button onClick={next} disabled={!canProceed || pending}>
               Next
               <ArrowRight className="size-4" />
@@ -653,6 +689,234 @@ export function AgentWizard({
           )}
         </CardFooter>
       </Card>
+    </div>
+  );
+}
+
+/** The system base fields shown (read-only) so the operator sees what's
+ *  always captured before adding their own. These mirror the base set the
+ *  sync layer sends and the post-call webhook depends on. */
+const SYSTEM_DATA_FIELDS: { id: string; note: string }[] = [
+  { id: "disposition", note: "drives the call outcome" },
+  { id: "business_email", note: "auto-fills the lead" },
+  { id: "owner_name", note: "auto-fills the lead" },
+  { id: "manager_name", note: "auto-fills the lead" },
+  { id: "employee_name", note: "auto-fills the lead" },
+  { id: "callback_datetime", note: "schedules callbacks" },
+  { id: "objection_summary", note: "captures why they declined" },
+];
+
+function DataEvalStep({
+  dataFields,
+  setDataFields,
+  evalCriteria,
+  setEvalCriteria,
+}: {
+  dataFields: ExtraDataCollectionField[];
+  setDataFields: (v: ExtraDataCollectionField[]) => void;
+  evalCriteria: ExtraEvaluationCriterion[];
+  setEvalCriteria: (v: ExtraEvaluationCriterion[]) => void;
+}) {
+  function addField() {
+    setDataFields([
+      ...dataFields,
+      { id: "", type: "string", description: "", enumValues: [] },
+    ]);
+  }
+  function updateField(i: number, patch: Partial<ExtraDataCollectionField>) {
+    setDataFields(
+      dataFields.map((f, idx) => (idx === i ? { ...f, ...patch } : f)),
+    );
+  }
+  function removeField(i: number) {
+    setDataFields(dataFields.filter((_, idx) => idx !== i));
+  }
+
+  function addCriterion() {
+    setEvalCriteria([...evalCriteria, { id: "", name: "", prompt: "" }]);
+  }
+  function updateCriterion(
+    i: number,
+    patch: Partial<ExtraEvaluationCriterion>,
+  ) {
+    setEvalCriteria(
+      evalCriteria.map((c, idx) => (idx === i ? { ...c, ...patch } : c)),
+    );
+  }
+  function removeCriterion(i: number) {
+    setEvalCriteria(evalCriteria.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* --- Data collection --- */}
+      <div className="flex flex-col gap-3">
+        <div>
+          <h3 className="text-foreground text-sm font-semibold">
+            Data collection
+          </h3>
+          <p className="text-muted-foreground text-xs">
+            What the agent extracts from each call. The fields below are always
+            captured; add your own on top.
+          </p>
+        </div>
+
+        {/* Locked system fields */}
+        <div className="border-border bg-muted/20 flex flex-col gap-1.5 rounded-lg border p-3">
+          {SYSTEM_DATA_FIELDS.map((f) => (
+            <div
+              key={f.id}
+              className="text-muted-foreground flex items-center gap-2 text-xs"
+            >
+              <Lock className="size-3 shrink-0" />
+              <span className="text-foreground font-mono">{f.id}</span>
+              <span>· {f.note}</span>
+            </div>
+          ))}
+          <p className="text-muted-foreground mt-1 text-[11px]">
+            These are required for outcomes, lead auto-fill, and callbacks —
+            they can&apos;t be removed.
+          </p>
+        </div>
+
+        {/* Custom fields */}
+        {dataFields.map((f, i) => (
+          <div
+            key={i}
+            data-testid="agent-data-field"
+            className="border-border flex flex-col gap-2 rounded-lg border p-3"
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                aria-label="Field name"
+                value={f.id}
+                onChange={(e) =>
+                  updateField(i, { id: toFieldId(e.target.value) })
+                }
+                placeholder="field_name"
+                className="font-mono"
+              />
+              <Select
+                value={f.type}
+                onValueChange={(v) =>
+                  updateField(i, { type: v as DataCollectionType })
+                }
+              >
+                <SelectTrigger className="w-32" aria-label="Field type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DATA_COLLECTION_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Remove field"
+                onClick={() => removeField(i)}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+            <Input
+              aria-label="Field description"
+              value={f.description}
+              onChange={(e) => updateField(i, { description: e.target.value })}
+              placeholder="What the agent should capture for this field"
+            />
+            {f.type === "string" ? (
+              <Input
+                aria-label="Allowed values"
+                value={f.enumValues.join(", ")}
+                onChange={(e) =>
+                  updateField(i, {
+                    enumValues: e.target.value
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter(Boolean),
+                  })
+                }
+                placeholder="Optional fixed answers, comma-separated (e.g. yes, no, maybe)"
+              />
+            ) : null}
+          </div>
+        ))}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={addField}
+          className="w-fit"
+        >
+          <Plus className="size-4" />
+          Add field
+        </Button>
+      </div>
+
+      {/* --- Evaluation --- */}
+      <div className="flex flex-col gap-3">
+        <div>
+          <h3 className="text-foreground text-sm font-semibold">
+            Success evaluation
+          </h3>
+          <p className="text-muted-foreground text-xs">
+            How each call is judged after it ends. A &quot;Goal met&quot;
+            criterion from your goal always runs; add more here.
+          </p>
+        </div>
+        {evalCriteria.map((c, i) => (
+          <div
+            key={i}
+            data-testid="agent-eval-criterion"
+            className="border-border flex flex-col gap-2 rounded-lg border p-3"
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                aria-label="Criterion name"
+                value={c.name}
+                onChange={(e) =>
+                  updateCriterion(i, {
+                    name: e.target.value,
+                    id: toFieldId(e.target.value),
+                  })
+                }
+                placeholder="e.g. Booked appointment"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Remove criterion"
+                onClick={() => removeCriterion(i)}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+            <Textarea
+              aria-label="Criterion prompt"
+              value={c.prompt}
+              onChange={(e) => updateCriterion(i, { prompt: e.target.value })}
+              rows={2}
+              placeholder="Mark success when… (describe what a passing call looks like)"
+            />
+          </div>
+        ))}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={addCriterion}
+          className="w-fit"
+        >
+          <Plus className="size-4" />
+          Add criterion
+        </Button>
+      </div>
     </div>
   );
 }

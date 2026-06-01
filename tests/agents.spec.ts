@@ -88,7 +88,11 @@ test.describe("Agent builder", () => {
     await page.getByLabel(kbName).check();
     await page.getByRole("button", { name: "Next" }).click();
 
-    // Step 9 — Review.
+    // Step 9 — Data & evaluation. Leave the custom fields empty (the system
+    // base set always ships); just advance.
+    await page.getByRole("button", { name: "Next" }).click();
+
+    // Step 10 — Review.
     const prompt = page.getByRole("textbox", { name: "System prompt" });
     await expect(prompt).toContainText("# Personality");
     await expect(prompt).toContainText("Friendly and direct.");
@@ -149,8 +153,9 @@ test.describe("Agent builder", () => {
     await expect(nameInput).toHaveValue(original);
     await nameInput.fill(renamed);
 
-    // Step through to Review and save.
-    for (let i = 0; i < 8; i += 1) {
+    // Step through to Review and save. 10 steps now (a Data & evaluation
+    // step was added before Review), so 9 Next clicks from step 1.
+    for (let i = 0; i < 9; i += 1) {
       await page.getByRole("button", { name: "Next" }).click();
     }
     await page.getByRole("button", { name: "Save changes" }).click();

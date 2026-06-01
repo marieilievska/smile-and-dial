@@ -1,5 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 
+import {
+  normalizeDataCollection,
+  normalizeEvaluation,
+} from "@/lib/agents/data-collection";
 import { type ToolsEnabled } from "@/lib/agents/prompt";
 import { createClient } from "@/lib/supabase/server";
 
@@ -24,7 +28,7 @@ export default async function EditAgentPage({
       supabase
         .from("agents")
         .select(
-          "id, name, voice_id, ai_model, system_prompt, prompt_personality, prompt_environment, prompt_tone, prompt_goal, prompt_guardrails, tools_enabled, knowledge_base_ids",
+          "id, name, voice_id, ai_model, system_prompt, prompt_personality, prompt_environment, prompt_tone, prompt_goal, prompt_guardrails, tools_enabled, knowledge_base_ids, extra_data_collection, extra_evaluation",
         )
         .eq("id", id)
         .maybeSingle(),
@@ -51,6 +55,8 @@ export default async function EditAgentPage({
     systemPrompt: agent.system_prompt ?? "",
     toolsEnabled: (agent.tools_enabled as ToolsEnabled) ?? {},
     knowledgeBaseIds: agent.knowledge_base_ids ?? [],
+    extraDataCollection: normalizeDataCollection(agent.extra_data_collection),
+    extraEvaluation: normalizeEvaluation(agent.extra_evaluation),
   };
 
   return (

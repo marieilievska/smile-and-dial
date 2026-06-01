@@ -10,6 +10,13 @@
  * still lives in `app_settings`.
  */
 
+import {
+  toElevenLabsDataCollection,
+  toElevenLabsEvaluation,
+  type ExtraDataCollectionField,
+  type ExtraEvaluationCriterion,
+} from "@/lib/agents/data-collection";
+
 export type AgentSyncPayload = {
   name: string;
   systemPrompt: string;
@@ -17,6 +24,12 @@ export type AgentSyncPayload = {
   aiModel: string | null;
   /** Used as the Success Evaluation criterion prompt. */
   goal: string | null;
+  /** User-defined data-collection fields, merged ON TOP of the system base
+   *  set. Pre-normalized by the caller (see lib/agents/data-collection). */
+  extraDataCollection?: ExtraDataCollectionField[];
+  /** User-defined evaluation criteria, merged on top of the base "goal"
+   *  criterion. */
+  extraEvaluation?: ExtraEvaluationCriterion[];
 };
 
 export type SyncResult = {
@@ -308,7 +321,13 @@ async function liveSync(
       ...(includeTts ? { tts: ttsBase } : {}),
     },
     platform_settings: {
-      data_collection: DATA_COLLECTION_FIELDS,
+      // System base set + user-defined fields merged on top. normalize
+      // already dropped any user id that collides with a base id, so the
+      // base fields the post-call webhook depends on always win.
+      data_collection: [
+        ...DATA_COLLECTION_FIELDS,
+        ...(payload.extraDataCollection ?? []).map(toElevenLabsDataCollection),
+      ],
       evaluation: {
         criteria: [
           {
@@ -318,6 +337,7 @@ async function liveSync(
             conversation_goal_prompt:
               payload.goal || "Did the agent accomplish its stated goal?",
           },
+          ...(payload.extraEvaluation ?? []).map(toElevenLabsEvaluation),
         ],
       },
       guardrails: GUARDRAILS,

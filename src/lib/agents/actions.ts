@@ -8,7 +8,12 @@ import {
   syncAgentToElevenLabs,
 } from "@/lib/elevenlabs/agents";
 import { createClient } from "@/lib/supabase/server";
+import type { Json } from "@/lib/supabase/database.types";
 
+import {
+  normalizeDataCollection,
+  normalizeEvaluation,
+} from "./data-collection";
 import type { ToolsEnabled } from "./prompt";
 
 export type AgentResult = {
@@ -29,9 +34,18 @@ export async function createAgent(input: {
   systemPrompt: string;
   toolsEnabled: ToolsEnabled;
   knowledgeBaseIds: string[];
+  extraDataCollection?: unknown;
+  extraEvaluation?: unknown;
 }): Promise<AgentResult> {
   const name = input.name.trim();
   if (!name) return { error: "Give the agent a name." };
+
+  // Sanitize the user-defined fields once; this is also what we persist so
+  // the DB only ever holds clean, base-collision-free entries.
+  const extraDataCollection = normalizeDataCollection(
+    input.extraDataCollection,
+  );
+  const extraEvaluation = normalizeEvaluation(input.extraEvaluation);
 
   const supabase = await createClient();
   const {
@@ -54,6 +68,8 @@ export async function createAgent(input: {
       prompt_guardrails: input.guardrails.trim() || null,
       tools_enabled: input.toolsEnabled,
       knowledge_base_ids: input.knowledgeBaseIds,
+      extra_data_collection: extraDataCollection as unknown as Json,
+      extra_evaluation: extraEvaluation as unknown as Json,
     })
     .select("id")
     .single();
@@ -68,6 +84,8 @@ export async function createAgent(input: {
       voiceId: input.voiceId.trim() || null,
       aiModel: input.aiModel.trim() || null,
       goal: input.goal.trim() || null,
+      extraDataCollection,
+      extraEvaluation,
     },
     null,
   );
@@ -101,10 +119,17 @@ export async function updateAgent(
     systemPrompt: string;
     toolsEnabled: ToolsEnabled;
     knowledgeBaseIds: string[];
+    extraDataCollection?: unknown;
+    extraEvaluation?: unknown;
   },
 ): Promise<AgentResult> {
   const name = input.name.trim();
   if (!name) return { error: "Give the agent a name." };
+
+  const extraDataCollection = normalizeDataCollection(
+    input.extraDataCollection,
+  );
+  const extraEvaluation = normalizeEvaluation(input.extraEvaluation);
 
   const supabase = await createClient();
   const {
@@ -133,6 +158,8 @@ export async function updateAgent(
       prompt_guardrails: input.guardrails.trim() || null,
       tools_enabled: input.toolsEnabled,
       knowledge_base_ids: input.knowledgeBaseIds,
+      extra_data_collection: extraDataCollection as unknown as Json,
+      extra_evaluation: extraEvaluation as unknown as Json,
     })
     .eq("id", id);
   if (error) return { error: "Could not update the agent." };
@@ -145,6 +172,8 @@ export async function updateAgent(
       voiceId: input.voiceId.trim() || null,
       aiModel: input.aiModel.trim() || null,
       goal: input.goal.trim() || null,
+      extraDataCollection,
+      extraEvaluation,
     },
     existing.elevenlabs_agent_id,
   );

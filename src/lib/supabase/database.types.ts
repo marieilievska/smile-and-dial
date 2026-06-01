@@ -19,6 +19,8 @@ export type Database = {
           ai_model: string | null;
           created_at: string;
           elevenlabs_agent_id: string | null;
+          extra_data_collection: Json;
+          extra_evaluation: Json;
           id: string;
           knowledge_base_ids: string[];
           name: string;
@@ -37,6 +39,8 @@ export type Database = {
           ai_model?: string | null;
           created_at?: string;
           elevenlabs_agent_id?: string | null;
+          extra_data_collection?: Json;
+          extra_evaluation?: Json;
           id?: string;
           knowledge_base_ids?: string[];
           name: string;
@@ -55,6 +59,8 @@ export type Database = {
           ai_model?: string | null;
           created_at?: string;
           elevenlabs_agent_id?: string | null;
+          extra_data_collection?: Json;
+          extra_evaluation?: Json;
           id?: string;
           knowledge_base_ids?: string[];
           name?: string;
