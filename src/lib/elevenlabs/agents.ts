@@ -170,6 +170,23 @@ function postCallWebhookId(): string | undefined {
   return v && v.length > 0 ? v : undefined;
 }
 
+/** The conversation-initiation override every agent reports to: ElevenLabs
+ *  calls this at call start to fetch per-call dynamic variables (call_type,
+ *  summaries, lead context, transfer number). Built from NEXT_PUBLIC_APP_URL
+ *  + the shared init secret; omitted entirely if either is missing so the
+ *  agent body stays valid in environments without them. */
+function conversationInitWebhook():
+  | { url: string; request_headers: Record<string, string> }
+  | undefined {
+  const base = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "");
+  const secret = process.env.ELEVENLABS_INIT_WEBHOOK_SECRET?.trim();
+  if (!base || !secret) return undefined;
+  return {
+    url: `${base}/api/elevenlabs/conversation-init`,
+    request_headers: { "x-init-secret": secret },
+  };
+}
+
 /** The single ElevenLabs API key for the whole product. Returns null
  *  if the env var is missing or empty so the caller can surface a
  *  clean error instead of attempting a request with an undefined
@@ -280,6 +297,29 @@ async function liveSync(
 
   const analysis = analysisLlm();
   const webhookId = postCallWebhookId();
+  const initWebhook = conversationInitWebhook();
+
+  // workspace_overrides carries the two workspace-level webhooks every agent
+  // shares: the post-call webhook (transcript/audio/failure events) and the
+  // conversation-initiation webhook (per-call dynamic variables). Each is
+  // included only when its config is present, and the whole block is omitted
+  // if neither is — keeping the body valid in bare environments.
+  const workspaceOverrides: Record<string, unknown> = {};
+  if (webhookId) {
+    workspaceOverrides.webhooks = {
+      post_call_webhook_id: webhookId,
+      events: ["transcript", "audio", "call_initiation_failure"],
+      // MUST stay "json" — our post-call handler parses the JSON transcript
+      // envelope (data.analysis.disposition). "opentelemetry" would deliver
+      // OTLP trace data instead and break outcome parsing.
+      transcript_format: "json",
+      send_audio: false,
+    };
+  }
+  if (initWebhook) {
+    workspaceOverrides.conversation_initiation_client_data_webhook =
+      initWebhook;
+  }
 
   const body: Record<string, unknown> = {
     name: payload.name,
@@ -363,19 +403,16 @@ async function liveSync(
       guardrails: GUARDRAILS,
       // The model that runs post-call analysis (data collection + eval).
       ...(analysis ? { analysis_llm: analysis } : {}),
-      // Every agent reports to the one workspace post-call webhook — this is
-      // how we receive transcript / audio / call-failure events. The webhook
-      // itself is created once in the ElevenLabs dashboard; its id is set in
-      // ELEVENLABS_POST_CALL_WEBHOOK_ID.
-      ...(webhookId
+      // Workspace webhooks (post-call + conversation-init), built above.
+      ...(Object.keys(workspaceOverrides).length > 0
+        ? { workspace_overrides: workspaceOverrides }
+        : {}),
+      // The conversation-init webhook only fires when the agent opts in via
+      // this flag, so enable it whenever we're wiring that webhook.
+      ...(initWebhook
         ? {
-            workspace_overrides: {
-              webhooks: {
-                post_call_webhook_id: webhookId,
-                events: ["transcript", "audio", "call_initiation_failure"],
-                transcript_format: "opentelemetry",
-                send_audio: false,
-              },
+            overrides: {
+              enable_conversation_initiation_client_data_from_webhook: true,
             },
           }
         : {}),
