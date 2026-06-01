@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   isValidElevenLabsSignature,
   processElevenLabsPostCall,
-  type ElevenLabsPostCallPayload,
+  type ElevenLabsWebhookEnvelope,
 } from "@/lib/elevenlabs/post-call-webhook";
 
 /**
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
   }
 
-  let payload: ElevenLabsPostCallPayload;
+  let payload: ElevenLabsWebhookEnvelope;
   try {
     payload = JSON.parse(rawBody);
   } catch {

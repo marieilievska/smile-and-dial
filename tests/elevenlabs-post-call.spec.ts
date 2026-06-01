@@ -573,4 +573,163 @@ test.describe("ElevenLabs post-call webhook", () => {
       await admin.from("leads").delete().eq("id", l!.id);
     }
   });
+
+  test("the real { type, data } envelope is unwrapped and applied", async () => {
+    const convo = `convo-${stamp}-env`;
+    const { data: call } = await admin
+      .from("calls")
+      .insert({
+        lead_id: leadId,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "completed",
+        elevenlabs_conversation_id: convo,
+      })
+      .select("id")
+      .single();
+    try {
+      const ctx = await playwrightRequest.newContext({
+        baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+      });
+      const res = await ctx.post("/api/elevenlabs/post-call", {
+        headers: { "content-type": "application/json" },
+        // Production envelope: real fields nested under `data`.
+        data: {
+          type: "post_call_transcription",
+          event_timestamp: 1739537297,
+          data: {
+            conversation_id: convo,
+            analysis: {
+              summary: "Envelope unwrapped correctly.",
+              data_collection: { disposition: "not_interested" },
+            },
+          },
+        },
+      });
+      expect(res.ok()).toBe(true);
+      expect(await res.json()).toEqual({ status: "applied" });
+      const { data } = await admin
+        .from("calls")
+        .select("outcome, summary")
+        .eq("id", call!.id)
+        .single();
+      expect(data?.outcome).toBe("not_interested");
+      expect(data?.summary).toBe("Envelope unwrapped correctly.");
+      await ctx.dispose();
+    } finally {
+      await admin
+        .from("elevenlabs_webhook_events")
+        .delete()
+        .eq("conversation_id", convo);
+      await admin.from("calls").delete().eq("id", call!.id);
+    }
+  });
+
+  test("post_call_audio stores the recording and sets recording_path", async () => {
+    const convo = `convo-${stamp}-audio`;
+    const { data: call } = await admin
+      .from("calls")
+      .insert({
+        lead_id: leadId,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "completed",
+        elevenlabs_conversation_id: convo,
+      })
+      .select("id")
+      .single();
+    try {
+      const ctx = await playwrightRequest.newContext({
+        baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+      });
+      // A tiny valid base64 blob stands in for the MP3.
+      const fakeMp3 = Buffer.from("ID3-fake-audio-bytes").toString("base64");
+      const res = await ctx.post("/api/elevenlabs/post-call", {
+        headers: { "content-type": "application/json" },
+        data: {
+          type: "post_call_audio",
+          event_timestamp: 1739537319,
+          data: { conversation_id: convo, full_audio: fakeMp3 },
+        },
+      });
+      expect(res.ok()).toBe(true);
+      expect(await res.json()).toEqual({ status: "applied" });
+
+      const { data } = await admin
+        .from("calls")
+        .select("recording_path")
+        .eq("id", call!.id)
+        .single();
+      expect(data?.recording_path).toBe(`${call!.id}.mp3`);
+
+      // The object actually landed in the bucket.
+      const { data: dl } = await admin.storage
+        .from("call-recordings")
+        .download(`${call!.id}.mp3`);
+      expect(dl).not.toBeNull();
+      await ctx.dispose();
+    } finally {
+      await admin.storage.from("call-recordings").remove([`${call!.id}.mp3`]);
+      await admin
+        .from("elevenlabs_webhook_events")
+        .delete()
+        .eq("conversation_id", convo);
+      await admin.from("calls").delete().eq("id", call!.id);
+    }
+  });
+
+  test("call_initiation_failure marks the call failed and logs an event", async () => {
+    const convo = `convo-${stamp}-fail`;
+    const { data: call } = await admin
+      .from("calls")
+      .insert({
+        lead_id: leadId,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "dialing",
+        elevenlabs_conversation_id: convo,
+      })
+      .select("id")
+      .single();
+    try {
+      const ctx = await playwrightRequest.newContext({
+        baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+      });
+      const res = await ctx.post("/api/elevenlabs/post-call", {
+        headers: { "content-type": "application/json" },
+        data: {
+          type: "call_initiation_failure",
+          data: { conversation_id: convo, failure_reason: "busy" },
+        },
+      });
+      expect(res.ok()).toBe(true);
+      expect(await res.json()).toEqual({ status: "applied" });
+
+      const { data } = await admin
+        .from("calls")
+        .select("status, outcome")
+        .eq("id", call!.id)
+        .single();
+      expect(data?.status).toBe("failed");
+      expect(data?.outcome).toBe("failed");
+      await ctx.dispose();
+    } finally {
+      await admin
+        .from("system_events")
+        .delete()
+        .eq("kind", "call_initiation_failure")
+        .eq("ref_id", call!.id);
+      await admin
+        .from("elevenlabs_webhook_events")
+        .delete()
+        .eq("conversation_id", convo);
+      await admin.from("calls").delete().eq("id", call!.id);
+    }
+  });
 });

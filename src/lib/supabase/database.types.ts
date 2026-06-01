@@ -722,16 +722,19 @@ export type Database = {
       elevenlabs_webhook_events: {
         Row: {
           conversation_id: string;
+          event_type: string;
           raw_payload: Json | null;
           received_at: string;
         };
         Insert: {
           conversation_id: string;
+          event_type?: string;
           raw_payload?: Json | null;
           received_at?: string;
         };
         Update: {
           conversation_id?: string;
+          event_type?: string;
           raw_payload?: Json | null;
           received_at?: string;
         };

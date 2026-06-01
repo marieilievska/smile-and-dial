@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database, Json } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
 type CallOutcome = Database["public"]["Tables"]["calls"]["Row"]["outcome"];
@@ -30,6 +30,44 @@ const DISPOSITION_TO_OUTCOME: Record<string, CallOutcome> = {
  * more fields than this; we only pluck what we need. Fields are loose-typed
  * because the source is external and we don't trust it.
  */
+/**
+ * The webhook envelope ElevenLabs actually POSTs. The real fields live under
+ * `data`, with a top-level `type` discriminator and `event_timestamp`. We
+ * support three event types on the one webhook URL:
+ *   - post_call_transcription → transcript / analysis / cost (the main one)
+ *   - post_call_audio         → base64 MP3 of the full call
+ *   - call_initiation_failure → telephony failed to connect
+ * For backward-compat we also accept a "flat" body (no type/data wrapper) and
+ * treat it as transcription data — that's the shape our older tests post.
+ */
+export type ElevenLabsWebhookEnvelope = {
+  type?: string;
+  event_timestamp?: number;
+  data?: Record<string, unknown>;
+} & ElevenLabsPostCallPayload;
+
+export type ElevenLabsAudioData = {
+  conversation_id?: string;
+  call_id?: string;
+  conversation_initiation_client_data?: {
+    dynamic_variables?: Record<string, unknown>;
+    custom_llm_extra_body?: Record<string, unknown>;
+  };
+  /** Base64-encoded complete conversation audio, MP3. */
+  full_audio?: string;
+};
+
+export type ElevenLabsFailureData = {
+  conversation_id?: string;
+  call_id?: string;
+  conversation_initiation_client_data?: {
+    dynamic_variables?: Record<string, unknown>;
+    custom_llm_extra_body?: Record<string, unknown>;
+  };
+  failure_reason?: string;
+};
+
+/** The transcription event's `data` payload (also the legacy flat shape). */
 export type ElevenLabsPostCallPayload = {
   conversation_id?: string;
   /** Custom params we attached to the Twilio <Stream> (our internal
@@ -134,13 +172,17 @@ export function isValidElevenLabsSignature(input: {
  *  versions, so check each known location and accept a plain top-level
  *  `call_id` too. Returns null when absent (then we fall back to
  *  conversation_id correlation). */
-function extractEchoedCallId(
-  payload: ElevenLabsPostCallPayload,
+/** Read an echoed call_id out of a conversation_initiation_client_data bag
+ *  (the dynamic_variables / custom_llm_extra_body sub-objects). Shared by
+ *  every event type since they all carry this same bag. */
+export function extractEchoedCallIdFromBag(
+  client:
+    | {
+        dynamic_variables?: Record<string, unknown>;
+        custom_llm_extra_body?: Record<string, unknown>;
+      }
+    | undefined,
 ): string | null {
-  const direct = typeof payload.call_id === "string" ? payload.call_id : null;
-  if (direct) return direct;
-
-  const client = payload.conversation_initiation_client_data;
   const fromBag = (bag: Record<string, unknown> | undefined): string | null => {
     const v = bag?.["call_id"];
     return typeof v === "string" && v.length > 0 ? v : null;
@@ -149,6 +191,16 @@ function extractEchoedCallId(
     fromBag(client?.dynamic_variables) ??
     fromBag(client?.custom_llm_extra_body) ??
     null
+  );
+}
+
+function extractEchoedCallId(
+  payload: ElevenLabsPostCallPayload,
+): string | null {
+  const direct = typeof payload.call_id === "string" ? payload.call_id : null;
+  if (direct) return direct;
+  return extractEchoedCallIdFromBag(
+    payload.conversation_initiation_client_data,
   );
 }
 
@@ -169,7 +221,83 @@ export type ProcessResult =
   | { ok: true; status: "applied" }
   | { ok: true; status: "duplicate" }
   | { ok: true; status: "unknown_conversation" }
+  | { ok: true; status: "ignored" }
   | { ok: false; reason: string };
+
+/** Resolve our `calls` row from a webhook's conversation_id / echoed
+ *  call_id, stamping the conversation_id on first match. Shared by every
+ *  event type so audio / failure correlate the same way as transcription. */
+async function resolveCall(
+  supabase: SupabaseAdmin,
+  conversationId: string,
+  echoedCallId: string | null,
+): Promise<{
+  id: string;
+  lead_id: string;
+  campaign_id: string;
+  cost_breakdown: unknown;
+  elevenlabs_conversation_id: string | null;
+} | null> {
+  const cols =
+    "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id";
+  let call = null as Awaited<ReturnType<typeof resolveCall>>;
+  if (echoedCallId) {
+    const { data } = await supabase
+      .from("calls")
+      .select(cols)
+      .eq("id", echoedCallId)
+      .maybeSingle();
+    call = data ?? null;
+  }
+  if (!call) {
+    const { data } = await supabase
+      .from("calls")
+      .select(cols)
+      .eq("elevenlabs_conversation_id", conversationId)
+      .maybeSingle();
+    call = data ?? null;
+  }
+  if (call && !call.elevenlabs_conversation_id) {
+    await supabase
+      .from("calls")
+      .update({ elevenlabs_conversation_id: conversationId })
+      .eq("id", call.id);
+  }
+  return call;
+}
+
+/**
+ * Top-level dispatcher. Unwraps the ElevenLabs envelope ({ type, data }),
+ * falls back to the legacy flat shape, and routes to the right handler:
+ *   post_call_transcription (or flat) → processTranscription
+ *   post_call_audio                   → processAudio (store the recording)
+ *   call_initiation_failure           → processInitiationFailure
+ * Unknown types are acknowledged (200) and ignored so a newly-enabled event
+ * never wedges ElevenLabs into a retry storm.
+ */
+export async function processElevenLabsPostCall(
+  envelope: ElevenLabsWebhookEnvelope,
+): Promise<ProcessResult> {
+  const type = envelope.type;
+  // Unwrap `data` when present; otherwise the envelope IS the (flat) data.
+  const hasWrapper = type !== undefined && envelope.data !== undefined;
+
+  if (!type || type === "post_call_transcription") {
+    const data = (
+      hasWrapper ? envelope.data : envelope
+    ) as ElevenLabsPostCallPayload;
+    return processTranscription(data, type ?? "post_call_transcription");
+  }
+  if (type === "post_call_audio") {
+    return processAudio((envelope.data ?? {}) as ElevenLabsAudioData);
+  }
+  if (type === "call_initiation_failure") {
+    return processInitiationFailure(
+      (envelope.data ?? {}) as ElevenLabsFailureData,
+    );
+  }
+  return { ok: true, status: "ignored" };
+}
 
 /**
  * Process one ElevenLabs post-call webhook. Idempotent on conversation_id:
@@ -189,19 +317,23 @@ export type ProcessResult =
  * callback row creation (for outcome=callback), and Goal Met notifications
  * are deferred to Step 23b and Step 24.
  */
-export async function processElevenLabsPostCall(
+async function processTranscription(
   payload: ElevenLabsPostCallPayload,
+  eventType: string,
 ): Promise<ProcessResult> {
   const conversationId = payload.conversation_id ?? "";
   if (!conversationId) return { ok: false, reason: "missing_conversation_id" };
 
   const supabase = makeServiceClient();
 
-  // Idempotency guard. Cast the loose payload to `Json` for the column type.
+  // Idempotency guard, keyed on (conversation_id, event_type) so a replayed
+  // transcription collapses to one but the separate audio/failure events for
+  // the same conversation aren't mistaken for duplicates.
   const { error: insertError } = await supabase
     .from("elevenlabs_webhook_events")
     .insert({
       conversation_id: conversationId,
+      event_type: eventType,
       raw_payload:
         payload as unknown as Database["public"]["Tables"]["elevenlabs_webhook_events"]["Insert"]["raw_payload"],
     });
@@ -212,52 +344,12 @@ export async function processElevenLabsPostCall(
     return { ok: false, reason: "could_not_log_event" };
   }
 
-  // Resolve the matching call. Two correlation paths:
-  //  1. Our internal call_id, echoed back from the Twilio <Stream>
-  //     <Parameter name="call_id">. This is the live-mode path — the
-  //     ElevenLabs conversation_id is minted at connect time and is never
-  //     known to us synchronously, so we can't have stored it up front.
-  //  2. elevenlabs_conversation_id, for rows where it was pre-stamped
-  //     (tests + any future flow that learns the id another way).
-  const echoedCallId = extractEchoedCallId(payload);
-  let call: {
-    id: string;
-    lead_id: string;
-    campaign_id: string;
-    cost_breakdown: unknown;
-    elevenlabs_conversation_id: string | null;
-  } | null = null;
-
-  if (echoedCallId) {
-    const { data } = await supabase
-      .from("calls")
-      .select(
-        "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id",
-      )
-      .eq("id", echoedCallId)
-      .maybeSingle();
-    call = data ?? null;
-  }
-  if (!call) {
-    const { data } = await supabase
-      .from("calls")
-      .select(
-        "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id",
-      )
-      .eq("elevenlabs_conversation_id", conversationId)
-      .maybeSingle();
-    call = data ?? null;
-  }
+  const call = await resolveCall(
+    supabase,
+    conversationId,
+    extractEchoedCallId(payload),
+  );
   if (!call) return { ok: true, status: "unknown_conversation" };
-
-  // Stamp the conversation_id onto the row the first time we see it so the
-  // /calls UI and any later replay can correlate without the echoed param.
-  if (!call.elevenlabs_conversation_id) {
-    await supabase
-      .from("calls")
-      .update({ elevenlabs_conversation_id: conversationId })
-      .eq("id", call.id);
-  }
 
   // Map disposition → outcome.
   const disposition = payload.analysis?.data_collection?.disposition ?? "";
@@ -358,6 +450,121 @@ export async function processElevenLabsPostCall(
         .eq("id", call.id);
     }
   }
+
+  return { ok: true, status: "applied" };
+}
+
+/**
+ * Audio event (type=post_call_audio): decode the base64 MP3 and store it in
+ * the private call-recordings bucket, then point calls.recording_path at the
+ * stored object. Idempotent on (conversation_id, "post_call_audio").
+ */
+async function processAudio(data: ElevenLabsAudioData): Promise<ProcessResult> {
+  const conversationId = data.conversation_id ?? "";
+  if (!conversationId) return { ok: false, reason: "missing_conversation_id" };
+  if (!data.full_audio) return { ok: true, status: "ignored" };
+
+  const supabase = makeServiceClient();
+
+  // Idempotency: don't re-upload on a retry. We log the event WITHOUT the
+  // base64 blob (it's large and we don't need it twice).
+  const { error: insertError } = await supabase
+    .from("elevenlabs_webhook_events")
+    .insert({
+      conversation_id: conversationId,
+      event_type: "post_call_audio",
+      raw_payload: { conversation_id: conversationId, audio: true } as Json,
+    });
+  if (insertError) {
+    if ((insertError as { code?: string }).code === "23505") {
+      return { ok: true, status: "duplicate" };
+    }
+    return { ok: false, reason: "could_not_log_event" };
+  }
+
+  const call = await resolveCall(
+    supabase,
+    conversationId,
+    extractEchoedCallIdFromBag(data.conversation_initiation_client_data) ??
+      data.call_id ??
+      null,
+  );
+  if (!call) return { ok: true, status: "unknown_conversation" };
+
+  // Decode base64 MP3 → upload. Path keyed by call id so it's stable.
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(data.full_audio, "base64");
+  } catch {
+    return { ok: false, reason: "bad_audio_encoding" };
+  }
+  const path = `${call.id}.mp3`;
+  const { error: uploadError } = await supabase.storage
+    .from("call-recordings")
+    .upload(path, bytes, { contentType: "audio/mpeg", upsert: true });
+  if (uploadError) return { ok: false, reason: "could_not_store_audio" };
+
+  await supabase
+    .from("calls")
+    .update({ recording_path: path })
+    .eq("id", call.id);
+
+  return { ok: true, status: "applied" };
+}
+
+/**
+ * Call-initiation-failure event (type=call_initiation_failure): the
+ * telephony layer never connected. Mark the call failed and log a system
+ * event so it surfaces on /system-health. Idempotent per conversation.
+ */
+async function processInitiationFailure(
+  data: ElevenLabsFailureData,
+): Promise<ProcessResult> {
+  const conversationId = data.conversation_id ?? "";
+  if (!conversationId) return { ok: false, reason: "missing_conversation_id" };
+
+  const supabase = makeServiceClient();
+
+  const { error: insertError } = await supabase
+    .from("elevenlabs_webhook_events")
+    .insert({
+      conversation_id: conversationId,
+      event_type: "call_initiation_failure",
+      raw_payload: data as unknown as Json,
+    });
+  if (insertError) {
+    if ((insertError as { code?: string }).code === "23505") {
+      return { ok: true, status: "duplicate" };
+    }
+    return { ok: false, reason: "could_not_log_event" };
+  }
+
+  const call = await resolveCall(
+    supabase,
+    conversationId,
+    extractEchoedCallIdFromBag(data.conversation_initiation_client_data) ??
+      data.call_id ??
+      null,
+  );
+
+  // Log regardless — useful even if we can't match a call row.
+  await supabase.from("system_events").insert({
+    kind: "call_initiation_failure",
+    actor_user_id: null,
+    ref_table: call ? "calls" : null,
+    ref_id: call?.id ?? null,
+    payload: {
+      conversation_id: conversationId,
+      failure_reason: data.failure_reason ?? null,
+    },
+  });
+
+  if (!call) return { ok: true, status: "unknown_conversation" };
+
+  await supabase
+    .from("calls")
+    .update({ status: "failed", outcome: "failed" })
+    .eq("id", call.id);
 
   return { ok: true, status: "applied" };
 }
