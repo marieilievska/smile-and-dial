@@ -178,7 +178,7 @@ export default async function DncPage({
   return (
     <SelectionProvider allRows={rowsForSelection}>
       <div className="flex flex-col gap-5 p-6">
-        <div className="flex items-start justify-between gap-4">
+        <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex items-start justify-between gap-4 duration-500">
           <div>
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-foreground text-2xl font-bold tracking-tight">
@@ -193,7 +193,8 @@ export default async function DncPage({
               <DncSparkline values={stats.addedDaily} />
             </div>
             <p className="text-muted-foreground mt-1 text-sm">
-              Workspace-wide list of phone numbers the dialer must skip.
+              Numbers here are off-limits — the dialer skips them across every
+              campaign, so you stay compliant without thinking about it.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -207,7 +208,9 @@ export default async function DncPage({
           </div>
         </div>
 
-        <DncStatStrip stats={stats} />
+        <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both delay-75 duration-500">
+          <DncStatStrip stats={stats} />
+        </div>
 
         <div className="flex justify-end">
           <DncFilters />

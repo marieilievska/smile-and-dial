@@ -193,7 +193,8 @@ export default async function LeadsPage({
           Leads
         </h1>
         <p className="text-muted-foreground text-sm">
-          {total.toLocaleString()} {total === 1 ? "lead" : "leads"} in view
+          Everyone the AI can dial — {total.toLocaleString()}{" "}
+          {total === 1 ? "lead" : "leads"} in view.
         </p>
       </div>
 
