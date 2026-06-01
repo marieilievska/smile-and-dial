@@ -79,7 +79,7 @@ async function buildResponse(callId: string | null): Promise<string> {
   let twiml: string | null = null;
   const elevenlabsAgentId = await resolveAgentId(supabase, callId);
   if (elevenlabsAgentId) {
-    twiml = await buildBridgeTwiml({ elevenlabsAgentId });
+    twiml = await buildBridgeTwiml({ elevenlabsAgentId, callId });
   }
 
   // Record what we served so the operator can see the bridge picking

@@ -377,6 +377,66 @@ test.describe("ElevenLabs post-call webhook", () => {
     }
   });
 
+  test("resolves the call via the echoed call_id when no conversation_id was pre-stamped", async () => {
+    // The live-mode path: the dialer never knows the ElevenLabs
+    // conversation_id up front, so the call row has none. We attach our
+    // internal call_id to the Twilio <Stream> and ElevenLabs echoes it back
+    // under conversation_initiation_client_data. The webhook must resolve
+    // the row by that call_id and stamp the conversation_id onto it.
+    const convo = `convo-${stamp}-echo`;
+    const { data: call } = await admin
+      .from("calls")
+      .insert({
+        lead_id: leadId,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "in_progress",
+        // NOTE: deliberately no elevenlabs_conversation_id here.
+      })
+      .select("id")
+      .single();
+    try {
+      const context = await playwrightRequest.newContext({
+        baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+        storageState: undefined,
+      });
+      const res = await context.post("/api/elevenlabs/post-call", {
+        headers: { "content-type": "application/json" },
+        data: {
+          conversation_id: convo,
+          conversation_initiation_client_data: {
+            dynamic_variables: { call_id: call!.id },
+          },
+          analysis: {
+            summary: "Echoed-id correlation works.",
+            data_collection: { disposition: "not_interested" },
+          },
+        },
+      });
+      expect(res.ok()).toBe(true);
+      expect(await res.json()).toEqual({ status: "applied" });
+
+      const { data } = await admin
+        .from("calls")
+        .select("outcome, summary, elevenlabs_conversation_id")
+        .eq("id", call!.id)
+        .single();
+      expect(data?.outcome).toBe("not_interested");
+      expect(data?.summary).toBe("Echoed-id correlation works.");
+      // The conversation_id was stamped onto the row for future replays.
+      expect(data?.elevenlabs_conversation_id).toBe(convo);
+      await context.dispose();
+    } finally {
+      await admin
+        .from("elevenlabs_webhook_events")
+        .delete()
+        .eq("conversation_id", convo);
+      await admin.from("calls").delete().eq("id", call!.id);
+    }
+  });
+
   test("disposition=dnc auto-inserts into DNC and sets lead status to dnc", async () => {
     // Fresh lead + call so we don't interfere with the callback-side-effect
     // lead from the earlier test.

@@ -99,17 +99,30 @@ export async function getConvaiSignedUrl(
 /** Build the TwiML that bridges a Twilio call to an ElevenLabs agent.
  *  Returns null when the signed-URL fetch fails so the caller can
  *  fall back to a placeholder TwiML rather than dropping the call
- *  with a parse error. */
+ *  with a parse error.
+ *
+ *  We attach our internal `call_id` as a Twilio Media Streams
+ *  `<Parameter>`. ElevenLabs surfaces custom stream parameters in the
+ *  conversation's client data and echoes them back in the post-call
+ *  webhook, which is what lets that webhook resolve the matching
+ *  `calls` row deterministically (the ElevenLabs conversation_id is
+ *  minted at connect time and is never known to us synchronously). */
 export async function buildBridgeTwiml(input: {
   elevenlabsAgentId: string;
+  callId?: string | null;
 }): Promise<string | null> {
   const signed = await getConvaiSignedUrl(input.elevenlabsAgentId);
   if (!signed.ok) return null;
+  const callIdParam = input.callId
+    ? `<Parameter name="call_id" value="${xml(input.callId)}"/>`
+    : "";
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<Response>` +
     `<Connect>` +
-    `<Stream url="${xml(signed.signedUrl)}"/>` +
+    `<Stream url="${xml(signed.signedUrl)}">` +
+    callIdParam +
+    `</Stream>` +
     `</Connect>` +
     `</Response>`
   );

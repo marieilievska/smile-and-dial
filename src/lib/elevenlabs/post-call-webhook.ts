@@ -32,6 +32,15 @@ const DISPOSITION_TO_OUTCOME: Record<string, CallOutcome> = {
  */
 export type ElevenLabsPostCallPayload = {
   conversation_id?: string;
+  /** Custom params we attached to the Twilio <Stream> (our internal
+   *  call_id). ElevenLabs echoes stream/SDK custom parameters back here.
+   *  We read several documented shapes defensively since the exact nesting
+   *  has shifted across ElevenLabs payload versions. */
+  conversation_initiation_client_data?: {
+    dynamic_variables?: Record<string, unknown>;
+    custom_llm_extra_body?: Record<string, unknown>;
+  };
+  call_id?: string;
   transcript?: unknown;
   analysis?: {
     summary?: string;
@@ -86,6 +95,30 @@ export function isValidElevenLabsSignature(input: {
   } catch {
     return false;
   }
+}
+
+/** Pull our internal call_id back out of the post-call payload. We attached
+ *  it as a Twilio <Stream> custom <Parameter name="call_id">. ElevenLabs has
+ *  surfaced echoed stream params under a few different keys across payload
+ *  versions, so check each known location and accept a plain top-level
+ *  `call_id` too. Returns null when absent (then we fall back to
+ *  conversation_id correlation). */
+function extractEchoedCallId(
+  payload: ElevenLabsPostCallPayload,
+): string | null {
+  const direct = typeof payload.call_id === "string" ? payload.call_id : null;
+  if (direct) return direct;
+
+  const client = payload.conversation_initiation_client_data;
+  const fromBag = (bag: Record<string, unknown> | undefined): string | null => {
+    const v = bag?.["call_id"];
+    return typeof v === "string" && v.length > 0 ? v : null;
+  };
+  return (
+    fromBag(client?.dynamic_variables) ??
+    fromBag(client?.custom_llm_extra_body) ??
+    null
+  );
 }
 
 function makeServiceClient(): SupabaseAdmin {
@@ -148,15 +181,52 @@ export async function processElevenLabsPostCall(
     return { ok: false, reason: "could_not_log_event" };
   }
 
-  // Find the call. We look it up by elevenlabs_conversation_id, which the
-  // dialer stamps onto the row when it places the call (Step 21b mock /
-  // future live path).
-  const { data: call } = await supabase
-    .from("calls")
-    .select("id, lead_id, campaign_id, cost_breakdown")
-    .eq("elevenlabs_conversation_id", conversationId)
-    .maybeSingle();
+  // Resolve the matching call. Two correlation paths:
+  //  1. Our internal call_id, echoed back from the Twilio <Stream>
+  //     <Parameter name="call_id">. This is the live-mode path — the
+  //     ElevenLabs conversation_id is minted at connect time and is never
+  //     known to us synchronously, so we can't have stored it up front.
+  //  2. elevenlabs_conversation_id, for rows where it was pre-stamped
+  //     (tests + any future flow that learns the id another way).
+  const echoedCallId = extractEchoedCallId(payload);
+  let call: {
+    id: string;
+    lead_id: string;
+    campaign_id: string;
+    cost_breakdown: unknown;
+    elevenlabs_conversation_id: string | null;
+  } | null = null;
+
+  if (echoedCallId) {
+    const { data } = await supabase
+      .from("calls")
+      .select(
+        "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id",
+      )
+      .eq("id", echoedCallId)
+      .maybeSingle();
+    call = data ?? null;
+  }
+  if (!call) {
+    const { data } = await supabase
+      .from("calls")
+      .select(
+        "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id",
+      )
+      .eq("elevenlabs_conversation_id", conversationId)
+      .maybeSingle();
+    call = data ?? null;
+  }
   if (!call) return { ok: true, status: "unknown_conversation" };
+
+  // Stamp the conversation_id onto the row the first time we see it so the
+  // /calls UI and any later replay can correlate without the echoed param.
+  if (!call.elevenlabs_conversation_id) {
+    await supabase
+      .from("calls")
+      .update({ elevenlabs_conversation_id: conversationId })
+      .eq("id", call.id);
+  }
 
   // Map disposition → outcome.
   const disposition = payload.analysis?.data_collection?.disposition ?? "";
