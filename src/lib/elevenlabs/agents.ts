@@ -138,24 +138,32 @@ function isLive(): boolean {
   return process.env.ELEVENLABS_LIVE === "live";
 }
 
-/** Optional workspace-level ElevenLabs resources, supplied via env so they
- *  aren't hard-coded per environment. Each returns undefined when unset so
- *  the corresponding block is simply omitted from the agent body.
+/** Workspace-level ElevenLabs resources applied to every agent.
  *
- *  - ELEVENLABS_PRONUNCIATION_DICTIONARY_ID: applied to every agent's TTS so
- *    brand/industry terms are said correctly.
- *  - ELEVENLABS_ANALYSIS_LLM: the model that runs post-call analysis
- *    (data collection + evaluation), e.g. "claude-sonnet-4-6".
- *  - ELEVENLABS_POST_CALL_WEBHOOK_ID: the workspace post-call webhook every
- *    agent reports to — this is how we receive transcript / audio / failure
- *    events. Created once in the ElevenLabs dashboard; its id goes here. */
+ *  The product runs on ONE ElevenLabs account, so the dictionary and the
+ *  analysis model are baked in as defaults — they work out of the box with
+ *  no env setup. An env var still overrides each (handy for a staging
+ *  account or to swap the analysis model) but isn't required.
+ *
+ *  The post-call webhook is the exception: it has no sensible default
+ *  because the webhook must be CREATED once in the ElevenLabs dashboard and
+ *  its generated id pasted into ELEVENLABS_POST_CALL_WEBHOOK_ID. Omitted
+ *  from the agent body until that id is set.
+ *
+ *  - Pronunciation dictionary: the workspace dictionary so brand/industry
+ *    terms are said correctly.
+ *  - Analysis LLM: the model that runs post-call analysis (data collection
+ *    + evaluation). */
+const DEFAULT_PRONUNCIATION_DICTIONARY_ID = "C6YPGRdam0tTOORTL9L1";
+const DEFAULT_ANALYSIS_LLM = "claude-sonnet-4-6";
+
 function pronunciationDictionaryId(): string | undefined {
   const v = process.env.ELEVENLABS_PRONUNCIATION_DICTIONARY_ID?.trim();
-  return v && v.length > 0 ? v : undefined;
+  return v && v.length > 0 ? v : DEFAULT_PRONUNCIATION_DICTIONARY_ID;
 }
 function analysisLlm(): string | undefined {
   const v = process.env.ELEVENLABS_ANALYSIS_LLM?.trim();
-  return v && v.length > 0 ? v : undefined;
+  return v && v.length > 0 ? v : DEFAULT_ANALYSIS_LLM;
 }
 function postCallWebhookId(): string | undefined {
   const v = process.env.ELEVENLABS_POST_CALL_WEBHOOK_ID?.trim();
