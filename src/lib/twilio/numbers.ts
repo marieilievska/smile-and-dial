@@ -9,6 +9,8 @@
  * account, not just the ones bought through the app.
  */
 
+import { appBaseUrl } from "@/lib/app-url";
+
 export type AvailableNumber = {
   phoneNumber: string;
   friendlyName: string;
@@ -60,16 +62,16 @@ function twilioAuth(): { account: string; header: string } | null {
 }
 
 /** Build the webhook URLs this deployment expects on every Twilio
- *  number. Read straight from `NEXT_PUBLIC_APP_URL` so a preview
- *  deployment and production each route to themselves automatically.
- *  Returns null when the env var isn't set so the caller can surface
- *  "deployment URL isn't configured" instead of pointing numbers at
- *  a string like "undefined/api/twilio/voice-inbound". */
+ *  number. Resolved via `appBaseUrl()` (NEXT_PUBLIC_APP_URL, else the
+ *  Vercel production domain) so a deployment routes to itself even when
+ *  NEXT_PUBLIC_APP_URL was never set. Returns null when nothing resolves
+ *  so the caller can surface "deployment URL isn't configured" instead of
+ *  pointing numbers at a string like "undefined/api/twilio/voice-inbound". */
 export function appWebhookUrls(): {
   voiceUrl: string;
   statusCallback: string;
 } | null {
-  const base = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "");
+  const base = appBaseUrl();
   if (!base) return null;
   return {
     voiceUrl: `${base}/api/twilio/voice-inbound`,

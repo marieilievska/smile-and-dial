@@ -21,6 +21,7 @@ import {
   ensureServerTools,
   toolIdsForEnabled,
 } from "@/lib/elevenlabs/server-tools";
+import { appBaseUrl } from "@/lib/app-url";
 
 export type AgentSyncPayload = {
   name: string;
@@ -187,7 +188,7 @@ function postCallWebhookId(): string | undefined {
 function conversationInitWebhook():
   | { url: string; request_headers: Record<string, string> }
   | undefined {
-  const base = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "");
+  const base = appBaseUrl();
   const secret = process.env.ELEVENLABS_INIT_WEBHOOK_SECRET?.trim();
   if (!base || !secret) return undefined;
   return {

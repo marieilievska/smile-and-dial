@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 
+import { appBaseUrl } from "@/lib/app-url";
 import { createClient } from "@/lib/supabase/server";
 
 export type LoginState = { error: string } | null;
@@ -64,9 +65,7 @@ export async function forgotPassword(
   // dev. Without this, reset emails built on prod fell back to
   // localhost and the link wouldn't load.
   const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    process.env.NEXT_PUBLIC_APP_URL ??
-    "http://localhost:3000";
+    process.env.NEXT_PUBLIC_SITE_URL ?? appBaseUrl() ?? "http://localhost:3000";
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${origin}/auth/confirm?next=/auth/set-password`,
   });

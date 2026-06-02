@@ -5,6 +5,7 @@ import {
   type ServerToolKey,
 } from "@/lib/elevenlabs/tool-webhook";
 import type { ToolsEnabled } from "@/lib/agents/prompt";
+import { appBaseUrl } from "@/lib/app-url";
 
 /**
  * Register our five custom server tools with ElevenLabs and map each to the
@@ -191,7 +192,7 @@ async function listToolsByName(apiKey: string): Promise<Map<string, string>> {
 }
 
 // Resolved once per process — the configs are static for the process lifetime
-// (their URL depends only on NEXT_PUBLIC_APP_URL). Only successful resolutions
+// (their URL depends only on the app base URL). Only successful resolutions
 // are cached so a transient failure can be retried on the next sync.
 let cachedToolIds: Record<string, string> | null = null;
 
@@ -211,7 +212,7 @@ export async function ensureServerTools(): Promise<Record<string, string>> {
   if (cachedToolIds) return cachedToolIds;
 
   const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "");
+  const baseUrl = appBaseUrl();
   const secret = process.env.ELEVENLABS_TOOL_WEBHOOK_SECRET?.trim();
   // Without a public URL + secret we can't register a callable webhook.
   if (!apiKey || !baseUrl || !secret) return {};

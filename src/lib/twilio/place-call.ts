@@ -1,6 +1,6 @@
 import "server-only";
 
-import { appWebhookUrls } from "./numbers";
+import { appBaseUrl } from "@/lib/app-url";
 
 /** Round L3 — place one real outbound call via Twilio's REST API.
  *
@@ -77,11 +77,11 @@ export async function placeLiveCall(
   if (!auth) {
     return { ok: false, error: "Twilio is not configured (missing creds)." };
   }
-  const urls = appWebhookUrls();
-  if (!urls) {
+  const base = appBaseUrl();
+  if (!base) {
     return {
       ok: false,
-      error: "NEXT_PUBLIC_APP_URL isn't set; cannot build webhook URLs.",
+      error: "Deployment URL isn't configured; cannot build webhook URLs.",
     };
   }
 
@@ -89,7 +89,6 @@ export async function placeLiveCall(
   // handlers can resolve the database row from query params alone.
   // Using a query string keeps the URLs cacheable at Twilio without
   // having to look up the CallSid → call_id mapping on every callback.
-  const base = process.env.NEXT_PUBLIC_APP_URL!.replace(/\/+$/, "");
   const twimlUrl = `${base}/api/twilio/voice-outbound?call_id=${encodeURIComponent(input.callId)}`;
   const statusUrl = `${base}/api/twilio/status?call_id=${encodeURIComponent(input.callId)}`;
 
