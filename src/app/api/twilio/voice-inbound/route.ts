@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { appBaseUrl } from "@/lib/app-url";
 import { isValidTwilioSignature } from "@/lib/twilio/status-webhook";
 import { routeInboundCall } from "@/lib/twilio/inbound-webhook";
 
@@ -19,8 +20,20 @@ export async function POST(request: NextRequest) {
   }
 
   const signature = request.headers.get("x-twilio-signature");
-  const url = `${request.nextUrl.origin}${request.nextUrl.pathname}`;
-  if (!isValidTwilioSignature({ url, params, signature })) {
+  // Validate against both the request origin and the configured public base
+  // URL (in case a proxy rewrites scheme/host away from the URL Twilio
+  // signed). Include the query string for completeness. Tests bypass via
+  // TWILIO_LIVE != "live".
+  const pathWithQuery = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+  const base = appBaseUrl();
+  const candidateUrls = [
+    `${request.nextUrl.origin}${pathWithQuery}`,
+    base ? `${base}${pathWithQuery}` : null,
+  ].filter((u): u is string => Boolean(u));
+  const signatureOk = candidateUrls.some((url) =>
+    isValidTwilioSignature({ url, params, signature }),
+  );
+  if (!signatureOk) {
     return new Response("Forbidden", { status: 403 });
   }
 
