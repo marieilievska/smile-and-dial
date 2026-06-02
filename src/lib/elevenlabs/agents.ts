@@ -19,6 +19,8 @@ import {
 import type { ToolsEnabled } from "@/lib/agents/prompt";
 import {
   ensureServerTools,
+  isOwnServerTool,
+  serverToolDefinitions,
   toolIdsForEnabled,
 } from "@/lib/elevenlabs/server-tools";
 import { appBaseUrl } from "@/lib/app-url";
@@ -299,18 +301,42 @@ export async function applyConnectedAgentIntegration(
     return { error: "ElevenLabs lookup failed." };
   }
 
-  const serverToolMap = await ensureServerTools();
-  const serverToolIds = toolIdsForEnabled(serverToolMap, toolsEnabled);
-
   const cc = (current.conversation_config ?? {}) as Record<string, unknown>;
   const agent = (cc.agent ?? {}) as Record<string, unknown>;
   const prompt = (agent.prompt ?? {}) as Record<string, unknown>;
-  const existingToolIds = Array.isArray(prompt.tool_ids)
-    ? (prompt.tool_ids as string[])
+
+  // An agent references tools in one of two mutually exclusive ways, and the
+  // API rejects a body that sets both. Agents built in the ElevenLabs
+  // dashboard typically carry an inline `tools` array (e.g. their
+  // transfer_to_number with a configured number); agents created via the
+  // modern API use workspace `tool_ids`. Match whichever the agent already
+  // uses so we never send both — and never clobber inline config like the
+  // transfer number.
+  const existingTools = Array.isArray(prompt.tools)
+    ? (prompt.tools as Record<string, unknown>[])
     : [];
-  const mergedToolIds = Array.from(
-    new Set([...existingToolIds, ...serverToolIds]),
-  );
+  const usesInlineTools = existingTools.length > 0;
+
+  let promptPatch: Record<string, unknown>;
+  if (usesInlineTools) {
+    // Drop any stale copies of our tools, then append the enabled set inline.
+    const kept = existingTools.filter((t) => !isOwnServerTool(t?.name));
+    const defs = await serverToolDefinitions(toolsEnabled);
+    promptPatch = { ...prompt, tools: [...kept, ...defs] };
+    // Sending tool_ids alongside tools is rejected, so make sure it's absent.
+    delete promptPatch.tool_ids;
+  } else {
+    const serverToolMap = await ensureServerTools();
+    const serverToolIds = toolIdsForEnabled(serverToolMap, toolsEnabled);
+    const existingToolIds = Array.isArray(prompt.tool_ids)
+      ? (prompt.tool_ids as string[])
+      : [];
+    const mergedToolIds = Array.from(
+      new Set([...existingToolIds, ...serverToolIds]),
+    );
+    promptPatch = { ...prompt, tool_ids: mergedToolIds };
+  }
+
   const dv = (agent.dynamic_variables ?? {}) as Record<string, unknown>;
   const dvp = (dv.dynamic_variable_placeholders ?? {}) as Record<
     string,
@@ -342,7 +368,7 @@ export async function applyConnectedAgentIntegration(
             ...DYNAMIC_VAR_PLACEHOLDERS,
           },
         },
-        prompt: { ...prompt, tool_ids: mergedToolIds },
+        prompt: promptPatch,
       },
     },
     platform_settings: {

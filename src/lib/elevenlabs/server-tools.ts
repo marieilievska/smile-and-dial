@@ -266,6 +266,33 @@ export async function ensureServerTools(): Promise<Record<string, string>> {
   }
 }
 
+/** Inline tool definitions for the enabled server tools, in the shape an
+ *  agent's `conversation_config.agent.prompt.tools` array expects (it's the
+ *  same object buildToolConfig produces). Used for agents that were built in
+ *  the ElevenLabs dashboard with inline `tools` rather than workspace
+ *  `tool_ids` — there we append our tools inline instead of by id, since the
+ *  API forbids mixing the two. Returns [] off-live or until the app URL +
+ *  secret are configured. */
+export async function serverToolDefinitions(
+  toolsEnabled: ToolsEnabled | undefined,
+): Promise<Record<string, unknown>[]> {
+  if (!isLive()) return [];
+  const baseUrl = appBaseUrl();
+  const secret = await getToolWebhookSecret();
+  if (!baseUrl || !secret) return [];
+  return SERVER_TOOL_KEYS.filter((k) => toolsEnabled?.[k]).map((k) =>
+    buildToolConfig(k, baseUrl, secret),
+  );
+}
+
+/** True when a tool entry in an agent's inline `tools` array is one of ours
+ *  (so we can drop stale copies before re-appending the enabled set). */
+export function isOwnServerTool(name: unknown): boolean {
+  return (
+    typeof name === "string" && name.startsWith(SERVER_TOOL_FUNCTION_PREFIX)
+  );
+}
+
 /** The tool_ids to attach to an agent, given which tools the wizard enabled.
  *  transfer_to_number is a system tool, not a server tool, so it's excluded
  *  here (its destination is injected per call). */
