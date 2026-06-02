@@ -22,10 +22,10 @@ type Turn =
   | { role: "assistant"; result: AskSmileResult };
 
 const SUGGESTIONS = [
+  "How do I create an agent?",
+  "How do I launch a campaign?",
   "What should I do next?",
   "How's my connect rate today?",
-  "What's my cost per appointment?",
-  "Any overdue callbacks?",
 ];
 
 /** "Ask Smile" co-pilot launcher + side panel. Lives in the top bar.
@@ -88,8 +88,9 @@ export function AskSmile() {
             Ask Smile
           </SheetTitle>
           <SheetDescription>
-            Ask about today&apos;s calls, connect rate, costs, or what to do
-            next. Answers come straight from your workspace.
+            Ask how to do anything in Smile &amp; Dial — &ldquo;how do I create
+            an agent?&rdquo; — or about today&apos;s calls, connect rate, costs,
+            and what to do next.
           </SheetDescription>
         </SheetHeader>
 
@@ -124,7 +125,7 @@ export function AskSmile() {
                 </div>
               ) : (
                 <div key={i} className="flex flex-col gap-2">
-                  <div className="bg-muted/60 text-foreground max-w-[90%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed">
+                  <div className="bg-muted/60 text-foreground max-w-[90%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed whitespace-pre-line">
                     {turn.result.answer}
                   </div>
                   {turn.result.href ? (

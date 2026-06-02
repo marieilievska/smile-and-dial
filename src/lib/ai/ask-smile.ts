@@ -8,12 +8,17 @@ import {
 } from "@/lib/today/queries";
 import { createClient } from "@/lib/supabase/server";
 
-/** "Ask Smile" co-pilot. Answers plain-English questions about the
- *  workspace's current state. It is grounded: we gather deterministic
- *  context (today's hero counts + the action queue) server-side first,
- *  then either ask OpenAI to phrase an answer (live mode) or fall back to
- *  a deterministic data-driven answer (mock mode) so the feature works in
- *  local dev and CI without spend. Read-only — it never mutates. */
+import { PRODUCT_GUIDE, matchHowTo } from "./product-guide";
+
+/** "Ask Smile" co-pilot. Answers two kinds of question:
+ *   1. HOW-TO / product questions ("how do I create an agent?") — grounded in
+ *      the in-app product guide (lib/ai/product-guide), answered in detail.
+ *   2. DATA questions about the live workspace ("how's my connect rate?") —
+ *      grounded in a deterministic snapshot (today's hero counts + action
+ *      queue) gathered server-side.
+ *  Live mode hands both the guide and the snapshot to OpenAI; mock mode (no
+ *  OpenAI key) answers how-to from the guide and data from the snapshot so the
+ *  feature still works in local dev / CI without spend. Read-only. */
 
 export type AskSmileResult = {
   answer: string;
@@ -142,18 +147,30 @@ async function callOpenAi(
         {
           role: "system",
           content:
-            "You are Smile, the in-app assistant for an AI cold-calling platform. " +
-            "Answer the operator's question using ONLY the workspace snapshot provided. " +
-            "Be concise (2-3 sentences), concrete, and reference the real numbers. " +
-            "If the snapshot doesn't contain the answer, say so plainly. Never invent data.",
+            "You are Smile, the built-in expert assistant for Smile & Dial, an " +
+            "AI cold-calling platform. You help operators two ways:\n\n" +
+            '1) HOW-TO / product questions (e.g. "how do I create an agent?", ' +
+            '"how do campaigns work?", "how do I connect Calendly?"): answer ' +
+            "thoroughly and step-by-step using the PRODUCT GUIDE below. Give the " +
+            "exact in-app navigation path (e.g. Settings → Agents → Build new " +
+            "agent) and walk through every step. Use short numbered or bulleted " +
+            "lists. Be detailed and complete — this is the point of the assistant.\n" +
+            "2) DATA questions about the current workspace (e.g. \"how's my " +
+            'connect rate?", "any overdue callbacks?"): answer from the ' +
+            "WORKSPACE SNAPSHOT, concisely, citing the real numbers.\n\n" +
+            "Rules: Never invent features or data. Only describe features that " +
+            "appear in the PRODUCT GUIDE. If something isn't covered, say what you " +
+            "do know and point them to the most relevant page. Prefer concrete " +
+            "steps over vague advice.\n\n" +
+            `PRODUCT GUIDE:\n${PRODUCT_GUIDE}`,
         },
         {
           role: "user",
-          content: `Workspace snapshot:\n${context}\n\nQuestion: ${question}`,
+          content: `WORKSPACE SNAPSHOT:\n${context}\n\nQUESTION: ${question}`,
         },
       ],
       temperature: 0.3,
-      max_tokens: 220,
+      max_tokens: 900,
     }),
   });
   if (!res.ok) return null;
@@ -192,7 +209,13 @@ export async function askSmile(question: string): Promise<AskSmileResult> {
     fetchActionQueue(supabase, { isAdmin, ownerId: user.id }),
   ]);
 
-  const link = suggestLink(trimmed, hero, actions);
+  // A how-to match wins the deep link (jump straight to the relevant page);
+  // otherwise fall back to the data-driven link suggestion.
+  const howto = matchHowTo(trimmed);
+  const link =
+    howto?.href != null
+      ? { href: howto.href, hrefLabel: howto.hrefLabel ?? "Take me there" }
+      : suggestLink(trimmed, hero, actions);
   const live = process.env.OPENAI_LIVE === "live";
   const apiKey = process.env.OPENAI_API_KEY;
 
@@ -213,8 +236,10 @@ export async function askSmile(question: string): Promise<AskSmileResult> {
     }
   }
 
+  // Mock / offline: answer how-to from the product guide, data from the
+  // snapshot.
   return {
-    answer: mockAnswer(trimmed, hero, actions),
+    answer: howto ? howto.body : mockAnswer(trimmed, hero, actions),
     href: link?.href,
     hrefLabel: link?.hrefLabel,
     source: "mock",
