@@ -105,6 +105,26 @@ export async function fetchCostRows(
   return rows;
 }
 
+/** Total Twilio Lookup spend recorded outside calls (lead-import lookups)
+ *  within the window. Optionally scoped to one owner; campaign/list slicers
+ *  don't apply since these charges aren't tied to a call. */
+export async function fetchLookupChargeTotal(
+  supabase: SupabaseClient,
+  slicers: Pick<Slicers, "from" | "to" | "ownerId">,
+): Promise<number> {
+  let query = supabase
+    .from("lookup_charges")
+    .select("cost")
+    .gte("created_at", startOfDay(slicers.from))
+    .lte("created_at", endOfDay(slicers.to));
+  if (slicers.ownerId) query = query.eq("owner_id", slicers.ownerId);
+  const { data } = await query;
+  return (data ?? []).reduce(
+    (sum, r) => sum + (Number((r as { cost: number }).cost) || 0),
+    0,
+  );
+}
+
 export type PerCampaign = {
   campaignId: string;
   calls: number;

@@ -28,6 +28,7 @@ export function CostsStatStrip({
   daily,
   spendDelta,
   periodNumberCost = 0,
+  periodLookupCost = 0,
   monthlyNumberCost = 0,
   mtdSpend,
   projectedMonthSpend,
@@ -41,6 +42,8 @@ export function CostsStatStrip({
   spendDelta: number | null;
   /** Phone-number rental for the selected window, folded into Total spend. */
   periodNumberCost?: number;
+  /** Import-lookup spend for the selected window, folded into Total spend. */
+  periodLookupCost?: number;
   /** Phone-number rental for a full month, folded into the This-month tile. */
   monthlyNumberCost?: number;
   mtdSpend: number;
@@ -49,7 +52,7 @@ export function CostsStatStrip({
 }) {
   // Cost per Goal Met stays a per-call metric (excludes flat number rental).
   const perGoal = goalMet === 0 ? null : spend.total / goalMet;
-  const totalSpend = spend.total + periodNumberCost;
+  const totalSpend = spend.total + periodNumberCost + periodLookupCost;
   return (
     <section
       data-testid="costs-stat-strip"

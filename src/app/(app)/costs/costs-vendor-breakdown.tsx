@@ -19,15 +19,20 @@ function usd(value: number): string {
  *  line below the divider rather than folded into the per-call total. */
 export function CostsVendorBreakdown({
   summary,
+  extraLookupCost = 0,
   monthlyNumberCost = 0,
   numberCount = 0,
 }: {
   summary: ReturnType<typeof rollupByVendor>;
+  /** Lookup spend recorded outside calls (lead imports), added to the
+   *  Twilio Lookup line and the vendor total. */
+  extraLookupCost?: number;
   /** Total monthly rental across active (un-released) numbers. */
   monthlyNumberCost?: number;
   /** How many active numbers that rental covers. */
   numberCount?: number;
 }) {
+  const vendorTotal = summary.total + extraLookupCost;
   const items = [
     {
       label: "Twilio Calls",
@@ -49,9 +54,9 @@ export function CostsVendorBreakdown({
     },
     {
       label: "Twilio Lookup",
-      note: "Number validation checks",
+      note: "Number checks (calls + imports)",
       key: "lookup" as const,
-      value: summary.lookup,
+      value: summary.lookup + extraLookupCost,
     },
   ].sort((a, b) => b.value - a.value);
   const max = Math.max(0.01, ...items.map((i) => i.value));
@@ -69,15 +74,15 @@ export function CostsVendorBreakdown({
           Where the money goes
         </h2>
         <p className="text-muted-foreground text-xs tabular-nums">
-          Total across vendors: {usd(summary.total)}
+          Total across vendors: {usd(vendorTotal)}
         </p>
       </div>
       <ul className="flex flex-col gap-3 text-sm">
         {items.map((i, idx) => {
           const pct = (i.value / max) * 100;
           const share =
-            summary.total > 0
-              ? `${((i.value / summary.total) * 100).toFixed(0)}%`
+            vendorTotal > 0
+              ? `${((i.value / vendorTotal) * 100).toFixed(0)}%`
               : "—";
           const opacity = opacities[idx] ?? 0.25;
           return (

@@ -27,10 +27,17 @@ export async function fetchCostsHeadlineStats(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
   );
 
-  const { data } = await supabase
-    .from("calls")
-    .select("cost_breakdown, created_at")
-    .gte("created_at", startOfMonth.toISOString());
+  const [{ data }, { data: lookupRows }] = await Promise.all([
+    supabase
+      .from("calls")
+      .select("cost_breakdown, created_at")
+      .gte("created_at", startOfMonth.toISOString()),
+    // Import-lookup charges this month (billed outside calls).
+    supabase
+      .from("lookup_charges")
+      .select("cost, created_at")
+      .gte("created_at", startOfMonth.toISOString()),
+  ]);
 
   let todaySpend = 0;
   let mtdSpend = 0;
@@ -43,6 +50,12 @@ export async function fetchCostsHeadlineStats(
     if ((row as { created_at: string }).created_at >= todayIso) {
       todaySpend += breakdown.total;
     }
+  }
+  for (const row of lookupRows ?? []) {
+    const r = row as { cost: number; created_at: string };
+    const cost = Number(r.cost) || 0;
+    mtdSpend += cost;
+    if (r.created_at >= todayIso) todaySpend += cost;
   }
 
   // Linear month-end projection. dayOfMonth counts today as elapsed so

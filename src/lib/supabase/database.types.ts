@@ -1277,6 +1277,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      lookup_charges: {
+        Row: {
+          cost: number;
+          created_at: string;
+          id: string;
+          lookups: number;
+          owner_id: string;
+          source: string;
+        };
+        Insert: {
+          cost: number;
+          created_at?: string;
+          id?: string;
+          lookups: number;
+          owner_id: string;
+          source?: string;
+        };
+        Update: {
+          cost?: number;
+          created_at?: string;
+          id?: string;
+          lookups?: number;
+          owner_id?: string;
+          source?: string;
+        };
+        Relationships: [];
+      };
       notifications: {
         Row: {
           created_at: string;

@@ -33,7 +33,7 @@ export function toE164UsCa(phone: string): string | null {
  * honoured for backward compatibility. Per-import spend control lives in the
  * "Skip number verification" toggle, not here.
  */
-function isLookupLive(): boolean {
+export function isLookupLive(): boolean {
   return (
     process.env.TWILIO_LIVE === "live" ||
     process.env.TWILIO_LOOKUP_MODE === "live"

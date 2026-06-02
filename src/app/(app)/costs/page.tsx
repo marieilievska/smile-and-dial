@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import {
   fetchCostRows,
+  fetchLookupChargeTotal,
   resolveDatePreset,
   rollupByCampaign,
   rollupByGoalMet,
@@ -129,6 +130,8 @@ export default async function CostsPage({
     prevRows,
     campaignCaps,
     { data: activeNumbers },
+    importLookupCost,
+    prevImportLookupCost,
   ] = await Promise.all([
     fetchCostRows(supabase, slicers),
     supabase.from("campaigns").select("id, name").order("name"),
@@ -142,6 +145,13 @@ export default async function CostsPage({
       .from("twilio_numbers")
       .select("monthly_cost")
       .is("released_at", null),
+    // Twilio Lookup spend from lead imports (billed outside calls).
+    fetchLookupChargeTotal(supabase, { from, to, ownerId }),
+    fetchLookupChargeTotal(supabase, {
+      from: prevFrom,
+      to: prevTo,
+      ownerId,
+    }),
   ]);
 
   const numberCount = activeNumbers?.length ?? 0;
@@ -190,16 +200,19 @@ export default async function CostsPage({
   const mockMode = isMockMode();
   const rangeLabel = fmtRangeLabel(from, to);
 
-  // Period total INCLUDING the number rental for this window — what the
-  // headline and "Total spend" tile report. Per-call rollups (per-campaign,
-  // per-list, …) stay call-only since rental isn't attributable per call.
-  const periodTotal = summary.total + numberRentalInPeriod;
+  // Period total INCLUDING the number rental and import-lookup spend for this
+  // window — what the headline and "Total spend" tile report. Per-call rollups
+  // (per-campaign, per-list, …) stay call-only since neither is attributable
+  // per call.
+  const periodTotal = summary.total + numberRentalInPeriod + importLookupCost;
 
   // vs-previous-period delta on total spend. null when there was no
   // spend in the prior window to compare against (avoids a fake ▲). The
-  // rental is constant across equal-length windows, so add it to both sides.
+  // rental is constant across equal-length windows; import-lookup spend is
+  // compared window-to-window.
   const prevTotal = rollupByVendor(prevRows).total;
-  const prevPeriodTotal = prevTotal + numberRentalInPeriod;
+  const prevPeriodTotal =
+    prevTotal + numberRentalInPeriod + prevImportLookupCost;
   const spendDelta =
     prevPeriodTotal > 0
       ? (periodTotal - prevPeriodTotal) / prevPeriodTotal
@@ -344,6 +357,7 @@ export default async function CostsPage({
         daily={dailySpend}
         spendDelta={spendDelta}
         periodNumberCost={numberRentalInPeriod}
+        periodLookupCost={importLookupCost}
         monthlyNumberCost={monthlyNumberCost}
         mtdSpend={headlineStats.mtdSpend}
         projectedMonthSpend={headlineStats.projectedMonthSpend}
@@ -390,6 +404,7 @@ export default async function CostsPage({
         ) : null}
         <CostsVendorBreakdown
           summary={summary}
+          extraLookupCost={importLookupCost}
           monthlyNumberCost={monthlyNumberCost}
           numberCount={numberCount}
         />

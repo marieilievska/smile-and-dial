@@ -13,7 +13,7 @@ import {
   type LineType,
 } from "./import-fields";
 import { stateToTimezone } from "./timezone";
-import { lookupLineType, toE164UsCa } from "./twilio-lookup";
+import { isLookupLive, lookupLineType, toE164UsCa } from "./twilio-lookup";
 
 type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
 type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
@@ -121,12 +121,27 @@ export async function analyzeImport(input: {
     }
   }
 
+  const estCost = lookups * COST_PER_LOOKUP;
+
+  // Record the lookup spend so it shows on the Costs page. Lookups are billed
+  // by Twilio here, at analysis time (not during a call), so there's no call
+  // row to hang the cost on — we log it to the lookup_charges ledger instead.
+  // Only when live (mock lookups are free) and only when lookups actually ran.
+  if (isLookupLive() && lookups > 0) {
+    await supabase.from("lookup_charges").insert({
+      owner_id: user.id,
+      lookups,
+      cost: estCost,
+      source: "import",
+    });
+  }
+
   return {
     total: input.rows.length,
     importable,
     mobile,
     invalid,
-    estCost: lookups * COST_PER_LOOKUP,
+    estCost,
     rowLineTypes,
     skipped,
     error: null,
