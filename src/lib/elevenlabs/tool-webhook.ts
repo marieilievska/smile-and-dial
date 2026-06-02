@@ -4,6 +4,11 @@ import { timingSafeEqual } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 
+import {
+  createInvitee,
+  getAvailableTimes as calendlyGetAvailableTimes,
+  isCalendlyLive,
+} from "@/lib/calendly/api";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
 /**
@@ -97,6 +102,7 @@ type CallContext = {
     owner_phone: string | null;
     business_email: string | null;
     owner_name: string | null;
+    timezone: string | null;
     status: string;
   };
 };
@@ -116,7 +122,7 @@ async function resolveCallContext(
   const { data: lead } = await supabase
     .from("leads")
     .select(
-      "id, owner_id, company, business_phone, owner_phone, business_email, owner_name, status",
+      "id, owner_id, company, business_phone, owner_phone, business_email, owner_name, timezone, status",
     )
     .eq("id", call.lead_id)
     .maybeSingle();
@@ -134,6 +140,52 @@ function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+/** Human-readable slot label in the workspace's timezone. */
+function fmtSlot(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/New_York",
+  });
+}
+
+/**
+ * The Calendly event type a call should book against: the one assigned to the
+ * call's campaign, else the first active synced event type. Null when none is
+ * configured (the handler then declines gracefully).
+ */
+async function resolveEventTypeUri(
+  supabase: SupabaseAdmin,
+  campaignId: string,
+): Promise<string | null> {
+  const { data: campaign } = await supabase
+    .from("campaigns")
+    .select("calendly_event_id")
+    .eq("id", campaignId)
+    .maybeSingle();
+  if (campaign?.calendly_event_id) {
+    const { data: et } = await supabase
+      .from("calendly_event_types")
+      .select("event_uri")
+      .eq("id", campaign.calendly_event_id)
+      .maybeSingle();
+    if (et?.event_uri) return et.event_uri;
+  }
+  const { data: fallback } = await supabase
+    .from("calendly_event_types")
+    .select("event_uri")
+    .eq("active", true)
+    .order("synced_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  return fallback?.event_uri ?? null;
+}
+
 /**
  * Run a tool by name. Returns the JSON result for ElevenLabs, or null when
  * the tool name is unknown (the route turns that into a 400). A resolved
@@ -146,13 +198,15 @@ export async function executeServerTool(
 ): Promise<ToolWebhookResult> {
   const supabase = makeServiceClient();
   const callId = str(body.call_id);
+  const ctx = await resolveCallContext(supabase, callId);
 
-  // get_available_times doesn't need a resolved call — it just offers slots.
+  // get_available_times can fall back to generic slots, so it doesn't hard
+  // require a resolved call — but it uses one (when present) to pick the
+  // campaign's Calendly event type in live mode.
   if (tool === "get_available_times") {
-    return getAvailableTimes();
+    return getAvailableTimesResult(ctx);
   }
 
-  const ctx = await resolveCallContext(supabase, callId);
   if (!ctx) {
     return {
       success: false,
@@ -285,17 +339,52 @@ async function scheduleCallback(
 }
 
 // ---------------------------------------------------------------------------
-// get_available_times (Calendly — mock until the integration goes live)
+// get_available_times (live Calendly when configured, generic slots otherwise)
 // ---------------------------------------------------------------------------
-function getAvailableTimes(): ToolWebhookResult {
-  // Offer three slots over the next few business days at 10am / 2pm ET. These
-  // are placeholders until the live Calendly availability API is wired; the
-  // slot_id carries the ISO time so book_appointment can echo it back.
+async function getAvailableTimesResult(
+  ctx: CallContext | null,
+): Promise<ToolWebhookResult> {
+  // Live: offer the campaign's real Calendly openings over the next 6 days
+  // (Calendly caps the window at 7). Falls back to generic slots if Calendly
+  // isn't configured or has no openings, so the conversation still moves.
+  if (isCalendlyLive() && ctx) {
+    const eventTypeUri = await resolveEventTypeUri(
+      ctx.supabase,
+      ctx.campaignId,
+    );
+    if (eventTypeUri) {
+      const start = new Date(new Date().getTime() + 15 * 60 * 1000);
+      const end = new Date(new Date().getTime() + 6 * 24 * 60 * 60 * 1000);
+      const live = await calendlyGetAvailableTimes(
+        eventTypeUri,
+        start.toISOString(),
+        end.toISOString(),
+      );
+      const slots = live.slice(0, 3).map((s) => ({
+        slot_id: s.startTime,
+        label: fmtSlot(s.startTime),
+      }));
+      if (slots.length > 0) {
+        return {
+          success: true,
+          message: "Here are the next available times.",
+          slots,
+        };
+      }
+    }
+  }
+  return genericAvailableTimes();
+}
+
+/** Three generic weekday slots (10am / 2pm ET) used in mock mode or when live
+ *  Calendly has no openings in the window. slot_id carries the ISO time so
+ *  book_appointment can echo it back. */
+function genericAvailableTimes(): ToolWebhookResult {
   const slots: { slot_id: string; label: string }[] = [];
   const base = new Date();
   let added = 0;
   let dayOffset = 1;
-  const hours = [14, 18]; // 10am & 2pm US-Eastern expressed in UTC-ish terms
+  const hours = [14, 18]; // ~10am & 2pm US-Eastern
   while (added < 3 && dayOffset < 10) {
     const day = new Date(base);
     day.setUTCDate(day.getUTCDate() + dayOffset);
@@ -306,23 +395,12 @@ function getAvailableTimes(): ToolWebhookResult {
         const slot = new Date(day);
         slot.setUTCHours(h, 0, 0, 0);
         const iso = slot.toISOString();
-        slots.push({
-          slot_id: iso,
-          label: slot.toLocaleString("en-US", {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-            timeZone: "America/New_York",
-          }),
-        });
+        slots.push({ slot_id: iso, label: fmtSlot(iso) });
         added += 1;
       }
     }
     dayOffset += 1;
   }
-
   return {
     success: true,
     message: "Here are the next available times.",
@@ -348,25 +426,90 @@ async function bookAppointment(
   }
 
   const when = new Date(slotId);
-  const label = Number.isNaN(when.getTime())
-    ? slotId
-    : when.toLocaleString("en-US", {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        timeZone: "America/New_York",
-      });
+  const label = Number.isNaN(when.getTime()) ? slotId : fmtSlot(slotId);
 
+  // Live: book the slot directly via Calendly's Scheduling API.
+  if (isCalendlyLive()) {
+    if (Number.isNaN(when.getTime())) {
+      return {
+        success: false,
+        message: "I didn't catch a valid time — which slot would you like?",
+      };
+    }
+    const eventTypeUri = await resolveEventTypeUri(
+      ctx.supabase,
+      ctx.campaignId,
+    );
+    if (!eventTypeUri) {
+      return {
+        success: false,
+        message: "I'm not able to book a time on this call just yet.",
+      };
+    }
+    if (!email) {
+      return {
+        success: false,
+        message: "What's the best email for the calendar invite?",
+      };
+    }
+
+    const result = await createInvitee({
+      eventTypeUri,
+      startTime: when.toISOString(),
+      email,
+      name: name || undefined,
+      timezone: ctx.lead.timezone || "America/New_York",
+    });
+    if (!result.ok) {
+      await logToolEvent(ctx, "tool_book_appointment", {
+        slot_id: slotId,
+        email,
+        live: true,
+        error: result.error,
+      });
+      return {
+        success: false,
+        message:
+          "That time just became unavailable — could we pick another one?",
+      };
+    }
+
+    // Record the booking and move the lead into the 'scheduled' pipeline.
+    if (result.inviteeUri) {
+      await ctx.supabase.from("calendly_events").insert({
+        owner_id: ctx.lead.owner_id,
+        lead_id: ctx.lead.id,
+        invitee_uri: result.inviteeUri,
+        event_uri: result.eventUri ?? "",
+        event_type_uri: eventTypeUri,
+        invitee_email: email,
+        invitee_name: name || null,
+        scheduled_at: when.toISOString(),
+        status: "scheduled",
+      });
+    }
+    await ctx.supabase
+      .from("leads")
+      .update({ status: "scheduled", calendly_event_uri: result.eventUri })
+      .eq("id", ctx.lead.id);
+    await logToolEvent(ctx, "tool_book_appointment", {
+      slot_id: slotId,
+      email,
+      live: true,
+      invitee_uri: result.inviteeUri,
+    });
+    return {
+      success: true,
+      message: `You're booked for ${label}. A calendar invite is on its way to ${email}.`,
+    };
+  }
+
+  // Mock: record the intent and confirm so the conversation completes.
   await logToolEvent(ctx, "tool_book_appointment", {
     slot_id: slotId,
     email,
     name,
   });
-
-  // Real Calendly booking lands when CALENDLY_LIVE=live; for now we record
-  // the intent and confirm so the conversation completes.
   return {
     success: true,
     message: `You're booked for ${label}. A calendar invite is on its way${
