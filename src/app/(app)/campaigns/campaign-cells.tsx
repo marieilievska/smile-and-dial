@@ -126,6 +126,19 @@ export function OutsideHoursChip() {
   );
 }
 
+/** Slate "Manual only" chip — an active campaign with Autopilot off. The AI
+ *  won't auto-dial; the operator places calls one by one with Call Now. */
+export function ManualOnlyChip() {
+  return (
+    <span
+      className="text-muted-foreground bg-muted inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+      title="Autopilot is off — the AI won't auto-dial. Use Call Now to dial leads one by one."
+    >
+      Manual only
+    </span>
+  );
+}
+
 /** Left attention-rail color for a campaign row/card.
  *   - active + no lists  → broken (red): it can't dial
  *   - active + off-hours → idle for now (amber)

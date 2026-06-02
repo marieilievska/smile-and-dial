@@ -8,6 +8,7 @@ import {
   DialingNowChip,
   HoursLabel,
   ListsBadge,
+  ManualOnlyChip,
   OutsideHoursChip,
   SpendCapBar,
 } from "./campaign-cells";
@@ -34,6 +35,7 @@ export type CampaignCardItem = {
   dailyCap: number | null;
   insideHours: boolean;
   isActive: boolean;
+  autopilotEnabled: boolean;
   callingHoursStart: string | null;
   callingHoursEnd: string | null;
   twilioNumbers: TwilioOption[];
@@ -80,7 +82,9 @@ export function CampaignBoard({
             <div className="flex items-center justify-between gap-2">
               <CampaignStatusBadge status={c.status} />
               {c.isActive ? (
-                c.insideHours ? (
+                !c.autopilotEnabled ? (
+                  <ManualOnlyChip />
+                ) : c.insideHours ? (
                   <DialingNowChip />
                 ) : (
                   <OutsideHoursChip />

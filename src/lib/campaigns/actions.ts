@@ -36,6 +36,9 @@ export type CampaignInput = {
   transferDestinationPhone: string;
   dailySpendCap: string;
   monthlySpendCap: string;
+  /** When false the AI auto-dialer skips this campaign; manual Call Now still
+   *  works. Optional so existing call sites default it to on. */
+  autopilotEnabled?: boolean;
 };
 
 function parseNumber(value: string): number | null {
@@ -69,6 +72,7 @@ function buildUpdate(input: CampaignInput) {
     transfer_destination_phone: input.transferDestinationPhone.trim() || null,
     daily_spend_cap: parseNumber(input.dailySpendCap),
     monthly_spend_cap: parseNumber(input.monthlySpendCap),
+    autopilot_enabled: input.autopilotEnabled ?? true,
   };
 }
 
@@ -157,6 +161,25 @@ export async function updateCampaign(
     payload.twilio_number_id,
     existing?.twilio_number_id ?? null,
   );
+  revalidatePath(CAMPAIGNS_PATH);
+  return { error: null, campaignId: id };
+}
+
+/** Flip a campaign's Autopilot. Off = the AI auto-dialer ignores it, but the
+ *  campaign stays active so manual Call Now keeps working. */
+export async function setCampaignAutopilot(
+  id: string,
+  enabled: boolean,
+): Promise<CampaignResult> {
+  const { supabase, error: authError } = await requireAuth();
+  if (authError) return { error: authError };
+
+  const { error } = await supabase
+    .from("campaigns")
+    .update({ autopilot_enabled: enabled })
+    .eq("id", id);
+  if (error) return { error: "Could not update Autopilot." };
+
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: id };
 }

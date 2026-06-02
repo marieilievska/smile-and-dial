@@ -13,12 +13,14 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 import { CampaignBoard, type CampaignCardItem } from "./campaign-board";
+import { AutopilotToggle } from "./autopilot-toggle";
 import {
   attentionRail,
   CampaignStatusBadge,
   DialingNowChip,
   HoursLabel,
   ListsBadge,
+  ManualOnlyChip,
   OutsideHoursChip,
   SpendCapBar,
 } from "./campaign-cells";
@@ -83,7 +85,7 @@ export default async function CampaignsPage({
     supabase
       .from("campaigns")
       .select(
-        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, created_at, agent:agents(name), goal:goals(name)",
+        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, created_at, agent:agents(name), goal:goals(name)",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -222,6 +224,7 @@ export default async function CampaignsPage({
     transfer_destination_phone: c.transfer_destination_phone,
     daily_spend_cap: c.daily_spend_cap,
     monthly_spend_cap: c.monthly_spend_cap,
+    autopilot_enabled: c.autopilot_enabled ?? true,
     created_at: c.created_at,
     agent_name: c.agent?.name ?? "—",
     goal_name: c.goal?.name ?? "—",
@@ -262,6 +265,7 @@ export default async function CampaignsPage({
       transfer_destination_phone: campaign.transfer_destination_phone,
       daily_spend_cap: campaign.daily_spend_cap,
       monthly_spend_cap: campaign.monthly_spend_cap,
+      autopilot_enabled: campaign.autopilot_enabled,
     };
     const today = perCampaignSpend.get(campaign.id);
     return {
@@ -282,6 +286,7 @@ export default async function CampaignsPage({
         now,
       ),
       isActive: campaign.status === "active",
+      autopilotEnabled: campaign.autopilot_enabled,
       callingHoursStart: campaign.calling_hours_start,
       callingHoursEnd: campaign.calling_hours_end,
       twilioNumbers: numbersForCampaign(campaign.twilio_number_id),
@@ -394,8 +399,11 @@ export default async function CampaignsPage({
                       <TableCell className="w-[120px]">
                         <div className="flex flex-col items-start gap-1">
                           <CampaignStatusBadge status={c.status} />
-                          {c.isActive && c.insideHours ? (
+                          {c.isActive && c.autopilotEnabled && c.insideHours ? (
                             <DialingNowChip />
+                          ) : null}
+                          {c.isActive && !c.autopilotEnabled ? (
+                            <ManualOnlyChip />
                           ) : null}
                         </div>
                       </TableCell>
@@ -418,7 +426,9 @@ export default async function CampaignsPage({
                             start={c.callingHoursStart}
                             end={c.callingHoursEnd}
                           />
-                          {c.isActive && !c.insideHours ? (
+                          {c.isActive &&
+                          c.autopilotEnabled &&
+                          !c.insideHours ? (
                             <OutsideHoursChip />
                           ) : null}
                         </div>
@@ -437,6 +447,12 @@ export default async function CampaignsPage({
 
                       <TableCell className="bg-background sticky right-0 z-10 w-[280px] text-right shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)] transition-colors group-hover:bg-[color-mix(in_oklab,var(--muted)_50%,var(--background))]">
                         <div className="ml-auto flex items-center justify-end gap-1">
+                          {c.status === "active" ? (
+                            <AutopilotToggle
+                              campaignId={c.data.id}
+                              enabled={c.autopilotEnabled}
+                            />
+                          ) : null}
                           <CampaignRowActions
                             campaign={{
                               id: c.data.id,

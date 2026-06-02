@@ -64,6 +64,7 @@ export type CampaignData = {
   transfer_destination_phone: string | null;
   daily_spend_cap: number | null;
   monthly_spend_cap: number | null;
+  autopilot_enabled: boolean;
 };
 
 const NO_NUMBER = "__none__";
@@ -138,6 +139,9 @@ export function CampaignSettingsDialog({
       ? String(campaign.monthly_spend_cap)
       : "",
   );
+  const [autopilotEnabled, setAutopilotEnabled] = useState(
+    campaign?.autopilot_enabled ?? true,
+  );
   const [selectedListIds, setSelectedListIds] =
     useState<string[]>(currentListIds);
 
@@ -163,6 +167,7 @@ export function CampaignSettingsDialog({
         transferDestinationPhone,
         dailySpendCap,
         monthlySpendCap,
+        autopilotEnabled,
       };
       const result =
         isEdit && campaign
@@ -196,6 +201,7 @@ export function CampaignSettingsDialog({
         setTransferDestinationPhone("");
         setDailySpendCap("");
         setMonthlySpendCap("");
+        setAutopilotEnabled(true);
         setSelectedListIds([]);
       }
     });
@@ -408,6 +414,27 @@ export function CampaignSettingsDialog({
                 (lead-local time).
               </p>
             </div>
+            <label
+              htmlFor="campaign-autopilot"
+              className="border-border hover:bg-muted/40 flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+            >
+              <Checkbox
+                id="campaign-autopilot"
+                checked={autopilotEnabled}
+                onCheckedChange={(v) => setAutopilotEnabled(v === true)}
+                className="mt-0.5"
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-foreground text-sm font-medium">
+                  Autopilot — auto-dial this campaign&apos;s leads
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  On: the AI dials leads automatically during calling hours.
+                  Off: nothing dials on its own, but you can still place manual
+                  Call Now calls one by one.
+                </span>
+              </div>
+            </label>
             <div className="grid grid-cols-3 gap-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="campaign-cph">Calls / hour</Label>

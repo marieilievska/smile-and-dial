@@ -598,6 +598,7 @@ export type Database = {
       campaigns: {
         Row: {
           agent_id: string;
+          autopilot_enabled: boolean;
           calendly_event_id: string | null;
           calling_hours_end: string;
           calling_hours_start: string;
@@ -622,6 +623,7 @@ export type Database = {
         };
         Insert: {
           agent_id: string;
+          autopilot_enabled?: boolean;
           calendly_event_id?: string | null;
           calling_hours_end?: string;
           calling_hours_start?: string;
@@ -646,6 +648,7 @@ export type Database = {
         };
         Update: {
           agent_id?: string;
+          autopilot_enabled?: boolean;
           calendly_event_id?: string | null;
           calling_hours_end?: string;
           calling_hours_start?: string;
