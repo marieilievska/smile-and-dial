@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Phone, XCircle } from "lucide-react";
+import { CalendarClock, Phone, Trash2, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -28,7 +28,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cancelCallback, rescheduleCallback } from "@/lib/callbacks/actions";
+import {
+  cancelCallback,
+  deleteCallbacks,
+  rescheduleCallback,
+} from "@/lib/callbacks/actions";
 
 /** Hover-only action cluster at the right edge of every pending
  *  callback row. Three affordances:
@@ -48,10 +52,14 @@ export function CallbackRowActions({
   callbackId,
   leadId,
   currentScheduledAt,
+  isPending,
+  isAdmin = false,
 }: {
   callbackId: string;
   leadId: string | null;
   currentScheduledAt: string;
+  isPending: boolean;
+  isAdmin?: boolean;
 }) {
   const router = useRouter();
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
@@ -102,6 +110,18 @@ export function CallbackRowActions({
     });
   }
 
+  function confirmDelete() {
+    startTransition(async () => {
+      const result = await deleteCallbacks([callbackId]);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Callback deleted.");
+      router.refresh();
+    });
+  }
+
   return (
     <div
       data-testid="callback-row-actions"
@@ -109,93 +129,134 @@ export function CallbackRowActions({
       onKeyDown={stop}
       className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
     >
-      {/* Call now — primary action when an SDR sees a callback they
+      {isPending ? (
+        <>
+          {/* Call now — primary action when an SDR sees a callback they
           want to handle immediately instead of waiting for the cron. */}
-      {leadId ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={callNow}
-          className="text-primary hover:bg-primary/10 hover:text-primary h-7 px-2"
-          title="Call this lead now"
-        >
-          <Phone className="size-3.5" />
-          Call now
-        </Button>
+          {leadId ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={callNow}
+              className="text-primary hover:bg-primary/10 hover:text-primary h-7 px-2"
+              title="Call this lead now"
+            >
+              <Phone className="size-3.5" />
+              Call now
+            </Button>
+          ) : null}
+
+          <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
+            <DialogTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2"
+                title="Reschedule callback"
+                onClick={stop}
+              >
+                <CalendarClock className="size-3.5" />
+                Reschedule
+              </Button>
+            </DialogTrigger>
+            <DialogContent onClick={stop}>
+              <DialogHeader>
+                <DialogTitle>Reschedule callback</DialogTitle>
+                <DialogDescription>
+                  The dialer will redial at the new time, respecting calling
+                  hours + pre-call checks.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`when-${callbackId}`}>When</Label>
+                <Input
+                  id={`when-${callbackId}`}
+                  type="datetime-local"
+                  value={when}
+                  onChange={(event) => setWhen(event.target.value)}
+                  required
+                />
+              </div>
+              <DialogFooter>
+                <Button onClick={reschedule} disabled={!when || pending}>
+                  {pending ? "Saving…" : "Reschedule"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={pending}
+                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+                title="Cancel callback"
+                onClick={stop}
+              >
+                <XCircle className="size-3.5" />
+                Cancel
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent onClick={stop}>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Cancel callback?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  The lead will move back to ready to call. The original call
+                  row stays in the audit trail.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Keep</AlertDialogCancel>
+                <AlertDialogAction onClick={confirmCancel} disabled={pending}>
+                  Cancel callback
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
       ) : null}
 
-      <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
-        <DialogTrigger asChild>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2"
-            title="Reschedule callback"
-            onClick={stop}
-          >
-            <CalendarClock className="size-3.5" />
-            Reschedule
-          </Button>
-        </DialogTrigger>
-        <DialogContent onClick={stop}>
-          <DialogHeader>
-            <DialogTitle>Reschedule callback</DialogTitle>
-            <DialogDescription>
-              The dialer will redial at the new time, respecting calling hours +
-              pre-call checks.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`when-${callbackId}`}>When</Label>
-            <Input
-              id={`when-${callbackId}`}
-              type="datetime-local"
-              value={when}
-              onChange={(event) => setWhen(event.target.value)}
-              required
-            />
-          </div>
-          <DialogFooter>
-            <Button onClick={reschedule} disabled={!when || pending}>
-              {pending ? "Saving…" : "Reschedule"}
+      {/* Delete — admin-only hard delete, available on every row (any
+          status) for clearing test/junk callbacks. */}
+      {isAdmin ? (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+              title="Delete callback"
+              onClick={stop}
+              data-testid="callback-row-delete"
+            >
+              <Trash2 className="size-3.5" />
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={pending}
-            className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
-            title="Cancel callback"
-            onClick={stop}
-          >
-            <XCircle className="size-3.5" />
-            Cancel
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent onClick={stop}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel callback?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The lead will move back to ready to call. The original call row
-              stays in the audit trail.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmCancel} disabled={pending}>
-              Cancel callback
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          </AlertDialogTrigger>
+          <AlertDialogContent onClick={stop}>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this callback?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently removes the callback. If it&apos;s still
+                pending, the lead is handed back to the standard queue. This
+                cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmDelete} disabled={pending}>
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
     </div>
   );
 }

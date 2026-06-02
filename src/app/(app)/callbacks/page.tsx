@@ -18,6 +18,12 @@ import { createClient } from "@/lib/supabase/server";
 
 import { CallbackRow } from "./callback-row";
 import { CallbackRowActions } from "./callback-row-actions";
+import { CallbacksBulkBar } from "./callbacks-bulk-bar";
+import {
+  CallbackRowCheckbox,
+  CallbackSelectAllCheckbox,
+  CallbacksSelectionProvider,
+} from "./callbacks-selection";
 import { CallbacksFilters } from "./callbacks-filters";
 import { CallbacksStatStrip } from "./callbacks-stat-strip";
 import {
@@ -100,6 +106,14 @@ export default async function CallbacksPage({
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+
+  // Admin gate for the delete affordances (row + bulk).
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  const isAdmin = me?.role === "admin";
 
   // Campaign list for the filter popover — RLS scopes for members.
   const { data: campaigns } = await supabase
@@ -283,201 +297,219 @@ export default async function CallbacksPage({
       </div>
 
       {callbacks.length > 0 ? (
-        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-5 delay-200 duration-500">
-          <div className="border-border overflow-x-auto rounded-lg border">
-            <Table className="table-fixed">
-              <TableHeader>
-                <TableRow>
-                  <SortableHeader
-                    label="Lead"
-                    sortKey="company"
-                    currentSort={sort}
-                    currentDir={dir}
-                    params={params}
-                    className="w-[34%] min-w-[260px]"
-                  />
-                  <SortableHeader
-                    label="Scheduled"
-                    sortKey="scheduled_at"
-                    currentSort={sort}
-                    currentDir={dir}
-                    params={params}
-                    className="w-[220px]"
-                  />
-                  <TableHead className="w-[180px]">Campaign</TableHead>
-                  <SortableHeader
-                    label="Status"
-                    sortKey="status"
-                    currentSort={sort}
-                    currentDir={dir}
-                    params={params}
-                    className="w-[130px]"
-                  />
-                  <TableHead className="w-[120px]">Original call</TableHead>
-                  {/* Sticky-right actions cell — mirrors /calls. */}
-                  <TableHead
-                    className="bg-background sticky right-0 z-10 w-[300px] shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)]"
-                    aria-label="Row actions"
-                  />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {callbacks.map((cb) => {
-                  const when = formatScheduledWhen(cb.scheduled_at, now);
-                  const isPending = cb.status === "pending";
-                  // Two-tone urgency rail: overdue reads as an alarm
-                  // (destructive red), urgent (≤1h out) reads as
-                  // "about to happen" (coral). Everything else stays
-                  // transparent so the rail itself becomes a heat
-                  // scale you can scan top-to-bottom.
-                  const railColor =
-                    isPending && when.urgency === "overdue"
-                      ? "border-l-[color:var(--destructive)]"
-                      : isPending && when.urgency === "urgent"
-                        ? "border-l-[color:var(--primary)]"
-                        : "border-l-transparent";
-                  // The autopilot is about to dial overdue/urgent
-                  // pending callbacks automatically — surface that so
-                  // the row reads as live AI work, not a stale to-do.
-                  const showAutopilot =
-                    isPending &&
-                    (when.urgency === "overdue" || when.urgency === "urgent");
-                  return (
-                    <CallbackRow key={cb.id} leadId={cb.lead?.id ?? null}>
-                      <TableCell
-                        className={`w-[34%] min-w-[260px] border-l-[3px] ${railColor}`}
-                      >
-                        <div className="flex min-w-0 flex-col gap-0.5">
-                          <div className="flex min-w-0 items-center gap-2">
-                            {cb.lead?.id ? (
-                              <Link
-                                href={`/leads/${cb.lead.id}`}
-                                className="text-foreground hover:text-primary truncate text-sm font-medium underline-offset-2 hover:underline"
-                              >
-                                {cb.lead?.company || "Unknown lead"}
-                              </Link>
-                            ) : (
-                              <span className="text-foreground truncate text-sm font-medium">
-                                {cb.lead?.company || "Unknown lead"}
-                              </span>
-                            )}
-                            {cb.voicemail_attempts > 0 ? (
-                              <span
-                                className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
-                                  cb.voicemail_attempts >= 2
-                                    ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                                    : "border-border text-muted-foreground"
-                                }`}
-                                title={
-                                  cb.voicemail_attempts >= 2
-                                    ? `Voicemail ${cb.voicemail_attempts}× — the AI keeps reaching voicemail; a human may need to step in`
-                                    : "1 voicemail attempt"
-                                }
-                              >
-                                <Mic className="size-2.5" />×
-                                {cb.voicemail_attempts}
+        <CallbacksSelectionProvider allIds={callbacks.map((cb) => cb.id)}>
+          <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-5 delay-200 duration-500">
+            <div className="border-border overflow-x-auto rounded-lg border">
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    {isAdmin ? (
+                      <TableHead className="w-10">
+                        <CallbackSelectAllCheckbox />
+                      </TableHead>
+                    ) : null}
+                    <SortableHeader
+                      label="Lead"
+                      sortKey="company"
+                      currentSort={sort}
+                      currentDir={dir}
+                      params={params}
+                      className="w-[300px]"
+                    />
+                    <SortableHeader
+                      label="Scheduled"
+                      sortKey="scheduled_at"
+                      currentSort={sort}
+                      currentDir={dir}
+                      params={params}
+                      className="w-[220px]"
+                    />
+                    <TableHead className="w-[180px]">Campaign</TableHead>
+                    <SortableHeader
+                      label="Status"
+                      sortKey="status"
+                      currentSort={sort}
+                      currentDir={dir}
+                      params={params}
+                      className="w-[130px]"
+                    />
+                    <TableHead className="w-[120px]">Original call</TableHead>
+                    {/* Sticky-right actions cell — mirrors /calls. */}
+                    <TableHead
+                      className="bg-background sticky right-0 z-10 w-[360px] shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)]"
+                      aria-label="Row actions"
+                    />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {callbacks.map((cb) => {
+                    const when = formatScheduledWhen(cb.scheduled_at, now);
+                    const isPending = cb.status === "pending";
+                    // Two-tone urgency rail: overdue reads as an alarm
+                    // (destructive red), urgent (≤1h out) reads as
+                    // "about to happen" (coral). Everything else stays
+                    // transparent so the rail itself becomes a heat
+                    // scale you can scan top-to-bottom.
+                    const railColor =
+                      isPending && when.urgency === "overdue"
+                        ? "border-l-[color:var(--destructive)]"
+                        : isPending && when.urgency === "urgent"
+                          ? "border-l-[color:var(--primary)]"
+                          : "border-l-transparent";
+                    // The autopilot is about to dial overdue/urgent
+                    // pending callbacks automatically — surface that so
+                    // the row reads as live AI work, not a stale to-do.
+                    const showAutopilot =
+                      isPending &&
+                      (when.urgency === "overdue" || when.urgency === "urgent");
+                    return (
+                      <CallbackRow key={cb.id} leadId={cb.lead?.id ?? null}>
+                        {isAdmin ? (
+                          <TableCell className="w-10">
+                            <CallbackRowCheckbox callbackId={cb.id} />
+                          </TableCell>
+                        ) : null}
+                        <TableCell
+                          className={`w-[300px] border-l-[3px] ${railColor}`}
+                        >
+                          <div className="flex min-w-0 flex-col gap-0.5">
+                            <div className="flex min-w-0 items-center gap-2">
+                              {cb.lead?.id ? (
+                                <Link
+                                  href={`/leads/${cb.lead.id}`}
+                                  className="text-foreground hover:text-primary truncate text-sm font-medium underline-offset-2 hover:underline"
+                                >
+                                  {cb.lead?.company || "Unknown lead"}
+                                </Link>
+                              ) : (
+                                <span className="text-foreground truncate text-sm font-medium">
+                                  {cb.lead?.company || "Unknown lead"}
+                                </span>
+                              )}
+                              {cb.voicemail_attempts > 0 ? (
+                                <span
+                                  className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+                                    cb.voicemail_attempts >= 2
+                                      ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                                      : "border-border text-muted-foreground"
+                                  }`}
+                                  title={
+                                    cb.voicemail_attempts >= 2
+                                      ? `Voicemail ${cb.voicemail_attempts}× — the AI keeps reaching voicemail; a human may need to step in`
+                                      : "1 voicemail attempt"
+                                  }
+                                >
+                                  <Mic className="size-2.5" />×
+                                  {cb.voicemail_attempts}
+                                </span>
+                              ) : null}
+                            </div>
+                            {cb.lead?.business_phone ? (
+                              <span className="text-muted-foreground truncate font-mono text-[11px]">
+                                {formatPhone(cb.lead.business_phone)}
                               </span>
                             ) : null}
                           </div>
-                          {cb.lead?.business_phone ? (
-                            <span className="text-muted-foreground truncate font-mono text-[11px]">
-                              {formatPhone(cb.lead.business_phone)}
-                            </span>
-                          ) : null}
-                        </div>
-                      </TableCell>
+                        </TableCell>
 
-                      <TableCell className="w-[220px]">
-                        <div className="flex flex-col gap-0.5">
-                          <span
-                            className={`text-sm font-medium ${
-                              when.urgency === "overdue"
-                                ? "text-destructive"
-                                : when.urgency === "urgent"
-                                  ? "text-primary"
-                                  : "text-foreground"
-                            }`}
-                          >
-                            {when.primary}
-                          </span>
-                          <span className="text-muted-foreground text-[11px]">
-                            {new Date(cb.scheduled_at).toLocaleString(
-                              undefined,
-                              {
-                                month: "short",
-                                day: "numeric",
-                                hour: "numeric",
-                                minute: "2-digit",
-                              },
-                            )}
-                          </span>
-                          {showAutopilot ? (
-                            <span className="text-primary mt-0.5 inline-flex w-fit items-center gap-1.5 text-[10px] font-medium">
-                              <span className="relative flex size-1.5 items-center justify-center">
-                                <span
-                                  className="absolute inline-flex size-1.5 animate-ping rounded-full opacity-70"
-                                  style={{ backgroundColor: "var(--primary)" }}
-                                />
-                                <span
-                                  className="relative inline-flex size-1 rounded-full"
-                                  style={{ backgroundColor: "var(--primary)" }}
-                                />
+                        <TableCell className="w-[220px]">
+                          <div className="flex flex-col gap-0.5">
+                            <span
+                              className={`text-sm font-medium ${
+                                when.urgency === "overdue"
+                                  ? "text-destructive"
+                                  : when.urgency === "urgent"
+                                    ? "text-primary"
+                                    : "text-foreground"
+                              }`}
+                            >
+                              {when.primary}
+                            </span>
+                            <span className="text-muted-foreground text-[11px]">
+                              {new Date(cb.scheduled_at).toLocaleString(
+                                undefined,
+                                {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "numeric",
+                                  minute: "2-digit",
+                                },
+                              )}
+                            </span>
+                            {showAutopilot ? (
+                              <span className="text-primary mt-0.5 inline-flex w-fit items-center gap-1.5 text-[10px] font-medium">
+                                <span className="relative flex size-1.5 items-center justify-center">
+                                  <span
+                                    className="absolute inline-flex size-1.5 animate-ping rounded-full opacity-70"
+                                    style={{
+                                      backgroundColor: "var(--primary)",
+                                    }}
+                                  />
+                                  <span
+                                    className="relative inline-flex size-1 rounded-full"
+                                    style={{
+                                      backgroundColor: "var(--primary)",
+                                    }}
+                                  />
+                                </span>
+                                Autopilot dialing soon
                               </span>
-                              Autopilot dialing soon
+                            ) : null}
+                          </div>
+                        </TableCell>
+
+                        <TableCell className="text-muted-foreground w-[180px] truncate">
+                          {cb.campaign?.name ?? "—"}
+                        </TableCell>
+
+                        <TableCell className="w-[130px]">
+                          <Badge variant={statusVariant(cb.status)} dot>
+                            {callbackStatusLabel(cb.status)}
+                          </Badge>
+                        </TableCell>
+
+                        <TableCell className="w-[120px]">
+                          {cb.originating_call_id ? (
+                            <Link
+                              href={`/calls?call=${cb.originating_call_id}`}
+                              className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline"
+                            >
+                              <ExternalLink className="size-3" />
+                              View
+                            </Link>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">
+                              —
                             </span>
-                          ) : null}
-                        </div>
-                      </TableCell>
+                          )}
+                        </TableCell>
 
-                      <TableCell className="text-muted-foreground w-[180px] truncate">
-                        {cb.campaign?.name ?? "—"}
-                      </TableCell>
-
-                      <TableCell className="w-[130px]">
-                        <Badge variant={statusVariant(cb.status)} dot>
-                          {callbackStatusLabel(cb.status)}
-                        </Badge>
-                      </TableCell>
-
-                      <TableCell className="w-[120px]">
-                        {cb.originating_call_id ? (
-                          <Link
-                            href={`/calls?call=${cb.originating_call_id}`}
-                            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline"
-                          >
-                            <ExternalLink className="size-3" />
-                            View
-                          </Link>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">
-                            —
-                          </span>
-                        )}
-                      </TableCell>
-
-                      <TableCell className="bg-background sticky right-0 z-10 w-[300px] text-right shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)] transition-colors group-hover:bg-[color-mix(in_oklab,var(--muted)_50%,var(--background))]">
-                        {isPending ? (
+                        <TableCell className="bg-background sticky right-0 z-10 w-[360px] text-right shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)] transition-colors group-hover:bg-[color-mix(in_oklab,var(--muted)_50%,var(--background))]">
                           <CallbackRowActions
                             callbackId={cb.id}
                             leadId={cb.lead?.id ?? null}
                             currentScheduledAt={cb.scheduled_at}
+                            isPending={isPending}
+                            isAdmin={isAdmin}
                           />
-                        ) : null}
-                      </TableCell>
-                    </CallbackRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+                        </TableCell>
+                      </CallbackRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
 
-          <SmartPagination
-            page={page}
-            pageSize={pageSize}
-            total={total}
-            basePath="/callbacks"
-          />
-        </div>
+            {isAdmin ? <CallbacksBulkBar /> : null}
+
+            <SmartPagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              basePath="/callbacks"
+            />
+          </div>
+        </CallbacksSelectionProvider>
       ) : hasAnyFilter ? (
         <FilteredEmptyState
           clearHref={callbacksHref(params, {

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export type ActionResult = { error: string | null };
 
@@ -106,4 +107,75 @@ export async function rescheduleCallback(input: {
 
   revalidatePath("/callbacks");
   return { error: null };
+}
+
+export type DeleteCallbacksResult = {
+  error: string | null;
+  deleted?: number;
+};
+
+/**
+ * Permanently delete callbacks (admin only). Callbacks are normally cancelled
+ * (status='cancelled') to preserve the audit trail; this is a deliberate
+ * escape hatch for clearing test/junk rows. Hard delete. For any deleted row
+ * that was still pending, the lead is handed back to the standard queue
+ * (status ready_to_call, next_call_at cleared) so it isn't left pointing at a
+ * callback time that no longer exists. Runs via the service role (no delete
+ * RLS policy on callbacks) after confirming the caller is an admin.
+ */
+export async function deleteCallbacks(
+  ids: string[],
+): Promise<DeleteCallbacksResult> {
+  const clean = [...new Set(ids.filter((id) => typeof id === "string" && id))];
+  if (clean.length === 0) return { error: "No callbacks selected." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  if (me?.role !== "admin") {
+    return { error: "Only an admin can delete callbacks." };
+  }
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  if (!url || !key) return { error: "Server is missing Supabase credentials." };
+  const admin = createAdminClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  // Leads whose pending callback we're deleting get handed back to the queue
+  // so they don't keep a stale `callback` schedule pointing at nothing.
+  const { data: rows } = await admin
+    .from("callbacks")
+    .select("lead_id, status")
+    .in("id", clean);
+  const pendingLeadIds = [
+    ...new Set(
+      (rows ?? [])
+        .filter((r) => r.status === "pending" && r.lead_id)
+        .map((r) => r.lead_id as string),
+    ),
+  ];
+
+  const { error } = await admin.from("callbacks").delete().in("id", clean);
+  if (error) return { error: "Could not delete the selected callbacks." };
+
+  if (pendingLeadIds.length > 0) {
+    await admin
+      .from("leads")
+      .update({ status: "ready_to_call", next_call_at: null })
+      .in("id", pendingLeadIds)
+      .eq("status", "callback");
+  }
+
+  revalidatePath("/callbacks");
+  revalidatePath("/leads");
+  return { error: null, deleted: clean.length };
 }

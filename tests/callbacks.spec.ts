@@ -376,4 +376,42 @@ test.describe("Callbacks page", () => {
     const expected = Date.now() + 15 * 24 * 60 * 60 * 1000;
     expect(Math.abs(restingUntil - expected)).toBeLessThan(60_000);
   });
+
+  test("an admin can select a callback and bulk-delete it", async ({
+    page,
+  }) => {
+    const leadId = await seedLead("60");
+    const cbId = await seedCallback({
+      leadId,
+      scheduledAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+    });
+
+    await page.goto("/callbacks?status=pending");
+    // Select just this row, then bulk-delete from the sticky bar + confirm.
+    await page
+      .getByRole("row", { name: new RegExp(`E2E CB Lead ${stamp}-60`) })
+      .getByLabel("Select callback")
+      .click();
+    await page.getByTestId("callbacks-bulk-delete").click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await expect(page.getByText(/Deleted 1 callback/)).toBeVisible();
+
+    // Row is gone, and the lead was handed back to the queue.
+    const { data: gone } = await admin
+      .from("callbacks")
+      .select("id")
+      .eq("id", cbId)
+      .maybeSingle();
+    expect(gone).toBeNull();
+    const { data: lead } = await admin
+      .from("leads")
+      .select("status, next_call_at")
+      .eq("id", leadId)
+      .single();
+    expect(lead?.status).toBe("ready_to_call");
+    expect(lead?.next_call_at).toBeNull();
+  });
 });
