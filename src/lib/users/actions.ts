@@ -153,6 +153,16 @@ export async function inviteUser(
     redirectTo,
   });
   if (error) {
+    if (
+      error.status === 429 ||
+      /rate.?limit/i.test(error.code ?? "") ||
+      /rate limit/i.test(error.message)
+    ) {
+      return {
+        error:
+          "Email rate limit hit — too many invites in a short window. Wait a few minutes and try again, or set up a custom SMTP provider in Supabase for production volume.",
+      };
+    }
     if (/already|registered|exists/i.test(error.message)) {
       return { error: "A user with that email already exists." };
     }
