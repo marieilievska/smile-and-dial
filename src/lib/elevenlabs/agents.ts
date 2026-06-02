@@ -238,6 +238,147 @@ export type FetchedAgent = {
   aiModel: string | null;
 };
 
+/** The dynamic-variable placeholders our webhooks fill per call. Declared on
+ *  every agent so its prompt can reference {{var}} and so the tools receive
+ *  {{call_id}}. MUST stay in lockstep with the conversation-init webhook. */
+const DYNAMIC_VAR_PLACEHOLDERS = {
+  call_type: "",
+  last_callback_notes: "",
+  last_call_summary: "",
+  transfer_number: "",
+  owner_name: "",
+  city: "",
+  category: "",
+  google_rating: "",
+  google_reviews: "",
+  call_id: "",
+} as const;
+
+/** Our post-call webhook block (when the webhook id env is set). */
+function postCallWebhookBlock(): Record<string, unknown> | undefined {
+  const webhookId = postCallWebhookId();
+  if (!webhookId) return undefined;
+  return {
+    post_call_webhook_id: webhookId,
+    events: ["transcript", "audio", "call_initiation_failure"],
+    transcript_format: "json",
+    send_audio: false,
+  };
+}
+
+/**
+ * Overlay OUR platform integration onto an agent that was built in ElevenLabs
+ * and connected by ID — without disturbing the prompt/voice/model/guardrails
+ * the user set up there. We read the agent's current config, then PATCH it
+ * back with our webhooks, the call_id dynamic variable, and the enabled
+ * server tools merged in. Read-modify-write so nothing is lost; a rejected
+ * PATCH is a benign no-op (never data loss). Mocked off-live.
+ */
+export async function applyConnectedAgentIntegration(
+  agentId: string,
+  toolsEnabled: ToolsEnabled | undefined,
+): Promise<{ error: string | null }> {
+  if (!isLive()) return { error: null };
+  const apiKey = fetchApiKey();
+  if (!apiKey) return { error: "ElevenLabs API key isn't set." };
+
+  let current: {
+    conversation_config?: Record<string, unknown>;
+    platform_settings?: Record<string, unknown>;
+  };
+  try {
+    const res = await fetch(
+      `${ELEVENLABS_API}/${encodeURIComponent(agentId)}`,
+      {
+        headers: { "xi-api-key": apiKey },
+      },
+    );
+    if (!res.ok) return { error: `ElevenLabs lookup failed (${res.status}).` };
+    current = (await res.json()) as typeof current;
+  } catch {
+    return { error: "ElevenLabs lookup failed." };
+  }
+
+  const serverToolMap = await ensureServerTools();
+  const serverToolIds = toolIdsForEnabled(serverToolMap, toolsEnabled);
+
+  const cc = (current.conversation_config ?? {}) as Record<string, unknown>;
+  const agent = (cc.agent ?? {}) as Record<string, unknown>;
+  const prompt = (agent.prompt ?? {}) as Record<string, unknown>;
+  const existingToolIds = Array.isArray(prompt.tool_ids)
+    ? (prompt.tool_ids as string[])
+    : [];
+  const mergedToolIds = Array.from(
+    new Set([...existingToolIds, ...serverToolIds]),
+  );
+  const dv = (agent.dynamic_variables ?? {}) as Record<string, unknown>;
+  const dvp = (dv.dynamic_variable_placeholders ?? {}) as Record<
+    string,
+    unknown
+  >;
+
+  const ps = (current.platform_settings ?? {}) as Record<string, unknown>;
+  const existingWo = (ps.workspace_overrides ?? {}) as Record<string, unknown>;
+  const existingOverrides = (ps.overrides ?? {}) as Record<string, unknown>;
+  const postCall = postCallWebhookBlock();
+  const initWebhook = conversationInitWebhook();
+  const workspaceOverrides: Record<string, unknown> = {
+    ...existingWo,
+    ...(postCall ? { webhooks: postCall } : {}),
+    ...(initWebhook
+      ? { conversation_initiation_client_data_webhook: initWebhook }
+      : {}),
+  };
+
+  const body = {
+    conversation_config: {
+      ...cc,
+      agent: {
+        ...agent,
+        dynamic_variables: {
+          ...dv,
+          dynamic_variable_placeholders: {
+            ...dvp,
+            ...DYNAMIC_VAR_PLACEHOLDERS,
+          },
+        },
+        prompt: { ...prompt, tool_ids: mergedToolIds },
+      },
+    },
+    platform_settings: {
+      ...ps,
+      ...(Object.keys(workspaceOverrides).length > 0
+        ? { workspace_overrides: workspaceOverrides }
+        : {}),
+      ...(initWebhook
+        ? {
+            overrides: {
+              ...existingOverrides,
+              enable_conversation_initiation_client_data_from_webhook: true,
+            },
+          }
+        : {}),
+    },
+  };
+
+  try {
+    const res = await fetch(
+      `${ELEVENLABS_API}/${encodeURIComponent(agentId)}`,
+      {
+        method: "PATCH",
+        headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      return { error: `ElevenLabs integration sync failed (${res.status}).` };
+    }
+    return { error: null };
+  } catch {
+    return { error: "ElevenLabs integration sync failed." };
+  }
+}
+
 /**
  * Look up an existing ElevenLabs agent by id — used by the "connect an
  * existing agent" flow to validate the id and pull its name/voice/model.
@@ -431,21 +572,7 @@ async function liveSync(
         // response keys. Values come per-call from the lead/campaign; the ""
         // here are just the declared defaults when a field is empty.
         dynamic_variables: {
-          dynamic_variable_placeholders: {
-            call_type: "",
-            last_callback_notes: "",
-            last_call_summary: "",
-            transfer_number: "",
-            owner_name: "",
-            city: "",
-            category: "",
-            google_rating: "",
-            google_reviews: "",
-            // Internal call id, supplied per-call by the conversation-init
-            // webhook and bound into every server tool's request so the tool
-            // endpoint can resolve the lead. MUST stay declared here.
-            call_id: "",
-          },
+          dynamic_variable_placeholders: DYNAMIC_VAR_PLACEHOLDERS,
         },
         prompt: {
           prompt: payload.systemPrompt,

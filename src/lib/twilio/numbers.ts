@@ -34,8 +34,15 @@ export type Country = "US" | "CA";
 
 const TWILIO_API = "https://api.twilio.com/2010-04-01/Accounts";
 
-// Twilio's number search doesn't return price; this is a reasonable estimate.
-const ESTIMATED_MONTHLY_COST = 1.15;
+// Twilio's number-search API doesn't return your account's price (and the
+// Pricing API only returns list price, not negotiated rates), so the monthly
+// cost shown on search results is an estimate. Set TWILIO_NUMBER_MONTHLY_COST
+// to your real per-number monthly cost to make it accurate; defaults to
+// Twilio's US local list price.
+function estimatedMonthlyCost(): number {
+  const raw = Number(process.env.TWILIO_NUMBER_MONTHLY_COST);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 1.15;
+}
 
 function isLive(): boolean {
   return process.env.TWILIO_LIVE === "live";
@@ -269,7 +276,7 @@ function mockSearch(country: Country, areaCode: string): AvailableNumber[] {
     return {
       phoneNumber,
       friendlyName: formatUsNumber(phoneNumber),
-      monthlyCost: ESTIMATED_MONTHLY_COST,
+      monthlyCost: estimatedMonthlyCost(),
     };
   });
 }
@@ -299,7 +306,7 @@ async function liveSearch(
     const numbers = (body.available_phone_numbers ?? []).map((n) => ({
       phoneNumber: n.phone_number,
       friendlyName: n.friendly_name,
-      monthlyCost: ESTIMATED_MONTHLY_COST,
+      monthlyCost: estimatedMonthlyCost(),
     }));
     return { numbers, error: null };
   } catch {

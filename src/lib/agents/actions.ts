@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { draftAgent, type AgentDraft } from "@/lib/ai/draft-agent";
 import {
+  applyConnectedAgentIntegration,
   deleteAgentOnElevenLabs,
   fetchElevenLabsAgent,
   syncAgentToElevenLabs,
@@ -133,6 +134,16 @@ export async function connectAgent(input: {
   const fetched = await fetchElevenLabsAgent(id);
   if (!fetched.ok) return { error: fetched.error };
 
+  // Connected agents get all five server tools by default so the agent can
+  // act on calls; the owner can trim these by editing the agent.
+  const toolsEnabled: ToolsEnabled = {
+    send_email: true,
+    schedule_callback: true,
+    get_available_times: true,
+    book_appointment: true,
+    mark_dnc: true,
+  };
+
   const { data: created, error } = await supabase
     .from("agents")
     .insert({
@@ -142,12 +153,16 @@ export async function connectAgent(input: {
       voice_id: fetched.agent.voiceId,
       ai_model: fetched.agent.aiModel,
       externally_managed: true,
-      tools_enabled: {},
+      tools_enabled: toolsEnabled,
     })
     .select("id")
     .single();
   if (error || !created) return { error: "Could not connect the agent." };
 
+  // Overlay our integration (webhooks + call_id var + tool_ids) onto the
+  // existing ElevenLabs agent, preserving its prompt/voice. Best-effort —
+  // the link still stands if this fails, and "Re-sync all" retries it.
+  await applyConnectedAgentIntegration(id, toolsEnabled);
   revalidatePath("/settings/agents");
   return { error: null, agentId: created.id };
 }
@@ -212,9 +227,17 @@ export async function updateAgent(
     .eq("id", id);
   if (error) return { error: "Could not update the agent." };
 
-  // Connected (externally-managed) agents are reference-only — never push
-  // config to ElevenLabs, or we'd overwrite the agent the user built there.
+  // Connected agents: never push prompt/voice (the user built those in
+  // ElevenLabs), but DO re-apply our integration layer so tool changes here
+  // take effect — webhooks + call_id var + enabled server tool_ids, merged
+  // in without touching the prompt.
   if (existing.externally_managed) {
+    if (existing.elevenlabs_agent_id) {
+      await applyConnectedAgentIntegration(
+        existing.elevenlabs_agent_id,
+        input.toolsEnabled,
+      );
+    }
     revalidatePath("/settings/agents");
     return { error: null, agentId: id };
   }
@@ -328,9 +351,19 @@ export async function resyncAllAgents(): Promise<ResyncResult> {
   let synced = 0;
   let failed = 0;
   for (const a of agents) {
-    // Connected agents are reference-only — pushing our config would
-    // overwrite the agent the user built in ElevenLabs. Skip them.
-    if (a.externally_managed) continue;
+    // Connected agents: re-apply only our integration layer (webhooks +
+    // call_id var + tool_ids), never their prompt/voice.
+    if (a.externally_managed) {
+      if (a.elevenlabs_agent_id) {
+        const r = await applyConnectedAgentIntegration(
+          a.elevenlabs_agent_id,
+          (a.tools_enabled ?? undefined) as unknown as ToolsEnabled | undefined,
+        );
+        if (r.error) failed += 1;
+        else synced += 1;
+      }
+      continue;
+    }
     const sync = await syncAgentToElevenLabs(
       {
         name: a.name,
