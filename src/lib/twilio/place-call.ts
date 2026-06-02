@@ -103,10 +103,13 @@ export async function placeLiveCall(
     // /calls page can show a call moving through Queued → Ringing →
     // In progress → Completed in near-real-time.
     StatusCallbackEvent: "initiated ringing answered completed",
-    // Machine detection — Twilio listens for an answering-machine
-    // greeting and short-circuits the call so the agent doesn't talk
-    // to voicemail. Result is sent back via the status webhook.
-    MachineDetection: "DetectMessageEnd",
+    // Machine detection — Twilio classifies human vs. answering machine and
+    // passes the verdict as `AnsweredBy` when it requests our voice-outbound
+    // TwiML. `Enable` returns as soon as it decides (we hang up on a machine
+    // rather than wait for the greeting to finish, so we don't need
+    // DetectMessageEnd). voice-outbound records outcome=voicemail and hangs up
+    // for any machine answer; humans bridge to the agent.
+    MachineDetection: "Enable",
     MachineDetectionTimeout: String(
       Math.max(2000, Math.min(30000, input.amdTimeoutMs ?? 8000)),
     ),
