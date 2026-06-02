@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { appBaseUrl } from "@/lib/app-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -139,8 +140,17 @@ export async function inviteUser(
   if (!trimmed) return { error: "Enter an email address." };
 
   const admin = createAdminClient();
+  // Point the invite link at the production confirm route explicitly, so it
+  // never falls back to a stale Supabase "Site URL" (e.g. localhost). The
+  // target must also be in the project's Redirect URLs allow-list. Omitted
+  // locally (appBaseUrl() is null) so dev uses the Site URL.
+  const base = appBaseUrl();
+  const redirectTo = base
+    ? `${base}/auth/confirm?next=/auth/set-password`
+    : undefined;
   const { error } = await admin.auth.admin.inviteUserByEmail(trimmed, {
     data: { role },
+    redirectTo,
   });
   if (error) {
     if (/already|registered|exists/i.test(error.message)) {
