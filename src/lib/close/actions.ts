@@ -15,35 +15,33 @@ function makeServiceClient() {
   });
 }
 
-/** Connect Close (mock). Live mode would persist an OAuth or API key
- *  obtained from Close; we just stamp connected_at and a dummy key. */
-export async function connectCloseMock(): Promise<{ error: string | null }> {
-  if (process.env.CLOSE_LIVE === "live") {
-    return {
-      error:
-        "Live Close connect isn't implemented yet — leave CLOSE_LIVE unset to use mock mode.",
-    };
-  }
+/** Connect the signed-in user's own Close account by pasting an API key.
+ *  Per-user: the AI sends from the campaign owner's Close. (Live send itself
+ *  is a separate build; this stores the credential.) */
+export async function saveCloseConnection(
+  apiKey: string,
+): Promise<{ error: string | null }> {
+  const key = apiKey.trim();
+  if (!key) return { error: "Paste your Close API key." };
+
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") return { error: "Admins only." };
 
   const admin = makeServiceClient();
-  await admin
-    .from("app_settings")
-    .update({
-      close_api_key: "mock-close-api-key",
-      close_connected_at: new Date().toISOString(),
-    })
-    .eq("id", 1);
+  const now = new Date().toISOString();
+  const { error } = await admin.from("user_integrations").upsert(
+    {
+      user_id: user.id,
+      close_api_key: key,
+      close_connected_at: now,
+      updated_at: now,
+    },
+    { onConflict: "user_id" },
+  );
+  if (error) return { error: "Couldn't save the connection." };
   revalidatePath("/settings/integrations");
   return { error: null };
 }
@@ -54,17 +52,15 @@ export async function disconnectClose(): Promise<{ error: string | null }> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") return { error: "Admins only." };
   const admin = makeServiceClient();
   await admin
-    .from("app_settings")
-    .update({ close_api_key: null, close_connected_at: null })
-    .eq("id", 1);
+    .from("user_integrations")
+    .update({
+      close_api_key: null,
+      close_connected_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", user.id);
   revalidatePath("/settings/integrations");
   return { error: null };
 }

@@ -1,13 +1,14 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  connectCalendlyMock,
   disconnectCalendly,
-  syncCalendlyMock,
+  saveCalendlyConnection,
+  syncCalendly,
 } from "@/lib/calendly/actions";
 
 export function CalendlyForm({
@@ -20,15 +21,16 @@ export function CalendlyForm({
   eventTypeCount: number;
 }) {
   const [pending, startTransition] = useTransition();
+  const [token, setToken] = useState("");
 
-  function withToast(
-    action: () => Promise<{ error: string | null }>,
-    ok: string,
-  ) {
+  function run(action: () => Promise<{ error: string | null }>, ok: string) {
     startTransition(async () => {
       const r = await action();
       if (r.error) toast.error(r.error);
-      else toast.success(ok);
+      else {
+        toast.success(ok);
+        setToken("");
+      }
     });
   }
 
@@ -37,45 +39,51 @@ export function CalendlyForm({
       <p className="text-muted-foreground text-sm">
         {connected
           ? `Connected${lastSyncAt ? ` · last synced ${new Date(lastSyncAt).toLocaleString()}` : ""} · ${eventTypeCount} event type${eventTypeCount === 1 ? "" : "s"}.`
-          : "Not connected. Connect to enable the get_available_times and book_appointment agent tools."}
+          : "Not connected. Paste your Calendly Personal Access Token to let the agent read your availability and book meetings on your calendar."}
       </p>
-      <div className="flex gap-2">
-        {!connected ? (
+      {!connected ? (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            type="password"
+            autoComplete="off"
+            placeholder="Calendly Personal Access Token"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            data-testid="calendly-token"
+          />
           <Button
             type="button"
-            disabled={pending}
+            disabled={pending || !token.trim()}
             onClick={() =>
-              withToast(connectCalendlyMock, "Calendly connected.")
+              run(() => saveCalendlyConnection(token), "Calendly connected.")
             }
             data-testid="calendly-connect"
           >
-            Connect Calendly (mock)
+            Connect
           </Button>
-        ) : (
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pending}
-              onClick={() => withToast(syncCalendlyMock, "Synced.")}
-              data-testid="calendly-sync"
-            >
-              Sync now
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={pending}
-              onClick={() =>
-                withToast(disconnectCalendly, "Calendly disconnected.")
-              }
-              data-testid="calendly-disconnect"
-            >
-              Disconnect
-            </Button>
-          </>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pending}
+            onClick={() => run(syncCalendly, "Synced.")}
+            data-testid="calendly-sync"
+          >
+            Sync now
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={pending}
+            onClick={() => run(disconnectCalendly, "Calendly disconnected.")}
+            data-testid="calendly-disconnect"
+          >
+            Disconnect
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

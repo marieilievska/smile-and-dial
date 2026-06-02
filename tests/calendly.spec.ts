@@ -62,41 +62,49 @@ test.describe("Calendly integration", () => {
 
   test.afterAll(async () => {
     await admin.from("calendly_events").delete().eq("invitee_uri", inviteeUri);
-    await admin
-      .from("calendly_event_types")
-      .update({ active: false })
-      .like("event_uri", "%mock%");
     await admin.from("notifications").delete().eq("ref_id", leadId);
     if (leadId) await admin.from("leads").delete().eq("id", leadId);
     if (listId) await admin.from("lists").delete().eq("id", listId);
-    await admin
-      .from("app_settings")
-      .update({
-        calendly_access_token: null,
-        calendly_refresh_token: null,
-        calendly_organization_uri: null,
-        calendly_user_uri: null,
-        calendly_connected_at: null,
-        calendly_last_sync_at: null,
-      })
-      .eq("id", 1);
+    // Per-user integrations: clear the test user's connection row.
+    await admin.from("user_integrations").delete().eq("user_id", ownerId);
   });
 
-  test("admin connects Calendly (mock) from the Integrations page", async ({
+  test("the Calendly card is per-user: paste-to-connect, seed + disconnect", async ({
     page,
   }) => {
+    // Not connected → the per-user paste-token UI is shown.
     await page.goto("/settings/integrations");
-    await page.getByTestId("calendly-connect").click();
-    await expect(page.getByText(/Connected · last synced /)).toBeVisible({
+    await expect(page.getByTestId("calendly-token")).toBeVisible();
+    await expect(page.getByTestId("calendly-connect")).toBeVisible();
+
+    // Seed this user's connection directly (avoids a live Calendly call), then
+    // verify the connected UI renders and Disconnect clears the row.
+    const nowIso = new Date().toISOString();
+    await admin.from("user_integrations").upsert(
+      {
+        user_id: ownerId,
+        calendly_api_key: "seeded-token",
+        calendly_organization_uri:
+          "https://api.calendly.com/organizations/seed",
+        calendly_connected_at: nowIso,
+        calendly_last_sync_at: nowIso,
+      },
+      { onConflict: "user_id" },
+    );
+
+    await page.reload();
+    await expect(page.getByTestId("calendly-disconnect")).toBeVisible();
+    await page.getByTestId("calendly-disconnect").click();
+    await expect(page.getByTestId("calendly-connect")).toBeVisible({
       timeout: 5000,
     });
 
-    const { data: settings } = await admin
-      .from("app_settings")
+    const { data: integ } = await admin
+      .from("user_integrations")
       .select("calendly_connected_at")
-      .eq("id", 1)
-      .single();
-    expect(settings?.calendly_connected_at).toBeTruthy();
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    expect(integ?.calendly_connected_at).toBeNull();
   });
 
   test("invitee.created webhook matches by email and flips lead to scheduled", async ({

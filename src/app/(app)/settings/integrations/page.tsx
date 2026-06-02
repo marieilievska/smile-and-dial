@@ -27,29 +27,41 @@ export default async function IntegrationsPage() {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") redirect("/leads");
+  // ElevenLabs/Twilio/OpenAI are global (admin-managed via env). Close +
+  // Calendly are PER-USER — every rep connects their own, so this page is
+  // open to all signed-in users; only the ElevenLabs card is admin-only.
+  const isAdmin = me?.role === "admin";
 
-  const [{ data: settings }, { count: eventTypeCount }] = await Promise.all([
+  const [{ data: integ }, { count: eventTypeCount }] = await Promise.all([
     supabase
-      .from("app_settings")
+      .from("user_integrations")
       .select(
-        "elevenlabs_voice_ids, calendly_connected_at, calendly_last_sync_at, close_connected_at",
+        "calendly_connected_at, calendly_last_sync_at, close_connected_at",
       )
-      .eq("id", 1)
+      .eq("user_id", user.id)
       .maybeSingle(),
     supabase
       .from("calendly_event_types")
       .select("id", { count: "exact", head: true })
+      .eq("owner_id", user.id)
       .eq("active", true),
   ]);
 
+  let voiceIds = "";
+  if (isAdmin) {
+    const { data: settings } = await supabase
+      .from("app_settings")
+      .select("elevenlabs_voice_ids")
+      .eq("id", 1)
+      .maybeSingle();
+    voiceIds = settings?.elevenlabs_voice_ids ?? "";
+  }
+
   // Round L1 — the ElevenLabs API key now lives in the server env, so
   // "connected" is true whenever the deployment has the env var set.
-  // This is a server component so reading process.env is fine and
-  // never reaches the browser.
   const elevenLabsConnected = Boolean(process.env.ELEVENLABS_API_KEY?.trim());
-  const closeConnected = Boolean(settings?.close_connected_at);
-  const calendlyConnected = Boolean(settings?.calendly_connected_at);
+  const closeConnected = Boolean(integ?.close_connected_at);
+  const calendlyConnected = Boolean(integ?.calendly_connected_at);
   const now = new Date();
 
   return (
@@ -64,34 +76,36 @@ export default async function IntegrationsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <IntegrationCard
-          title="ElevenLabs"
-          description="The voice AI that powers calls. The voice IDs listed here are the ones available when building an agent."
-          connected={elevenLabsConnected}
-          subtitle={
-            elevenLabsConnected
-              ? "API key in server env"
-              : "Set ELEVENLABS_API_KEY in the server env"
-          }
-          delay={75}
-        >
-          <ElevenLabsForm voiceIds={settings?.elevenlabs_voice_ids ?? ""} />
-        </IntegrationCard>
+        {isAdmin ? (
+          <IntegrationCard
+            title="ElevenLabs"
+            description="The voice AI that powers calls. The voice IDs listed here are the ones available when building an agent."
+            connected={elevenLabsConnected}
+            subtitle={
+              elevenLabsConnected
+                ? "API key in server env"
+                : "Set ELEVENLABS_API_KEY in the server env"
+            }
+            delay={75}
+          >
+            <ElevenLabsForm voiceIds={voiceIds} />
+          </IntegrationCard>
+        ) : null}
 
         <IntegrationCard
           title="Close"
           description="Email gateway. Connect to enable the send_email agent tool and to receive email_replied notifications when a lead writes back."
           connected={closeConnected}
           subtitle={
-            closeConnected && settings?.close_connected_at
-              ? `Connected ${formatCreatedAt(settings.close_connected_at, now)}`
+            closeConnected && integ?.close_connected_at
+              ? `Connected ${formatCreatedAt(integ.close_connected_at, now)}`
               : undefined
           }
           delay={150}
         >
           <CloseForm
             connected={closeConnected}
-            connectedAt={settings?.close_connected_at ?? null}
+            connectedAt={integ?.close_connected_at ?? null}
           />
         </IntegrationCard>
 
@@ -100,8 +114,8 @@ export default async function IntegrationsPage() {
           description="Connect Calendly to enable agent appointment booking and to auto-flip leads into the goal pipeline when an invitee schedules."
           connected={calendlyConnected}
           subtitle={
-            calendlyConnected && settings?.calendly_last_sync_at
-              ? `Last sync ${formatCreatedAt(settings.calendly_last_sync_at, now)}`
+            calendlyConnected && integ?.calendly_last_sync_at
+              ? `Last sync ${formatCreatedAt(integ.calendly_last_sync_at, now)}`
               : calendlyConnected
                 ? "Connected"
                 : undefined
@@ -110,7 +124,7 @@ export default async function IntegrationsPage() {
         >
           <CalendlyForm
             connected={calendlyConnected}
-            lastSyncAt={settings?.calendly_last_sync_at ?? null}
+            lastSyncAt={integ?.calendly_last_sync_at ?? null}
             eventTypeCount={eventTypeCount ?? 0}
           />
         </IntegrationCard>

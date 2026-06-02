@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5";
   };
+  graphql_public: {
+    Tables: {
+      [_ in never]: never;
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json;
+          operationName?: string;
+          query?: string;
+          variables?: Json;
+        };
+        Returns: Json;
+      };
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
+    };
+  };
   public: {
     Tables: {
       agents: {
@@ -167,6 +192,32 @@ export type Database = {
           },
         ];
       };
+      api_rate_limits: {
+        Row: {
+          api_key_id: string;
+          request_count: number;
+          window_start: string;
+        };
+        Insert: {
+          api_key_id: string;
+          request_count?: number;
+          window_start: string;
+        };
+        Update: {
+          api_key_id?: string;
+          request_count?: number;
+          window_start?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "api_rate_limits_api_key_id_fkey";
+            columns: ["api_key_id"];
+            isOneToOne: false;
+            referencedRelation: "api_keys";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       app_settings: {
         Row: {
           calendly_access_token: string | null;
@@ -216,6 +267,7 @@ export type Database = {
           event_uri: string;
           id: string;
           name: string;
+          owner_id: string | null;
           scheduling_url: string | null;
           synced_at: string;
         };
@@ -225,6 +277,7 @@ export type Database = {
           event_uri: string;
           id?: string;
           name: string;
+          owner_id?: string | null;
           scheduling_url?: string | null;
           synced_at?: string;
         };
@@ -234,10 +287,19 @@ export type Database = {
           event_uri?: string;
           id?: string;
           name?: string;
+          owner_id?: string | null;
           scheduling_url?: string | null;
           synced_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "calendly_event_types_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       calendly_events: {
         Row: {
@@ -1446,6 +1508,42 @@ export type Database = {
         };
         Relationships: [];
       };
+      user_integrations: {
+        Row: {
+          calendly_api_key: string | null;
+          calendly_connected_at: string | null;
+          calendly_last_sync_at: string | null;
+          calendly_organization_uri: string | null;
+          calendly_user_uri: string | null;
+          close_api_key: string | null;
+          close_connected_at: string | null;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          calendly_api_key?: string | null;
+          calendly_connected_at?: string | null;
+          calendly_last_sync_at?: string | null;
+          calendly_organization_uri?: string | null;
+          calendly_user_uri?: string | null;
+          close_api_key?: string | null;
+          close_connected_at?: string | null;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          calendly_api_key?: string | null;
+          calendly_connected_at?: string | null;
+          calendly_last_sync_at?: string | null;
+          calendly_organization_uri?: string | null;
+          calendly_user_uri?: string | null;
+          close_api_key?: string | null;
+          close_connected_at?: string | null;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       dial_queue: {
@@ -1485,15 +1583,15 @@ export type Database = {
       };
     };
     Functions: {
+      bump_api_rate_limit: {
+        Args: { in_api_key_id: string; in_window_seconds: number };
+        Returns: number;
+      };
       elevenlabs_voice_ids: { Args: never; Returns: string };
       expire_resting_leads: { Args: never; Returns: number };
       get_or_create_inbound_list: {
         Args: { in_owner: string };
         Returns: string;
-      };
-      bump_api_rate_limit: {
-        Args: { in_api_key_id: string; in_window_seconds: number };
-        Returns: number;
       };
       is_admin: { Args: { uid: string }; Returns: boolean };
       is_phone_on_dnc: { Args: { phone_to_check: string }; Returns: boolean };
@@ -1647,6 +1745,9 @@ export type CompositeTypes<
     : never;
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

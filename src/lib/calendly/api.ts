@@ -1,37 +1,38 @@
 import "server-only";
 
 /**
- * Calendly API v2 client (live mode).
+ * Calendly API v2 client.
  *
- * Calendly's 2025 Scheduling API lets us book a meeting directly at a chosen
- * time — no invitee link-click — via POST /invitees (scope
- * scheduled_events:write). Verified against the live API:
+ * Calendly is a PER-USER integration: each rep connects their own account by
+ * pasting a Personal Access Token, and the AI books on behalf of the campaign
+ * owner. So every function here takes the caller's token explicitly — there is
+ * no global Calendly env var. "Live" simply means the relevant user has
+ * connected (a token exists in user_integrations).
+ *
+ * Calendly's 2025 Scheduling API books a meeting directly at a chosen time
+ * (no invitee link-click) via POST /invitees (scope scheduled_events:write).
+ * Verified against the live API:
  *   - POST /invitees requires { event_type, start_time, invitee:{ email,
- *     timezone, name? } }; location is only required for event types that
- *     ask the invitee for it (Zoom/Meet host-defined types don't).
- *   - GET /event_type_available_times?event_type&start_time&end_time returns
- *     a `collection` of slots (future-only, <=7-day window).
+ *     timezone, name? } }; location is only required for event types that ask
+ *     the invitee for it (host-defined Zoom/Meet types don't).
+ *   - GET /event_type_available_times?event_type&start_time&end_time returns a
+ *     `collection` of slots (future-only, <=7-day window).
  *   - GET /event_types?organization=... lists the bookable event types.
- *
- * All calls are gated by CALENDLY_LIVE=live + a CALENDLY_API_KEY (a Personal
- * Access Token or OAuth access token). In mock mode the callers fall back to
- * deterministic placeholders, so tests/dev never hit the network.
  */
 
 const CAL_API = "https://api.calendly.com";
 
-export function isCalendlyLive(): boolean {
-  return process.env.CALENDLY_LIVE === "live";
+function authHeaders(token: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
 }
 
-function token(): string | null {
-  const t = process.env.CALENDLY_API_KEY?.trim();
-  return t && t.length > 0 ? t : null;
-}
-
-function authHeaders(t: string): Record<string, string> {
-  return { Authorization: `Bearer ${t}`, "Content-Type": "application/json" };
-}
+export type CalendlyIdentity = {
+  userUri: string | null;
+  organizationUri: string | null;
+};
 
 export type CalendlyEventType = {
   uri: string;
@@ -54,23 +55,21 @@ type UsersMeResponse = {
   resource?: { uri?: string; current_organization?: string };
 };
 
-// Resolved once per process — the org URI for the configured token never
-// changes during a deployment's lifetime.
-let cachedOrgUri: string | null = null;
-
-/** The organization URI for the configured token, from GET /users/me. */
-export async function getOrganizationUri(): Promise<string | null> {
-  if (cachedOrgUri) return cachedOrgUri;
-  const t = token();
-  if (!t) return null;
+/** Resolve the user + organization URIs for a token (GET /users/me). Also
+ *  doubles as a token-validity check (null org => bad/unauthorized token). */
+export async function getIdentity(token: string): Promise<CalendlyIdentity> {
   try {
-    const res = await fetch(`${CAL_API}/users/me`, { headers: authHeaders(t) });
-    if (!res.ok) return null;
+    const res = await fetch(`${CAL_API}/users/me`, {
+      headers: authHeaders(token),
+    });
+    if (!res.ok) return { userUri: null, organizationUri: null };
     const data = (await res.json()) as UsersMeResponse;
-    cachedOrgUri = data.resource?.current_organization ?? null;
-    return cachedOrgUri;
+    return {
+      userUri: data.resource?.uri ?? null,
+      organizationUri: data.resource?.current_organization ?? null,
+    };
   } catch {
-    return null;
+    return { userUri: null, organizationUri: null };
   }
 }
 
@@ -88,15 +87,14 @@ type EventTypesResponse = {
 /** List active event types for an organization (paginated). */
 export async function listEventTypes(
   organizationUri: string,
+  token: string,
 ): Promise<CalendlyEventType[]> {
-  const t = token();
-  if (!t) return [];
   const out: CalendlyEventType[] = [];
   let url: string =
     `${CAL_API}/event_types?organization=` +
     `${encodeURIComponent(organizationUri)}&active=true&count=100`;
   for (let page = 0; page < 10 && url; page++) {
-    const res = await fetch(url, { headers: authHeaders(t) });
+    const res = await fetch(url, { headers: authHeaders(token) });
     if (!res.ok) break;
     const data = (await res.json()) as EventTypesResponse;
     for (const e of data.collection ?? []) {
@@ -130,15 +128,14 @@ export async function getAvailableTimes(
   eventTypeUri: string,
   startISO: string,
   endISO: string,
+  token: string,
 ): Promise<CalendlySlot[]> {
-  const t = token();
-  if (!t) return [];
   const url =
     `${CAL_API}/event_type_available_times?event_type=` +
     `${encodeURIComponent(eventTypeUri)}&start_time=` +
     `${encodeURIComponent(startISO)}&end_time=${encodeURIComponent(endISO)}`;
   try {
-    const res = await fetch(url, { headers: authHeaders(t) });
+    const res = await fetch(url, { headers: authHeaders(token) });
     if (!res.ok) return [];
     const data = (await res.json()) as AvailableTimesResponse;
     return (data.collection ?? [])
@@ -163,16 +160,16 @@ type CreateInviteeResponse = {
  * (ISO 8601). Returns the created invitee + event URIs, or a human-readable
  * error (e.g. the slot was just taken).
  */
-export async function createInvitee(input: {
-  eventTypeUri: string;
-  startTime: string;
-  email: string;
-  name?: string;
-  timezone: string;
-}): Promise<CreateInviteeResult> {
-  const t = token();
-  if (!t) return { ok: false, error: "Calendly token isn't configured." };
-
+export async function createInvitee(
+  input: {
+    eventTypeUri: string;
+    startTime: string;
+    email: string;
+    name?: string;
+    timezone: string;
+  },
+  token: string,
+): Promise<CreateInviteeResult> {
   const invitee: Record<string, string> = {
     email: input.email,
     timezone: input.timezone,
@@ -182,7 +179,7 @@ export async function createInvitee(input: {
   try {
     const res = await fetch(`${CAL_API}/invitees`, {
       method: "POST",
-      headers: authHeaders(t),
+      headers: authHeaders(token),
       body: JSON.stringify({
         event_type: input.eventTypeUri,
         start_time: input.startTime,

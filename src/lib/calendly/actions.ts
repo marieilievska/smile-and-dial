@@ -5,7 +5,19 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
-import { getOrganizationUri, isCalendlyLive, listEventTypes } from "./api";
+import { getIdentity, listEventTypes } from "./api";
+
+/**
+ * Per-user Calendly connection. Each rep pastes their own Personal Access
+ * Token; the AI books on behalf of the campaign owner using their token +
+ * event types. Credentials live in user_integrations (per user), and event
+ * types in calendly_event_types scoped by owner_id.
+ *
+ * Reads/writes go through the service role so a non-admin can manage their own
+ * connection (and so we can write event types, which are admin-write under
+ * RLS) — but every action first resolves the signed-in user and only ever
+ * touches that user's own rows.
+ */
 
 function makeServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -15,16 +27,26 @@ function makeServiceClient() {
   });
 }
 
-/** Pull the organization's active event types from Calendly into the local
- *  cache that powers the campaign-settings dropdown + the booking tools. */
-async function syncEventTypes(
+async function currentUserId(): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
+
+/** Pull the user's active event types from Calendly into the per-user cache. */
+async function syncUserEventTypes(
   admin: ReturnType<typeof makeServiceClient>,
+  userId: string,
   organizationUri: string,
+  token: string,
 ): Promise<void> {
-  const types = await listEventTypes(organizationUri);
+  const types = await listEventTypes(organizationUri, token);
   if (types.length === 0) return;
   await admin.from("calendly_event_types").upsert(
     types.map((t) => ({
+      owner_id: userId,
       event_uri: t.uri,
       name: t.name,
       scheduling_url: t.schedulingUrl,
@@ -32,167 +54,94 @@ async function syncEventTypes(
       active: true,
       synced_at: new Date().toISOString(),
     })),
-    { onConflict: "event_uri" },
+    { onConflict: "owner_id,event_uri" },
   );
 }
 
-/** Connect Calendly. In live mode (CALENDLY_LIVE=live) this would kick off
- *  the OAuth dance; in mock mode we just stamp the connected_at timestamp
- *  and seed a couple of fake event types so the UI has something to render
- *  and the campaign-settings dropdown can pick from. */
-export async function connectCalendlyMock(): Promise<{ error: string | null }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "You are not signed in." };
+/** Connect (or re-connect) the signed-in user's Calendly by pasting a token. */
+export async function saveCalendlyConnection(
+  token: string,
+): Promise<{ error: string | null }> {
+  const t = token.trim();
+  if (!t) return { error: "Paste your Calendly Personal Access Token." };
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") return { error: "Admins only." };
+  const userId = await currentUserId();
+  if (!userId) return { error: "You are not signed in." };
+
+  const identity = await getIdentity(t);
+  if (!identity.organizationUri) {
+    return {
+      error:
+        "That token didn't work — check it's a valid Calendly Personal Access Token.",
+    };
+  }
 
   const admin = makeServiceClient();
   const now = new Date().toISOString();
-
-  // Live: verify the token, store the org URI, and pull real event types.
-  // We deliberately don't persist the PAT in the DB — it lives in env.
-  if (isCalendlyLive()) {
-    const orgUri = await getOrganizationUri();
-    if (!orgUri) {
-      return {
-        error:
-          "Couldn't reach Calendly with the configured token. Check CALENDLY_API_KEY.",
-      };
-    }
-    await admin
-      .from("app_settings")
-      .update({
-        calendly_organization_uri: orgUri,
-        calendly_connected_at: now,
-        calendly_last_sync_at: now,
-      })
-      .eq("id", 1);
-    await syncEventTypes(admin, orgUri);
-    revalidatePath("/settings/integrations");
-    return { error: null };
-  }
-
-  await admin
-    .from("app_settings")
-    .update({
-      calendly_access_token: "mock-access-token",
-      calendly_refresh_token: "mock-refresh-token",
-      calendly_organization_uri:
-        "https://api.calendly.com/organizations/mock-org",
-      calendly_user_uri: "https://api.calendly.com/users/mock-user",
+  const { error } = await admin.from("user_integrations").upsert(
+    {
+      user_id: userId,
+      calendly_api_key: t,
+      calendly_organization_uri: identity.organizationUri,
+      calendly_user_uri: identity.userUri,
       calendly_connected_at: now,
       calendly_last_sync_at: now,
-    })
-    .eq("id", 1);
-
-  // Seed two mock event types so the campaign-settings dropdown isn't empty.
-  await admin.from("calendly_event_types").upsert(
-    [
-      {
-        event_uri: "https://api.calendly.com/event_types/mock-discovery",
-        name: "Mock Discovery Call",
-        scheduling_url: "https://calendly.com/mock/discovery",
-        duration_minutes: 30,
-        active: true,
-      },
-      {
-        event_uri: "https://api.calendly.com/event_types/mock-strategy",
-        name: "Mock Strategy Call",
-        scheduling_url: "https://calendly.com/mock/strategy",
-        duration_minutes: 60,
-        active: true,
-      },
-    ],
-    { onConflict: "event_uri" },
+      updated_at: now,
+    },
+    { onConflict: "user_id" },
   );
+  if (error) return { error: "Couldn't save the connection." };
 
+  await syncUserEventTypes(admin, userId, identity.organizationUri, t);
   revalidatePath("/settings/integrations");
   return { error: null };
 }
 
-/** Pretend to re-sync event types. In live mode this would call Calendly's
- *  list-event-types endpoint; mock mode just bumps the last-sync timestamp. */
-export async function syncCalendlyMock(): Promise<{ error: string | null }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "You are not signed in." };
-
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") return { error: "Admins only." };
+/** Re-pull the signed-in user's event types from Calendly. */
+export async function syncCalendly(): Promise<{ error: string | null }> {
+  const userId = await currentUserId();
+  if (!userId) return { error: "You are not signed in." };
 
   const admin = makeServiceClient();
+  const { data: integ } = await admin
+    .from("user_integrations")
+    .select("calendly_api_key, calendly_organization_uri")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const token = integ?.calendly_api_key?.trim();
+  const org = integ?.calendly_organization_uri;
+  if (!token || !org) return { error: "Connect Calendly first." };
 
-  // Live: re-pull the org's event types from Calendly.
-  if (isCalendlyLive()) {
-    const orgUri = await getOrganizationUri();
-    if (!orgUri) {
-      return {
-        error:
-          "Couldn't reach Calendly with the configured token. Check CALENDLY_API_KEY.",
-      };
-    }
-    await syncEventTypes(admin, orgUri);
-    await admin
-      .from("app_settings")
-      .update({ calendly_last_sync_at: new Date().toISOString() })
-      .eq("id", 1);
-    revalidatePath("/settings/integrations");
-    return { error: null };
-  }
-
+  await syncUserEventTypes(admin, userId, org, token);
   await admin
-    .from("app_settings")
+    .from("user_integrations")
     .update({ calendly_last_sync_at: new Date().toISOString() })
-    .eq("id", 1);
+    .eq("user_id", userId);
   revalidatePath("/settings/integrations");
   return { error: null };
 }
 
+/** Disconnect the signed-in user's Calendly and deactivate their event types. */
 export async function disconnectCalendly(): Promise<{ error: string | null }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "You are not signed in." };
-
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") return { error: "Admins only." };
+  const userId = await currentUserId();
+  if (!userId) return { error: "You are not signed in." };
 
   const admin = makeServiceClient();
   await admin
-    .from("app_settings")
+    .from("user_integrations")
     .update({
-      calendly_access_token: null,
-      calendly_refresh_token: null,
+      calendly_api_key: null,
       calendly_organization_uri: null,
       calendly_user_uri: null,
       calendly_connected_at: null,
       calendly_last_sync_at: null,
+      updated_at: new Date().toISOString(),
     })
-    .eq("id", 1);
-  // Mark all event types inactive so the campaign dropdown clears.
+    .eq("user_id", userId);
   await admin
     .from("calendly_event_types")
     .update({ active: false })
-    .eq("active", true);
+    .eq("owner_id", userId);
   revalidatePath("/settings/integrations");
   return { error: null };
 }
