@@ -8,14 +8,29 @@ export function isUsCaNumber(phone: string): boolean {
 }
 
 /**
+ * True when real Twilio Lookups should run. Lookup goes live whenever Twilio
+ * is live for the workspace (`TWILIO_LIVE=live`) — the same flag that gates
+ * number search/purchase — so a live deployment verifies numbers for real
+ * without needing a second flag set. `TWILIO_LOOKUP_MODE=live` is still
+ * honoured for backward compatibility. Per-import spend control lives in the
+ * "Skip number verification" toggle, not here.
+ */
+function isLookupLive(): boolean {
+  return (
+    process.env.TWILIO_LIVE === "live" ||
+    process.env.TWILIO_LOOKUP_MODE === "live"
+  );
+}
+
+/**
  * Classify a phone number's line type via Twilio Lookup.
  *
- * Real Twilio lookups cost money, so they only run when
- * `TWILIO_LOOKUP_MODE=live` is set. Otherwise a deterministic mock is used —
- * this keeps tests free and prevents accidental spend during development.
+ * Real Twilio lookups cost money, so they only run in live mode. Otherwise a
+ * deterministic mock is used — this keeps tests free and prevents accidental
+ * spend during development.
  */
 export async function lookupLineType(phone: string): Promise<LineType> {
-  if (process.env.TWILIO_LOOKUP_MODE !== "live") {
+  if (!isLookupLive()) {
     return mockLineType(phone);
   }
   return liveLineType(phone);

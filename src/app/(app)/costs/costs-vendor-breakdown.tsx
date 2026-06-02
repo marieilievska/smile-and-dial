@@ -1,3 +1,5 @@
+import { Phone } from "lucide-react";
+
 import type { rollupByVendor } from "@/lib/analytics/costs";
 
 function usd(value: number): string {
@@ -12,12 +14,19 @@ function usd(value: number): string {
  *  shares of one bill, not four competing brands); bar length and an
  *  opacity ramp carry magnitude, ordered by share descending.
  *
- *  Note: per-call costs only. Monthly phone-number rental is a flat
- *  fee billed separately, so it isn't represented here. */
+ *  The four vendor rows are per-call costs. Phone-number rental is a flat
+ *  monthly fee billed separately (not per call), so it's shown on its own
+ *  line below the divider rather than folded into the per-call total. */
 export function CostsVendorBreakdown({
   summary,
+  monthlyNumberCost = 0,
+  numberCount = 0,
 }: {
   summary: ReturnType<typeof rollupByVendor>;
+  /** Total monthly rental across active (un-released) numbers. */
+  monthlyNumberCost?: number;
+  /** How many active numbers that rental covers. */
+  numberCount?: number;
 }) {
   const items = [
     {
@@ -103,8 +112,28 @@ export function CostsVendorBreakdown({
           );
         })}
       </ul>
+      {/* Phone-number rental — a flat monthly fee, billed separately from the
+       *  per-call vendor costs above, so it sits below a divider and is NOT
+       *  added into the per-call total. */}
+      <div className="border-border/70 mt-1 flex items-baseline justify-between gap-3 border-t pt-3">
+        <span className="text-foreground inline-flex items-center gap-2">
+          <Phone className="text-muted-foreground size-3.5 shrink-0" />
+          <span className="font-medium">Phone numbers</span>
+          <span className="text-muted-foreground hidden text-xs sm:inline">
+            ·{" "}
+            {numberCount > 0
+              ? `${numberCount} active · flat monthly fee`
+              : "no active numbers"}
+          </span>
+        </span>
+        <span className="text-foreground tabular-nums">
+          {usd(monthlyNumberCost)}
+          <span className="text-muted-foreground">/mo</span>
+        </span>
+      </div>
       <p className="text-muted-foreground text-[11px]">
-        Per-call costs only. Monthly phone-number rental is billed separately.
+        The four vendor rows are per-call costs for the selected range. Phone
+        numbers are a flat monthly rental, billed separately.
       </p>
     </section>
   );

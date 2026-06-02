@@ -37,11 +37,12 @@ const TWILIO_API = "https://api.twilio.com/2010-04-01/Accounts";
 // Twilio's number-search API doesn't return your account's price (and the
 // Pricing API only returns list price, not negotiated rates), so the monthly
 // cost shown on search results is an estimate. Set TWILIO_NUMBER_MONTHLY_COST
-// to your real per-number monthly cost to make it accurate; defaults to
-// Twilio's US local list price.
+// to override; the default is this workspace's actual negotiated per-number
+// rate ($0.04/mo), since one Twilio account sits behind the whole product.
+const DEFAULT_NUMBER_MONTHLY_COST = 0.04;
 function estimatedMonthlyCost(): number {
   const raw = Number(process.env.TWILIO_NUMBER_MONTHLY_COST);
-  return Number.isFinite(raw) && raw >= 0 ? raw : 1.15;
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_NUMBER_MONTHLY_COST;
 }
 
 function isLive(): boolean {

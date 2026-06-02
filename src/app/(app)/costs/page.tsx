@@ -128,6 +128,7 @@ export default async function CostsPage({
     headlineStats,
     prevRows,
     campaignCaps,
+    { data: activeNumbers },
   ] = await Promise.all([
     fetchCostRows(supabase, slicers),
     supabase.from("campaigns").select("id, name").order("name"),
@@ -135,7 +136,20 @@ export default async function CostsPage({
     fetchCostsHeadlineStats(supabase),
     fetchCostRows(supabase, prevSlicers),
     fetchCampaignCaps(supabase),
+    // Active (un-released) phone numbers carry a flat monthly rental that's
+    // billed separately from per-call spend — surfaced on its own line.
+    supabase
+      .from("twilio_numbers")
+      .select("monthly_cost")
+      .is("released_at", null),
   ]);
+
+  const numberCount = activeNumbers?.length ?? 0;
+  const monthlyNumberCost = (activeNumbers ?? []).reduce(
+    (sum, n) =>
+      sum + (Number((n as { monthly_cost: number }).monthly_cost) || 0),
+    0,
+  );
 
   // Owners are only needed by the Per-user rollup. Admin gate the
   // lookup the same way as before so members can't enumerate owners.
@@ -358,7 +372,11 @@ export default async function CostsPage({
             topVendor={topVendor}
           />
         ) : null}
-        <CostsVendorBreakdown summary={summary} />
+        <CostsVendorBreakdown
+          summary={summary}
+          monthlyNumberCost={monthlyNumberCost}
+          numberCount={numberCount}
+        />
       </div>
 
       <CostsViewTabs current={view} buildHref={buildViewHref} />
