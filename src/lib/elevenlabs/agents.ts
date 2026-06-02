@@ -20,7 +20,6 @@ import type { ToolsEnabled } from "@/lib/agents/prompt";
 import {
   ensureServerTools,
   isOwnServerTool,
-  serverToolDefinitions,
   toolIdsForEnabled,
 } from "@/lib/elevenlabs/server-tools";
 import { appBaseUrl } from "@/lib/app-url";
@@ -305,36 +304,53 @@ export async function applyConnectedAgentIntegration(
   const agent = (cc.agent ?? {}) as Record<string, unknown>;
   const prompt = (agent.prompt ?? {}) as Record<string, unknown>;
 
-  // An agent references tools in one of two mutually exclusive ways, and the
-  // API rejects a body that sets both. Agents built in the ElevenLabs
-  // dashboard typically carry an inline `tools` array (e.g. their
-  // transfer_to_number with a configured number); agents created via the
-  // modern API use workspace `tool_ids`. Match whichever the agent already
-  // uses so we never send both — and never clobber inline config like the
-  // transfer number.
+  // Attach our server tools by STABLE workspace tool_ids (ensureServerTools
+  // reuses one record per name, so re-syncs never create duplicates).
+  const serverToolMap = await ensureServerTools();
+  const serverToolIds = toolIdsForEnabled(serverToolMap, toolsEnabled);
+  const existingToolIds = Array.isArray(prompt.tool_ids)
+    ? (prompt.tool_ids as string[])
+    : [];
+  const ourToolIds = new Set(Object.values(serverToolMap));
+  // Keep the user's own workspace tools; drop our ids so the enabled set
+  // below fully controls which of ours are attached.
+  const keptToolIds = existingToolIds.filter((id) => !ourToolIds.has(id));
+  const mergedToolIds = Array.from(new Set([...keptToolIds, ...serverToolIds]));
+
+  // Agents built in the ElevenLabs dashboard carry a legacy inline `tools`
+  // array. The API rejects a body that sets both `tools` and `tool_ids`, so
+  // we drop the inline array — but first salvage any system tool it holds
+  // (e.g. transfer_to_number with its configured number) into built_in_tools,
+  // the modern home for system tools, unless it's already there. This never
+  // loses the transfer config and lets us use stable tool_ids cleanly.
   const existingTools = Array.isArray(prompt.tools)
     ? (prompt.tools as Record<string, unknown>[])
     : [];
   const usesInlineTools = existingTools.length > 0;
 
-  let promptPatch: Record<string, unknown>;
+  const promptPatch: Record<string, unknown> = {
+    ...prompt,
+    tool_ids: mergedToolIds,
+  };
   if (usesInlineTools) {
-    // Drop any stale copies of our tools, then append the enabled set inline.
-    const kept = existingTools.filter((t) => !isOwnServerTool(t?.name));
-    const defs = await serverToolDefinitions(toolsEnabled);
-    promptPatch = { ...prompt, tools: [...kept, ...defs] };
-    // Sending tool_ids alongside tools is rejected, so make sure it's absent.
-    delete promptPatch.tool_ids;
-  } else {
-    const serverToolMap = await ensureServerTools();
-    const serverToolIds = toolIdsForEnabled(serverToolMap, toolsEnabled);
-    const existingToolIds = Array.isArray(prompt.tool_ids)
-      ? (prompt.tool_ids as string[])
-      : [];
-    const mergedToolIds = Array.from(
-      new Set([...existingToolIds, ...serverToolIds]),
-    );
-    promptPatch = { ...prompt, tool_ids: mergedToolIds };
+    const existingBuiltIn = (prompt.built_in_tools ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const salvaged: Record<string, unknown> = {};
+    for (const t of existingTools) {
+      const name = t?.name;
+      if (
+        t?.type === "system" &&
+        typeof name === "string" &&
+        !isOwnServerTool(name) &&
+        !(name in existingBuiltIn)
+      ) {
+        salvaged[name] = t;
+      }
+    }
+    promptPatch.built_in_tools = { ...salvaged, ...existingBuiltIn };
+    delete promptPatch.tools;
   }
 
   const dv = (agent.dynamic_variables ?? {}) as Record<string, unknown>;
