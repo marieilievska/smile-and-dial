@@ -190,6 +190,7 @@ export default async function LeadDetailPage({
     businessPhone: lead.business_phone ?? null,
     city: lead.city ?? null,
     state: lead.state ?? null,
+    timezone: lead.timezone ?? null,
     aiSummary: lead.ai_summary,
     onCall: Boolean(activeCall),
     onCallStartedAt: activeCall?.started_at ?? null,

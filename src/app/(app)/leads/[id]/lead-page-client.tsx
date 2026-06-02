@@ -228,6 +228,20 @@ export function LeadPageClient({
                 value={outcomeLabel(meta.lastOutcome)}
               />
               <PipelineRow
+                label="Time zone"
+                value={
+                  meta.timezone ? (
+                    <LeadLocalTime timeZone={meta.timezone} />
+                  ) : (
+                    "Not set"
+                  )
+                }
+                title={
+                  meta.timezone ??
+                  "No timezone — set the lead's state to derive one"
+                }
+              />
+              <PipelineRow
                 label="Next call"
                 value={relativeTimeSigned(meta.nextCallAt)}
                 title={exactDateTime(meta.nextCallAt)}
@@ -370,6 +384,50 @@ function LeadPrevNext({
   );
 }
 
+/** A friendly US-zone label + the lead's CURRENT local time, ticking each
+ *  minute. This is the clock the dialer's calling-hours check uses, so seeing
+ *  "Central · 4:41 PM" makes it obvious whether it's daytime for this lead. */
+function LeadLocalTime({ timeZone }: { timeZone: string }) {
+  const friendly: Record<string, string> = {
+    "America/New_York": "Eastern",
+    "America/Chicago": "Central",
+    "America/Denver": "Mountain",
+    "America/Phoenix": "Arizona",
+    "America/Los_Angeles": "Pacific",
+    "America/Anchorage": "Alaska",
+    "Pacific/Honolulu": "Hawaii",
+  };
+  const [localTime, setLocalTime] = useState<string | null>(null);
+  useEffect(() => {
+    const tick = () => {
+      try {
+        setLocalTime(
+          new Intl.DateTimeFormat("en-US", {
+            timeZone,
+            hour: "numeric",
+            minute: "2-digit",
+          }).format(new Date()),
+        );
+      } catch {
+        setLocalTime(null);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, [timeZone]);
+
+  const label = friendly[timeZone] ?? timeZone;
+  return (
+    <span>
+      {label}
+      {localTime ? (
+        <span className="text-muted-foreground"> · {localTime} local</span>
+      ) : null}
+    </span>
+  );
+}
+
 /** Compact label/value pair for the Pipeline block. An optional `title`
  *  surfaces the exact timestamp on hover for the relative-time rows
  *  (Next call / Resting until). */
@@ -379,7 +437,7 @@ function PipelineRow({
   title,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   title?: string;
 }) {
   return (

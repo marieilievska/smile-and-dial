@@ -86,6 +86,10 @@ export type LeadMeta = {
   businessPhone: string | null;
   city: string | null;
   state: string | null;
+  /** IANA timezone (e.g. "America/Chicago"), derived from the lead's state
+   *  at import. Drives calling-hours; surfaced so the operator can see when
+   *  it's the lead's daytime. */
+  timezone: string | null;
   aiSummary: string | null;
   /** True when the dialer has a call in flight for this lead right now —
    *  drives the live "On call now" pulse in the hero. */

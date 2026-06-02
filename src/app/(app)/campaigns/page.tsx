@@ -33,7 +33,7 @@ import {
 import { CampaignsStatStrip } from "./campaigns-stat-strip";
 import { CreateCampaignDialog } from "./create-campaign-dialog";
 import { DeleteCampaignDialog } from "./delete-campaign-dialog";
-import { isInsideCallingHours } from "./format-hours";
+import { isCampaignInsideHours } from "./format-hours";
 import { fetchCampaignStats, fetchPerCampaignSpend } from "./stats-query";
 
 type Option = { id: string; name: string };
@@ -136,6 +136,34 @@ export default async function CampaignsPage({
     campaignToListIds.set(row.campaign_id, [...existing, row.list_id]);
   });
   const attachedListIds = new Set(attachments.map((a) => a.list_id));
+
+  // Distinct lead timezones per attached list, so each campaign's "are we
+  // calling now?" chip is evaluated in its leads' timezones (the dialer gates
+  // per lead the same way) instead of the server's UTC clock.
+  const listTimezones = new Map<string, Set<string>>();
+  if (attachedListIds.size > 0) {
+    const { data: tzRows } = await supabase
+      .from("leads")
+      .select("list_id, timezone")
+      .is("deleted_at", null)
+      .not("timezone", "is", null)
+      .in("list_id", [...attachedListIds])
+      .limit(50000);
+    for (const r of tzRows ?? []) {
+      const row = r as { list_id: string | null; timezone: string | null };
+      if (!row.list_id || !row.timezone) continue;
+      const set = listTimezones.get(row.list_id) ?? new Set<string>();
+      set.add(row.timezone);
+      listTimezones.set(row.list_id, set);
+    }
+  }
+  function timezonesForCampaign(campaignId: string): string[] {
+    const zones = new Set<string>();
+    for (const listId of campaignToListIds.get(campaignId) ?? []) {
+      for (const tz of listTimezones.get(listId) ?? []) zones.add(tz);
+    }
+    return [...zones];
+  }
 
   function eligibleListsFor(campaignId: string | null): Option[] {
     const result = allLists.filter((l) => !attachedListIds.has(l.id));
@@ -247,9 +275,10 @@ export default async function CampaignsPage({
       callsToday: today?.callsToday ?? 0,
       spendToday: today?.spendToday ?? 0,
       dailyCap: campaign.daily_spend_cap,
-      insideHours: isInsideCallingHours(
+      insideHours: isCampaignInsideHours(
         campaign.calling_hours_start,
         campaign.calling_hours_end,
+        timezonesForCampaign(campaign.id),
         now,
       ),
       isActive: campaign.status === "active",
