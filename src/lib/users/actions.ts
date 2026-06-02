@@ -78,6 +78,54 @@ export async function setUserActive(
   return { error: null };
 }
 
+/**
+ * Permanently delete a user. Admin-only; you can't delete yourself, and the
+ * user must be deactivated first (a guardrail against fat-fingering an active
+ * teammate). Removes the auth login and everything they own.
+ *
+ * Foreign keys force an order: calls→leads and leads→lists are ON DELETE
+ * RESTRICT, and campaigns reference agents/goals, so we clear the
+ * restriction-blocking rows ourselves before the auth-user delete cascades
+ * the rest (profile, saved views, integrations, etc.).
+ */
+export async function deleteUser(targetUserId: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const auth = await requireAdmin(supabase);
+  if ("error" in auth) return { error: auth.error };
+  if (targetUserId === auth.userId) {
+    return { error: "You can't delete your own account." };
+  }
+
+  const { data: target } = await supabase
+    .from("profiles")
+    .select("active")
+    .eq("id", targetUserId)
+    .maybeSingle();
+  if (!target) return { error: "That user no longer exists." };
+  if (target.active) return { error: "Deactivate the user before deleting." };
+
+  const admin = createAdminClient();
+
+  const { data: leads } = await admin
+    .from("leads")
+    .select("id")
+    .eq("owner_id", targetUserId);
+  const leadIds = (leads ?? []).map((l) => l.id);
+  if (leadIds.length > 0) {
+    await admin.from("calls").delete().in("lead_id", leadIds);
+  }
+  await admin.from("campaigns").delete().eq("owner_id", targetUserId);
+  await admin.from("agents").delete().eq("owner_id", targetUserId);
+  await admin.from("leads").delete().eq("owner_id", targetUserId);
+  await admin.from("lists").delete().eq("owner_id", targetUserId);
+
+  const { error } = await admin.auth.admin.deleteUser(targetUserId);
+  if (error) return { error: "Could not delete the user." };
+
+  revalidatePath("/settings/users");
+  return { error: null };
+}
+
 /** Invite a new user by email. They receive a link to set a password. */
 export async function inviteUser(
   email: string,

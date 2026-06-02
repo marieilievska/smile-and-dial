@@ -15,6 +15,7 @@ import { appWebhookUrls } from "@/lib/twilio/numbers";
 
 import { formatCreatedAt } from "../format-created";
 import { BuyNumberDialog } from "./buy-number-dialog";
+import { DeleteNumberDialog } from "./delete-number-dialog";
 import { ReleaseNumberDialog } from "./release-number-dialog";
 import { RepointWebhooksButton } from "./repoint-button";
 import { TwilioNumbersStatusTabs } from "./status-tabs";
@@ -175,17 +176,26 @@ export default async function TwilioNumbersPage({
                         {formatCreatedAt(number.purchased_at, now)}
                       </TableCell>
                       <TableCell>
-                        {number.released_at ? null : (
-                          <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                            <RepointWebhooksButton id={number.id} />
-                            <ReleaseNumberDialog
+                        <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          {number.released_at ? (
+                            <DeleteNumberDialog
                               number={{
                                 id: number.id,
                                 phone_number: number.phone_number,
                               }}
                             />
-                          </div>
-                        )}
+                          ) : (
+                            <>
+                              <RepointWebhooksButton id={number.id} />
+                              <ReleaseNumberDialog
+                                number={{
+                                  id: number.id,
+                                  phone_number: number.phone_number,
+                                }}
+                              />
+                            </>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

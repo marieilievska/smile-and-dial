@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 import {
@@ -127,6 +128,38 @@ export async function releaseNumber(id: string): Promise<ActionResult> {
     .update({ released_at: new Date().toISOString() })
     .eq("id", id);
   if (error) return { error: "Could not release the number." };
+
+  revalidatePath(NUMBERS_PATH);
+  return { error: null };
+}
+
+/** Permanently delete a released number from the pool so it stops showing
+ *  under "Released". Admin-only, and only for already-released numbers (the
+ *  release step is what hands the number back to Twilio). Historical calls
+ *  that referenced it are detached first so the foreign key doesn't block. */
+export async function deleteTwilioNumber(id: string): Promise<ActionResult> {
+  const { supabase, error: adminError } = await requireAdmin();
+  if (adminError) return { error: adminError };
+
+  const { data: number } = await supabase
+    .from("twilio_numbers")
+    .select("released_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (!number) return { error: "That number no longer exists." };
+  if (!number.released_at) {
+    return { error: "Release the number before deleting it." };
+  }
+
+  // Service role for the delete: detach any historical calls, then remove the
+  // row (twilio_numbers has no per-user delete RLS policy).
+  const admin = createAdminClient();
+  await admin
+    .from("calls")
+    .update({ twilio_number_id: null })
+    .eq("twilio_number_id", id);
+  const { error } = await admin.from("twilio_numbers").delete().eq("id", id);
+  if (error) return { error: "Could not delete the number." };
 
   revalidatePath(NUMBERS_PATH);
   return { error: null };
