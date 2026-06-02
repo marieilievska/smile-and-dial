@@ -56,17 +56,40 @@ export type ToolWebhookResult = {
 };
 
 /**
- * Validate the shared-secret header ElevenLabs sends (configured as a
- * request header on each tool definition). Skipped in non-live mode
- * (ELEVENLABS_LIVE != "live") so Playwright can POST without a secret; in
- * live mode a constant-time match against ELEVENLABS_TOOL_WEBHOOK_SECRET is
- * required.
+ * The shared secret for server-tool webhooks. Prefers the env var (override)
+ * but falls back to app_settings.elevenlabs_tool_webhook_secret — the DB value
+ * is the reliable source since this project's Vercel env store has dropped
+ * values before. Both the tool registration (header) and this validation read
+ * it, so they always agree.
  */
-export function isValidToolSecret(provided: string | null): boolean {
+export async function getToolWebhookSecret(): Promise<string> {
+  const env = process.env.ELEVENLABS_TOOL_WEBHOOK_SECRET?.trim();
+  if (env) return env;
+  try {
+    const supabase = makeServiceClient();
+    const { data } = await supabase
+      .from("app_settings")
+      .select("elevenlabs_tool_webhook_secret")
+      .eq("id", 1)
+      .maybeSingle();
+    return data?.elevenlabs_tool_webhook_secret?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Validate the shared-secret header ElevenLabs sends (configured as a request
+ * header on each tool definition). Skipped in non-live mode (ELEVENLABS_LIVE
+ * != "live") so Playwright can POST without a secret; in live mode a
+ * constant-time match against the resolved secret is required.
+ */
+export async function isValidToolSecret(
+  provided: string | null,
+): Promise<boolean> {
   if (process.env.ELEVENLABS_LIVE !== "live") return true;
-  const expected = process.env.ELEVENLABS_TOOL_WEBHOOK_SECRET ?? "";
-  if (!expected) return false;
-  if (!provided) return false;
+  const expected = await getToolWebhookSecret();
+  if (!expected || !provided) return false;
   if (provided.length !== expected.length) return false;
   try {
     return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));

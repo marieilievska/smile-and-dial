@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  getToolWebhookSecret,
   SERVER_TOOL_KEYS,
   type ServerToolKey,
 } from "@/lib/elevenlabs/tool-webhook";
@@ -222,7 +223,7 @@ export async function ensureServerTools(): Promise<Record<string, string>> {
 
   const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
   const baseUrl = appBaseUrl();
-  const secret = process.env.ELEVENLABS_TOOL_WEBHOOK_SECRET?.trim();
+  const secret = await getToolWebhookSecret();
   // Without a public URL + secret we can't register a callable webhook.
   if (!apiKey || !baseUrl || !secret) return {};
 

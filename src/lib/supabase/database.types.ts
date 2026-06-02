@@ -231,6 +231,7 @@ export type Database = {
           calendly_user_uri: string | null;
           close_api_key: string | null;
           close_connected_at: string | null;
+          elevenlabs_tool_webhook_secret: string | null;
           elevenlabs_voice_ids: string | null;
           id: number;
           updated_at: string;
@@ -244,6 +245,7 @@ export type Database = {
           calendly_user_uri?: string | null;
           close_api_key?: string | null;
           close_connected_at?: string | null;
+          elevenlabs_tool_webhook_secret?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
           updated_at?: string;
@@ -257,6 +259,7 @@ export type Database = {
           calendly_user_uri?: string | null;
           close_api_key?: string | null;
           close_connected_at?: string | null;
+          elevenlabs_tool_webhook_secret?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
           updated_at?: string;

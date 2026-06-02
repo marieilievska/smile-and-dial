@@ -32,7 +32,7 @@ export async function POST(
   // Shared-secret header set on each tool definition. Skipped in non-live
   // mode so Playwright can POST without a secret.
   const secret = request.headers.get("x-tool-secret");
-  if (!isValidToolSecret(secret)) {
+  if (!(await isValidToolSecret(secret))) {
     return NextResponse.json({ error: "Invalid secret" }, { status: 403 });
   }
 
