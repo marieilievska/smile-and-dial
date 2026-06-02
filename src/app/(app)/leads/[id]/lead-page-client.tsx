@@ -1,7 +1,8 @@
 "use client";
 
-import { Loader2, Sparkles } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Breadcrumbs } from "@/components/app-shell/breadcrumbs";
@@ -49,6 +50,7 @@ export function LeadPageClient({
   activeCampaignId,
   activityFeed,
   feedItemsForChip,
+  nav,
 }: {
   leadId: string;
   leadCompany: string | null;
@@ -60,8 +62,19 @@ export function LeadPageClient({
   activeCampaignId?: string;
   activityFeed: React.ReactNode;
   feedItemsForChip: { at: string; description: string }[];
+  /** Set when the page was reached from the Leads list: a Back link to the
+   *  exact page + filters, plus prev/next through that same view. */
+  nav: {
+    backHref: string;
+    prevHref: string | null;
+    nextHref: string | null;
+    position: number;
+    total: number;
+    capped: boolean;
+  } | null;
 }) {
   const { status, saveField, saveCustom } = useLeadSaver(leadId);
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [callDialogOpen, setCallDialogOpen] = useState(false);
   useEffect(() => {
@@ -70,6 +83,38 @@ export function LeadPageClient({
       setCallDialogOpen(true);
     }
   }, [searchParams]);
+
+  // ←/→ arrow keys walk to the previous/next lead in the current view, the
+  // keyboard companion to the on-page buttons. Ignored while typing in a
+  // field (the autosave inputs) or with a modifier held.
+  const prevHref = nav?.prevHref ?? null;
+  const nextHref = nav?.nextHref ?? null;
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      if (event.key === "ArrowRight" && nextHref) {
+        event.preventDefault();
+        router.push(nextHref);
+      } else if (event.key === "ArrowLeft" && prevHref) {
+        event.preventDefault();
+        router.push(prevHref);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [router, prevHref, nextHref]);
 
   function renderFields(fields: StandardField[]) {
     return (
@@ -96,12 +141,17 @@ export function LeadPageClient({
        *  back affordance, which matters because the lead detail is
        *  often linked to directly from notifications, the global
        *  search, and the Calls table. */}
-      <Breadcrumbs
-        items={[
-          { label: "Leads", href: "/leads" },
-          { label: leadCompany || "Lead" },
-        ]}
-      />
+      <div className="flex items-center justify-between gap-3">
+        <Breadcrumbs
+          items={[
+            { label: "Leads", href: nav?.backHref ?? "/leads" },
+            { label: leadCompany || "Lead" },
+          ]}
+        />
+        {nav && (nav.prevHref || nav.nextHref || nav.position > 0) ? (
+          <LeadPrevNext nav={nav} />
+        ) : null}
+      </div>
 
       {/* Hero — editable company name + status pill on the left,
           action cluster (Mark DNC, Delete, Call now) on the right.
@@ -259,6 +309,63 @@ export function LeadPageClient({
           modal reads ?call=<id> from the URL; its close handler
           (updated round 13) returns to the current pathname. */}
       <CallDetailModal />
+    </div>
+  );
+}
+
+/** Prev / position / next cluster shown beside the breadcrumb when the lead
+ *  was opened from the Leads list. Walks the same filtered + sorted view; a
+ *  null href (start/end of the list) renders as a disabled control. */
+function LeadPrevNext({
+  nav,
+}: {
+  nav: {
+    prevHref: string | null;
+    nextHref: string | null;
+    position: number;
+    total: number;
+    capped: boolean;
+  };
+}) {
+  const arrow =
+    "inline-flex size-7 items-center justify-center rounded-md border transition-colors";
+  const enabled =
+    "border-border text-foreground hover:bg-muted/60 focus-visible:bg-muted/60";
+  const disabled = "border-border/60 text-muted-foreground/40 cursor-default";
+  return (
+    <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
+      {nav.prevHref ? (
+        <Link
+          href={nav.prevHref}
+          aria-label="Previous lead"
+          className={`${arrow} ${enabled}`}
+        >
+          <ChevronLeft className="size-4" />
+        </Link>
+      ) : (
+        <span aria-hidden className={`${arrow} ${disabled}`}>
+          <ChevronLeft className="size-4" />
+        </span>
+      )}
+      {nav.position > 0 ? (
+        <span className="tabular-nums" aria-live="polite">
+          {nav.position} of {nav.total}
+          {nav.capped ? "+" : ""}
+        </span>
+      ) : null}
+      {nav.nextHref ? (
+        <Link
+          href={nav.nextHref}
+          aria-label="Next lead"
+          className={`${arrow} ${enabled}`}
+        >
+          <ChevronRight className="size-4" />
+        </Link>
+      ) : (
+        <span aria-hidden className={`${arrow} ${disabled}`}>
+          <ChevronRight className="size-4" />
+        </span>
+      )}
     </div>
   );
 }

@@ -6,16 +6,23 @@ import { createClient } from "@/lib/supabase/server";
 
 import { LeadActivityFeed, type FeedItem } from "./activity-feed";
 import { LeadPageClient } from "./lead-page-client";
+import { fetchLeadSiblings, str } from "../leads-query";
+import { leadDetailHref, leadsHref, type SearchParams } from "../leads-url";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
+const ALLOWED_PER = new Set([25, 50, 100]);
 
 export default async function LeadDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<SearchParams>;
 }) {
   const { id } = await params;
   if (!UUID_RE.test(id)) notFound();
+
+  const listContext = await searchParams;
 
   const supabase = await createClient();
   const {
@@ -196,6 +203,47 @@ export default async function LeadDetailPage({
     description: describeFeedItem(item),
   }));
 
+  // Did we arrive from the Leads list? The row links always set sort + page,
+  // so their presence marks a list-originated visit. When so, walk the SAME
+  // filtered/sorted view to offer prev/next + a Back link to the exact page.
+  // Opened directly (notification, global search, a call) → plain Back, no
+  // prev/next.
+  const fromList = Boolean(str(listContext.sort) || str(listContext.page));
+  let nav: {
+    backHref: string;
+    prevHref: string | null;
+    nextHref: string | null;
+    position: number;
+    total: number;
+    capped: boolean;
+  } | null = null;
+  if (fromList) {
+    const perRaw = Number(str(listContext.per));
+    const per = ALLOWED_PER.has(perRaw) ? perRaw : 25;
+    const siblings = await fetchLeadSiblings(supabase, listContext, id);
+    // Page each neighbour lives on, so Back lands on the right page after you
+    // walk across a page boundary.
+    const pageOf = (i: number) => String(Math.floor(i / per) + 1);
+    nav = {
+      backHref: leadsHref(listContext, {}),
+      prevHref:
+        siblings.prevId != null
+          ? leadDetailHref(siblings.prevId, listContext, {
+              page: pageOf(siblings.index - 1),
+            })
+          : null,
+      nextHref:
+        siblings.nextId != null
+          ? leadDetailHref(siblings.nextId, listContext, {
+              page: pageOf(siblings.index + 1),
+            })
+          : null,
+      position: siblings.index >= 0 ? siblings.index + 1 : 0,
+      total: siblings.total,
+      capped: siblings.capped,
+    };
+  }
+
   return (
     <LeadPageClient
       leadId={lead.id}
@@ -208,6 +256,7 @@ export default async function LeadDetailPage({
       activeCampaignId={activeCampaignId}
       activityFeed={<LeadActivityFeed items={feedItems} leadId={lead.id} />}
       feedItemsForChip={feedItemsForChip}
+      nav={nav}
     />
   );
 }

@@ -24,21 +24,26 @@ import { TableRow } from "@/components/ui/table";
  *  and call window.open ourselves. */
 export function LeadRow({
   leadId,
+  context,
   children,
 }: {
   leadId: string;
+  /** Serialized list state (filters/sort/page) carried to the detail page so
+   *  it can offer prev/next and a Back link that returns to this exact view. */
+  context?: string;
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const href = context ? `/leads/${leadId}?${context}` : `/leads/${leadId}`;
 
   function open() {
-    router.push(`/leads/${leadId}`);
+    router.push(href);
   }
 
   function onMouseDown(event: React.MouseEvent) {
     if (event.button === 1) {
       event.preventDefault();
-      window.open(`/leads/${leadId}`, "_blank", "noopener");
+      window.open(href, "_blank", "noopener");
     }
   }
 

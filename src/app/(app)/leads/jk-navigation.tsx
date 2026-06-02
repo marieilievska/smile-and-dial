@@ -12,7 +12,15 @@ import { useEffect } from "react";
  *  No visible chrome — the existing `tabIndex={0}` on LeadRow gives
  *  the row a real focus ring, so j/k just moves DOM focus. That
  *  also means screen readers track the focus change naturally. */
-export function LeadsJKNavigation({ ids }: { ids: string[] }) {
+export function LeadsJKNavigation({
+  ids,
+  context,
+}: {
+  ids: string[];
+  /** Serialized list state appended to the detail URL on Enter, so keyboard
+   *  navigation carries the same prev/next + Back context as a row click. */
+  context?: string;
+}) {
   const router = useRouter();
 
   useEffect(() => {
@@ -69,14 +77,16 @@ export function LeadsJKNavigation({ ids }: { ids: string[] }) {
         const idx = currentIndex();
         if (idx >= 0 && ids[idx]) {
           event.preventDefault();
-          router.push(`/leads/${ids[idx]}`);
+          router.push(
+            context ? `/leads/${ids[idx]}?${context}` : `/leads/${ids[idx]}`,
+          );
         }
       }
     }
 
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [ids, router]);
+  }, [ids, router, context]);
 
   return null;
 }

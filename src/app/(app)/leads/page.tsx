@@ -143,6 +143,33 @@ export default async function LeadsPage({
     : new Set(DEFAULT_COLUMN_KEYS);
   const columns = LEAD_COLUMNS.filter((c) => visibleKeys.has(c.key));
 
+  // The effective list state, threaded onto each row's detail link so the
+  // lead page can offer prev/next through this exact view and a Back link
+  // that returns here. sort/dir/per/page are always set (even at defaults)
+  // so the detail page can tell it was reached from the list.
+  const ctx = new URLSearchParams();
+  for (const key of [
+    "q",
+    "list",
+    "status",
+    "outcome",
+    "created_from",
+    "created_to",
+    "lastcall_from",
+    "lastcall_to",
+    "nextcall_from",
+    "nextcall_to",
+    "cols",
+  ]) {
+    const v = str(params[key]);
+    if (v) ctx.set(key, v);
+  }
+  ctx.set("sort", sort);
+  ctx.set("dir", dir);
+  ctx.set("per", String(pageSize));
+  ctx.set("page", String(page));
+  const contextQuery = ctx.toString();
+
   const isAdmin = me?.role === "admin";
 
   // Admins get the owner list for the bulk reassign dialog.
@@ -239,7 +266,10 @@ export default async function LeadsPage({
       </div>
 
       <SelectionProvider allIds={leads.map((l) => l.id)}>
-        <LeadsJKNavigation ids={leads.map((l) => l.id)} />
+        <LeadsJKNavigation
+          ids={leads.map((l) => l.id)}
+          context={contextQuery}
+        />
         <BulkActionBar
           lists={lists ?? []}
           owners={bulkOwners}
@@ -277,7 +307,11 @@ export default async function LeadsPage({
               </TableHeader>
               <TableBody>
                 {leads.map((lead) => (
-                  <LeadRow key={lead.id} leadId={lead.id}>
+                  <LeadRow
+                    key={lead.id}
+                    leadId={lead.id}
+                    context={contextQuery}
+                  >
                     {/* First cell carries a faint stage-colored left rail
                         that only shows on row hover — a quiet wayfinding
                         cue keyed to the lead's stage. The transparent base
