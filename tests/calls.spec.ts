@@ -278,10 +278,10 @@ test.describe("Calls page", () => {
       `/calls?campaign=${campaignId}&sort=duration_seconds&dir=asc`,
     );
     // Alpha is 18s (voicemail), Gamma is 60s (callback). Alpha first.
-    // v2 — Company is the first column now (Direction folded into the
-    // primary cell), and the cell stacks company + phone + campaign so
-    // we use toContainText instead of an exact match.
-    const firstCompanyCell = page.locator("tbody tr td").first();
+    // Company is the primary column; for admins a leading checkbox column
+    // sits at td[0], so the company cell is td[1]. The cell stacks company +
+    // phone + campaign, so we use toContainText instead of an exact match.
+    const firstCompanyCell = page.locator("tbody tr td").nth(1);
     await expect(firstCompanyCell).toContainText(`E2E Calls Alpha ${stamp}`);
   });
 
@@ -419,12 +419,13 @@ test.describe("Calls page", () => {
     );
     // Click the row — but on a cell that ISN'T the company name (which
     // is now a real <Link> to the lead, so clicking it would navigate
-    // away instead of opening the modal). The Started cell works.
+    // away instead of opening the modal). For admins td[0] is the select
+    // checkbox and td[1] is the company link, so the Started cell is td[2].
     await page
       .getByRole("row")
       .filter({ hasText: `E2E Calls Detail ${stamp}` })
       .locator("td")
-      .nth(1)
+      .nth(2)
       .click();
     // URL updates with ?call=…
     await expect(page).toHaveURL(/call=/);
@@ -573,5 +574,56 @@ test.describe("Calls page", () => {
     // Scheduled within a minute of the picked time.
     const scheduled = new Date(cb!.scheduled_at).getTime();
     expect(Math.abs(scheduled - future.getTime())).toBeLessThan(60_000);
+  });
+
+  test("an admin can select a call and bulk-delete it", async ({ page }) => {
+    // Seed a dedicated call so the delete doesn't disturb the other seeds.
+    const delLead = await admin
+      .from("leads")
+      .insert({
+        owner_id: ownerId,
+        list_id: listId,
+        company: `E2E Calls Delete ${stamp}`,
+        business_phone: `+1444${tail}49`,
+      })
+      .select("id")
+      .single();
+    const delCallId = (
+      await admin
+        .from("calls")
+        .insert({
+          lead_id: delLead.data!.id,
+          campaign_id: campaignId,
+          agent_id: agentId,
+          twilio_number_id: twilioNumberId,
+          direction: "outbound",
+          status: "completed",
+          outcome: "voicemail",
+        })
+        .select("id")
+        .single()
+    ).data!.id;
+    leadIds.push(delLead.data!.id);
+    callIds.push(delCallId);
+
+    await page.goto(
+      `/calls?q=${encodeURIComponent(`E2E Calls Delete ${stamp}`)}`,
+    );
+    // Select the row, then bulk-delete from the sticky bar + confirm.
+    await page.getByLabel("Select call").click();
+    await page.getByTestId("calls-bulk-delete").click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await expect(page.getByText(/Deleted 1 call/)).toBeVisible();
+
+    // The row is gone from the database.
+    const { data: gone } = await admin
+      .from("calls")
+      .select("id")
+      .eq("id", delCallId)
+      .maybeSingle();
+    expect(gone).toBeNull();
   });
 });

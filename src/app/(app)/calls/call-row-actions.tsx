@@ -1,9 +1,23 @@
 "use client";
 
-import { PhoneCall, Play } from "lucide-react";
+import { PhoneCall, Play, Trash2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTransition } from "react";
+import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { deleteCalls } from "@/lib/calls/actions";
 
 /** Hover-only action cluster at the right edge of every call row.
  *
@@ -21,16 +35,30 @@ export function CallRowActions({
   callId,
   leadId,
   hasRecording,
+  isAdmin = false,
 }: {
   callId: string;
   leadId: string | null;
   hasRecording: boolean;
+  isAdmin?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [pending, startTransition] = useTransition();
 
   function stop(event: React.SyntheticEvent) {
     event.stopPropagation();
+  }
+
+  function onDelete() {
+    startTransition(async () => {
+      const r = await deleteCalls([callId]);
+      if (r.error) toast.error(r.error);
+      else {
+        toast.success("Call deleted.");
+        router.refresh();
+      }
+    });
   }
 
   function listen(event: React.MouseEvent) {
@@ -78,6 +106,38 @@ export function CallRowActions({
           <PhoneCall className="size-3.5" />
           Call lead
         </Button>
+      ) : null}
+      {isAdmin ? (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive h-7 px-2"
+              title="Delete this call"
+              data-testid="call-row-delete"
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this call?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently removes the call and its recording, and drops
+                it from cost and analytics totals. This cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={onDelete} disabled={pending}>
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       ) : null}
     </div>
   );

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export type TranscriptTurn = {
   role?: string;
@@ -276,4 +277,67 @@ export async function scheduleManualCallback(input: {
 
   revalidatePath("/calls");
   return { error: null };
+}
+
+export type DeleteCallsResult = {
+  error: string | null;
+  deleted?: number;
+};
+
+/**
+ * Permanently delete calls (admin only). Calls are normally immutable audit
+ * history, so this is a deliberate escape hatch for clearing test/junk rows.
+ * Hard delete: removes the call rows and their recordings from storage; the
+ * call drops out of cost/analytics totals. FK references (callbacks, emails)
+ * are ON DELETE SET NULL, so related records survive with the link cleared.
+ * Runs via the service role (there's no delete RLS policy on calls), but only
+ * after confirming the caller is an admin.
+ */
+export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
+  const clean = [...new Set(ids.filter((id) => typeof id === "string" && id))];
+  if (clean.length === 0) return { error: "No calls selected." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  if (me?.role !== "admin") return { error: "Only an admin can delete calls." };
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  if (!url || !key) return { error: "Server is missing Supabase credentials." };
+  const admin = createAdminClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  // Remove recordings stored in the private bucket (object paths, not legacy
+  // http URLs) so deleting a call doesn't orphan its audio. Best-effort.
+  const { data: rows } = await admin
+    .from("calls")
+    .select("recording_path")
+    .in("id", clean);
+  const objects = (rows ?? [])
+    .map((r) => r.recording_path)
+    .filter(
+      (p): p is string => Boolean(p) && !/^https?:\/\//i.test(p as string),
+    );
+  if (objects.length > 0) {
+    await admin.storage.from("call-recordings").remove(objects);
+  }
+
+  const { error } = await admin.from("calls").delete().in("id", clean);
+  if (error) return { error: "Could not delete the selected calls." };
+
+  // The call list, plus everything that aggregates over calls.
+  revalidatePath("/calls");
+  revalidatePath("/analytics");
+  revalidatePath("/costs");
+  revalidatePath("/today");
+  return { error: null, deleted: clean.length };
 }

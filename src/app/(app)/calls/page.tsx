@@ -17,6 +17,12 @@ import { CallsActiveFilterChips } from "./active-filter-chips";
 import { CallDetailModal } from "./call-detail-modal";
 import { CallRow } from "./call-row";
 import { CallRowActions } from "./call-row-actions";
+import { CallsBulkBar } from "./calls-bulk-bar";
+import {
+  CallRowCheckbox,
+  CallSelectAllCheckbox,
+  CallsSelectionProvider,
+} from "./calls-selection";
 import { CallsFilters } from "./calls-filters";
 import {
   buildCallsQuery,
@@ -256,29 +262,35 @@ export default async function CallsPage({
       </div>
 
       {calls.length > 0 ? (
-        <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-5 delay-200 duration-500">
-          <div className="border-border overflow-x-auto rounded-lg border">
-            <Table className="table-fixed">
-              <TableHeader>
-                <TableRow>
-                  {columns.map((col) =>
-                    col.sortKey ? (
-                      <SortableHeader
-                        key={col.key}
-                        label={col.label}
-                        sortKey={col.sortKey}
-                        currentSort={sort}
-                        currentDir={dir}
-                        params={params}
-                        className={col.width}
-                      />
-                    ) : (
-                      <TableHead key={col.key} className={col.width}>
-                        {col.label}
+        <CallsSelectionProvider allIds={calls.map((c) => c.id)}>
+          <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-5 delay-200 duration-500">
+            <div className="border-border overflow-x-auto rounded-lg border">
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    {isAdmin ? (
+                      <TableHead className="w-10">
+                        <CallSelectAllCheckbox />
                       </TableHead>
-                    ),
-                  )}
-                  {/* Sticky-right actions header: stays pinned to the
+                    ) : null}
+                    {columns.map((col) =>
+                      col.sortKey ? (
+                        <SortableHeader
+                          key={col.key}
+                          label={col.label}
+                          sortKey={col.sortKey}
+                          currentSort={sort}
+                          currentDir={dir}
+                          params={params}
+                          className={col.width}
+                        />
+                      ) : (
+                        <TableHead key={col.key} className={col.width}>
+                          {col.label}
+                        </TableHead>
+                      ),
+                    )}
+                    {/* Sticky-right actions header: stays pinned to the
                       table's right edge when extra columns force the
                       table to scroll horizontally. Background uses
                       bg-background (the warm-cream page surface) not
@@ -286,47 +298,56 @@ export default async function CallsPage({
                       on the page surface with no card wrapper, so
                       bg-card would render brighter white than the
                       rest of the row. */}
-                  <TableHead
-                    className="bg-background sticky right-0 z-10 w-[170px] shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)]"
-                    aria-label="Row actions"
-                  />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {calls.map((c) => (
-                  <CallRow key={c.id} callId={c.id}>
-                    {columns.map((col) => (
-                      <TableCell key={col.key} className={col.width}>
-                        {col.cell(c)}
-                      </TableCell>
-                    ))}
-                    {/* Hover color is computed with color-mix so it
+                    <TableHead
+                      className="bg-background sticky right-0 z-10 w-[170px] shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)]"
+                      aria-label="Row actions"
+                    />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {calls.map((c) => (
+                    <CallRow key={c.id} callId={c.id}>
+                      {isAdmin ? (
+                        <TableCell className="w-10">
+                          <CallRowCheckbox callId={c.id} />
+                        </TableCell>
+                      ) : null}
+                      {columns.map((col) => (
+                        <TableCell key={col.key} className={col.width}>
+                          {col.cell(c)}
+                        </TableCell>
+                      ))}
+                      {/* Hover color is computed with color-mix so it
                         produces the SAME opaque pixel value as the
                         row's `hover:bg-muted/50` blend on top of the
                         warm-cream --background. Without this the
                         sticky cell stays a different shade than the
                         rest of the row and the two-tone effect looks
                         broken. */}
-                    <TableCell className="bg-background sticky right-0 z-10 w-[170px] text-right shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)] transition-colors group-hover:bg-[color-mix(in_oklab,var(--muted)_50%,var(--background))]">
-                      <CallRowActions
-                        callId={c.id}
-                        leadId={c.leadId}
-                        hasRecording={Boolean(c.recording_path)}
-                      />
-                    </TableCell>
-                  </CallRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                      <TableCell className="bg-background sticky right-0 z-10 w-[170px] text-right shadow-[-8px_0_16px_-8px_rgba(0,0,0,0.06)] transition-colors group-hover:bg-[color-mix(in_oklab,var(--muted)_50%,var(--background))]">
+                        <CallRowActions
+                          callId={c.id}
+                          leadId={c.leadId}
+                          hasRecording={Boolean(c.recording_path)}
+                          isAdmin={isAdmin}
+                        />
+                      </TableCell>
+                    </CallRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
 
-          <SmartPagination
-            page={page}
-            pageSize={pageSize}
-            total={total}
-            basePath="/calls"
-          />
-        </div>
+            {isAdmin ? <CallsBulkBar /> : null}
+
+            <SmartPagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              basePath="/calls"
+            />
+          </div>
+        </CallsSelectionProvider>
       ) : hasAnyFilter ? (
         <FilteredEmptyState />
       ) : (
