@@ -8,6 +8,24 @@ export function isUsCaNumber(phone: string): boolean {
 }
 
 /**
+ * Coerce a US/Canada phone number into E.164 (`+1XXXXXXXXXX`), the format
+ * Twilio Lookup and outbound dialing both require. CSV exports commonly carry
+ * pretty formats like "(205) 259-8928" or bare 10-digit "2052598928" with no
+ * country code; without this they'd fail the US/CA check, skip the lookup
+ * (so no line type, no cost), and later fail to dial. Returns null when the
+ * value can't be a US/CA number (e.g. an international or malformed number),
+ * in which case the caller imports it as-is.
+ */
+export function toE164UsCa(phone: string): string | null {
+  const cleaned = phone.replace(/[^\d+]/g, "");
+  if (/^\+1\d{10}$/.test(cleaned)) return cleaned; // already E.164
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return null;
+}
+
+/**
  * True when real Twilio Lookups should run. Lookup goes live whenever Twilio
  * is live for the workspace (`TWILIO_LIVE=live`) — the same flag that gates
  * number search/purchase — so a live deployment verifies numbers for real

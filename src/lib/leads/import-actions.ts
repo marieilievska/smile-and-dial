@@ -13,7 +13,7 @@ import {
   type LineType,
 } from "./import-fields";
 import { stateToTimezone } from "./timezone";
-import { isUsCaNumber, lookupLineType } from "./twilio-lookup";
+import { lookupLineType, toE164UsCa } from "./twilio-lookup";
 
 type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
 type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
@@ -95,10 +95,12 @@ export async function analyzeImport(input: {
   let lookups = 0;
 
   for (const row of input.rows) {
-    const phone = phoneHeader ? (row[phoneHeader] ?? "").trim() : "";
-
-    // No phone, or a number outside US/CA: nothing to look up, import as-is.
-    if (!phone || !isUsCaNumber(phone)) {
+    const raw = phoneHeader ? (row[phoneHeader] ?? "").trim() : "";
+    // Normalize to E.164 first — CSV phones are often "(205) 259-8928" with no
+    // country code, which Twilio Lookup can't take. No phone, or a number we
+    // can't coerce to US/CA E.164: nothing to look up, import as-is.
+    const phone = toE164UsCa(raw);
+    if (!phone) {
       rowLineTypes.push("unknown");
       importable++;
       continue;
@@ -246,10 +248,14 @@ export async function importLeads(input: {
     .select("id, business_phone, deleted_at")
     .eq("owner_id", user.id)
     .not("business_phone", "is", null);
+  // Key by the normalized (E.164) phone so a match is found regardless of how
+  // each side was formatted — e.g. a stored "(205) 259-8928" matches an
+  // incoming "+12052598928". Falls back to the raw value for non-US numbers.
   const phoneToLead = new Map<string, { id: string; deleted: boolean }>();
   for (const lead of existing ?? []) {
     if (lead.business_phone) {
-      phoneToLead.set(lead.business_phone, {
+      const key = toE164UsCa(lead.business_phone) ?? lead.business_phone;
+      phoneToLead.set(key, {
         id: lead.id,
         deleted: lead.deleted_at != null,
       });
@@ -300,6 +306,12 @@ export async function importLeads(input: {
     if (typeof fields.state === "string" && !fields.timezone) {
       const tz = stateToTimezone(fields.state);
       if (tz) fields.timezone = tz;
+    }
+    // Store the phone in E.164 so it's dialable by Twilio and dedups
+    // consistently. Leave non-US/CA numbers untouched.
+    if (typeof fields.business_phone === "string") {
+      const e164 = toE164UsCa(fields.business_phone);
+      if (e164) fields.business_phone = e164;
     }
 
     const customs: { customId: string; value: string }[] = [];
