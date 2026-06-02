@@ -147,6 +147,7 @@ export async function importLeads(input: {
 }): Promise<ImportResult> {
   const base = {
     imported: 0,
+    revived: 0,
     updated: 0,
     skipped: 0,
     skippedMobile: 0,
@@ -234,21 +235,37 @@ export async function importLeads(input: {
     }
   }
 
-  // Existing phone numbers, for deduplication.
+  // Existing phone numbers, for deduplication. Includes soft-deleted leads:
+  // the (owner_id, business_phone) unique constraint covers deleted rows too,
+  // so a deleted lead still owns its phone slot. We track whether each match
+  // is deleted so we can REVIVE it (below) instead of either skipping it as a
+  // duplicate (which would make delete-then-reimport a no-op) or trying to
+  // insert a fresh row (which the unique constraint would reject).
   const { data: existing } = await supabase
     .from("leads")
-    .select("id, business_phone")
+    .select("id, business_phone, deleted_at")
     .eq("owner_id", user.id)
     .not("business_phone", "is", null);
-  const phoneToLeadId = new Map<string, string>();
+  const phoneToLead = new Map<string, { id: string; deleted: boolean }>();
   for (const lead of existing ?? []) {
-    if (lead.business_phone) phoneToLeadId.set(lead.business_phone, lead.id);
+    if (lead.business_phone) {
+      phoneToLead.set(lead.business_phone, {
+        id: lead.id,
+        deleted: lead.deleted_at != null,
+      });
+    }
   }
 
   const seen = new Set<string>();
   const newLeads: Record<string, unknown>[] = [];
   const newCustoms: { customId: string; value: string }[][] = [];
   const updates: {
+    leadId: string;
+    fields: Record<string, unknown>;
+    customs: { customId: string; value: string }[];
+  }[] = [];
+  // Soft-deleted matches: bring them back rather than skip/insert.
+  const revives: {
     leadId: string;
     fields: Record<string, unknown>;
     customs: { customId: string; value: string }[];
@@ -299,13 +316,20 @@ export async function importLeads(input: {
         return;
       }
       seen.add(phone);
-      const existingId = phoneToLeadId.get(phone);
-      if (existingId) {
+      const match = phoneToLead.get(phone);
+      if (match) {
+        if (match.deleted) {
+          // Revive a previously-deleted lead — clear deleted_at, refresh its
+          // fields, and move it into the chosen list. Always happens (both
+          // dedup modes), since a deleted lead isn't a live duplicate.
+          revives.push({ leadId: match.id, fields, customs });
+          return;
+        }
         if (input.dedup === "skip") {
           skipped++;
           return;
         }
-        updates.push({ leadId: existingId, fields, customs });
+        updates.push({ leadId: match.id, fields, customs });
         return;
       }
     }
@@ -314,7 +338,8 @@ export async function importLeads(input: {
     newCustoms.push(customs);
   });
 
-  const failTail = { skipped, skippedMobile, skippedInvalid };
+  let revived = 0;
+  const failTail = { revived, skipped, skippedMobile, skippedInvalid };
 
   // Insert new leads in batches, keeping the returned ids aligned by index.
   let imported = 0;
@@ -374,9 +399,35 @@ export async function importLeads(input: {
     }
   }
 
+  // Revive soft-deleted matches: clear deleted_at, refresh fields, and move
+  // them into the chosen list so they reappear on the Leads page.
+  for (const r of revives) {
+    const { error } = await supabase
+      .from("leads")
+      .update({
+        ...r.fields,
+        deleted_at: null,
+        list_id: input.listId,
+      } as LeadUpdate)
+      .eq("id", r.leadId);
+    if (!error) {
+      revived++;
+      if (r.customs.length > 0) {
+        await supabase.from("lead_custom_values").upsert(
+          r.customs.map((c) => ({
+            lead_id: r.leadId,
+            custom_field_id: c.customId,
+            value: c.value,
+          })),
+        );
+      }
+    }
+  }
+
   revalidatePath("/leads");
   return {
     imported,
+    revived,
     updated,
     skipped,
     skippedMobile,

@@ -150,6 +150,11 @@ export default async function CostsPage({
       sum + (Number((n as { monthly_cost: number }).monthly_cost) || 0),
     0,
   );
+  // Number rental is a monthly fee. Fold it into the period total scaled to
+  // how many months the window spans (round(days/30)): a ~30-day window picks
+  // up one month's rental, ~60 days two, and short windows (< ~2 weeks) none.
+  const rentalMonths = Math.round(rangeLenDays / 30);
+  const numberRentalInPeriod = monthlyNumberCost * rentalMonths;
 
   // Owners are only needed by the Per-user rollup. Admin gate the
   // lookup the same way as before so members can't enumerate owners.
@@ -185,11 +190,20 @@ export default async function CostsPage({
   const mockMode = isMockMode();
   const rangeLabel = fmtRangeLabel(from, to);
 
+  // Period total INCLUDING the number rental for this window — what the
+  // headline and "Total spend" tile report. Per-call rollups (per-campaign,
+  // per-list, …) stay call-only since rental isn't attributable per call.
+  const periodTotal = summary.total + numberRentalInPeriod;
+
   // vs-previous-period delta on total spend. null when there was no
-  // spend in the prior window to compare against (avoids a fake ▲).
+  // spend in the prior window to compare against (avoids a fake ▲). The
+  // rental is constant across equal-length windows, so add it to both sides.
   const prevTotal = rollupByVendor(prevRows).total;
+  const prevPeriodTotal = prevTotal + numberRentalInPeriod;
   const spendDelta =
-    prevTotal > 0 ? (summary.total - prevTotal) / prevTotal : null;
+    prevPeriodTotal > 0
+      ? (periodTotal - prevPeriodTotal) / prevPeriodTotal
+      : null;
 
   // Inputs for the deterministic ROI insight line.
   const perCall = totalCalls === 0 ? 0 : summary.total / totalCalls;
@@ -285,7 +299,7 @@ export default async function CostsPage({
               {totalCalls.toLocaleString()}{" "}
               {totalCalls === 1 ? "call" : "calls"} ·{" "}
               <span className="text-foreground font-medium">
-                {usd(summary.total)}
+                {usd(periodTotal)}
               </span>{" "}
               total
             </p>
@@ -329,6 +343,8 @@ export default async function CostsPage({
         goalMet={totalGoalMet}
         daily={dailySpend}
         spendDelta={spendDelta}
+        periodNumberCost={numberRentalInPeriod}
+        monthlyNumberCost={monthlyNumberCost}
         mtdSpend={headlineStats.mtdSpend}
         projectedMonthSpend={headlineStats.projectedMonthSpend}
         todaySpend={headlineStats.todaySpend}

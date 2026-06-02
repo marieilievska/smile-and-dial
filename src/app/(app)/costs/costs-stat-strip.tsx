@@ -27,6 +27,8 @@ export function CostsStatStrip({
   goalMet,
   daily,
   spendDelta,
+  periodNumberCost = 0,
+  monthlyNumberCost = 0,
   mtdSpend,
   projectedMonthSpend,
   todaySpend,
@@ -37,11 +39,17 @@ export function CostsStatStrip({
   /** Fractional change vs the previous equal-length window. null when
    *  there was no spend in the prior window to compare against. */
   spendDelta: number | null;
+  /** Phone-number rental for the selected window, folded into Total spend. */
+  periodNumberCost?: number;
+  /** Phone-number rental for a full month, folded into the This-month tile. */
+  monthlyNumberCost?: number;
   mtdSpend: number;
   projectedMonthSpend: number;
   todaySpend: number;
 }) {
+  // Cost per Goal Met stays a per-call metric (excludes flat number rental).
   const perGoal = goalMet === 0 ? null : spend.total / goalMet;
+  const totalSpend = spend.total + periodNumberCost;
   return (
     <section
       data-testid="costs-stat-strip"
@@ -50,7 +58,7 @@ export function CostsStatStrip({
       <Tile
         icon={<DollarSign className="size-3.5" />}
         label="Total spend"
-        value={usd(spend.total)}
+        value={usd(totalSpend)}
         delta={spendDelta}
       />
       <Tile
@@ -67,10 +75,11 @@ export function CostsStatStrip({
           This month
         </p>
         <p className="text-foreground text-2xl leading-none font-medium tabular-nums">
-          {usd(mtdSpend)}
+          {usd(mtdSpend + monthlyNumberCost)}
         </p>
         <p className="text-muted-foreground text-[11px] tabular-nums">
-          ~{usd(projectedMonthSpend)} projected · {usd(todaySpend)} today
+          ~{usd(projectedMonthSpend + monthlyNumberCost)} projected ·{" "}
+          {usd(todaySpend)} today
         </p>
       </div>
       <SparklineTile

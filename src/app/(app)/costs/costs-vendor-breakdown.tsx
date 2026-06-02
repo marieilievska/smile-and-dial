@@ -133,7 +133,7 @@ export function CostsVendorBreakdown({
       </div>
       <p className="text-muted-foreground text-[11px]">
         The four vendor rows are per-call costs for the selected range. Phone
-        numbers are a flat monthly rental, billed separately.
+        numbers are a flat monthly rental, shown here on their own line.
       </p>
     </section>
   );

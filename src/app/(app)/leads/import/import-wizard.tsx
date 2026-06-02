@@ -812,7 +812,10 @@ function DoneStep({
   hasActiveCampaign: boolean;
   onReset: () => void;
 }) {
+  // Newly-present leads = fresh inserts + revived (previously-deleted) leads.
+  const totalAdded = result.imported + result.revived;
   const detailParts: string[] = [];
+  if (result.revived > 0) detailParts.push(`${result.revived} restored`);
   if (result.updated > 0) detailParts.push(`${result.updated} updated`);
   if (result.skipped > 0)
     detailParts.push(`${plural(result.skipped, "duplicate")} skipped`);
@@ -849,8 +852,8 @@ function DoneStep({
 
         <div className="flex flex-col gap-1">
           <h2 className="text-foreground text-2xl font-semibold tracking-tight">
-            {result.imported.toLocaleString()}{" "}
-            {result.imported === 1 ? "lead" : "leads"} imported
+            {totalAdded.toLocaleString()} {totalAdded === 1 ? "lead" : "leads"}{" "}
+            imported
             {listName ? (
               <span className="text-foreground/70 font-normal">
                 {" "}
@@ -865,7 +868,7 @@ function DoneStep({
           ) : null}
         </div>
 
-        {result.imported > 0 ? (
+        {totalAdded > 0 ? (
           hasActiveCampaign ? (
             <p
               className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
@@ -908,7 +911,7 @@ function DoneStep({
           </Button>
         </div>
 
-        {result.imported > 0 ? (
+        {totalAdded > 0 ? (
           <Link
             href="/leads?action=call"
             className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline"

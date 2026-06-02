@@ -24,6 +24,9 @@ export const COST_PER_LOOKUP = 0.005;
 
 export type ImportResult = {
   imported: number;
+  /** Leads that existed but had been deleted, brought back to life by this
+   *  import (deleted_at cleared, fields refreshed, moved to the chosen list). */
+  revived: number;
   updated: number;
   skipped: number;
   skippedMobile: number;
