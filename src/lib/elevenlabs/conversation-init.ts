@@ -42,6 +42,9 @@ export type ConversationInitResponse = {
     last_call_summary: string;
     last_callback_notes: string;
     transfer_number: string;
+    // Our internal calls.id, bound into every server tool's request so the
+    // tool webhook can resolve the lead/campaign. Blank when unresolved.
+    call_id: string;
     // Lead context for the agent's opening + personalization. All strings
     // (ElevenLabs dynamic variables are string-valued); numbers are
     // stringified, blank when we have no value.
@@ -96,6 +99,7 @@ function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
     last_call_summary: "",
     last_callback_notes: "",
     transfer_number: "",
+    call_id: "",
     owner_name: "",
     city: "",
     category: "",
@@ -181,6 +185,7 @@ export async function buildConversationInitData(
     last_call_summary: lead?.ai_summary?.trim() ?? "",
     last_callback_notes: lastCallbackNotes,
     transfer_number: campaign?.transfer_destination_phone?.trim() ?? "",
+    call_id: call.id,
     owner_name: lead?.owner_name?.trim() ?? "",
     city: lead?.city?.trim() ?? "",
     category: lead?.category?.trim() ?? "",

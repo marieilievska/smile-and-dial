@@ -16,6 +16,11 @@ import {
   type ExtraDataCollectionField,
   type ExtraEvaluationCriterion,
 } from "@/lib/agents/data-collection";
+import type { ToolsEnabled } from "@/lib/agents/prompt";
+import {
+  ensureServerTools,
+  toolIdsForEnabled,
+} from "@/lib/elevenlabs/server-tools";
 
 export type AgentSyncPayload = {
   name: string;
@@ -30,6 +35,10 @@ export type AgentSyncPayload = {
   /** User-defined evaluation criteria, merged on top of the base "goal"
    *  criterion. */
   extraEvaluation?: ExtraEvaluationCriterion[];
+  /** Which tools the wizard enabled. The custom server tools among these
+   *  (send_email, schedule_callback, get_available_times, book_appointment,
+   *  mark_dnc) are registered with ElevenLabs and attached as tool_ids. */
+  toolsEnabled?: ToolsEnabled;
 };
 
 export type SyncResult = {
@@ -299,6 +308,14 @@ async function liveSync(
   const webhookId = postCallWebhookId();
   const initWebhook = conversationInitWebhook();
 
+  // Register (idempotently) our five custom server tools and resolve the
+  // ElevenLabs tool ids for the ones this agent enabled. Always set tool_ids
+  // explicitly — an empty array clears tools the agent no longer uses on an
+  // update. Returns [] when the app URL/secret isn't configured yet (the
+  // re-sync button rolls them out once it is).
+  const serverToolMap = await ensureServerTools();
+  const serverToolIds = toolIdsForEnabled(serverToolMap, payload.toolsEnabled);
+
   // workspace_overrides carries the two workspace-level webhooks every agent
   // shares: the post-call webhook (transcript/audio/failure events) and the
   // conversation-initiation webhook (per-call dynamic variables). Each is
@@ -363,6 +380,10 @@ async function liveSync(
             category: "",
             google_rating: "",
             google_reviews: "",
+            // Internal call id, supplied per-call by the conversation-init
+            // webhook and bound into every server tool's request so the tool
+            // endpoint can resolve the lead. MUST stay declared here.
+            call_id: "",
           },
         },
         prompt: {
@@ -376,6 +397,9 @@ async function liveSync(
           },
           cascade_timeout_seconds: 6,
           built_in_tools: BUILT_IN_TOOLS,
+          // Workspace tool ids for the enabled custom server tools. Set
+          // unconditionally so disabling a tool removes it on the next sync.
+          tool_ids: serverToolIds,
         },
       },
       ...(includeTts ? { tts: ttsBase } : {}),

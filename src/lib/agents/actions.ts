@@ -86,6 +86,7 @@ export async function createAgent(input: {
       goal: input.goal.trim() || null,
       extraDataCollection,
       extraEvaluation,
+      toolsEnabled: input.toolsEnabled,
     },
     null,
   );
@@ -174,6 +175,7 @@ export async function updateAgent(
       goal: input.goal.trim() || null,
       extraDataCollection,
       extraEvaluation,
+      toolsEnabled: input.toolsEnabled,
     },
     existing.elevenlabs_agent_id,
   );
@@ -259,7 +261,7 @@ export async function resyncAllAgents(): Promise<ResyncResult> {
   const { data: agents, error } = await supabase
     .from("agents")
     .select(
-      "id, name, voice_id, ai_model, system_prompt, prompt_goal, elevenlabs_agent_id, extra_data_collection, extra_evaluation",
+      "id, name, voice_id, ai_model, system_prompt, prompt_goal, elevenlabs_agent_id, extra_data_collection, extra_evaluation, tools_enabled",
     )
     .order("created_at", { ascending: true });
   if (error) return { error: "Could not load agents." };
@@ -279,6 +281,9 @@ export async function resyncAllAgents(): Promise<ResyncResult> {
         goal: a.prompt_goal?.trim() || null,
         extraDataCollection: normalizeDataCollection(a.extra_data_collection),
         extraEvaluation: normalizeEvaluation(a.extra_evaluation),
+        toolsEnabled: (a.tools_enabled ?? undefined) as unknown as
+          | ToolsEnabled
+          | undefined,
       },
       a.elevenlabs_agent_id,
     );
