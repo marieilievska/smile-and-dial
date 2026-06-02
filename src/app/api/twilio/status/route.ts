@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { appBaseUrl } from "@/lib/app-url";
 import {
   isValidTwilioSignature,
   processTwilioStatus,
@@ -30,10 +31,23 @@ export async function POST(request: NextRequest) {
   }
 
   const signature = request.headers.get("x-twilio-signature");
-  // Reconstruct the URL Twilio signed: scheme + host + path. Tests bypass
-  // signature validation via TWILIO_LIVE != "live".
-  const url = `${request.nextUrl.origin}${request.nextUrl.pathname}`;
-  if (!isValidTwilioSignature({ url, params, signature })) {
+  // Reconstruct the URL Twilio signed. CRITICAL: it must include the query
+  // string (`?call_id=…`) — Twilio signs the FULL StatusCallback URL it was
+  // given, and omitting the query makes every signature fail (→ 403 → the
+  // call row is never updated and the lead shows "On call" forever). We also
+  // try the configured public base URL in case a proxy rewrites the request
+  // origin (scheme/host) away from what we registered with Twilio. Tests
+  // bypass validation via TWILIO_LIVE != "live".
+  const pathWithQuery = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+  const base = appBaseUrl();
+  const candidateUrls = [
+    `${request.nextUrl.origin}${pathWithQuery}`,
+    base ? `${base}${pathWithQuery}` : null,
+  ].filter((u): u is string => Boolean(u));
+  const signatureOk = candidateUrls.some((url) =>
+    isValidTwilioSignature({ url, params, signature }),
+  );
+  if (!signatureOk) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
   }
 
