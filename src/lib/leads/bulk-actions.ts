@@ -6,6 +6,18 @@ import { createClient } from "@/lib/supabase/server";
 
 type BulkResult = { error: string | null };
 
+/** Max ids per request. A "select all matching" sweep can carry thousands of
+ *  ids; sending them in one .in(...) filter overflows the request URL and the
+ *  whole update fails. Chunking keeps each request well under that limit. */
+const ID_CHUNK = 200;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size)
+    out.push(items.slice(i, i + size));
+  return out;
+}
+
 /** Move every selected lead onto a different list. */
 export async function bulkMoveToList(input: {
   leadIds: string[];
@@ -26,11 +38,13 @@ export async function bulkMoveToList(input: {
     .maybeSingle();
   if (!list) return { error: "Choose a valid list." };
 
-  const { error } = await supabase
-    .from("leads")
-    .update({ list_id: input.listId })
-    .in("id", input.leadIds);
-  if (error) return { error: "Could not move the leads." };
+  for (const ids of chunk(input.leadIds, ID_CHUNK)) {
+    const { error } = await supabase
+      .from("leads")
+      .update({ list_id: input.listId })
+      .in("id", ids);
+    if (error) return { error: "Could not move the leads." };
+  }
 
   revalidatePath("/leads");
   return { error: null };
@@ -65,11 +79,13 @@ export async function bulkReassignOwner(input: {
     .maybeSingle();
   if (!owner) return { error: "Choose a valid owner." };
 
-  const { error } = await supabase
-    .from("leads")
-    .update({ owner_id: input.ownerId })
-    .in("id", input.leadIds);
-  if (error) return { error: "Could not reassign the leads." };
+  for (const ids of chunk(input.leadIds, ID_CHUNK)) {
+    const { error } = await supabase
+      .from("leads")
+      .update({ owner_id: input.ownerId })
+      .in("id", ids);
+    if (error) return { error: "Could not reassign the leads." };
+  }
 
   revalidatePath("/leads");
   return { error: null };
@@ -87,11 +103,14 @@ export async function bulkDeleteLeads(input: {
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
 
-  const { error } = await supabase
-    .from("leads")
-    .update({ deleted_at: new Date().toISOString() })
-    .in("id", input.leadIds);
-  if (error) return { error: "Could not delete the leads." };
+  const deletedAt = new Date().toISOString();
+  for (const ids of chunk(input.leadIds, ID_CHUNK)) {
+    const { error } = await supabase
+      .from("leads")
+      .update({ deleted_at: deletedAt })
+      .in("id", ids);
+    if (error) return { error: "Could not delete the leads." };
+  }
 
   revalidatePath("/leads");
   return { error: null };
