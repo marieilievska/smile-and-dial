@@ -4,7 +4,10 @@ import {
   SERVER_TOOL_KEYS,
   type ServerToolKey,
 } from "@/lib/elevenlabs/tool-webhook";
-import type { ToolsEnabled } from "@/lib/agents/prompt";
+import {
+  SERVER_TOOL_FUNCTION_PREFIX,
+  type ToolsEnabled,
+} from "@/lib/agents/prompt";
 import { appBaseUrl } from "@/lib/app-url";
 
 /**
@@ -26,6 +29,12 @@ const TOOLS_API = "https://api.elevenlabs.io/v1/convai/tools";
 
 function isLive(): boolean {
   return process.env.ELEVENLABS_LIVE === "live";
+}
+
+/** The ElevenLabs (LLM-facing) function name for one of our tool keys.
+ *  Namespaced so we never collide with the shared workspace's other tools. */
+function toolFunctionName(key: ServerToolKey): string {
+  return `${SERVER_TOOL_FUNCTION_PREFIX}${key}`;
 }
 
 const TOOL_DESCRIPTIONS: Record<ServerToolKey, string> = {
@@ -141,7 +150,7 @@ function buildToolConfig(
 ): Record<string, unknown> {
   return {
     type: "webhook",
-    name: key,
+    name: toolFunctionName(key),
     description: TOOL_DESCRIPTIONS[key],
     response_timeout_secs: 20,
     api_schema: {
@@ -223,7 +232,10 @@ export async function ensureServerTools(): Promise<Record<string, string>> {
 
     for (const key of SERVER_TOOL_KEYS) {
       const config = buildToolConfig(key, baseUrl, secret);
-      const existingId = existing.get(key);
+      // Match on the namespaced function name so we only ever reuse/patch OUR
+      // tool, never a same-named tool from another product in this shared
+      // workspace.
+      const existingId = existing.get(toolFunctionName(key));
 
       if (existingId) {
         // Refresh the definition (URL/secret/schema may have changed) but keep

@@ -16,6 +16,16 @@ export type ToolKey = (typeof ALL_TOOLS)[number];
 
 export type ToolsEnabled = Partial<Record<ToolKey, boolean>>;
 
+/** Prefix for our custom server tools' ElevenLabs function names. The
+ *  ElevenLabs workspace is SHARED across many Referrizer products (1000+
+ *  tools), with generic names like `book_appointment` / `schedule_callback`
+ *  already taken. Namespacing guarantees we only ever create/patch our own
+ *  tools and never hijack another team's identically-named tool. The internal
+ *  ToolKey (and our webhook path) stays unprefixed; only the LLM-facing
+ *  function name is namespaced. transfer_to_number is a built-in system tool
+ *  and is NOT prefixed. */
+export const SERVER_TOOL_FUNCTION_PREFIX = "smiledial_";
+
 export const TOOL_LABELS: Record<ToolKey, string> = {
   send_email: "Send email",
   schedule_callback: "Schedule a callback",
@@ -26,27 +36,27 @@ export const TOOL_LABELS: Record<ToolKey, string> = {
 };
 
 const TOOL_BLOCKS: Record<ToolKey, string> = {
-  send_email: `## send_email
+  send_email: `## smiledial_send_email
 **When to use:** When the lead requests information by email during the call, or asks to be sent details.
 **How to use:**
 1. Confirm the lead's email address by reading it back to them.
 2. Call the tool with their confirmed email.
 3. Tell them "I've sent that over — you should see it within a minute."`,
-  schedule_callback: `## schedule_callback
+  schedule_callback: `## smiledial_schedule_callback
 **When to use:** When the lead says they're busy now and asks to be called back at a specific time.
 **How to use:**
 1. Confirm the date and time clearly: "So that's Tuesday the 15th at 2 PM your local time, correct?"
 2. Call the tool with the confirmed datetime in ISO 8601 format (e.g., "2026-01-15T14:00:00-06:00").`,
-  get_available_times: `## get_available_times
+  get_available_times: `## smiledial_get_available_times
 **When to use:** When the lead expresses interest in scheduling a meeting and you need to offer specific time slots.
 **How to use:** Call this tool to retrieve current availability, then offer 2–3 options to the lead.`,
-  book_appointment: `## book_appointment
+  book_appointment: `## smiledial_book_appointment
 **When to use:** After the lead has chosen a specific time slot from the options you offered.
 **How to use:**
 1. Confirm the chosen time.
 2. Call the tool with the slot ID and the lead's name and email.
 3. Tell them they'll receive a calendar invite shortly.`,
-  mark_dnc: `## mark_dnc
+  mark_dnc: `## smiledial_mark_dnc
 **When to use:** When the lead explicitly asks to be removed from the calling list, or says "don't call me again."
 **How to use:**
 1. Confirm: "I understand, I'll make sure you're not contacted again."
