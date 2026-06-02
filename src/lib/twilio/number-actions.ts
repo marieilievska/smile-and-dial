@@ -14,7 +14,12 @@ import {
   purchaseTwilioNumber,
   releaseTwilioNumber,
   searchAvailableNumbers,
+  setNumberFriendlyName,
 } from "./numbers";
+
+/** Longest friendly name we'll store — keeps the table tidy and matches
+ *  Twilio's own FriendlyName limit. */
+const MAX_NAME_LENGTH = 64;
 
 const NUMBERS_PATH = "/settings/twilio-numbers";
 
@@ -105,6 +110,43 @@ export async function purchaseNumber(input: {
       ? `Number purchased, but webhook setup failed: ${webhookError} Click "Repoint webhooks" on the row to retry.`
       : null,
   };
+}
+
+/** Rename a number — give it a human label (e.g. "Alabama outbound") so the
+ *  pool reads clearly. Stored in our DB (the source of truth the app shows
+ *  everywhere) and pushed best-effort to Twilio's FriendlyName so the console
+ *  matches. An empty name resets the label to the formatted phone number. */
+export async function renameNumber(input: {
+  id: string;
+  name: string;
+}): Promise<ActionResult> {
+  const { supabase, error: adminError } = await requireAdmin();
+  if (adminError) return { error: adminError };
+
+  const name = input.name.trim().slice(0, MAX_NAME_LENGTH);
+
+  const { data: number } = await supabase
+    .from("twilio_numbers")
+    .select("phone_number, twilio_sid")
+    .eq("id", input.id)
+    .maybeSingle();
+  if (!number) return { error: "That number no longer exists." };
+
+  // Fall back to the formatted phone number when the name is cleared, so a
+  // row is never left blank.
+  const friendlyName = name || number.phone_number;
+
+  const { error } = await supabase
+    .from("twilio_numbers")
+    .update({ friendly_name: friendlyName })
+    .eq("id", input.id);
+  if (error) return { error: "Could not rename the number." };
+
+  // Mirror to Twilio best-effort; never fail the rename if Twilio is down.
+  await setNumberFriendlyName(number.twilio_sid, friendlyName);
+
+  revalidatePath(NUMBERS_PATH);
+  return { error: null };
 }
 
 /** Release a number — gives it up at Twilio and marks it released. */

@@ -17,6 +17,7 @@ import { formatCreatedAt } from "../format-created";
 import { BuyNumberDialog } from "./buy-number-dialog";
 import { DeleteNumberDialog } from "./delete-number-dialog";
 import { ReleaseNumberDialog } from "./release-number-dialog";
+import { RenameNumberDialog } from "./rename-number-dialog";
 import { RepointWebhooksButton } from "./repoint-button";
 import { TwilioNumbersStatusTabs } from "./status-tabs";
 import { TwilioSyncButton } from "./sync-button";
@@ -126,7 +127,7 @@ export default async function TwilioNumbersPage({
                     <TableHead>Status</TableHead>
                     <TableHead>Webhooks</TableHead>
                     <TableHead>Purchased</TableHead>
-                    <TableHead className="w-48" />
+                    <TableHead className="w-[340px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -177,6 +178,13 @@ export default async function TwilioNumbersPage({
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          <RenameNumberDialog
+                            number={{
+                              id: number.id,
+                              phone_number: number.phone_number,
+                              friendly_name: number.friendly_name || "",
+                            }}
+                          />
                           {number.released_at ? (
                             <DeleteNumberDialog
                               number={{

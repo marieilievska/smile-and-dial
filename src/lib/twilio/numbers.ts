@@ -160,6 +160,36 @@ export async function pointNumberWebhooks(twilioSid: string): Promise<{
   }
 }
 
+/** Set a number's FriendlyName on Twilio so the console matches the name
+ *  the admin gave it in-app. Best-effort and mocked unless TWILIO_LIVE=live;
+ *  the in-app name (stored in our DB) is the source of truth either way, so a
+ *  failure here never blocks the rename. */
+export async function setNumberFriendlyName(
+  twilioSid: string | null,
+  friendlyName: string,
+): Promise<{ error: string | null }> {
+  if (!isLive() || !twilioSid) return { error: null };
+  const auth = twilioAuth();
+  if (!auth) return { error: "Twilio is not configured." };
+  try {
+    const res = await fetch(
+      `${TWILIO_API}/${auth.account}/IncomingPhoneNumbers/${twilioSid}.json`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: auth.header,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ FriendlyName: friendlyName }),
+      },
+    );
+    if (!res.ok) return { error: `Twilio rename failed (${res.status}).` };
+    return { error: null };
+  } catch {
+    return { error: "Twilio rename failed." };
+  }
+}
+
 /** List every IncomingPhoneNumber on the Twilio account. The result
  *  feeds the "Sync from Twilio" flow on the admin page so admins can
  *  see (and adopt) numbers bought outside Smile & Dial. Mocked
