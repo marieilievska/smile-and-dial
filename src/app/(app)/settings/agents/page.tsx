@@ -15,6 +15,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 import { formatCreatedAt } from "../format-created";
+import { ConnectAgentDialog } from "./connect-agent-dialog";
 import { DeleteAgentDialog } from "./delete-agent-dialog";
 import { ResyncAgentsButton } from "./resync-agents-button";
 
@@ -30,7 +31,9 @@ export default async function AgentsPage() {
   const [{ data: rawAgents }, { data: campaigns }] = await Promise.all([
     supabase
       .from("agents")
-      .select("id, name, voice_id, ai_model, elevenlabs_agent_id, created_at")
+      .select(
+        "id, name, voice_id, ai_model, elevenlabs_agent_id, externally_managed, created_at",
+      )
       .order("created_at", { ascending: false }),
     supabase
       .from("campaigns")
@@ -61,6 +64,7 @@ export default async function AgentsPage() {
         </div>
         <div className="flex items-center gap-2">
           {totalAgents > 0 ? <ResyncAgentsButton /> : null}
+          <ConnectAgentDialog />
           <Button asChild>
             <Link href="/settings/agents/new">
               <Plus className="size-4" />
@@ -110,7 +114,11 @@ export default async function AgentsPage() {
                         {agent.ai_model || "—"}
                       </TableCell>
                       <TableCell>
-                        {agent.elevenlabs_agent_id ? (
+                        {agent.externally_managed ? (
+                          <Badge variant="secondary" dot>
+                            Connected
+                          </Badge>
+                        ) : agent.elevenlabs_agent_id ? (
                           <Badge variant="success" dot>
                             Synced
                           </Badge>

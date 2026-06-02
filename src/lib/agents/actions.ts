@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { draftAgent, type AgentDraft } from "@/lib/ai/draft-agent";
 import {
   deleteAgentOnElevenLabs,
+  fetchElevenLabsAgent,
   syncAgentToElevenLabs,
 } from "@/lib/elevenlabs/agents";
 import { createClient } from "@/lib/supabase/server";
@@ -105,6 +106,52 @@ export async function createAgent(input: {
   return { error: null, agentId: created.id };
 }
 
+/** Connect an agent that already exists in ElevenLabs by its agent ID.
+ *  Unlike createAgent, this NEVER pushes config to ElevenLabs — it only
+ *  validates the id, pulls the agent's name/voice/model, and stores a
+ *  reference (externally_managed=true) so campaigns can use it. The
+ *  ElevenLabs agent is left exactly as the user built it. */
+export async function connectAgent(input: {
+  elevenlabsAgentId: string;
+}): Promise<AgentResult> {
+  const id = input.elevenlabsAgentId.trim();
+  if (!id) return { error: "Paste the ElevenLabs agent ID." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: existing } = await supabase
+    .from("agents")
+    .select("id")
+    .eq("elevenlabs_agent_id", id)
+    .maybeSingle();
+  if (existing) return { error: "That ElevenLabs agent is already connected." };
+
+  const fetched = await fetchElevenLabsAgent(id);
+  if (!fetched.ok) return { error: fetched.error };
+
+  const { data: created, error } = await supabase
+    .from("agents")
+    .insert({
+      owner_id: user.id,
+      name: fetched.agent.name,
+      elevenlabs_agent_id: id,
+      voice_id: fetched.agent.voiceId,
+      ai_model: fetched.agent.aiModel,
+      externally_managed: true,
+      tools_enabled: {},
+    })
+    .select("id")
+    .single();
+  if (error || !created) return { error: "Could not connect the agent." };
+
+  revalidatePath("/settings/agents");
+  return { error: null, agentId: created.id };
+}
+
 /** Update an existing agent and re-sync it to ElevenLabs. */
 export async function updateAgent(
   id: string,
@@ -140,7 +187,7 @@ export async function updateAgent(
 
   const { data: existing } = await supabase
     .from("agents")
-    .select("elevenlabs_agent_id")
+    .select("elevenlabs_agent_id, externally_managed")
     .eq("id", id)
     .maybeSingle();
   if (!existing) return { error: "That agent no longer exists." };
@@ -164,6 +211,13 @@ export async function updateAgent(
     })
     .eq("id", id);
   if (error) return { error: "Could not update the agent." };
+
+  // Connected (externally-managed) agents are reference-only — never push
+  // config to ElevenLabs, or we'd overwrite the agent the user built there.
+  if (existing.externally_managed) {
+    revalidatePath("/settings/agents");
+    return { error: null, agentId: id };
+  }
 
   // Re-sync the agent to ElevenLabs (PATCH if it has an id, otherwise create).
   const sync = await syncAgentToElevenLabs(
@@ -204,7 +258,7 @@ export async function deleteAgent(id: string): Promise<AgentResult> {
 
   const { data: existing } = await supabase
     .from("agents")
-    .select("elevenlabs_agent_id")
+    .select("elevenlabs_agent_id, externally_managed")
     .eq("id", id)
     .maybeSingle();
   if (!existing) return { error: "That agent no longer exists." };
@@ -220,7 +274,9 @@ export async function deleteAgent(id: string): Promise<AgentResult> {
     };
   }
 
-  if (existing.elevenlabs_agent_id) {
+  // For connected agents we only drop our reference — never delete the
+  // user's ElevenLabs agent.
+  if (existing.elevenlabs_agent_id && !existing.externally_managed) {
     await deleteAgentOnElevenLabs(existing.elevenlabs_agent_id);
   }
 
@@ -261,7 +317,7 @@ export async function resyncAllAgents(): Promise<ResyncResult> {
   const { data: agents, error } = await supabase
     .from("agents")
     .select(
-      "id, name, voice_id, ai_model, system_prompt, prompt_goal, elevenlabs_agent_id, extra_data_collection, extra_evaluation, tools_enabled",
+      "id, name, voice_id, ai_model, system_prompt, prompt_goal, elevenlabs_agent_id, extra_data_collection, extra_evaluation, tools_enabled, externally_managed",
     )
     .order("created_at", { ascending: true });
   if (error) return { error: "Could not load agents." };
@@ -272,6 +328,9 @@ export async function resyncAllAgents(): Promise<ResyncResult> {
   let synced = 0;
   let failed = 0;
   for (const a of agents) {
+    // Connected agents are reference-only — pushing our config would
+    // overwrite the agent the user built in ElevenLabs. Skip them.
+    if (a.externally_managed) continue;
     const sync = await syncAgentToElevenLabs(
       {
         name: a.name,

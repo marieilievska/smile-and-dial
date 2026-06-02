@@ -232,6 +232,66 @@ export async function deleteAgentOnElevenLabs(
   }
 }
 
+export type FetchedAgent = {
+  name: string;
+  voiceId: string | null;
+  aiModel: string | null;
+};
+
+/**
+ * Look up an existing ElevenLabs agent by id — used by the "connect an
+ * existing agent" flow to validate the id and pull its name/voice/model.
+ * Read-only; never modifies the agent. Mocked (no network) unless
+ * ELEVENLABS_LIVE=live so the flow works in dev/CI.
+ */
+export async function fetchElevenLabsAgent(
+  agentId: string,
+): Promise<{ ok: true; agent: FetchedAgent } | { ok: false; error: string }> {
+  if (!isLive()) {
+    return {
+      ok: true,
+      agent: {
+        name: `Connected agent ${agentId.slice(0, 8)}`,
+        voiceId: null,
+        aiModel: null,
+      },
+    };
+  }
+  const apiKey = fetchApiKey();
+  if (!apiKey) return { ok: false, error: "ElevenLabs API key isn't set." };
+  try {
+    const res = await fetch(
+      `${ELEVENLABS_API}/${encodeURIComponent(agentId)}`,
+      {
+        headers: { "xi-api-key": apiKey },
+      },
+    );
+    if (res.status === 404) {
+      return { ok: false, error: "No ElevenLabs agent has that ID." };
+    }
+    if (!res.ok) {
+      return { ok: false, error: `ElevenLabs lookup failed (${res.status}).` };
+    }
+    const data = (await res.json()) as {
+      name?: string;
+      conversation_config?: {
+        agent?: { prompt?: { llm?: string } };
+        tts?: { voice_id?: string };
+      };
+    };
+    return {
+      ok: true,
+      agent: {
+        name: data.name?.trim() || `Connected agent ${agentId.slice(0, 8)}`,
+        voiceId: data.conversation_config?.tts?.voice_id ?? null,
+        aiModel: data.conversation_config?.agent?.prompt?.llm ?? null,
+      },
+    };
+  } catch {
+    return { ok: false, error: "ElevenLabs lookup failed." };
+  }
+}
+
 /**
  * Create or update an ElevenLabs agent from our wizard inputs. When
  * `existingId` is null, a new agent is created; otherwise the existing
