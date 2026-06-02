@@ -51,104 +51,103 @@ const TOOL_DESCRIPTIONS: Record<ServerToolKey, string> = {
     "Add the lead to the do-not-call list when they ask not to be contacted again.",
 };
 
-type Param = {
-  id: string;
+// A request-body property in ElevenLabs' tool schema. The live API enforces
+// that EXACTLY ONE of description / dynamic_variable / constant_value is set
+// per property (setting two returns a 422), so each helper sets just one:
+//  - dynamic_variable → filled from that {{variable}} at call time
+//  - constant_value   → fixed value baked into the tool
+//  - description      → the LLM fills it from the conversation
+type PropertyDef = {
   type: "string";
-  description: string;
-  dynamic_variable: string;
-  constant_value: string;
-  required: boolean;
-  value_type: "llm_prompt" | "dynamic_variable" | "constant_value";
+  enum: null;
+  description?: string;
+  dynamic_variable?: string;
+  constant_value?: string;
 };
 
-/** The call_id parameter every tool carries, bound to the {{call_id}}
- *  dynamic variable our conversation-init webhook supplies. The LLM never
- *  fills this — it's injected at call time so we can resolve the lead. */
-const CALL_ID_PARAM: Param = {
-  id: "call_id",
-  type: "string",
-  description:
-    "Internal call identifier. Provided automatically — do not ask the caller for it.",
-  dynamic_variable: "call_id",
-  constant_value: "",
-  required: true,
-  value_type: "dynamic_variable",
-};
-
-/** An LLM-filled string parameter. */
-function llmParam(id: string, description: string, required: boolean): Param {
-  return {
-    id,
-    type: "string",
-    description,
-    dynamic_variable: "",
-    constant_value: "",
-    required,
-    value_type: "llm_prompt",
-  };
+function dynamicProp(variable: string): PropertyDef {
+  return { type: "string", enum: null, dynamic_variable: variable };
 }
 
-function paramsFor(key: ServerToolKey): Param[] {
+function constantProp(value: string): PropertyDef {
+  return { type: "string", enum: null, constant_value: value };
+}
+
+function llmProp(description: string): PropertyDef {
+  return { type: "string", enum: null, description };
+}
+
+/** Build the request body schema (properties map + required list) for a tool.
+ *  Every tool carries `call_id` (bound to {{call_id}} so we can resolve the
+ *  lead) and `tool_secret` (a constant — our shared secret, validated by the
+ *  webhook). */
+function bodySchemaFor(
+  key: ServerToolKey,
+  secret: string,
+): { properties: Record<string, PropertyDef>; required: string[] } {
+  const properties: Record<string, PropertyDef> = {
+    call_id: dynamicProp("call_id"),
+    tool_secret: constantProp(secret),
+  };
+  const required = ["call_id", "tool_secret"];
+  const add = (id: string, description: string, req: boolean) => {
+    properties[id] = llmProp(description);
+    if (req) required.push(id);
+  };
+
   switch (key) {
     case "send_email":
-      return [
-        CALL_ID_PARAM,
-        llmParam(
-          "email",
-          "The lead's email address in standard format, e.g. 'jane@business.com'. Read it back to confirm before calling.",
-          true,
-        ),
-        llmParam(
-          "note",
-          "Short note on what information the lead asked to be sent.",
-          false,
-        ),
-      ];
+      add(
+        "email",
+        "The lead's email in standard format, e.g. 'jane@business.com'. Read it back to confirm first.",
+        true,
+      );
+      add("note", "Short note on what information the lead asked for.", false);
+      break;
     case "schedule_callback":
-      return [
-        CALL_ID_PARAM,
-        llmParam(
-          "callback_datetime",
-          "The requested callback time in ISO 8601 with timezone offset, e.g. '2026-01-15T14:00:00-06:00'.",
-          true,
-        ),
-        llmParam("note", "Optional note about the callback.", false),
-      ];
+      add(
+        "callback_datetime",
+        "The requested time in ISO 8601 with timezone offset, e.g. '2026-01-15T14:00:00-06:00'.",
+        true,
+      );
+      add("note", "Optional note about the callback.", false);
+      break;
     case "get_available_times":
-      return [CALL_ID_PARAM];
+      break;
     case "book_appointment":
-      return [
-        CALL_ID_PARAM,
-        llmParam(
-          "slot_id",
-          "The slot_id of the chosen time, taken from the get_available_times result.",
-          true,
-        ),
-        llmParam(
-          "email",
-          "The lead's email for the calendar invite, standard format e.g. 'jane@business.com'.",
-          true,
-        ),
-        llmParam("name", "The lead's name for the calendar invite.", false),
-      ];
+      add(
+        "slot_id",
+        "The slot_id of the chosen time from get_available_times.",
+        true,
+      );
+      add(
+        "email",
+        "The lead's email for the calendar invite, e.g. 'jane@business.com'.",
+        true,
+      );
+      add("name", "The lead's name for the calendar invite.", false);
+      break;
     case "mark_dnc":
-      return [
-        CALL_ID_PARAM,
-        llmParam(
-          "reason",
-          "Optional short reason the lead gave for opting out.",
-          false,
-        ),
-      ];
+      add(
+        "reason",
+        "Optional short reason the lead gave for opting out.",
+        false,
+      );
+      break;
   }
+  return { properties, required };
 }
 
-/** Build the ElevenLabs tool_config for one key. */
+/** Build the ElevenLabs tool_config for one key, in the shape the live
+ *  /v1/convai/tools API expects (verified against a working workspace tool):
+ *  properties is an object keyed by name, required is a list, params/headers
+ *  are objects. */
 function buildToolConfig(
   key: ServerToolKey,
   baseUrl: string,
   secret: string,
 ): Record<string, unknown> {
+  const { properties, required } = bodySchemaFor(key, secret);
   return {
     type: "webhook",
     name: toolFunctionName(key),
@@ -157,19 +156,15 @@ function buildToolConfig(
     api_schema: {
       url: `${baseUrl}/api/elevenlabs/tools/${key}`,
       method: "POST",
-      path_params_schema: [],
-      query_params_schema: [],
+      path_params_schema: {},
+      query_params_schema: null,
+      request_headers: {},
       request_body_schema: {
-        id: "body",
         type: "object",
         description: `Parameters for the ${key} tool.`,
-        required: true,
-        properties: paramsFor(key),
+        required,
+        properties,
       },
-      request_headers: [
-        { type: "value", name: "Content-Type", value: "application/json" },
-        { type: "value", name: "x-tool-secret", value: secret },
-      ],
     },
   };
 }

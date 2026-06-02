@@ -29,18 +29,19 @@ export async function POST(
     return NextResponse.json({ error: "Unknown tool" }, { status: 400 });
   }
 
-  // Shared-secret header set on each tool definition. Skipped in non-live
-  // mode so Playwright can POST without a secret.
-  const secret = request.headers.get("x-tool-secret");
-  if (!(await isValidToolSecret(secret))) {
-    return NextResponse.json({ error: "Invalid secret" }, { status: 403 });
-  }
-
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  // Shared secret arrives as a `tool_secret` body field (a constant baked into
+  // the tool definition), since ElevenLabs tool params live in the body.
+  // Skipped in non-live mode so Playwright can POST without a secret.
+  const secret = typeof body.tool_secret === "string" ? body.tool_secret : null;
+  if (!(await isValidToolSecret(secret))) {
+    return NextResponse.json({ error: "Invalid secret" }, { status: 403 });
   }
 
   const result = await executeServerTool(tool, body);
