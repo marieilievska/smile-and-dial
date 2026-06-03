@@ -20,6 +20,7 @@ export const OVERRIDABLE_OUTCOMES = [
   "dm_reached",
   "not_interested",
   "callback",
+  "call_back_later",
   "dnc",
   "goal_met",
   "language_barrier",

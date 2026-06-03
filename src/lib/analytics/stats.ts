@@ -20,13 +20,16 @@ const CONVERSATION_OUTCOMES = new Set([
   "language_barrier",
 ]);
 
-/** Outcomes where Twilio actually connected the call. */
+/** Outcomes where the call actually connected. `call_back_later` (a busy
+ *  brush-off) connected and we spoke briefly, but it is deliberately NOT in
+ *  CONVERSATION/DM_REACHED — it's not a win or a real qualifying conversation. */
 const CONNECTED_OUTCOMES = new Set([
   ...CONVERSATION_OUTCOMES,
   "voicemail",
   "hung_up_immediately",
   "ai_receptionist",
   "ai_error",
+  "call_back_later",
 ]);
 
 export type CallRow = {

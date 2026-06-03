@@ -49,6 +49,7 @@ export const OUTCOME_LABELS: Record<string, string> = {
   gatekeeper: "Gatekeeper",
   not_interested: "Not interested",
   callback: "Callback",
+  call_back_later: "Call back later",
   dnc: "DNC",
   goal_met: "Goal met",
   language_barrier: "Language barrier",

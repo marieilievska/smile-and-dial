@@ -21,6 +21,7 @@ const DISPOSITION_TO_OUTCOME: Record<string, CallOutcome> = {
   gatekeeper: "gatekeeper",
   not_interested: "not_interested",
   callback: "callback",
+  call_back_later: "call_back_later",
   dnc: "dnc",
   goal_met: "goal_met",
   voicemail: "voicemail",
@@ -81,12 +82,74 @@ function extractedDataOf(
 const RESERVED_EXTRACTION_KEYS = new Set([
   "disposition",
   "callback_datetime",
-  "objection_summary",
   "business_email",
   "owner_name",
   "manager_name",
   "employee_name",
 ]);
+
+/** Non-answers the analysis LLM emits when it didn't actually learn anything.
+ *  These must never create or fill a custom field (e.g. an "Objection category"
+ *  field reading "none" is noise). */
+const EMPTY_EXTRACTION_VALUES = new Set([
+  "",
+  "unknown",
+  "none",
+  "n/a",
+  "na",
+  "null",
+  "not mentioned",
+  "not provided",
+]);
+
+/** UTC ISO for "tomorrow at `hour`:00 in the lead's timezone" — a predictable,
+ *  in-hours time to schedule a callback/retry when the lead didn't name one,
+ *  instead of blindly copying the original call's odd clock time. DST-correct
+ *  via the standard Intl offset-correction trick. */
+function nextDayLocalHourIso(
+  timeZone: string | null | undefined,
+  hour = 10,
+): string {
+  const tz = timeZone || "America/New_York";
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const num = (t: string) => Number(parts.find((x) => x.type === t)?.value);
+  // Desired wall-clock instant (tomorrow hour:00) interpreted as if UTC.
+  const wallGuess = Date.UTC(
+    num("year"),
+    num("month") - 1,
+    num("day") + 1,
+    hour,
+    0,
+    0,
+  );
+  // Read that instant back in the tz to discover the tz's offset there.
+  const rbParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date(wallGuess));
+  const rb = (t: string) => Number(rbParts.find((x) => x.type === t)?.value);
+  const readMs = Date.UTC(
+    rb("year"),
+    rb("month") - 1,
+    rb("day"),
+    rb("hour") % 24,
+    rb("minute"),
+    0,
+  );
+  const offset = readMs - wallGuess;
+  return new Date(wallGuess - offset).toISOString();
+}
 
 /** Map an ElevenLabs termination reason to an UNAMBIGUOUS telephony outcome.
  *  Only the clear-cut carrier states are inferred here; a conversational
@@ -116,12 +179,19 @@ function humanizeKey(key: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-/** A captured value counts as "populated" when it's a non-blank string or any
- *  number/boolean. We never write or create fields for blanks. */
+/** A captured value is worth mirroring to a custom field only when it carries
+ *  real information: a meaningful string (not a blank/"unknown"/"none"
+ *  non-answer), a number, or a `true` boolean. `false` and the non-answers are
+ *  treated as "nothing learned" so they never create or fill a noise field. */
 function isPopulated(value: unknown): boolean {
   if (value == null) return false;
-  if (typeof value === "string") return value.trim().length > 0;
-  return typeof value === "number" || typeof value === "boolean";
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    return v.length > 0 && !EMPTY_EXTRACTION_VALUES.has(v);
+  }
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return value === true;
+  return false;
 }
 
 /**
@@ -954,22 +1024,29 @@ async function applyOutcomeSideEffects(
 
   // --- callback ---
   if (input.outcome === "callback") {
-    // If the agent didn't capture a datetime, fall back to "tomorrow same
-    // time" so we at least have a scheduled time. Step 24 will refine this
-    // when the retry engine lands.
+    // Use the time the lead actually named; otherwise schedule for tomorrow
+    // morning in the LEAD's timezone (a predictable, in-hours slot) rather than
+    // copying the original call's arbitrary clock time.
     const parsed = input.callbackDatetime
       ? new Date(input.callbackDatetime)
       : null;
-    const scheduledAt =
-      parsed && !isNaN(parsed.getTime())
-        ? parsed
-        : new Date(Date.now() + 24 * 60 * 60 * 1000);
+    let scheduledAt: string;
+    if (parsed && !isNaN(parsed.getTime())) {
+      scheduledAt = parsed.toISOString();
+    } else {
+      const { data: leadTz } = await supabase
+        .from("leads")
+        .select("timezone")
+        .eq("id", input.leadId)
+        .maybeSingle();
+      scheduledAt = nextDayLocalHourIso(leadTz?.timezone, 10);
+    }
 
     await supabase.from("callbacks").insert({
       lead_id: input.leadId,
       campaign_id: input.campaignId,
       originating_call_id: input.callId,
-      scheduled_at: scheduledAt.toISOString(),
+      scheduled_at: scheduledAt,
       status: "pending",
       // created_by left null — the agent auto-scheduled this.
     });
@@ -977,7 +1054,7 @@ async function applyOutcomeSideEffects(
       .from("leads")
       .update({
         status: "callback",
-        next_call_at: scheduledAt.toISOString(),
+        next_call_at: scheduledAt,
       })
       .eq("id", input.leadId);
     return;

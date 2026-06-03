@@ -174,6 +174,26 @@ export async function applyRetryForCall(
     update.next_call_at = restingUntil.toISOString();
     update.retry_counter = 0;
     update.retry_position = 0;
+  } else if (call.outcome === "call_back_later") {
+    // Busy brush-off: try again the NEXT DAY, up to a couple of times, then
+    // rest so we stop pestering. Calling hours are enforced at dial time by
+    // pre_call_check, so a next-day timestamp can't dial outside hours.
+    const attempts = (lead?.retry_counter ?? 0) + 1;
+    if (attempts > 2) {
+      const restingUntil = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+      update.status = "resting";
+      update.resting_until = restingUntil.toISOString();
+      update.next_call_at = restingUntil.toISOString();
+      update.retry_counter = 0;
+      update.retry_position = 0;
+    } else {
+      update.retry_counter = attempts;
+      update.next_call_at = new Date(
+        Date.now() + 24 * 60 * 60 * 1000,
+      ).toISOString();
+      update.status = "ready_to_call";
+      update.resting_until = null;
+    }
   } else if (TERMINAL_OUTCOMES[call.outcome] !== undefined) {
     update.status = TERMINAL_OUTCOMES[call.outcome].status;
     update.next_call_at = null;

@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
+import { applyRetryForCall } from "@/lib/dialer/retry-engine";
+
 export type TranscriptTurn = {
   role?: string;
   text?: string;
@@ -259,7 +261,21 @@ export async function overrideCallOutcome(input: {
     },
   });
 
+  // Re-run scheduling so the lead's next call reflects the corrected outcome
+  // (e.g. a hang-up should move to the 2-day retry, not keep a stale "in a few
+  // minutes" placeholder). Clearing retry_applied_at lets the engine re-claim.
+  await supabase
+    .from("calls")
+    .update({ retry_applied_at: null })
+    .eq("id", input.callId);
+  try {
+    await applyRetryForCall(input.callId);
+  } catch {
+    // Best-effort: the outcome is corrected even if rescheduling hiccups.
+  }
+
   revalidatePath("/calls");
+  revalidatePath("/leads");
   return { error: null };
 }
 
