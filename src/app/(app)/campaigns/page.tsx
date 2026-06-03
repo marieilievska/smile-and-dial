@@ -75,6 +75,7 @@ export default async function CampaignsPage({
     { data: kbsRaw },
     { data: rawLists },
     { data: rawCalendlyEvents },
+    { data: rawEmailTemplates },
     { data: rawAttachments },
     stats,
     perCampaignSpend,
@@ -86,7 +87,7 @@ export default async function CampaignsPage({
     supabase
       .from("campaigns")
       .select(
-        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, calendly_event_id, created_at, agent:agents(name), goal:goals(name)",
+        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, calendly_event_id, email_template_id, created_at, agent:agents(name), goal:goals(name)",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -108,6 +109,13 @@ export default async function CampaignsPage({
       .select("id, name")
       .eq("owner_id", user.id)
       .eq("active", true)
+      .order("name"),
+    // The signed-in user's email templates — options for the per-campaign
+    // send_email template selector.
+    supabase
+      .from("email_templates")
+      .select("id, name")
+      .eq("owner_id", user.id)
       .order("name"),
     supabase
       .from("list_campaign_attachments")
@@ -235,6 +243,7 @@ export default async function CampaignsPage({
     monthly_spend_cap: c.monthly_spend_cap,
     autopilot_enabled: c.autopilot_enabled ?? true,
     calendly_event_id: c.calendly_event_id ?? null,
+    email_template_id: c.email_template_id ?? null,
     created_at: c.created_at,
     agent_name: c.agent?.name ?? "—",
     goal_name: c.goal?.name ?? "—",
@@ -243,6 +252,10 @@ export default async function CampaignsPage({
   const calendlyEventOptions: Option[] = (rawCalendlyEvents ?? []).map((e) => ({
     id: e.id,
     name: e.name,
+  }));
+  const emailTemplateOptions: Option[] = (rawEmailTemplates ?? []).map((t) => ({
+    id: t.id,
+    name: t.name,
   }));
 
   // Tab counts off all campaigns, not the current filter — same pattern
@@ -282,6 +295,7 @@ export default async function CampaignsPage({
       monthly_spend_cap: campaign.monthly_spend_cap,
       autopilot_enabled: campaign.autopilot_enabled,
       calendly_event_id: campaign.calendly_event_id,
+      email_template_id: campaign.email_template_id,
     };
     const today = perCampaignSpend.get(campaign.id);
     return {
@@ -350,6 +364,7 @@ export default async function CampaignsPage({
             goals={goalOptions}
             kbsByAgent={kbsByAgent}
             calendlyEvents={calendlyEventOptions}
+            emailTemplates={emailTemplateOptions}
           />
         ) : (
           <div className="border-border overflow-x-auto rounded-lg border">
@@ -399,6 +414,7 @@ export default async function CampaignsPage({
                             eligibleLists={c.eligibleLists}
                             currentListIds={c.currentListIds}
                             calendlyEvents={calendlyEventOptions}
+                            emailTemplates={emailTemplateOptions}
                           />
                           {c.twilioPhone || c.description ? (
                             <span className="text-muted-foreground truncate text-[11px]">

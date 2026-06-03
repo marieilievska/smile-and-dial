@@ -67,12 +67,15 @@ export type CampaignData = {
   monthly_spend_cap: number | null;
   autopilot_enabled: boolean;
   calendly_event_id: string | null;
+  email_template_id: string | null;
 };
 
 const NO_NUMBER = "__none__";
 /** Sentinel for "no Calendly event chosen" — booking tools fall back to the
  *  owner's first active event. */
 const NO_EVENT = "__none__";
+/** Sentinel for "no email template" — the send_email tool only records intent. */
+const NO_TEMPLATE = "__none__";
 
 /** Trim a "09:00:00" Postgres time to "09:00" for the HTML time input. */
 function timeForInput(value: string | null | undefined): string {
@@ -90,6 +93,7 @@ export function CampaignSettingsDialog({
   eligibleLists,
   currentListIds,
   calendlyEvents,
+  emailTemplates,
   trigger,
 }: {
   mode: "create" | "edit";
@@ -103,6 +107,8 @@ export function CampaignSettingsDialog({
   /** The owner's synced Calendly event types; the booking tools check
    *  availability / book into the one selected here. */
   calendlyEvents: Option[];
+  /** The owner's email templates; the send_email tool sends the one chosen. */
+  emailTemplates: Option[];
   /** Override the default Edit / New campaign trigger. Lets the
    *  campaigns table use the campaign name itself as the click
    *  target so opening settings doesn't require hunting for an
@@ -154,6 +160,9 @@ export function CampaignSettingsDialog({
   const [calendlyEventId, setCalendlyEventId] = useState(
     campaign?.calendly_event_id ?? NO_EVENT,
   );
+  const [emailTemplateId, setEmailTemplateId] = useState(
+    campaign?.email_template_id ?? NO_TEMPLATE,
+  );
   const [selectedListIds, setSelectedListIds] =
     useState<string[]>(currentListIds);
 
@@ -181,6 +190,7 @@ export function CampaignSettingsDialog({
         monthlySpendCap,
         autopilotEnabled,
         calendlyEventId: calendlyEventId === NO_EVENT ? "" : calendlyEventId,
+        emailTemplateId: emailTemplateId === NO_TEMPLATE ? "" : emailTemplateId,
       };
       const result =
         isEdit && campaign
@@ -216,6 +226,7 @@ export function CampaignSettingsDialog({
         setMonthlySpendCap("");
         setAutopilotEnabled(true);
         setCalendlyEventId(NO_EVENT);
+        setEmailTemplateId(NO_TEMPLATE);
         setSelectedListIds([]);
       }
     });
@@ -632,6 +643,40 @@ export function CampaignSettingsDialog({
                 The event the agent checks availability for and books into when
                 it uses &ldquo;get available times&rdquo; / &ldquo;book
                 appointment.&rdquo;
+              </p>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2">
+              <Label htmlFor="campaign-email-template">Email template</Label>
+              {emailTemplates.length > 0 ? (
+                <Select
+                  value={emailTemplateId}
+                  onValueChange={setEmailTemplateId}
+                >
+                  <SelectTrigger id="campaign-email-template">
+                    <SelectValue placeholder="Choose an email template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_TEMPLATE}>
+                      None (don&apos;t send email)
+                    </SelectItem>
+                    {emailTemplates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No email templates yet. Create one on Settings → Email
+                  templates first.
+                </p>
+              )}
+              <p className="text-muted-foreground text-xs">
+                The exact email the agent sends when it uses &ldquo;send
+                email&rdquo; (variables like {"{{lead.company}}"} are filled in
+                per lead).
               </p>
             </div>
           </CampaignSection>

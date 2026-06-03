@@ -43,6 +43,9 @@ export type CampaignInput = {
    *  availability against and book into. Empty = fall back to the owner's
    *  first active event. */
   calendlyEventId?: string;
+  /** Email template (email_templates.id) the send_email tool sends. Empty =
+   *  no template, the tool only records intent. */
+  emailTemplateId?: string;
 };
 
 function parseNumber(value: string): number | null {
@@ -78,6 +81,7 @@ function buildUpdate(input: CampaignInput) {
     monthly_spend_cap: parseNumber(input.monthlySpendCap),
     autopilot_enabled: input.autopilotEnabled ?? true,
     calendly_event_id: input.calendlyEventId?.trim() || null,
+    email_template_id: input.emailTemplateId?.trim() || null,
   };
 }
 

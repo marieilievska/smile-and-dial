@@ -24,6 +24,7 @@ const WORKSPACE_TABS: Tab[] = [
   { label: "Lists", href: "/settings/lists" },
   { label: "Goals", href: "/settings/goals" },
   { label: "Knowledge bases", href: "/settings/knowledge-bases" },
+  { label: "Email templates", href: "/settings/email-templates" },
   { label: "Agents", href: "/settings/agents" },
 ];
 

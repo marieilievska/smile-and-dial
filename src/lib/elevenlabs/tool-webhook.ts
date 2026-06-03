@@ -8,6 +8,7 @@ import {
   createInvitee,
   getAvailableTimes as calendlyGetAvailableTimes,
 } from "@/lib/calendly/api";
+import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
 /**
@@ -288,6 +289,77 @@ async function logToolEvent(
 // ---------------------------------------------------------------------------
 // send_email
 // ---------------------------------------------------------------------------
+/** The fixed email template attached to the campaign (campaigns.email_
+ *  template_id). The send_email tool sends THIS template verbatim with the
+ *  lead's variables filled — the AI doesn't write freeform copy. Null when
+ *  the campaign has no template configured. */
+async function resolveCampaignEmailTemplate(
+  supabase: SupabaseAdmin,
+  campaignId: string,
+): Promise<{ id: string; name: string; subject: string; body: string } | null> {
+  const { data: campaign } = await supabase
+    .from("campaigns")
+    .select("email_template_id")
+    .eq("id", campaignId)
+    .maybeSingle();
+  if (!campaign?.email_template_id) return null;
+  const { data: tmpl } = await supabase
+    .from("email_templates")
+    .select("id, name, subject, body")
+    .eq("id", campaign.email_template_id)
+    .maybeSingle();
+  return tmpl ?? null;
+}
+
+/** Build the template-rendering context from the lead + owner + custom fields. */
+async function buildEmailContext(ctx: CallContext): Promise<TemplateContext> {
+  const [
+    { data: lead },
+    { data: ownerProfile },
+    { data: customValues },
+    { data: defs },
+  ] = await Promise.all([
+    ctx.supabase
+      .from("leads")
+      .select(
+        "company, business_phone, business_email, owner_name, manager_name, employee_name, city, state",
+      )
+      .eq("id", ctx.lead.id)
+      .maybeSingle(),
+    ctx.supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", ctx.lead.owner_id)
+      .maybeSingle(),
+    ctx.supabase
+      .from("lead_custom_values")
+      .select("custom_field_id, value")
+      .eq("lead_id", ctx.lead.id),
+    ctx.supabase.from("custom_field_defs").select("id, name"),
+  ]);
+  const defById = new Map((defs ?? []).map((d) => [d.id, d.name] as const));
+  const customFields: Record<string, string> = {};
+  for (const v of customValues ?? []) {
+    const slug = defById.get(v.custom_field_id);
+    if (slug && v.value != null) customFields[slug] = String(v.value);
+  }
+  const l = (lead ?? {}) as Record<string, string | null>;
+  return {
+    lead: {
+      company: l.company,
+      business_phone: l.business_phone,
+      business_email: l.business_email,
+      owner_name: l.owner_name,
+      manager_name: l.manager_name,
+      employee_name: l.employee_name,
+      city: l.city,
+      state: l.state,
+    },
+    owner: { full_name: ownerProfile?.full_name ?? null },
+    customFields,
+  };
+}
+
 async function sendEmail(
   ctx: CallContext,
   body: Record<string, unknown>,
@@ -311,14 +383,67 @@ async function sendEmail(
       .eq("id", ctx.lead.id);
   }
 
-  await logToolEvent(ctx, "tool_send_email", { email, note });
+  // Send the campaign's FIXED template (chosen in campaign settings). When no
+  // template is attached we can only record the intent — there's nothing to
+  // send — so the call still flows but ops can see it on /system-health.
+  const tmpl = await resolveCampaignEmailTemplate(ctx.supabase, ctx.campaignId);
+  if (!tmpl) {
+    await logToolEvent(ctx, "tool_send_email", {
+      email,
+      note,
+      template_id: null,
+      sent: false,
+      reason: "no_template_on_campaign",
+    });
+    return {
+      success: true,
+      message: `Got it — I've noted to send that to ${email}.`,
+    };
+  }
 
-  // The actual send rides on the Close integration, which is mock until
-  // CLOSE_LIVE=live. Either way the intent is recorded; in mock mode we
-  // simply report success so the call flows naturally.
+  const renderCtx = await buildEmailContext(ctx);
+  const subject = renderTemplate(tmpl.subject, renderCtx);
+  const renderedBody = renderTemplate(tmpl.body, renderCtx);
+
+  // Record the send. Live Close delivery isn't built yet, so this is the mock
+  // path (status=sent, fake message id) — but it's a REAL email row the lead
+  // detail + post-call pipeline can show, rendered from the chosen template.
+  const { data: inserted } = await ctx.supabase
+    .from("emails")
+    .insert({
+      lead_id: ctx.lead.id,
+      owner_id: ctx.lead.owner_id,
+      campaign_id: ctx.campaignId,
+      call_id: ctx.callId,
+      direction: "sent",
+      subject,
+      body: renderedBody,
+      to_address: email,
+      from_address: renderCtx.owner?.full_name
+        ? `${renderCtx.owner.full_name} via Close`
+        : "Close mock",
+      close_message_id: `mock-msg-${Date.now()}`,
+      status: "sent",
+      template_id: tmpl.id,
+    })
+    .select("id")
+    .maybeSingle();
+
+  await ctx.supabase
+    .from("email_templates")
+    .update({ last_used_at: new Date().toISOString() })
+    .eq("id", tmpl.id);
+
+  await logToolEvent(ctx, "tool_send_email", {
+    email,
+    template_id: tmpl.id,
+    email_id: inserted?.id ?? null,
+    sent: true,
+  });
+
   return {
     success: true,
-    message: `Done — I've sent that over to ${email}. It should arrive within a minute.`,
+    message: `Done — I've sent the "${tmpl.name}" email to ${email}. It should arrive shortly.`,
   };
 }
 

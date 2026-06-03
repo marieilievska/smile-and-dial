@@ -23,6 +23,7 @@ export function CampaignNameTrigger({
   eligibleLists,
   currentListIds,
   calendlyEvents,
+  emailTemplates,
 }: {
   name: string;
   campaign: CampaignData;
@@ -33,6 +34,7 @@ export function CampaignNameTrigger({
   eligibleLists: Option[];
   currentListIds: string[];
   calendlyEvents: Option[];
+  emailTemplates: Option[];
 }) {
   return (
     <CampaignSettingsDialog
@@ -45,6 +47,7 @@ export function CampaignNameTrigger({
       eligibleLists={eligibleLists}
       currentListIds={currentListIds}
       calendlyEvents={calendlyEvents}
+      emailTemplates={emailTemplates}
       trigger={
         <button
           type="button"
