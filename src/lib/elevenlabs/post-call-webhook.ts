@@ -23,6 +23,7 @@ const DISPOSITION_TO_OUTCOME: Record<string, CallOutcome> = {
   callback: "callback",
   dnc: "dnc",
   goal_met: "goal_met",
+  voicemail: "voicemail",
 };
 
 /**
@@ -97,6 +98,10 @@ export type ElevenLabsPostCallPayload = {
     duration_seconds?: number;
     talk_time_seconds?: number;
     recording_url?: string;
+    /** Why the conversation ended. When the agent's voicemail_detection
+     *  system tool fires, this reads like "voicemail" — we use it to label the
+     *  call's outcome when the agent didn't also set a disposition. */
+    termination_reason?: string;
     cost?: {
       elevenlabs?: number;
       openai?: number;
@@ -375,9 +380,14 @@ async function processTranscription(
   );
   if (!call) return { ok: true, status: "unknown_conversation" };
 
-  // Map disposition → outcome.
+  // Map disposition → outcome. If the agent didn't set a disposition but its
+  // voicemail_detection ended the call, fall back to labeling it voicemail
+  // (we no longer use Twilio AMD, so the AI is the source of truth here).
   const disposition = payload.analysis?.data_collection?.disposition ?? "";
-  const outcomeFromDisposition = DISPOSITION_TO_OUTCOME[disposition] ?? null;
+  const terminationReason = payload.metadata?.termination_reason ?? "";
+  const outcomeFromDisposition: CallOutcome | null =
+    DISPOSITION_TO_OUTCOME[disposition] ??
+    (/voicemail/i.test(terminationReason) ? "voicemail" : null);
 
   // Merge ElevenLabs's cost slice into whatever's already in cost_breakdown
   // (which Twilio has been updating in parallel).

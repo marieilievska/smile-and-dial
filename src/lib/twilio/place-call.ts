@@ -51,10 +51,6 @@ export type PlaceCallInput = {
   from: string;
   /** The lead's phone, E.164. */
   to: string;
-  /** Optional friendly machine-detection timeout, in ms. Twilio
-   *  defaults to 30s; we keep it tight so a voicemail prompt doesn't
-   *  burn the whole answer window. */
-  amdTimeoutMs?: number;
 };
 
 export type PlaceCallResult =
@@ -103,16 +99,13 @@ export async function placeLiveCall(
     // /calls page can show a call moving through Queued → Ringing →
     // In progress → Completed in near-real-time.
     StatusCallbackEvent: "initiated ringing answered completed",
-    // Machine detection — Twilio classifies human vs. answering machine and
-    // passes the verdict as `AnsweredBy` when it requests our voice-outbound
-    // TwiML. `Enable` returns as soon as it decides (we hang up on a machine
-    // rather than wait for the greeting to finish, so we don't need
-    // DetectMessageEnd). voice-outbound records outcome=voicemail and hangs up
-    // for any machine answer; humans bridge to the agent.
-    MachineDetection: "Enable",
-    MachineDetectionTimeout: String(
-      Math.max(2000, Math.min(30000, input.amdTimeoutMs ?? 8000)),
-    ),
+    // NOTE: we deliberately do NOT use Twilio's machine detection (AMD) here.
+    // Twilio's AMD decides "human vs. machine" within ~5s and errs toward
+    // "machine" whenever the opening greeting runs long — which is exactly how
+    // a live business receptionist answers ("Thank you for calling …, this is
+    // …"). That caused us to hang up on real people. Instead we bridge every
+    // answered call straight to the agent, whose own (smarter, AI-based)
+    // voicemail_detection ends the call if it actually reaches a machine.
   });
 
   try {

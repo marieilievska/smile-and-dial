@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { buildBridgeTwiml } from "@/lib/elevenlabs/twilio-stream";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -49,60 +48,6 @@ const TWIML_PLACEHOLDER = `<?xml version="1.0" encoding="UTF-8"?>
   <Hangup/>
 </Response>`;
 
-// Hang up without bridging — used when Twilio's machine detection says we
-// reached an answering machine. We don't connect the AI to a voicemail box.
-const TWIML_HANGUP = `<?xml version="1.0" encoding="UTF-8"?>
-<Response><Hangup/></Response>`;
-
-// Twilio AnsweredBy values that mean "not a live human". `human` and
-// `unknown` fall through to the agent (we'd rather talk to an uncertain human
-// than silently drop a real lead).
-const MACHINE_ANSWERS = new Set([
-  "machine_start",
-  "machine_end_beep",
-  "machine_end_silence",
-  "machine_end_other",
-  "fax",
-]);
-
-/** Record a voicemail/machine answer on the call from Twilio's detection —
- *  no audio or transcript needed, the carrier-grade AMD result is the proof.
- *  Stamps outcome=voicemail, logs the exact AnsweredBy for the audit trail,
- *  and runs the retry engine so the lead gets rescheduled like a no-answer. */
-async function recordVoicemail(
-  supabase: SupabaseAdmin,
-  callId: string,
-  answeredBy: string,
-): Promise<void> {
-  await supabase
-    .from("calls")
-    .update({
-      status: "completed",
-      outcome: "voicemail",
-      outcome_source: "twilio",
-      ended_at: new Date().toISOString(),
-    })
-    .eq("id", callId)
-    .is("ended_at", null);
-
-  try {
-    await supabase.from("system_events").insert({
-      kind: "twilio_amd_voicemail",
-      actor_user_id: null,
-      ref_table: "calls",
-      ref_id: callId,
-      payload: { call_id: callId, answered_by: answeredBy },
-    });
-  } catch {
-    // logging failure must not break the TwiML response
-  }
-  try {
-    await applyRetryForCall(callId);
-  } catch {
-    // retry scheduling is best-effort; the outcome is already stamped
-  }
-}
-
 /** Resolve the ElevenLabs agent id from the call row. Returns null
  *  on any error or missing piece so the caller falls back cleanly to
  *  the placeholder TwiML. */
@@ -125,19 +70,13 @@ async function resolveAgentId(
   return agent?.elevenlabs_agent_id ?? null;
 }
 
-async function buildResponse(
-  callId: string | null,
-  answeredBy: string | null,
-): Promise<string> {
+async function buildResponse(callId: string | null): Promise<string> {
   const supabase = makeServiceClient();
 
-  // Voicemail / machine: never bridge the AI to a recording. Record the
-  // outcome straight from Twilio's machine detection (so we KNOW it was
-  // voicemail without any audio), then hang up.
-  if (answeredBy && MACHINE_ANSWERS.has(answeredBy)) {
-    if (callId) await recordVoicemail(supabase, callId, answeredBy);
-    return TWIML_HANGUP;
-  }
+  // We bridge EVERY answered call to the agent — no Twilio machine detection
+  // gate. If the call actually reaches a voicemail, the agent's own
+  // voicemail_detection ends it; this avoids hanging up on a live person who
+  // answers with a long business greeting (Twilio's AMD mislabels those).
 
   // Round L4 — attempt the live ElevenLabs bridge first. Falls back
   // to the placeholder TwiML on any failure so callers never hear a
@@ -172,18 +111,7 @@ async function buildResponse(
 export async function POST(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const callId = url.searchParams.get("call_id");
-  // Twilio's machine-detection verdict arrives as the `AnsweredBy` form field
-  // (synchronous AMD passes it on the TwiML request). Fall back to the query
-  // string for GET.
-  let answeredBy = url.searchParams.get("AnsweredBy");
-  try {
-    const form = await request.formData();
-    const fromForm = form.get("AnsweredBy");
-    if (typeof fromForm === "string") answeredBy = fromForm;
-  } catch {
-    // no form body (e.g. GET) — keep the query-string value
-  }
-  const twiml = await buildResponse(callId, answeredBy);
+  const twiml = await buildResponse(callId);
   return new NextResponse(twiml, {
     status: 200,
     headers: { "Content-Type": "text/xml" },
@@ -193,8 +121,7 @@ export async function POST(request: Request): Promise<Response> {
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const callId = url.searchParams.get("call_id");
-  const answeredBy = url.searchParams.get("AnsweredBy");
-  const twiml = await buildResponse(callId, answeredBy);
+  const twiml = await buildResponse(callId);
   return new NextResponse(twiml, {
     status: 200,
     headers: { "Content-Type": "text/xml" },
