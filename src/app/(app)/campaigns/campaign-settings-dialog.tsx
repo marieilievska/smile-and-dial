@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Sheet,
   SheetContent,
@@ -615,24 +616,21 @@ export function CampaignSettingsDialog({
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-calendly">Calendly event</Label>
               {calendlyEvents.length > 0 ? (
-                <Select
+                <SearchableSelect
+                  id="campaign-calendly"
                   value={calendlyEventId}
                   onValueChange={setCalendlyEventId}
-                >
-                  <SelectTrigger id="campaign-calendly">
-                    <SelectValue placeholder="Choose a Calendly event" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_EVENT}>
-                      First active event (default)
-                    </SelectItem>
-                    {calendlyEvents.map((evt) => (
-                      <SelectItem key={evt.id} value={evt.id}>
-                        {evt.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder="Choose a Calendly event"
+                  searchPlaceholder="Search events…"
+                  emptyText="No events match."
+                  options={[
+                    { value: NO_EVENT, label: "First active event (default)" },
+                    ...calendlyEvents.map((evt) => ({
+                      value: evt.id,
+                      label: evt.name,
+                    })),
+                  ]}
+                />
               ) : (
                 <p className="text-muted-foreground text-sm">
                   No Calendly events synced. Connect Calendly on Settings →
