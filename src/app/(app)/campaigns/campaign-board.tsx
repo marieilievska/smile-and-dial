@@ -55,11 +55,13 @@ export function CampaignBoard({
   agents,
   goals,
   kbsByAgent,
+  calendlyEvents,
 }: {
   campaigns: CampaignCardItem[];
   agents: Option[];
   goals: Option[];
   kbsByAgent: Record<string, Option[]>;
+  calendlyEvents: Option[];
 }) {
   return (
     <div
@@ -103,6 +105,7 @@ export function CampaignBoard({
                 kbsByAgent={kbsByAgent}
                 eligibleLists={c.eligibleLists}
                 currentListIds={c.currentListIds}
+                calendlyEvents={calendlyEvents}
               />
               {c.twilioPhone || c.description ? (
                 <span className="text-muted-foreground truncate text-[11px]">

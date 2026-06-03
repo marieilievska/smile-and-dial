@@ -22,6 +22,7 @@ export function CampaignNameTrigger({
   kbsByAgent,
   eligibleLists,
   currentListIds,
+  calendlyEvents,
 }: {
   name: string;
   campaign: CampaignData;
@@ -31,6 +32,7 @@ export function CampaignNameTrigger({
   kbsByAgent: Record<string, Option[]>;
   eligibleLists: Option[];
   currentListIds: string[];
+  calendlyEvents: Option[];
 }) {
   return (
     <CampaignSettingsDialog
@@ -42,6 +44,7 @@ export function CampaignNameTrigger({
       kbsByAgent={kbsByAgent}
       eligibleLists={eligibleLists}
       currentListIds={currentListIds}
+      calendlyEvents={calendlyEvents}
       trigger={
         <button
           type="button"

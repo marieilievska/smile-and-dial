@@ -2,6 +2,7 @@
 
 import {
   BookOpen,
+  CalendarClock,
   ChevronDown,
   Clock,
   ListChecks,
@@ -65,9 +66,13 @@ export type CampaignData = {
   daily_spend_cap: number | null;
   monthly_spend_cap: number | null;
   autopilot_enabled: boolean;
+  calendly_event_id: string | null;
 };
 
 const NO_NUMBER = "__none__";
+/** Sentinel for "no Calendly event chosen" — booking tools fall back to the
+ *  owner's first active event. */
+const NO_EVENT = "__none__";
 
 /** Trim a "09:00:00" Postgres time to "09:00" for the HTML time input. */
 function timeForInput(value: string | null | undefined): string {
@@ -84,6 +89,7 @@ export function CampaignSettingsDialog({
   kbsByAgent,
   eligibleLists,
   currentListIds,
+  calendlyEvents,
   trigger,
 }: {
   mode: "create" | "edit";
@@ -94,6 +100,9 @@ export function CampaignSettingsDialog({
   kbsByAgent: Record<string, Option[]>;
   eligibleLists: Option[];
   currentListIds: string[];
+  /** The owner's synced Calendly event types; the booking tools check
+   *  availability / book into the one selected here. */
+  calendlyEvents: Option[];
   /** Override the default Edit / New campaign trigger. Lets the
    *  campaigns table use the campaign name itself as the click
    *  target so opening settings doesn't require hunting for an
@@ -142,6 +151,9 @@ export function CampaignSettingsDialog({
   const [autopilotEnabled, setAutopilotEnabled] = useState(
     campaign?.autopilot_enabled ?? true,
   );
+  const [calendlyEventId, setCalendlyEventId] = useState(
+    campaign?.calendly_event_id ?? NO_EVENT,
+  );
   const [selectedListIds, setSelectedListIds] =
     useState<string[]>(currentListIds);
 
@@ -168,6 +180,7 @@ export function CampaignSettingsDialog({
         dailySpendCap,
         monthlySpendCap,
         autopilotEnabled,
+        calendlyEventId: calendlyEventId === NO_EVENT ? "" : calendlyEventId,
       };
       const result =
         isEdit && campaign
@@ -202,6 +215,7 @@ export function CampaignSettingsDialog({
         setDailySpendCap("");
         setMonthlySpendCap("");
         setAutopilotEnabled(true);
+        setCalendlyEventId(NO_EVENT);
         setSelectedListIds([]);
       }
     });
@@ -580,6 +594,45 @@ export function CampaignSettingsDialog({
                   No goals yet. Add one on the Goals page.
                 </p>
               )}
+            </div>
+          </CampaignSection>
+
+          <CampaignSection
+            title="Booking"
+            icon={<CalendarClock className="size-4" />}
+          >
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="campaign-calendly">Calendly event</Label>
+              {calendlyEvents.length > 0 ? (
+                <Select
+                  value={calendlyEventId}
+                  onValueChange={setCalendlyEventId}
+                >
+                  <SelectTrigger id="campaign-calendly">
+                    <SelectValue placeholder="Choose a Calendly event" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_EVENT}>
+                      First active event (default)
+                    </SelectItem>
+                    {calendlyEvents.map((evt) => (
+                      <SelectItem key={evt.id} value={evt.id}>
+                        {evt.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No Calendly events synced. Connect Calendly on Settings →
+                  Integrations first.
+                </p>
+              )}
+              <p className="text-muted-foreground text-xs">
+                The event the agent checks availability for and books into when
+                it uses &ldquo;get available times&rdquo; / &ldquo;book
+                appointment.&rdquo;
+              </p>
             </div>
           </CampaignSection>
 

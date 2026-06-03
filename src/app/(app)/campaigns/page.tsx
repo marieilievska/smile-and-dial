@@ -74,6 +74,7 @@ export default async function CampaignsPage({
     { data: rawNumbers },
     { data: kbsRaw },
     { data: rawLists },
+    { data: rawCalendlyEvents },
     { data: rawAttachments },
     stats,
     perCampaignSpend,
@@ -85,7 +86,7 @@ export default async function CampaignsPage({
     supabase
       .from("campaigns")
       .select(
-        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, created_at, agent:agents(name), goal:goals(name)",
+        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, calendly_event_id, created_at, agent:agents(name), goal:goals(name)",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -100,6 +101,14 @@ export default async function CampaignsPage({
       .order("phone_number"),
     supabase.from("knowledge_bases").select("id, name"),
     supabase.from("lists").select("id, name").order("name"),
+    // The signed-in user's synced Calendly events — options for the
+    // per-campaign "Booking" event selector.
+    supabase
+      .from("calendly_event_types")
+      .select("id, name")
+      .eq("owner_id", user.id)
+      .eq("active", true)
+      .order("name"),
     supabase
       .from("list_campaign_attachments")
       .select("list_id, campaign_id")
@@ -225,9 +234,15 @@ export default async function CampaignsPage({
     daily_spend_cap: c.daily_spend_cap,
     monthly_spend_cap: c.monthly_spend_cap,
     autopilot_enabled: c.autopilot_enabled ?? true,
+    calendly_event_id: c.calendly_event_id ?? null,
     created_at: c.created_at,
     agent_name: c.agent?.name ?? "—",
     goal_name: c.goal?.name ?? "—",
+  }));
+
+  const calendlyEventOptions: Option[] = (rawCalendlyEvents ?? []).map((e) => ({
+    id: e.id,
+    name: e.name,
   }));
 
   // Tab counts off all campaigns, not the current filter — same pattern
@@ -266,6 +281,7 @@ export default async function CampaignsPage({
       daily_spend_cap: campaign.daily_spend_cap,
       monthly_spend_cap: campaign.monthly_spend_cap,
       autopilot_enabled: campaign.autopilot_enabled,
+      calendly_event_id: campaign.calendly_event_id,
     };
     const today = perCampaignSpend.get(campaign.id);
     return {
@@ -333,6 +349,7 @@ export default async function CampaignsPage({
             agents={agentOptions}
             goals={goalOptions}
             kbsByAgent={kbsByAgent}
+            calendlyEvents={calendlyEventOptions}
           />
         ) : (
           <div className="border-border overflow-x-auto rounded-lg border">
@@ -381,6 +398,7 @@ export default async function CampaignsPage({
                             kbsByAgent={kbsByAgent}
                             eligibleLists={c.eligibleLists}
                             currentListIds={c.currentListIds}
+                            calendlyEvents={calendlyEventOptions}
                           />
                           {c.twilioPhone || c.description ? (
                             <span className="text-muted-foreground truncate text-[11px]">

@@ -39,6 +39,10 @@ export type CampaignInput = {
   /** When false the AI auto-dialer skips this campaign; manual Call Now still
    *  works. Optional so existing call sites default it to on. */
   autopilotEnabled?: boolean;
+  /** Calendly event type (calendly_event_types.id) the booking tools check
+   *  availability against and book into. Empty = fall back to the owner's
+   *  first active event. */
+  calendlyEventId?: string;
 };
 
 function parseNumber(value: string): number | null {
@@ -73,6 +77,7 @@ function buildUpdate(input: CampaignInput) {
     daily_spend_cap: parseNumber(input.dailySpendCap),
     monthly_spend_cap: parseNumber(input.monthlySpendCap),
     autopilot_enabled: input.autopilotEnabled ?? true,
+    calendly_event_id: input.calendlyEventId?.trim() || null,
   };
 }
 
