@@ -641,14 +641,20 @@ async function processTranscription(
   // (we no longer use Twilio AMD, so the AI is the source of truth here).
   const disposition = dispositionOf(payload.analysis);
   const terminationReason = payload.metadata?.termination_reason ?? "";
-  // Outcome priority: the agent's disposition (most accurate) → an unambiguous
-  // telephony state read from the termination reason (voicemail / no-answer /
-  // busy / failed). A conversational hang-up with NO disposition stays null on
-  // purpose — only the agent's disposition can say whether "remote party ended"
-  // was a polite goodbye or a rude hang-up. (Add a `disposition` data-collection
-  // field to the agent to classify those.)
-  const outcomeFromDisposition: CallOutcome | null =
-    DISPOSITION_TO_OUTCOME[disposition] ?? telephonyOutcome(terminationReason);
+  // Outcome priority:
+  //   1. VOICEMAIL WINS. The agent's voicemail_detection tool ends the call on
+  //      an answering machine, but the analysis LLM is still forced to guess a
+  //      disposition and often picks "gatekeeper" for the greeting. The machine
+  //      signal (in the termination reason) is authoritative — never let a
+  //      guessed disposition override a confirmed voicemail.
+  //   2. Otherwise the agent's disposition (most accurate for live calls).
+  //   3. Otherwise an unambiguous telephony state (no-answer / busy / failed).
+  // A conversational hang-up with NO disposition stays null on purpose.
+  const reachedVoicemail = /voicemail/i.test(terminationReason);
+  const outcomeFromDisposition: CallOutcome | null = reachedVoicemail
+    ? "voicemail"
+    : (DISPOSITION_TO_OUTCOME[disposition] ??
+      telephonyOutcome(terminationReason));
 
   // Merge ElevenLabs's cost slice into whatever's already in cost_breakdown
   // (Twilio/lookup may have written there). ElevenLabs bundles LLM+TTS+telephony

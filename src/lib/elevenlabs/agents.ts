@@ -63,8 +63,9 @@ const DATA_COLLECTION_FIELDS = [
       "callback (the person EXPLICITLY asked to be called back later, or clearly agreed to a specific later time — NOT just being busy); " +
       "call_back_later (the person was busy or brushed us off — 'not now', 'I'm with a patient', 'call me some other time' — WITHOUT agreeing to a real callback); " +
       "not_interested (the person clearly declined and does not want us to call again); " +
-      "gatekeeper (only reached a screener who would not connect us to a decision maker); " +
-      "dnc (asked never to be called again). Leave blank if none clearly apply.",
+      "gatekeeper (reached a HUMAN screener who would not connect us to a decision maker); " +
+      "dnc (asked never to be called again). " +
+      "Leave BLANK if you only reached a voicemail or automated greeting (no human answered), or if none clearly apply.",
     type: "string",
   },
   {
