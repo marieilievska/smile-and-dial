@@ -209,12 +209,38 @@ async function postCallWebhookId(): Promise<string | undefined> {
  *  summaries, lead context, transfer number). Built from NEXT_PUBLIC_APP_URL
  *  + the shared init secret; omitted entirely if either is missing so the
  *  agent body stays valid in environments without them. */
-function conversationInitWebhook():
-  | { url: string; request_headers: Record<string, string> }
-  | undefined {
+async function conversationInitWebhook(): Promise<
+  { url: string; request_headers: Record<string, string> } | undefined
+> {
   const base = appBaseUrl();
-  const secret = process.env.ELEVENLABS_INIT_WEBHOOK_SECRET?.trim();
-  if (!base || !secret) return undefined;
+  if (!base) return undefined;
+  // Env wins; otherwise the DB value (Vercel env store has been unreliable
+  // for this project, which left this empty and made agents fall back to the
+  // workspace default init webhook — pointed at the old V2 project).
+  let secret = process.env.ELEVENLABS_INIT_WEBHOOK_SECRET?.trim() ?? "";
+  if (!secret) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (url && key) {
+      try {
+        const sb = createServiceClient(url, key, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        });
+        const { data } = await sb
+          .from("app_settings")
+          .select("elevenlabs_init_webhook_secret")
+          .eq("id", 1)
+          .maybeSingle();
+        const v = (data as { elevenlabs_init_webhook_secret?: string } | null)
+          ?.elevenlabs_init_webhook_secret;
+        if (typeof v === "string" && v.length > 0) secret = v;
+      } catch {
+        // fall through — without a secret we omit the webhook (no insecure
+        // unauthenticated init endpoint exposure)
+      }
+    }
+  }
+  if (!secret) return undefined;
   return {
     url: `${base}/api/elevenlabs/conversation-init`,
     request_headers: { "x-init-secret": secret },
@@ -390,7 +416,7 @@ export async function applyConnectedAgentIntegration(
   const existingWo = (ps.workspace_overrides ?? {}) as Record<string, unknown>;
   const existingOverrides = (ps.overrides ?? {}) as Record<string, unknown>;
   const postCall = await postCallWebhookBlock();
-  const initWebhook = conversationInitWebhook();
+  const initWebhook = await conversationInitWebhook();
   const workspaceOverrides: Record<string, unknown> = {
     ...existingWo,
     ...(postCall ? { webhooks: postCall } : {}),
@@ -577,7 +603,7 @@ async function liveSync(
 
   const analysis = analysisLlm();
   const webhookId = await postCallWebhookId();
-  const initWebhook = conversationInitWebhook();
+  const initWebhook = await conversationInitWebhook();
 
   // Register (idempotently) our five custom server tools and resolve the
   // ElevenLabs tool ids for the ones this agent enabled. Always set tool_ids

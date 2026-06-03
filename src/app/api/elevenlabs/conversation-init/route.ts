@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import {
   buildConversationInitData,
+  getConversationInitSecret,
   isValidConversationInitSecret,
   type ConversationInitRequest,
 } from "@/lib/elevenlabs/conversation-init";
@@ -27,7 +28,8 @@ export async function POST(request: NextRequest) {
   const secret =
     request.headers.get("x-init-secret") ??
     request.headers.get("x-webhook-secret");
-  if (!isValidConversationInitSecret(secret)) {
+  const expected = (await getConversationInitSecret()) ?? undefined;
+  if (!isValidConversationInitSecret(secret, expected)) {
     return NextResponse.json({ error: "Invalid secret" }, { status: 403 });
   }
 

@@ -64,9 +64,11 @@ export type ConversationInitResponse = {
  */
 export function isValidConversationInitSecret(
   provided: string | null,
+  expectedSecret?: string,
 ): boolean {
   if (process.env.ELEVENLABS_LIVE !== "live") return true;
-  const expected = process.env.ELEVENLABS_INIT_WEBHOOK_SECRET ?? "";
+  const expected =
+    expectedSecret ?? process.env.ELEVENLABS_INIT_WEBHOOK_SECRET ?? "";
   if (!expected) return false;
   if (!provided) return false;
   if (provided.length !== expected.length) return false;
@@ -88,6 +90,26 @@ function makeServiceClient(): SupabaseAdmin {
   return createClient<Database>(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+}
+
+/** The init webhook's shared secret. Env wins; otherwise the value stored in
+ *  app_settings (Vercel's env store has been unreliable for this project).
+ *  Returns null when neither is set, so validation fails closed. */
+export async function getConversationInitSecret(): Promise<string | null> {
+  const env = process.env.ELEVENLABS_INIT_WEBHOOK_SECRET?.trim();
+  if (env) return env;
+  try {
+    const supabase = makeServiceClient();
+    const { data } = await supabase
+      .from("app_settings")
+      .select("elevenlabs_init_webhook_secret")
+      .eq("id", 1)
+      .maybeSingle();
+    const v = data?.elevenlabs_init_webhook_secret;
+    return typeof v === "string" && v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Empty-but-complete variable set — what we return when we can't resolve
