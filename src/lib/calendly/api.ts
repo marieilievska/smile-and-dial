@@ -40,6 +40,8 @@ export type CalendlyEventType = {
   schedulingUrl: string | null;
   durationMinutes: number | null;
   active: boolean;
+  /** "round_robin" | "collective" for team events; null for solo events. */
+  poolingType: string | null;
 };
 
 export type CalendlySlot = {
@@ -80,20 +82,20 @@ type EventTypesResponse = {
     scheduling_url?: string;
     duration?: number;
     active?: boolean;
+    pooling_type?: string | null;
   }[];
   pagination?: { next_page?: string | null };
 };
 
-/** List active event types for an organization (paginated). */
-export async function listEventTypes(
-  organizationUri: string,
+/** Fetch (paginated) active event types for an arbitrary scope query string,
+ *  e.g. `organization=<uri>` or `user=<uri>`. */
+async function fetchEventTypes(
+  scopeParam: string,
   token: string,
 ): Promise<CalendlyEventType[]> {
   const out: CalendlyEventType[] = [];
-  let url: string =
-    `${CAL_API}/event_types?organization=` +
-    `${encodeURIComponent(organizationUri)}&active=true&count=100`;
-  for (let page = 0; page < 10 && url; page++) {
+  let url: string = `${CAL_API}/event_types?${scopeParam}&active=true&count=100`;
+  for (let page = 0; page < 20 && url; page++) {
     const res = await fetch(url, { headers: authHeaders(token) });
     if (!res.ok) break;
     const data = (await res.json()) as EventTypesResponse;
@@ -105,11 +107,78 @@ export async function listEventTypes(
         schedulingUrl: e.scheduling_url ?? null,
         durationMinutes: typeof e.duration === "number" ? e.duration : null,
         active: e.active ?? true,
+        poolingType: e.pooling_type ?? null,
       });
     }
     url = data.pagination?.next_page ?? "";
   }
   return out;
+}
+
+type OrgMembershipsResponse = {
+  collection?: { user?: { uri?: string } }[];
+  pagination?: { next_page?: string | null };
+};
+
+/** List the user URIs of every member in an organization (paginated). */
+async function listOrgMemberUris(
+  organizationUri: string,
+  token: string,
+): Promise<string[]> {
+  const out: string[] = [];
+  let url: string =
+    `${CAL_API}/organization_memberships?organization=` +
+    `${encodeURIComponent(organizationUri)}&count=100`;
+  for (let page = 0; page < 20 && url; page++) {
+    const res = await fetch(url, { headers: authHeaders(token) });
+    if (!res.ok) break;
+    const data = (await res.json()) as OrgMembershipsResponse;
+    for (const m of data.collection ?? []) {
+      if (m.user?.uri) out.push(m.user.uri);
+    }
+    url = data.pagination?.next_page ?? "";
+  }
+  return out;
+}
+
+/**
+ * List the bookable event types for an organization.
+ *
+ * Calendly's org-scope `event_types?organization=` list OMITS some team
+ * round-robin / collective events (e.g. ones created at team level with a
+ * `/d/<hash>/` booking link and a null slug) — those only surface on the
+ * PER-USER `event_types?user=` query of a host. So we union the org-scope list
+ * with each member's team (pooling_type != null) events, deduped by URI. We
+ * deliberately do NOT add members' personal solo events (that would flood the
+ * picker with every rep's 1:1 calls); only shared team events are merged in.
+ */
+export async function listEventTypes(
+  organizationUri: string,
+  token: string,
+): Promise<CalendlyEventType[]> {
+  const byUri = new Map<string, CalendlyEventType>();
+
+  // 1) Org-wide list (covers all solo + org-surfaced team events).
+  for (const e of await fetchEventTypes(
+    `organization=${encodeURIComponent(organizationUri)}`,
+    token,
+  )) {
+    byUri.set(e.uri, e);
+  }
+
+  // 2) Per-member team events the org list misses (round_robin / collective).
+  const members = await listOrgMemberUris(organizationUri, token);
+  for (const memberUri of members) {
+    const events = await fetchEventTypes(
+      `user=${encodeURIComponent(memberUri)}`,
+      token,
+    );
+    for (const e of events) {
+      if (e.poolingType && !byUri.has(e.uri)) byUri.set(e.uri, e);
+    }
+  }
+
+  return [...byUri.values()];
 }
 
 type AvailableTimesResponse = {
