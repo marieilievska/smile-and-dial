@@ -3,7 +3,7 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
-import { placeLiveCall } from "@/lib/twilio/place-call";
+import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
 
 import { type PreCallReason } from "./queue";
 
@@ -297,7 +297,7 @@ export async function runDialerTick(
       continue;
     }
 
-    if (twilioLive) {
+    if (elevenLive) {
       // TS doesn't carry the lead_id / campaign_id null narrow from
       // the guard above into this scope, so re-bind into a typed
       // object the helper can take directly.
@@ -342,13 +342,6 @@ async function placeLiveDialerCall(
   if (!c.business_phone) return null;
   if (!c.twilio_number_id) return null;
 
-  const { data: twilioNumber } = await supabase
-    .from("twilio_numbers")
-    .select("phone_number, released_at")
-    .eq("id", c.twilio_number_id)
-    .maybeSingle();
-  if (!twilioNumber || twilioNumber.released_at) return null;
-
   const { data: pending, error: pendingError } = await supabase
     .from("calls")
     .insert({
@@ -359,17 +352,18 @@ async function placeLiveDialerCall(
       direction: "outbound",
       status: "queued",
       outcome: null,
-      outcome_source: "twilio",
+      outcome_source: "elevenlabs",
     })
     .select("id")
     .single();
   if (pendingError || !pending) return null;
 
   const startedAt = new Date();
-  const result = await placeLiveCall({
+  const result = await resolveAndPlaceAgentCall(supabase, {
     callId: pending.id,
-    from: twilioNumber.phone_number,
-    to: c.business_phone,
+    agentId: c.agent_id,
+    twilioNumberId: c.twilio_number_id,
+    toNumber: c.business_phone,
   });
   if (!result.ok) {
     await supabase
@@ -383,6 +377,7 @@ async function placeLiveDialerCall(
     .from("calls")
     .update({
       twilio_call_sid: result.twilioCallSid,
+      elevenlabs_conversation_id: result.conversationId,
       started_at: startedAt.toISOString(),
       status: "dialing",
     })

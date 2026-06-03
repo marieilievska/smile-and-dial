@@ -1,142 +1,166 @@
 import "server-only";
 
-import { appBaseUrl } from "@/lib/app-url";
-
-/** Round L3 — place one real outbound call via Twilio's REST API.
+/** Place outbound calls via ElevenLabs' NATIVE Twilio integration.
  *
- *  The caller has already done the heavy lifting: validated the lead,
- *  picked the campaign, run the pre-call check. This helper only does
- *  the part that talks to Twilio. It returns the new CallSid (so the
- *  caller can stamp it on the `calls` row) and a typed error message
- *  if anything goes wrong.
+ *  Why not a home-grown bridge? We previously dialed Twilio directly and
+ *  returned `<Connect><Stream>` TwiML pointing at an ElevenLabs signed URL.
+ *  That never worked: Twilio Media Streams and the ElevenLabs conversation
+ *  socket speak different protocols, so every call dropped within seconds and
+ *  no conversation ever started.
  *
- *  The Twilio Call resource accepts a `Url` for inbound TwiML —
- *  Twilio fetches that URL once the call is answered and follows
- *  whatever instructions it returns. We point at our own
- *  `/api/twilio/voice-outbound?call_id=…` route so the TwiML can be
- *  built from the call's database row at request time.
+ *  ElevenLabs supports Twilio natively: you import your Twilio number into the
+ *  workspace once (POST /v1/convai/phone-numbers → phone_number_id), then ask
+ *  ElevenLabs to place the call (POST /v1/convai/twilio/outbound-call). It dials
+ *  through your Twilio account, owns the media end-to-end, runs the agent, and
+ *  fires the post-call webhook (correlated back to our row via the call_id we
+ *  pass as a dynamic variable). This is how every other Referrizer agent runs.
  *
- *  Status callbacks land at `/api/twilio/status` and are signed by
- *  Twilio with the account's Auth Token. Both URLs are derived from
- *  `NEXT_PUBLIC_APP_URL` so a preview deployment and production each
- *  route to themselves automatically.
- *
- *  L3 ships with a simple `<Say>` TwiML for testing. L4 swaps in
- *  `<Connect><Stream>` against ElevenLabs.
+ *  All real API calls are guarded by `ELEVENLABS_LIVE === "live"`. In mock mode
+ *  (tests / default) the helpers return deterministic fakes so the pipeline has
+ *  something to write without touching ElevenLabs or Twilio.
  */
 
-const TWILIO_API = "https://api.twilio.com/2010-04-01/Accounts";
+const ELEVENLABS_BASE = "https://api.elevenlabs.io";
 
 function isLive(): boolean {
-  return process.env.TWILIO_LIVE === "live";
+  return process.env.ELEVENLABS_LIVE === "live";
 }
 
-function twilioAuth(): { account: string; header: string } | null {
-  const account = process.env.TWILIO_ACCOUNT_SID;
-  const keySid = process.env.TWILIO_API_KEY_SID;
-  const keySecret = process.env.TWILIO_API_KEY_SECRET;
-  if (!account || !keySid || !keySecret) return null;
-  return {
-    account,
-    header: "Basic " + Buffer.from(`${keySid}:${keySecret}`).toString("base64"),
-  };
+function elevenLabsApiKey(): string | null {
+  const key = process.env.ELEVENLABS_API_KEY?.trim();
+  return key && key.length > 0 ? key : null;
+}
+
+export type ImportNumberInput = {
+  phoneNumber: string;
+  label: string;
+  twilioSid: string;
+  twilioToken: string;
+};
+
+export type ImportNumberResult =
+  | { ok: true; phoneNumberId: string }
+  | { ok: false; error: string };
+
+/** Import a Twilio number into the ElevenLabs workspace, returning the
+ *  phone_number_id used as agent_phone_number_id when placing calls. Done once
+ *  per number, then cached on twilio_numbers.elevenlabs_phone_number_id. */
+export async function importTwilioNumberToElevenLabs(
+  input: ImportNumberInput,
+): Promise<ImportNumberResult> {
+  if (!isLive()) {
+    return { ok: true, phoneNumberId: `phnum_mock_${input.phoneNumber}` };
+  }
+  const apiKey = elevenLabsApiKey();
+  if (!apiKey) return { ok: false, error: "ELEVENLABS_API_KEY is not set." };
+
+  try {
+    const res = await fetch(`${ELEVENLABS_BASE}/v1/convai/phone-numbers`, {
+      method: "POST",
+      headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone_number: input.phoneNumber,
+        label: input.label,
+        provider: "twilio",
+        sid: input.twilioSid,
+        token: input.twilioToken,
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      return {
+        ok: false,
+        error: `ElevenLabs number import failed (${res.status})${detail ? ` ${detail.slice(0, 200)}` : ""}.`,
+      };
+    }
+    const body = (await res.json()) as { phone_number_id?: string };
+    if (!body.phone_number_id) {
+      return {
+        ok: false,
+        error: "ElevenLabs response missing phone_number_id.",
+      };
+    }
+    return { ok: true, phoneNumberId: body.phone_number_id };
+  } catch {
+    return { ok: false, error: "ElevenLabs number import request failed." };
+  }
 }
 
 export type PlaceCallInput = {
-  /** Our internal call_id (a UUID we generated client-side). Passed
-   *  through to the TwiML and status URLs so handlers can resolve the
-   *  row even if the CallSid hasn't been stored yet. */
+  /** Our internal call_id. Passed to ElevenLabs as a dynamic variable so the
+   *  post-call webhook can resolve our `calls` row deterministically. */
   callId: string;
-  /** The Twilio number to dial from — must be one this account owns. */
-  from: string;
   /** The lead's phone, E.164. */
-  to: string;
+  toNumber: string;
+  /** The agent to run (agents.elevenlabs_agent_id). */
+  elevenlabsAgentId: string;
+  /** The imported Twilio number to dial from
+   *  (twilio_numbers.elevenlabs_phone_number_id). */
+  elevenlabsPhoneNumberId: string;
+  /** Extra dynamic variables to personalize the conversation. call_id is added
+   *  automatically. */
+  dynamicVariables?: Record<string, string | number | boolean | null>;
 };
 
 export type PlaceCallResult =
-  | { ok: true; twilioCallSid: string }
+  | { ok: true; twilioCallSid: string | null; conversationId: string | null }
   | { ok: false; error: string };
 
-/** Place one outbound call via Twilio. Mocked unless TWILIO_LIVE=live. */
-export async function placeLiveCall(
+/** Ask ElevenLabs to place one outbound call through Twilio. Mocked unless
+ *  ELEVENLABS_LIVE=live. */
+export async function placeAgentCall(
   input: PlaceCallInput,
 ): Promise<PlaceCallResult> {
   if (!isLive()) {
-    // In mock mode return a deterministic-looking fake SID so the rest
-    // of the pipeline has something to write. Tests never run live.
+    // Deterministic-looking fakes so the rest of the pipeline has something to
+    // write. Tests never run live.
     return {
       ok: true,
       twilioCallSid: `CA${input.callId.replace(/-/g, "").slice(0, 32)}`,
+      conversationId: `conv_mock_${input.callId.replace(/-/g, "").slice(0, 24)}`,
     };
   }
-  const auth = twilioAuth();
-  if (!auth) {
-    return { ok: false, error: "Twilio is not configured (missing creds)." };
-  }
-  const base = appBaseUrl();
-  if (!base) {
-    return {
-      ok: false,
-      error: "Deployment URL isn't configured; cannot build webhook URLs.",
-    };
-  }
-
-  // Build the TwiML and status URLs with our internal call_id so the
-  // handlers can resolve the database row from query params alone.
-  // Using a query string keeps the URLs cacheable at Twilio without
-  // having to look up the CallSid → call_id mapping on every callback.
-  const twimlUrl = `${base}/api/twilio/voice-outbound?call_id=${encodeURIComponent(input.callId)}`;
-  const statusUrl = `${base}/api/twilio/status?call_id=${encodeURIComponent(input.callId)}`;
-
-  const body = new URLSearchParams({
-    From: input.from,
-    To: input.to,
-    Url: twimlUrl,
-    Method: "POST",
-    StatusCallback: statusUrl,
-    StatusCallbackMethod: "POST",
-    // Twilio status callback events — fire on every transition so the
-    // /calls page can show a call moving through Queued → Ringing →
-    // In progress → Completed in near-real-time.
-    StatusCallbackEvent: "initiated ringing answered completed",
-    // NOTE: we deliberately do NOT use Twilio's machine detection (AMD) here.
-    // Twilio's AMD decides "human vs. machine" within ~5s and errs toward
-    // "machine" whenever the opening greeting runs long — which is exactly how
-    // a live business receptionist answers ("Thank you for calling …, this is
-    // …"). That caused us to hang up on real people. Instead we bridge every
-    // answered call straight to the agent, whose own (smarter, AI-based)
-    // voicemail_detection ends the call if it actually reaches a machine.
-  });
+  const apiKey = elevenLabsApiKey();
+  if (!apiKey) return { ok: false, error: "ELEVENLABS_API_KEY is not set." };
 
   try {
-    const res = await fetch(`${TWILIO_API}/${auth.account}/Calls.json`, {
-      method: "POST",
-      headers: {
-        Authorization: auth.header,
-        "Content-Type": "application/x-www-form-urlencoded",
+    const res = await fetch(
+      `${ELEVENLABS_BASE}/v1/convai/twilio/outbound-call`,
+      {
+        method: "POST",
+        headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: input.elevenlabsAgentId,
+          agent_phone_number_id: input.elevenlabsPhoneNumberId,
+          to_number: input.toNumber,
+          conversation_initiation_client_data: {
+            dynamic_variables: {
+              call_id: input.callId,
+              ...(input.dynamicVariables ?? {}),
+            },
+          },
+        }),
       },
-      body,
-    });
-    if (!res.ok) {
-      let detail = "";
-      try {
-        const j = (await res.json()) as { message?: string; code?: number };
-        detail = j.message ? ` (${j.message})` : "";
-      } catch {
-        // best-effort detail extraction; don't hide the call failure
-        // just because Twilio returned non-JSON.
-      }
+    );
+    const body = (await res.json().catch(() => null)) as {
+      success?: boolean;
+      message?: string;
+      conversation_id?: string | null;
+      callSid?: string | null;
+    } | null;
+    if (!res.ok || !body || body.success === false) {
+      const detail = body?.message || `status ${res.status}`;
       return {
         ok: false,
-        error: `Twilio call create failed (${res.status})${detail}.`,
+        error: `ElevenLabs outbound call failed (${detail}).`,
       };
     }
-    const j = (await res.json()) as { sid?: string };
-    if (!j.sid) {
-      return { ok: false, error: "Twilio response missing CallSid." };
-    }
-    return { ok: true, twilioCallSid: j.sid };
+    return {
+      ok: true,
+      twilioCallSid: body.callSid ?? null,
+      conversationId: body.conversation_id ?? null,
+    };
   } catch {
-    return { ok: false, error: "Twilio call create failed." };
+    return { ok: false, error: "ElevenLabs outbound call request failed." };
   }
 }

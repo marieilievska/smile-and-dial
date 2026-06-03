@@ -1467,6 +1467,7 @@ export type Database = {
         Row: {
           attached_campaign_id: string | null;
           country: string;
+          elevenlabs_phone_number_id: string | null;
           flagged_for_rotation: boolean;
           friendly_name: string | null;
           id: string;
@@ -1484,6 +1485,7 @@ export type Database = {
         Insert: {
           attached_campaign_id?: string | null;
           country: string;
+          elevenlabs_phone_number_id?: string | null;
           flagged_for_rotation?: boolean;
           friendly_name?: string | null;
           id?: string;
@@ -1501,6 +1503,7 @@ export type Database = {
         Update: {
           attached_campaign_id?: string | null;
           country?: string;
+          elevenlabs_phone_number_id?: string | null;
           flagged_for_rotation?: boolean;
           friendly_name?: string | null;
           id?: string;

@@ -407,6 +407,11 @@ async function processTranscription(
   };
 
   const callUpdate: Database["public"]["Tables"]["calls"]["Update"] = {
+    // ElevenLabs places & owns the call now, so Twilio status callbacks don't
+    // hit us — the post-call webhook is our completion signal. Mark the call
+    // done so it doesn't sit on "dialing" forever.
+    status: "completed",
+    ended_at: new Date().toISOString(),
     transcript_json:
       payload.transcript === undefined
         ? null

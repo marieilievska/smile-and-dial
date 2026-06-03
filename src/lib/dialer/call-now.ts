@@ -5,8 +5,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
+import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
 import type { Database } from "@/lib/supabase/database.types";
-import { placeLiveCall } from "@/lib/twilio/place-call";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient<Database>>;
 
@@ -57,14 +57,9 @@ export async function callNow(input: {
   leadId: string;
   campaignId: string;
 }): Promise<CallNowResult> {
-  const twilioLive = process.env.TWILIO_LIVE === "live";
-  const elevenLive = process.env.ELEVENLABS_LIVE === "live";
-  // Round L3 — Twilio live dialing is now wired. ElevenLabs live still
-  // needs L4 work (Connect → Stream against ElevenLabs Convai); if
-  // someone flips both at once we fall through to the live Twilio
-  // path with the L3 placeholder TwiML, which says "the agent will be
-  // wired up next" and hangs up.
-  void elevenLive;
+  // Live calling now runs through ElevenLabs' native Twilio integration:
+  // ElevenLabs places the call and owns the media. Gate on ELEVENLABS_LIVE.
+  const liveCalling = process.env.ELEVENLABS_LIVE === "live";
 
   // Authenticate via the user-scoped client so RLS guards the request.
   const userClient = await createClient();
@@ -136,28 +131,19 @@ export async function callNow(input: {
   const admin = makeServiceClient();
   const startedAt = new Date();
 
-  // Round L3 — fork: live Twilio dialing vs. mock-mode synthetic call.
-  if (twilioLive) {
+  // Fork: live calling (ElevenLabs places + runs the call) vs. mock synthetic.
+  if (liveCalling) {
     if (!lead.business_phone) {
       return { error: "Lead has no phone number on file." };
     }
     if (!campaign.twilio_number_id) {
       return { error: "Campaign has no Twilio number assigned." };
     }
-    const { data: twilioNumber } = await admin
-      .from("twilio_numbers")
-      .select("phone_number, released_at")
-      .eq("id", campaign.twilio_number_id)
-      .maybeSingle();
-    if (!twilioNumber || twilioNumber.released_at) {
-      return { error: "The campaign's Twilio number isn't available." };
-    }
 
-    // Insert the calls row first with status='queued' so the status
-    // webhook has a row to find even if its first callback beats our
-    // own update of `twilio_call_sid` here. We pass the row id back
-    // to Twilio via the callback URL's `call_id` query param so the
-    // status handler can resolve the row regardless of timing.
+    // Insert the calls row first (status='dialing') so the post-call webhook
+    // has a row to find. We pass the row id to ElevenLabs as the call_id
+    // dynamic variable; it's echoed back in the post-call webhook so that
+    // handler resolves this row deterministically.
     const { data: pending, error: pendingError } = await admin
       .from("calls")
       .insert({
@@ -168,7 +154,7 @@ export async function callNow(input: {
         direction: "outbound",
         status: "queued",
         outcome: null,
-        outcome_source: "twilio",
+        outcome_source: "elevenlabs",
       })
       .select("id")
       .single();
@@ -176,15 +162,13 @@ export async function callNow(input: {
       return { error: "Could not record the call before dialing." };
     }
 
-    const result = await placeLiveCall({
+    const result = await resolveAndPlaceAgentCall(admin, {
       callId: pending.id,
-      from: twilioNumber.phone_number,
-      to: lead.business_phone,
+      agentId: campaign.agent_id,
+      twilioNumberId: campaign.twilio_number_id,
+      toNumber: lead.business_phone,
     });
     if (!result.ok) {
-      // The row is left with status='queued' so it's visible in
-      // /calls with a clear "never dialed" state. The status webhook
-      // would never fire on it.
       await admin
         .from("calls")
         .update({ status: "failed", outcome: "failed" })
@@ -196,6 +180,7 @@ export async function callNow(input: {
       .from("calls")
       .update({
         twilio_call_sid: result.twilioCallSid,
+        elevenlabs_conversation_id: result.conversationId,
         started_at: startedAt.toISOString(),
         status: "dialing",
       })
