@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 import { Breadcrumbs } from "@/components/app-shell/breadcrumbs";
 import { Badge } from "@/components/ui/badge";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 import { CallDetailModal } from "../../calls/call-detail-modal";
 import { CallNowDialog } from "../call-now-dialog";
@@ -77,6 +78,10 @@ export function LeadPageClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [callDialogOpen, setCallDialogOpen] = useState(false);
+  // Custom fields with no value are hidden by default (the AI auto-creates
+  // them and most leads won't have every one). Revealing one from the picker
+  // shows its editor so it can be filled in manually.
+  const [revealedFields, setRevealedFields] = useState<string[]>([]);
   useEffect(() => {
     if (searchParams.get("action") === "call") {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -205,20 +210,69 @@ export function LeadPageClient({
           <CollapsibleSection title="Online presence">
             {renderFields(GOOGLE_FIELDS)}
           </CollapsibleSection>
-          {customFields.length > 0 ? (
-            <CollapsibleSection title="Custom fields">
-              <div className="grid grid-cols-1 gap-4">
-                {customFields.map((field) => (
-                  <CustomFieldEditor
-                    key={field.id}
-                    field={field}
-                    initial={customValues[field.id]}
-                    onSave={saveCustom(field.id)}
-                  />
-                ))}
-              </div>
-            </CollapsibleSection>
-          ) : null}
+          {customFields.length > 0
+            ? (() => {
+                const hasValue = (v: unknown) =>
+                  v != null && !(typeof v === "string" && v.trim() === "");
+                // Show a field if it has a value OR the user revealed it to fill
+                // it in manually. Everything else stays hidden behind the picker.
+                const shown = customFields.filter(
+                  (f) =>
+                    hasValue(customValues[f.id]) ||
+                    revealedFields.includes(f.id),
+                );
+                const hidden = customFields.filter(
+                  (f) =>
+                    !hasValue(customValues[f.id]) &&
+                    !revealedFields.includes(f.id),
+                );
+                return (
+                  <CollapsibleSection title="Custom fields">
+                    <div className="flex flex-col gap-4">
+                      {shown.length > 0 ? (
+                        <div className="grid grid-cols-1 gap-4">
+                          {shown.map((field) => (
+                            <CustomFieldEditor
+                              key={field.id}
+                              field={field}
+                              initial={customValues[field.id]}
+                              onSave={saveCustom(field.id)}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-muted-foreground text-sm">
+                          No custom fields captured yet. Calls fill these in
+                          automatically, or add one below.
+                        </p>
+                      )}
+                      {hidden.length > 0 ? (
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-muted-foreground text-xs font-medium">
+                            Add a field value
+                          </span>
+                          <SearchableSelect
+                            value=""
+                            onValueChange={(id) =>
+                              setRevealedFields((prev) =>
+                                prev.includes(id) ? prev : [...prev, id],
+                              )
+                            }
+                            placeholder="Choose a field to fill…"
+                            searchPlaceholder="Search fields…"
+                            emptyText="No fields match."
+                            options={hidden.map((f) => ({
+                              value: f.id,
+                              label: f.name,
+                            }))}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  </CollapsibleSection>
+                );
+              })()
+            : null}
 
           <CollapsibleSection title="Pipeline" defaultOpen>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">

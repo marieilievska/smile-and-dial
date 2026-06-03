@@ -74,6 +74,116 @@ function extractedDataOf(
   return (analysis?.data_collection ?? null) as Record<string, unknown> | null;
 }
 
+/** Extraction keys that must NOT become custom fields. These are operational
+ *  (disposition → outcome, callback_datetime → callbacks) or already map onto
+ *  the lead's built-in columns (email / names). Everything else the agent
+ *  captures becomes a custom field. Compared against the slugified key. */
+const RESERVED_EXTRACTION_KEYS = new Set([
+  "disposition",
+  "callback_datetime",
+  "objection_summary",
+  "business_email",
+  "owner_name",
+  "manager_name",
+  "employee_name",
+]);
+
+/** slug for a custom field, matching the custom-fields admin slugify. */
+function slugifyKey(key: string): string {
+  return key
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/** "current_provider" → "Current provider" for the custom field's display name. */
+function humanizeKey(key: string): string {
+  const spaced = key.replace(/_/g, " ").trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** A captured value counts as "populated" when it's a non-blank string or any
+ *  number/boolean. We never write or create fields for blanks. */
+function isPopulated(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  return typeof value === "number" || typeof value === "boolean";
+}
+
+/**
+ * Mirror the AI's extracted data onto the lead's CUSTOM FIELDS. For each
+ * captured value that has a value and isn't a reserved/operational key:
+ *   - find the custom field whose slug matches (the field's name is the
+ *     extraction's name), creating it if it doesn't exist yet;
+ *   - upsert the value onto this lead.
+ * Only populated values are written, so empty captures never create or clear a
+ * field. Runs under the service role (custom_field_defs is admin-write).
+ */
+async function applyExtractionToCustomFields(
+  supabase: SupabaseAdmin,
+  leadId: string,
+  extracted: Record<string, unknown>,
+): Promise<void> {
+  const entries = Object.entries(extracted).filter(([key, value]) => {
+    const slug = slugifyKey(key);
+    return slug && !RESERVED_EXTRACTION_KEYS.has(slug) && isPopulated(value);
+  });
+  if (entries.length === 0) return;
+
+  for (const [key, value] of entries) {
+    const slug = slugifyKey(key);
+
+    // Find the field by slug, or create it (name = the extraction's name).
+    let fieldId: string | null = null;
+    const { data: existing } = await supabase
+      .from("custom_field_defs")
+      .select("id")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (existing) {
+      fieldId = existing.id;
+    } else {
+      const { count } = await supabase
+        .from("custom_field_defs")
+        .select("id", { count: "exact", head: true });
+      const { data: created } = await supabase
+        .from("custom_field_defs")
+        .insert({
+          name: humanizeKey(key),
+          slug,
+          type: "text",
+          required: false,
+          options: [],
+          sort_order: count ?? 0,
+        })
+        .select("id")
+        .maybeSingle();
+      if (created) {
+        fieldId = created.id;
+      } else {
+        // Lost a create race against a concurrent call — re-read the slug.
+        const { data: again } = await supabase
+          .from("custom_field_defs")
+          .select("id")
+          .eq("slug", slug)
+          .maybeSingle();
+        fieldId = again?.id ?? null;
+      }
+    }
+    if (!fieldId) continue;
+
+    await supabase.from("lead_custom_values").upsert(
+      {
+        lead_id: leadId,
+        custom_field_id: fieldId,
+        value: value as Json,
+      },
+      { onConflict: "lead_id,custom_field_id" },
+    );
+  }
+}
+
 /**
  * The shape of the webhook body we accept. ElevenLabs's actual payload has
  * more fields than this; we only pluck what we need. Fields are loose-typed
@@ -509,8 +619,16 @@ async function processTranscription(
     .eq("id", call.id);
   if (callError) return { ok: false, reason: "could_not_update_call" };
 
-  // Auto-fill empty lead fields from extracted data.
+  // Auto-fill empty built-in lead fields from extracted data.
   await autoFillLeadFromExtraction(supabase, call.lead_id, payload);
+
+  // Mirror the rest of the captured data onto the lead's custom fields
+  // (creating fields on first sight, populating only non-blank values).
+  await applyExtractionToCustomFields(
+    supabase,
+    call.lead_id,
+    extractedDataOf(payload.analysis) ?? {},
+  );
 
   // Outcome-driven side effects: DNC insertion, callback row creation, and
   // lead-status transitions. Per BUILD_PLAN §8 outcome table:
@@ -682,12 +800,18 @@ async function autoFillLeadFromExtraction(
   leadId: string,
   payload: ElevenLabsPostCallPayload,
 ): Promise<void> {
-  const ex = payload.analysis?.data_collection ?? {};
+  const ex = extractedDataOf(payload.analysis) ?? {};
+  const asStr = (v: unknown): string | undefined =>
+    typeof v === "string" && v.trim() ? v.trim() : undefined;
   const candidates: Partial<Record<keyof LeadUpdate, string>> = {};
-  if (ex.business_email) candidates.business_email = ex.business_email;
-  if (ex.owner_name) candidates.owner_name = ex.owner_name;
-  if (ex.manager_name) candidates.manager_name = ex.manager_name;
-  if (ex.employee_name) candidates.employee_name = ex.employee_name;
+  const businessEmail = asStr(ex.business_email);
+  if (businessEmail) candidates.business_email = businessEmail;
+  const ownerName = asStr(ex.owner_name);
+  if (ownerName) candidates.owner_name = ownerName;
+  const managerName = asStr(ex.manager_name);
+  if (managerName) candidates.manager_name = managerName;
+  const employeeName = asStr(ex.employee_name);
+  if (employeeName) candidates.employee_name = employeeName;
   if (Object.keys(candidates).length === 0) return;
 
   const { data: lead } = await supabase
