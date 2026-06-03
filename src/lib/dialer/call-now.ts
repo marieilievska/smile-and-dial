@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
+import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 import type { Database } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient<Database>>;
@@ -101,6 +102,10 @@ export async function callNow(input: {
         "That campaign isn't attached to this lead's list. Attach it from the campaign settings first.",
     };
   }
+
+  // Reap any calls stuck in-flight past the max window first, so a dropped
+  // post-call webhook can't block this dial on the concurrency cap.
+  await closeStaleActiveCalls(makeServiceClient());
 
   // The pre-call check is the same one the cron uses. Returns null when safe.
   // Fail CLOSED: if the RPC itself errors we must NOT dial — a thrown

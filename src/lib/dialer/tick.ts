@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
+import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 
 import { type PreCallReason } from "./queue";
 
@@ -225,6 +226,10 @@ export async function runDialerTick(
   const elevenLive = process.env.ELEVENLABS_LIVE === "live";
 
   const supabase = makeServiceClient();
+
+  // Reap calls stuck in-flight past the max window so a dropped post-call
+  // webhook can't permanently consume the owner's concurrency cap.
+  await closeStaleActiveCalls(supabase);
 
   // Light filter pass: leads currently eligible to dial. When `leadIds` is
   // passed (Playwright tests use this to keep cross-test leads out of the
