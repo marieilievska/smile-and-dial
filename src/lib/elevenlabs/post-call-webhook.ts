@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
 import type { Database, Json } from "@/lib/supabase/database.types";
@@ -656,6 +657,16 @@ async function processTranscription(
     : (DISPOSITION_TO_OUTCOME[disposition] ??
       telephonyOutcome(terminationReason));
 
+  // Did a live human actually answer? If not (voicemail / no-answer / failure),
+  // we don't keep or mirror the AI's guessed extraction (decision maker,
+  // sentiment, …) — a machine greeting yields no real lead info.
+  const reachedHuman =
+    !reachedVoicemail &&
+    !(
+      outcomeFromDisposition != null &&
+      NO_HUMAN_OUTCOMES.has(outcomeFromDisposition)
+    );
+
   // Merge ElevenLabs's cost slice into whatever's already in cost_breakdown
   // (Twilio/lookup may have written there). ElevenLabs bundles LLM+TTS+telephony
   // into one credit figure, so it all lands under `elevenlabs`.
@@ -682,9 +693,9 @@ async function processTranscription(
     summary:
       payload.analysis?.transcript_summary ?? payload.analysis?.summary ?? null,
     score: payload.analysis?.evaluation?.score ?? null,
-    extracted_data: extractedDataOf(
-      payload.analysis,
-    ) as Database["public"]["Tables"]["calls"]["Update"]["extracted_data"],
+    extracted_data: (reachedHuman
+      ? extractedDataOf(payload.analysis)
+      : null) as Database["public"]["Tables"]["calls"]["Update"]["extracted_data"],
     cost_breakdown:
       mergedCost as unknown as Database["public"]["Tables"]["calls"]["Update"]["cost_breakdown"],
   };
@@ -713,16 +724,21 @@ async function processTranscription(
     .eq("id", call.id);
   if (callError) return { ok: false, reason: "could_not_update_call" };
 
-  // Auto-fill empty built-in lead fields from extracted data.
-  await autoFillLeadFromExtraction(supabase, call.lead_id, payload);
+  // Only fill the lead / custom fields from a call where a HUMAN answered.
+  // Voicemails and no-answers carry only the analysis LLM's guesses, which
+  // shouldn't touch the lead.
+  if (reachedHuman) {
+    // Auto-fill empty built-in lead fields from extracted data.
+    await autoFillLeadFromExtraction(supabase, call.lead_id, payload);
 
-  // Mirror the rest of the captured data onto the lead's custom fields
-  // (creating fields on first sight, populating only non-blank values).
-  await applyExtractionToCustomFields(
-    supabase,
-    call.lead_id,
-    extractedDataOf(payload.analysis) ?? {},
-  );
+    // Mirror the rest of the captured data onto the lead's custom fields
+    // (creating fields on first sight, populating only non-blank values).
+    await applyExtractionToCustomFields(
+      supabase,
+      call.lead_id,
+      extractedDataOf(payload.analysis) ?? {},
+    );
+  }
 
   // Outcome-driven side effects: DNC insertion, callback row creation, and
   // lead-status transitions. Per BUILD_PLAN §8 outcome table:
