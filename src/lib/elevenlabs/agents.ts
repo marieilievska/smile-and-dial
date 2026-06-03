@@ -68,6 +68,15 @@ const DATA_COLLECTION_FIELDS = [
     type: "string",
   },
   {
+    id: "decision_maker_reached",
+    description:
+      "Whether the agent actually spoke with the business's DECISION MAKER " +
+      "(the owner or someone who can make the buying decision) — as opposed to " +
+      "a receptionist, front-desk, or other gatekeeper. Answer exactly one of: " +
+      "yes, no, unknown.",
+    type: "string",
+  },
+  {
     id: "business_email",
     description: "The lead's business email, if mentioned.",
     type: "string",

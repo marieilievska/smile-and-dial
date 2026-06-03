@@ -50,7 +50,8 @@ export function relativeTimeSigned(
   if (min < 60) return wrap(`${min}m`);
   const hr = Math.floor(min / 60);
   if (hr < 24) return wrap(`${hr}h`);
-  const day = Math.floor(hr / 24);
+  // Round (not floor) at the day scale so 47.8h reads "in 2d", not "in 1d".
+  const day = Math.round(hr / 24);
   if (day < 14) return wrap(`${day}d`);
   return new Date(iso).toLocaleDateString();
 }
