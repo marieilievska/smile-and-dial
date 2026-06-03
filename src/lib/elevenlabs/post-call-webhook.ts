@@ -126,10 +126,13 @@ const SIGNATURE_TOLERANCE_SECONDS = 30 * 60;
 export function isValidElevenLabsSignature(input: {
   body: string;
   signature: string | null;
+  /** The HMAC signing secret. Resolved by the caller (env → DB). When
+   *  omitted, falls back to the env var so existing tests keep working. */
+  secret?: string;
 }): boolean {
   if (process.env.ELEVENLABS_LIVE !== "live") return true;
   if (!input.signature) return false;
-  const secret = process.env.ELEVENLABS_WEBHOOK_SECRET ?? "";
+  const secret = input.secret ?? process.env.ELEVENLABS_WEBHOOK_SECRET ?? "";
   if (!secret) return false;
 
   // Parse "t=..." and one-or-more "v0=..." from the comma-separated header.
@@ -215,6 +218,27 @@ function makeServiceClient(): SupabaseAdmin {
   return createClient<Database>(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+}
+
+/** The post-call webhook's HMAC signing secret. Env wins; otherwise the value
+ *  stored in app_settings (Vercel's env store has been unreliable for this
+ *  project, so the DB is the dependable source). Returns null when neither is
+ *  set, which makes signature validation fail closed. */
+export async function getElevenLabsWebhookSecret(): Promise<string | null> {
+  const env = process.env.ELEVENLABS_WEBHOOK_SECRET?.trim();
+  if (env) return env;
+  try {
+    const supabase = makeServiceClient();
+    const { data } = await supabase
+      .from("app_settings")
+      .select("elevenlabs_post_call_webhook_secret")
+      .eq("id", 1)
+      .maybeSingle();
+    const v = data?.elevenlabs_post_call_webhook_secret;
+    return typeof v === "string" && v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 export type ProcessResult =

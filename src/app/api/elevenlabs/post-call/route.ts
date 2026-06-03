@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
+  getElevenLabsWebhookSecret,
   isValidElevenLabsSignature,
   processElevenLabsPostCall,
   type ElevenLabsWebhookEnvelope,
@@ -23,7 +24,8 @@ export async function POST(request: NextRequest) {
   // JSON parsing.
   const rawBody = await request.text();
   const signature = request.headers.get("elevenlabs-signature");
-  if (!isValidElevenLabsSignature({ body: rawBody, signature })) {
+  const secret = (await getElevenLabsWebhookSecret()) ?? undefined;
+  if (!isValidElevenLabsSignature({ body: rawBody, signature, secret })) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 403 });
   }
 

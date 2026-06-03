@@ -10,6 +10,8 @@
  * still lives in `app_settings`.
  */
 
+import { createClient as createServiceClient } from "@supabase/supabase-js";
+
 import {
   toElevenLabsDataCollection,
   toElevenLabsEvaluation,
@@ -176,9 +178,30 @@ function analysisLlm(): string | undefined {
   const v = process.env.ELEVENLABS_ANALYSIS_LLM?.trim();
   return v && v.length > 0 ? v : DEFAULT_ANALYSIS_LLM;
 }
-function postCallWebhookId(): string | undefined {
-  const v = process.env.ELEVENLABS_POST_CALL_WEBHOOK_ID?.trim();
-  return v && v.length > 0 ? v : undefined;
+/** The workspace post-call webhook id to attach to our agents. Env wins;
+ *  otherwise the value stored in app_settings (Vercel's env store has been
+ *  unreliable for this project). Returns undefined when neither is set. */
+async function postCallWebhookId(): Promise<string | undefined> {
+  const env = process.env.ELEVENLABS_POST_CALL_WEBHOOK_ID?.trim();
+  if (env) return env;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return undefined;
+  try {
+    const sb = createServiceClient(url, key, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data } = await sb
+      .from("app_settings")
+      .select("elevenlabs_post_call_webhook_id")
+      .eq("id", 1)
+      .maybeSingle();
+    const v = (data as { elevenlabs_post_call_webhook_id?: string } | null)
+      ?.elevenlabs_post_call_webhook_id;
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The conversation-initiation override every agent reports to: ElevenLabs
@@ -255,15 +278,19 @@ const DYNAMIC_VAR_PLACEHOLDERS = {
   call_id: "",
 } as const;
 
-/** Our post-call webhook block (when the webhook id env is set). */
-function postCallWebhookBlock(): Record<string, unknown> | undefined {
-  const webhookId = postCallWebhookId();
+/** Our post-call webhook block (when a webhook id is configured). Requests
+ *  the audio event too (send_audio) so completed calls get their recording
+ *  stored, not just the transcript. */
+async function postCallWebhookBlock(): Promise<
+  Record<string, unknown> | undefined
+> {
+  const webhookId = await postCallWebhookId();
   if (!webhookId) return undefined;
   return {
     post_call_webhook_id: webhookId,
     events: ["transcript", "audio", "call_initiation_failure"],
     transcript_format: "json",
-    send_audio: false,
+    send_audio: true,
   };
 }
 
@@ -362,7 +389,7 @@ export async function applyConnectedAgentIntegration(
   const ps = (current.platform_settings ?? {}) as Record<string, unknown>;
   const existingWo = (ps.workspace_overrides ?? {}) as Record<string, unknown>;
   const existingOverrides = (ps.overrides ?? {}) as Record<string, unknown>;
-  const postCall = postCallWebhookBlock();
+  const postCall = await postCallWebhookBlock();
   const initWebhook = conversationInitWebhook();
   const workspaceOverrides: Record<string, unknown> = {
     ...existingWo,
@@ -549,7 +576,7 @@ async function liveSync(
   const includeTts = Boolean(payload.voiceId) || Boolean(dictLocators);
 
   const analysis = analysisLlm();
-  const webhookId = postCallWebhookId();
+  const webhookId = await postCallWebhookId();
   const initWebhook = conversationInitWebhook();
 
   // Register (idempotently) our five custom server tools and resolve the
@@ -574,7 +601,8 @@ async function liveSync(
       // envelope (data.analysis.disposition). "opentelemetry" would deliver
       // OTLP trace data instead and break outcome parsing.
       transcript_format: "json",
-      send_audio: false,
+      // Request the audio event so completed calls get their recording stored.
+      send_audio: true,
     };
   }
   if (initWebhook) {
