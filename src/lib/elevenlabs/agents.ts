@@ -95,6 +95,21 @@ const DATA_COLLECTION_FIELDS = [
   },
 ];
 
+/** Our standard data-collection fields in ElevenLabs' canonical OBJECT shape
+ *  (keyed by identifier), the form the agent API stores and returns. Used to
+ *  guarantee every agent — including externally-built ones — captures the
+ *  outcome (disposition) plus the contact fields our post-call webhook reads. */
+function standardDataCollectionObject(): Record<
+  string,
+  { type: string; description: string }
+> {
+  const out: Record<string, { type: string; description: string }> = {};
+  for (const f of DATA_COLLECTION_FIELDS) {
+    out[f.id] = { type: f.type, description: f.description };
+  }
+  return out;
+}
+
 /** Built-in system tools every agent gets. These need no per-agent config,
  *  so they're safe as a global default:
  *   - end_call: agent hangs up gracefully when the conversation is done
@@ -442,6 +457,19 @@ export async function applyConnectedAgentIntegration(
     },
     platform_settings: {
       ...ps,
+      // Merge our standard capture fields (disposition + owner/manager/employee
+      // names + business_email + callback) INTO the agent's existing data
+      // collection — its own custom fields are preserved, ours are added — so
+      // even an externally-built agent reports the outcome and contact details
+      // our post-call webhook reads.
+      data_collection: {
+        ...(ps.data_collection &&
+        typeof ps.data_collection === "object" &&
+        !Array.isArray(ps.data_collection)
+          ? (ps.data_collection as Record<string, unknown>)
+          : {}),
+        ...standardDataCollectionObject(),
+      },
       ...(Object.keys(workspaceOverrides).length > 0
         ? { workspace_overrides: workspaceOverrides }
         : {}),

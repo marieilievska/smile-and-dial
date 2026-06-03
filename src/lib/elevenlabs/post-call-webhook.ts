@@ -88,6 +88,19 @@ const RESERVED_EXTRACTION_KEYS = new Set([
   "employee_name",
 ]);
 
+/** Map an ElevenLabs termination reason to an UNAMBIGUOUS telephony outcome.
+ *  Only the clear-cut carrier states are inferred here; a conversational
+ *  "remote party ended" is intentionally left to the agent's disposition. */
+function telephonyOutcome(reason: string): CallOutcome | null {
+  const r = reason.toLowerCase();
+  if (/voicemail/.test(r)) return "voicemail";
+  if (/no[ _-]?answer|unanswered|not answered|timed? ?out|timeout|ring/.test(r))
+    return "no_answer";
+  if (/busy/.test(r)) return "busy";
+  if (/fail|carrier|invalid number|rejected|\berror\b/.test(r)) return "failed";
+  return null;
+}
+
 /** slug for a custom field, matching the custom-fields admin slugify. */
 function slugifyKey(key: string): string {
   return key
@@ -558,9 +571,14 @@ async function processTranscription(
   // (we no longer use Twilio AMD, so the AI is the source of truth here).
   const disposition = dispositionOf(payload.analysis);
   const terminationReason = payload.metadata?.termination_reason ?? "";
+  // Outcome priority: the agent's disposition (most accurate) → an unambiguous
+  // telephony state read from the termination reason (voicemail / no-answer /
+  // busy / failed). A conversational hang-up with NO disposition stays null on
+  // purpose — only the agent's disposition can say whether "remote party ended"
+  // was a polite goodbye or a rude hang-up. (Add a `disposition` data-collection
+  // field to the agent to classify those.)
   const outcomeFromDisposition: CallOutcome | null =
-    DISPOSITION_TO_OUTCOME[disposition] ??
-    (/voicemail/i.test(terminationReason) ? "voicemail" : null);
+    DISPOSITION_TO_OUTCOME[disposition] ?? telephonyOutcome(terminationReason);
 
   // Merge ElevenLabs's cost slice into whatever's already in cost_breakdown
   // (Twilio/lookup may have written there). ElevenLabs bundles LLM+TTS+telephony
