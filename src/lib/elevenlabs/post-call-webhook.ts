@@ -26,6 +26,54 @@ const DISPOSITION_TO_OUTCOME: Record<string, CallOutcome> = {
   voicemail: "voicemail",
 };
 
+/** ElevenLabs Conversational AI is billed in credits; the post-call payload
+ *  reports the total as a number in metadata.cost. Convert to USD. Default is
+ *  the Pro plan rate (~$0.000198/credit); override with ELEVENLABS_USD_PER_CREDIT
+ *  if the workspace plan differs. */
+const ELEVENLABS_USD_PER_CREDIT =
+  Number(process.env.ELEVENLABS_USD_PER_CREDIT) || 0.000198;
+
+/** Normalize the post-call cost into USD. Real ElevenLabs sends a credit count
+ *  (number); our legacy tests send a pre-split { elevenlabs, openai } object. */
+function elevenLabsCostUsd(
+  cost: number | { elevenlabs?: number; openai?: number } | undefined,
+): number {
+  if (typeof cost === "number") {
+    return Number((cost * ELEVENLABS_USD_PER_CREDIT).toFixed(4));
+  }
+  if (cost && typeof cost === "object") {
+    return (cost.elevenlabs ?? 0) + (cost.openai ?? 0);
+  }
+  return 0;
+}
+
+/** Disposition from the real data_collection_results[*].value, else the legacy
+ *  flat data_collection.disposition. */
+function dispositionOf(
+  analysis: ElevenLabsPostCallPayload["analysis"],
+): string {
+  const real = analysis?.data_collection_results?.disposition?.value;
+  if (typeof real === "string" && real) return real;
+  const legacy = analysis?.data_collection?.disposition;
+  return typeof legacy === "string" ? legacy : "";
+}
+
+/** Flatten the data collection into a {key: value} map for extracted_data,
+ *  reading the real results shape first, else the legacy flat object. */
+function extractedDataOf(
+  analysis: ElevenLabsPostCallPayload["analysis"],
+): Record<string, unknown> | null {
+  const results = analysis?.data_collection_results;
+  if (results && typeof results === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(results)) {
+      out[k] = v && typeof v === "object" && "value" in v ? v.value : v;
+    }
+    return out;
+  }
+  return (analysis?.data_collection ?? null) as Record<string, unknown> | null;
+}
+
 /**
  * The shape of the webhook body we accept. ElevenLabs's actual payload has
  * more fields than this; we only pluck what we need. Fields are loose-typed
@@ -82,7 +130,17 @@ export type ElevenLabsPostCallPayload = {
   call_id?: string;
   transcript?: unknown;
   analysis?: {
+    // REAL ElevenLabs field is `transcript_summary`; `summary` is the legacy
+    // shape our older tests post. We read both (real first).
+    transcript_summary?: string;
     summary?: string;
+    // REAL ElevenLabs field is `data_collection_results`, keyed by the data-
+    // collection field id, each `{ value, rationale, ... }`. Legacy tests post
+    // a flat `data_collection` object. We read both.
+    data_collection_results?: Record<
+      string,
+      { value?: unknown; rationale?: string } | undefined
+    >;
     data_collection?: {
       disposition?: string;
       business_email?: string;
@@ -95,6 +153,8 @@ export type ElevenLabsPostCallPayload = {
     evaluation?: { score?: number };
   };
   metadata?: {
+    // REAL field is `call_duration_secs`; `duration_seconds` is legacy.
+    call_duration_secs?: number;
     duration_seconds?: number;
     talk_time_seconds?: number;
     recording_url?: string;
@@ -102,10 +162,9 @@ export type ElevenLabsPostCallPayload = {
      *  system tool fires, this reads like "voicemail" — we use it to label the
      *  call's outcome when the agent didn't also set a disposition. */
     termination_reason?: string;
-    cost?: {
-      elevenlabs?: number;
-      openai?: number;
-    };
+    // REAL ElevenLabs `cost` is a NUMBER (credits). Legacy tests post an object
+    // of pre-split dollar costs. We handle both in elevenLabsCostUsd().
+    cost?: number | { elevenlabs?: number; openai?: number };
   };
 };
 
@@ -387,27 +446,23 @@ async function processTranscription(
   // Map disposition → outcome. If the agent didn't set a disposition but its
   // voicemail_detection ended the call, fall back to labeling it voicemail
   // (we no longer use Twilio AMD, so the AI is the source of truth here).
-  const disposition = payload.analysis?.data_collection?.disposition ?? "";
+  const disposition = dispositionOf(payload.analysis);
   const terminationReason = payload.metadata?.termination_reason ?? "";
   const outcomeFromDisposition: CallOutcome | null =
     DISPOSITION_TO_OUTCOME[disposition] ??
     (/voicemail/i.test(terminationReason) ? "voicemail" : null);
 
   // Merge ElevenLabs's cost slice into whatever's already in cost_breakdown
-  // (which Twilio has been updating in parallel).
+  // (Twilio/lookup may have written there). ElevenLabs bundles LLM+TTS+telephony
+  // into one credit figure, so it all lands under `elevenlabs`.
   const prevCost = (call.cost_breakdown ?? {}) as Record<string, number>;
-  const elevenLabsCost = payload.metadata?.cost?.elevenlabs ?? 0;
-  const openaiCost = payload.metadata?.cost?.openai ?? 0;
+  const elevenLabsCost = elevenLabsCostUsd(payload.metadata?.cost);
   const mergedCost = {
     twilio: prevCost.twilio ?? 0,
     elevenlabs: elevenLabsCost,
-    openai: openaiCost,
+    openai: 0,
     lookup: prevCost.lookup ?? 0,
-    total:
-      (prevCost.twilio ?? 0) +
-      elevenLabsCost +
-      openaiCost +
-      (prevCost.lookup ?? 0),
+    total: (prevCost.twilio ?? 0) + elevenLabsCost + (prevCost.lookup ?? 0),
   };
 
   const callUpdate: Database["public"]["Tables"]["calls"]["Update"] = {
@@ -420,10 +475,12 @@ async function processTranscription(
       payload.transcript === undefined
         ? null
         : (payload.transcript as Database["public"]["Tables"]["calls"]["Update"]["transcript_json"]),
-    summary: payload.analysis?.summary ?? null,
+    summary:
+      payload.analysis?.transcript_summary ?? payload.analysis?.summary ?? null,
     score: payload.analysis?.evaluation?.score ?? null,
-    extracted_data: (payload.analysis?.data_collection ??
-      null) as Database["public"]["Tables"]["calls"]["Update"]["extracted_data"],
+    extracted_data: extractedDataOf(
+      payload.analysis,
+    ) as Database["public"]["Tables"]["calls"]["Update"]["extracted_data"],
     cost_breakdown:
       mergedCost as unknown as Database["public"]["Tables"]["calls"]["Update"]["cost_breakdown"],
   };
@@ -432,8 +489,10 @@ async function processTranscription(
     callUpdate.outcome_source = "elevenlabs";
     callUpdate.goal_met = outcomeFromDisposition === "goal_met";
   }
-  if (payload.metadata?.duration_seconds) {
-    callUpdate.duration_seconds = payload.metadata.duration_seconds;
+  const durationSecs =
+    payload.metadata?.call_duration_secs ?? payload.metadata?.duration_seconds;
+  if (durationSecs) {
+    callUpdate.duration_seconds = durationSecs;
   }
   if (payload.metadata?.talk_time_seconds) {
     callUpdate.talk_time_seconds = payload.metadata.talk_time_seconds;
