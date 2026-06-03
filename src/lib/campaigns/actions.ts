@@ -40,8 +40,8 @@ export type CampaignInput = {
    *  works. Optional so existing call sites default it to on. */
   autopilotEnabled?: boolean;
   /** Calendly event type (calendly_event_types.id) the booking tools check
-   *  availability against and book into. Empty = fall back to the owner's
-   *  first active event. */
+   *  availability against and book into. Empty = booking is OFF for this
+   *  campaign (the agent won't offer times or book; no fallback event). */
   calendlyEventId?: string;
   /** Email template (email_templates.id) the send_email tool sends. Empty =
    *  no template, the tool only records intent. */

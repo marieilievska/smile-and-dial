@@ -72,8 +72,8 @@ export type CampaignData = {
 };
 
 const NO_NUMBER = "__none__";
-/** Sentinel for "no Calendly event chosen" — booking tools fall back to the
- *  owner's first active event. */
+/** Sentinel for "no Calendly event chosen" — booking is OFF for the campaign;
+ *  the agent won't offer times or book (no fallback event). */
 const NO_EVENT = "__none__";
 /** Sentinel for "no email template" — the send_email tool only records intent. */
 const NO_TEMPLATE = "__none__";
@@ -620,11 +620,11 @@ export function CampaignSettingsDialog({
                   id="campaign-calendly"
                   value={calendlyEventId}
                   onValueChange={setCalendlyEventId}
-                  placeholder="Choose a Calendly event"
+                  placeholder="None — don't book a meeting"
                   searchPlaceholder="Search events…"
                   emptyText="No events match."
                   options={[
-                    { value: NO_EVENT, label: "First active event (default)" },
+                    { value: NO_EVENT, label: "None — don't book a meeting" },
                     ...calendlyEvents.map((evt) => ({
                       value: evt.id,
                       label: evt.name,
@@ -638,9 +638,10 @@ export function CampaignSettingsDialog({
                 </p>
               )}
               <p className="text-muted-foreground text-xs">
-                The event the agent checks availability for and books into when
-                it uses &ldquo;get available times&rdquo; / &ldquo;book
-                appointment.&rdquo;
+                Leave this as &ldquo;None&rdquo; for campaigns that aren&apos;t
+                booking meetings. Pick an event only when you want the agent to
+                offer times and book — it checks availability for and books into
+                the chosen event.
               </p>
             </div>
 

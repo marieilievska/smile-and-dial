@@ -182,9 +182,15 @@ type CampaignCalendly = { token: string; eventTypeUri: string | null };
 /**
  * Resolve the Calendly credentials + event type for a call: the CAMPAIGN
  * OWNER's connected token (per-user, from user_integrations) and the event
- * type assigned to the campaign (else the owner's first active synced type).
- * Returns null when the owner hasn't connected Calendly — the handler then
- * falls back to generic/mock behavior.
+ * type EXPLICITLY assigned to the campaign.
+ *
+ * Returns:
+ *  - null            — owner hasn't connected Calendly (demo/mock behavior).
+ *  - {token, uri}    — connected AND a specific event was chosen → live booking.
+ *  - {token, null}   — connected but NO event chosen → booking is OFF for this
+ *                      campaign. We deliberately do NOT fall back to "the first
+ *                      synced event": not every campaign is a booking campaign,
+ *                      so an unset event means the AI should not book.
  */
 async function resolveCampaignCalendly(
   supabase: SupabaseAdmin,
@@ -213,17 +219,6 @@ async function resolveCampaignCalendly(
       .eq("id", campaign.calendly_event_id)
       .maybeSingle();
     eventTypeUri = et?.event_uri ?? null;
-  }
-  if (!eventTypeUri) {
-    const { data: fallback } = await supabase
-      .from("calendly_event_types")
-      .select("event_uri")
-      .eq("owner_id", campaign.owner_id)
-      .eq("active", true)
-      .order("synced_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    eventTypeUri = fallback?.event_uri ?? null;
   }
   return { token, eventTypeUri };
 }
@@ -515,6 +510,14 @@ async function getAvailableTimesResult(
   // hasn't connected Calendly or has no openings, so the conversation moves.
   if (ctx) {
     const cal = await resolveCampaignCalendly(ctx.supabase, ctx.campaignId);
+    // Calendly is connected but this campaign has no event chosen → booking is
+    // intentionally off; don't offer times.
+    if (cal && !cal.eventTypeUri) {
+      return {
+        success: false,
+        message: "Scheduling isn't enabled for this campaign.",
+      };
+    }
     if (cal?.eventTypeUri) {
       const start = new Date(new Date().getTime() + 15 * 60 * 1000);
       const end = new Date(new Date().getTime() + 6 * 24 * 60 * 60 * 1000);
@@ -592,8 +595,24 @@ async function bookAppointment(
   const when = new Date(slotId);
   const label = Number.isNaN(when.getTime()) ? slotId : fmtSlot(slotId);
 
-  // Live: book the slot directly on the campaign owner's Calendly.
   const cal = await resolveCampaignCalendly(ctx.supabase, ctx.campaignId);
+
+  // Calendly is connected but this campaign has no event chosen → booking is
+  // intentionally off. Decline instead of faking a confirmation.
+  if (cal && !cal.eventTypeUri) {
+    await logToolEvent(ctx, "tool_book_appointment", {
+      slot_id: slotId,
+      email,
+      booking_disabled: true,
+    });
+    return {
+      success: false,
+      message:
+        "I'm not able to book a meeting on this call, but I'll make sure the team follows up.",
+    };
+  }
+
+  // Live: book the slot directly on the campaign owner's Calendly.
   if (cal?.eventTypeUri) {
     if (Number.isNaN(when.getTime())) {
       return {
