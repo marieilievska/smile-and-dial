@@ -93,6 +93,20 @@ function noRecordingReason(outcome: string | null): string {
       return "Language barrier — the lead didn't speak the agent's language.";
     case "ai_error":
       return "The AI agent errored mid-call. Check the agent's logs.";
+    case "call_back_later":
+      return "Busy brush-off — they asked us to try another time. No real conversation captured.";
+    case "callback":
+      return "They asked for a callback. The conversation should appear above; if not, the recording wasn't returned.";
+    case "not_interested":
+      return "Spoke with someone who declined. The conversation should appear above.";
+    case "dm_reached":
+      return "Reached the decision maker. The conversation should appear above.";
+    case "ai_receptionist":
+      return "Reached the business's own AI/auto-receptionist — no human conversation.";
+    case "goal_met":
+      return "Goal met. The conversation should appear above.";
+    case "transferred_to_human":
+      return "Transferred to a human rep. The conversation should appear above.";
     default:
       return "No conversation was captured for this call.";
   }

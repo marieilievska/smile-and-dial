@@ -18,9 +18,29 @@ export type CallRow = {
   duration_seconds: number | null;
   talk_time_seconds: number | null;
   cost_breakdown: unknown;
+  extracted_data: unknown;
   started_at: string | null;
   created_at: string;
 };
+
+/** Did this call reach the decision maker? Prefers the agent's explicit
+ *  `decision_maker_reached` capture (yes/no); falls back to the outcome proxy
+ *  when the field is absent (older calls) or "unknown". */
+function rowReachedDm(row: {
+  outcome: string | null;
+  extracted_data: unknown;
+}): boolean {
+  const ex = row.extracted_data;
+  if (ex && typeof ex === "object") {
+    const v = (ex as Record<string, unknown>).decision_maker_reached;
+    if (typeof v === "string") {
+      const s = v.trim().toLowerCase();
+      if (s === "yes") return true;
+      if (s === "no") return false;
+    }
+  }
+  return Boolean(row.outcome && DM_REACHED_OUTCOMES.has(row.outcome));
+}
 
 export type Slicers = {
   campaignId?: string;
@@ -89,7 +109,7 @@ export async function fetchCallsForRange(
     .from("calls")
     .select(
       "id, campaign_id, lead_id, direction, outcome, goal_met, duration_seconds, " +
-        "talk_time_seconds, cost_breakdown, started_at, created_at",
+        "talk_time_seconds, cost_breakdown, extracted_data, started_at, created_at",
     )
     .gte("created_at", startOfDay(slicers.from))
     .lte("created_at", endOfDay(slicers.to))
@@ -127,7 +147,7 @@ export function computeKpis(rows: CallRow[]): Kpis {
   for (const r of rows) {
     if (r.outcome && CONNECTED_OUTCOMES.has(r.outcome)) connected += 1;
     if (r.outcome && CONVERSATION_OUTCOMES.has(r.outcome)) conversations += 1;
-    if (r.outcome && DM_REACHED_OUTCOMES.has(r.outcome)) dmsReached += 1;
+    if (rowReachedDm(r)) dmsReached += 1;
     if (r.goal_met) goalMet += 1;
     if (r.duration_seconds != null) {
       durationSum += r.duration_seconds;
@@ -173,7 +193,7 @@ export function buildFunnel(rows: CallRow[]): FunnelStep[] {
     dialed += 1;
     if (r.outcome && CONNECTED_OUTCOMES.has(r.outcome)) connected += 1;
     if (r.outcome && CONVERSATION_OUTCOMES.has(r.outcome)) conversation += 1;
-    if (r.outcome && DM_REACHED_OUTCOMES.has(r.outcome)) dmsReached += 1;
+    if (rowReachedDm(r)) dmsReached += 1;
     if (r.goal_met) goalMet += 1;
   }
   return [

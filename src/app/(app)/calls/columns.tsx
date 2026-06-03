@@ -44,9 +44,10 @@ export type CallColumn = {
   width?: string;
 };
 
-/** Outcomes that visibly read as "didn't connect" — we'd never want to
- *  pretend a voicemail or busy signal is the same kind of result as a
- *  goal-met. They get a muted pill. */
+/** Low-signal outcomes that get a muted/grey pill — no useful business
+ *  conversation happened. call_back_later (a busy brush-off) belongs here even
+ *  though a human briefly picked up: it isn't promising work, so it shouldn't
+ *  read coral like an agreed callback. */
 const NON_CONNECT_OUTCOMES = new Set([
   "voicemail",
   "no_answer",
@@ -54,6 +55,7 @@ const NON_CONNECT_OUTCOMES = new Set([
   "failed",
   "invalid_number",
   "hung_up_immediately",
+  "call_back_later",
 ]);
 
 /** Outcomes that count as a real win for the operator. */

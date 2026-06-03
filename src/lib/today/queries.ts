@@ -34,18 +34,21 @@ export type ActionItem = {
   at: string;
 };
 
+// "Today" boundaries in UTC, matching the Costs page and the (UTC) server, so
+// every dashboard agrees on which calls are "today" rather than drifting by the
+// server's local offset.
 function todayStart(): Date {
   const d = new Date();
-  d.setHours(0, 0, 0, 0);
+  d.setUTCHours(0, 0, 0, 0);
   return d;
 }
 
 function yesterdayWindow(): { from: string; to: string } {
   const start = todayStart();
   const yEnd = new Date(start);
-  yEnd.setMilliseconds(-1);
+  yEnd.setUTCMilliseconds(-1);
   const yStart = new Date(start);
-  yStart.setDate(yStart.getDate() - 1);
+  yStart.setUTCDate(yStart.getUTCDate() - 1);
   return { from: yStart.toISOString(), to: yEnd.toISOString() };
 }
 

@@ -50,8 +50,10 @@ export function CostsStatStrip({
   projectedMonthSpend: number;
   todaySpend: number;
 }) {
-  // Cost per Goal Met stays a per-call metric (excludes flat number rental).
-  const perGoal = goalMet === 0 ? null : spend.total / goalMet;
+  // Cost per Goal Met = all VARIABLE spend (calls + number-lookup checks) per
+  // goal. Excludes the flat monthly number rental, which isn't a per-goal cost.
+  const perGoal =
+    goalMet === 0 ? null : (spend.total + periodLookupCost) / goalMet;
   const totalSpend = spend.total + periodNumberCost + periodLookupCost;
   return (
     <section

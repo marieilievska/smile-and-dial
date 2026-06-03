@@ -33,8 +33,9 @@ const ACTIVE_STATUSES = [
 export async function fetchCallStats(
   supabase: SupabaseServerClient,
 ): Promise<CallStats> {
+  // UTC day start — consistent with the Today/Costs pages and the UTC server.
   const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  startOfToday.setUTCHours(0, 0, 0, 0);
 
   const [{ data, error }, { count: inProgressCount }] = await Promise.all([
     supabase
