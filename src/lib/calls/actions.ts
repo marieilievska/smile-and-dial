@@ -105,19 +105,47 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
   };
   const data = raw as unknown as Joined;
 
-  // The transcript can be either an array of turns or an object that wraps
-  // an array (e.g. { turns: [...] }). Be defensive.
-  let transcript: TranscriptTurn[] = [];
+  // transcript_json holds ElevenLabs' raw transcript array. Each turn is
+  // { role: "user"|"agent", message: string|null, time_in_call_secs: number,
+  // tool_calls?, … } — NOT our { text, started_at } shape. Older/test rows used
+  // { text, started_at }, and some payloads wrap the array in { transcript: […] }
+  // or { turns: […] }. Normalize all of them into TranscriptTurn and drop turns
+  // with no spoken text (e.g. pure tool-call turns like voicemail_detection).
   const tj = data.transcript_json;
-  if (Array.isArray(tj)) {
-    transcript = tj as TranscriptTurn[];
-  } else if (
-    tj &&
-    typeof tj === "object" &&
-    Array.isArray((tj as { turns?: unknown }).turns)
-  ) {
-    transcript = (tj as { turns: TranscriptTurn[] }).turns;
-  }
+  const rawTurns: unknown[] = Array.isArray(tj)
+    ? tj
+    : tj &&
+        typeof tj === "object" &&
+        Array.isArray((tj as { transcript?: unknown }).transcript)
+      ? (tj as { transcript: unknown[] }).transcript
+      : tj &&
+          typeof tj === "object" &&
+          Array.isArray((tj as { turns?: unknown }).turns)
+        ? (tj as { turns: unknown[] }).turns
+        : [];
+  const transcript: TranscriptTurn[] = rawTurns
+    .map((t): TranscriptTurn => {
+      const turn = (t ?? {}) as Record<string, unknown>;
+      const text =
+        typeof turn.message === "string"
+          ? turn.message
+          : typeof turn.text === "string"
+            ? turn.text
+            : "";
+      const startedAt =
+        typeof turn.time_in_call_secs === "number"
+          ? turn.time_in_call_secs
+          : typeof turn.started_at === "number" ||
+              typeof turn.started_at === "string"
+            ? (turn.started_at as number | string)
+            : undefined;
+      return {
+        role: typeof turn.role === "string" ? turn.role : undefined,
+        text,
+        started_at: startedAt,
+      };
+    })
+    .filter((t) => typeof t.text === "string" && t.text.trim().length > 0);
 
   // Resolve a playable URL. The recording lives in the private
   // `call-recordings` bucket (object path like "<callId>.mp3"), so mint a
