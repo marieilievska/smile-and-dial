@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { pickBreakdown } from "@/lib/analytics/costs";
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 
 /** Today-page data: three hero counts + an action queue of items that
@@ -48,12 +49,6 @@ function yesterdayWindow(): { from: string; to: string } {
   return { from: yStart.toISOString(), to: yEnd.toISOString() };
 }
 
-function pickTotal(value: unknown): number {
-  if (!value || typeof value !== "object") return 0;
-  const t = (value as { total?: unknown }).total;
-  return typeof t === "number" && Number.isFinite(t) ? t : 0;
-}
-
 export async function fetchHeroCounts(
   supabase: SupabaseClient,
   opts: { isAdmin: boolean; ownerId: string },
@@ -94,7 +89,7 @@ export async function fetchHeroCounts(
   ).length;
 
   const spendToday = rowsToday.reduce(
-    (sum, r) => sum + pickTotal(r.cost_breakdown),
+    (sum, r) => sum + pickBreakdown(r.cost_breakdown).total,
     0,
   );
 

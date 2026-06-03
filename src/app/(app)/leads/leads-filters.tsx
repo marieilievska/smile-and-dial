@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
+import { leadStatusLabel, OUTCOME_LABELS, outcomeLabel } from "@/lib/labels";
 
 const STATUSES = [
   "ready_to_call",
@@ -35,24 +35,9 @@ const STATUSES = [
   "email_replied",
 ];
 
-const OUTCOMES = [
-  "voicemail",
-  "no_answer",
-  "busy",
-  "failed",
-  "hung_up_immediately",
-  "invalid_number",
-  "gatekeeper",
-  "dm_reached",
-  "not_interested",
-  "callback",
-  "dnc",
-  "goal_met",
-  "language_barrier",
-  "ai_receptionist",
-  "ai_error",
-  "transferred_to_human",
-];
+// Derive the outcome filter options from the single label map so this list can
+// never drift from the real enum (it had silently lost "call_back_later").
+const OUTCOMES = Object.keys(OUTCOME_LABELS);
 
 const FILTER_KEYS = [
   "list",

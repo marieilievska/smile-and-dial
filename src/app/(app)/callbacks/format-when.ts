@@ -18,6 +18,10 @@ export type ScheduledUrgency = "overdue" | "urgent" | "normal";
 export function formatScheduledWhen(
   scheduledAtIso: string,
   now: Date = new Date(),
+  /** The LEAD's timezone, so "Tomorrow at 10:00 AM" and the clock time read in
+   *  the lead's local time — not the server's (UTC on Vercel), which rendered a
+   *  2:40pm-local callback as "7:40". Falls back to the runtime default tz. */
+  timeZone?: string,
 ): { primary: string; urgency: ScheduledUrgency } {
   const scheduled = new Date(scheduledAtIso);
   const deltaMs = scheduled.getTime() - now.getTime();
@@ -31,14 +35,8 @@ export function formatScheduledWhen(
     };
   }
 
-  // Same calendar day?
-  const startToday = new Date(now);
-  startToday.setHours(0, 0, 0, 0);
-  const startScheduledDay = new Date(scheduled);
-  startScheduledDay.setHours(0, 0, 0, 0);
-  const dayDelta = Math.round(
-    (startScheduledDay.getTime() - startToday.getTime()) / 86_400_000,
-  );
+  // Calendar-day delta as seen in the lead's timezone (not server-local).
+  const dayDelta = tzDayDelta(now, scheduled, timeZone);
 
   if (dayDelta === 0) {
     // Today — show relative "In Xh Ym"
@@ -50,7 +48,7 @@ export function formatScheduledWhen(
 
   if (dayDelta === 1) {
     return {
-      primary: `Tomorrow at ${formatTime(scheduled)}`,
+      primary: `Tomorrow at ${formatTime(scheduled, timeZone)}`,
       urgency: "normal",
     };
   }
@@ -59,20 +57,34 @@ export function formatScheduledWhen(
     // Within the next week → "Wed at 3:00 PM"
     const weekday = scheduled.toLocaleDateString(undefined, {
       weekday: "short",
+      timeZone,
     });
     return {
-      primary: `${weekday} at ${formatTime(scheduled)}`,
+      primary: `${weekday} at ${formatTime(scheduled, timeZone)}`,
       urgency: "normal",
     };
   }
 
   // Further out → "5/30 at 9:00 AM"
-  const m = scheduled.getMonth() + 1;
-  const d = scheduled.getDate();
+  const date = scheduled.toLocaleDateString(undefined, {
+    month: "numeric",
+    day: "numeric",
+    timeZone,
+  });
   return {
-    primary: `${m}/${d} at ${formatTime(scheduled)}`,
+    primary: `${date} at ${formatTime(scheduled, timeZone)}`,
     urgency: "normal",
   };
+}
+
+/** Whole-day difference between two instants as seen in `timeZone`, so a late-
+ *  evening callback isn't called "tomorrow" just because it's past UTC
+ *  midnight. */
+function tzDayDelta(now: Date, scheduled: Date, timeZone?: string): number {
+  const ymd = (d: Date) => d.toLocaleDateString("en-CA", { timeZone });
+  const a = new Date(`${ymd(now)}T00:00:00Z`).getTime();
+  const b = new Date(`${ymd(scheduled)}T00:00:00Z`).getTime();
+  return Math.round((b - a) / 86_400_000);
 }
 
 function humanizeMinutes(min: number): string {
@@ -84,9 +96,10 @@ function humanizeMinutes(min: number): string {
   return `${h}h ${m}m`;
 }
 
-function formatTime(d: Date): string {
+function formatTime(d: Date, timeZone?: string): string {
   return d.toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
 }

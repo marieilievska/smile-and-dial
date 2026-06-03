@@ -165,7 +165,7 @@ export default async function CallbacksPage({
     .from("callbacks")
     .select(
       "id, scheduled_at, status, voicemail_attempts, created_by, created_at, " +
-        "lead:leads(id, company, business_phone), " +
+        "lead:leads(id, company, business_phone, timezone), " +
         "campaign:campaigns(id, name), " +
         "originating_call_id, result_call_id",
       { count: "exact" },
@@ -229,6 +229,7 @@ export default async function CallbacksPage({
       id: string;
       company: string | null;
       business_phone: string | null;
+      timezone: string | null;
     } | null;
     campaign: { id: string; name: string } | null;
     originating_call_id: string | null;
@@ -343,7 +344,11 @@ export default async function CallbacksPage({
                 </TableHeader>
                 <TableBody>
                   {callbacks.map((cb) => {
-                    const when = formatScheduledWhen(cb.scheduled_at, now);
+                    const when = formatScheduledWhen(
+                      cb.scheduled_at,
+                      now,
+                      cb.lead?.timezone ?? undefined,
+                    );
                     const isPending = cb.status === "pending";
                     // Two-tone urgency rail: overdue reads as an alarm
                     // (destructive red), urgent (≤1h out) reads as
@@ -433,6 +438,7 @@ export default async function CallbacksPage({
                                   day: "numeric",
                                   hour: "numeric",
                                   minute: "2-digit",
+                                  timeZone: cb.lead?.timezone ?? undefined,
                                 },
                               )}
                             </span>
