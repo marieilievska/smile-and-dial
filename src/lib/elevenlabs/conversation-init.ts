@@ -136,32 +136,18 @@ function numStr(v: number | null | undefined): string {
   return typeof v === "number" && Number.isFinite(v) ? String(v) : "";
 }
 
-export async function buildConversationInitData(
-  body: ConversationInitRequest,
-): Promise<ConversationInitResponse> {
-  const wrap = (
-    vars: ConversationInitResponse["dynamic_variables"],
-  ): ConversationInitResponse => ({
-    type: "conversation_initiation_client_data",
-    dynamic_variables: vars,
-  });
-
-  const callSid = body.call_sid?.trim() ?? "";
-  if (!callSid) return wrap(emptyVariables());
-
-  const supabase = makeServiceClient();
-
-  // Resolve the call by the Twilio CallSid we stamped at dial time.
-  const { data: call } = await supabase
-    .from("calls")
-    .select("id, lead_id, campaign_id")
-    .eq("twilio_call_sid", callSid)
-    .maybeSingle();
-  if (!call) return wrap(emptyVariables());
-
+/**
+ * Build the agent's dynamic variables for a resolved call row. Shared by the
+ * inbound init webhook (resolves by call_sid) AND outbound placement (resolves
+ * by our call_id) — ElevenLabs does NOT call the init webhook for API-placed
+ * outbound calls, so we must pass these directly when dialing.
+ */
+async function buildVarsForCall(
+  supabase: SupabaseAdmin,
+  call: { id: string; lead_id: string; campaign_id: string | null },
+): Promise<ConversationInitResponse["dynamic_variables"]> {
   // Pull, in parallel: the lead (rolling summary + status), the campaign's
-  // transfer number, the lead's pending callback, and the lead's most recent
-  // prior call summary (for "what happened last time" callback context).
+  // transfer number, and the lead's pending callback.
   const [{ data: lead }, { data: campaign }, { data: pendingCallback }] =
     await Promise.all([
       supabase
@@ -171,11 +157,13 @@ export async function buildConversationInitData(
         )
         .eq("id", call.lead_id)
         .maybeSingle(),
-      supabase
-        .from("campaigns")
-        .select("transfer_destination_phone")
-        .eq("id", call.campaign_id)
-        .maybeSingle(),
+      call.campaign_id
+        ? supabase
+            .from("campaigns")
+            .select("transfer_destination_phone")
+            .eq("id", call.campaign_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
       supabase
         .from("callbacks")
         .select("id, originating_call_id")
@@ -202,7 +190,7 @@ export async function buildConversationInitData(
     lastCallbackNotes = originating?.summary?.trim() ?? "";
   }
 
-  return wrap({
+  return {
     call_type: isCallback ? "callback" : "cold",
     last_call_summary: lead?.ai_summary?.trim() ?? "",
     last_callback_notes: lastCallbackNotes,
@@ -213,5 +201,48 @@ export async function buildConversationInitData(
     category: lead?.category?.trim() ?? "",
     google_rating: numStr(lead?.google_rating),
     google_reviews: numStr(lead?.google_reviews),
+  };
+}
+
+/** Build the agent's dynamic variables by our internal call_id. Used at
+ *  outbound placement time so the agent gets full lead context (the init
+ *  webhook only fires for inbound). Returns the empty-but-complete set when the
+ *  call can't be resolved. */
+export async function buildCallDynamicVariables(
+  supabase: SupabaseAdmin,
+  callId: string,
+): Promise<ConversationInitResponse["dynamic_variables"]> {
+  const { data: call } = await supabase
+    .from("calls")
+    .select("id, lead_id, campaign_id")
+    .eq("id", callId)
+    .maybeSingle();
+  if (!call) return emptyVariables();
+  return buildVarsForCall(supabase, call);
+}
+
+export async function buildConversationInitData(
+  body: ConversationInitRequest,
+): Promise<ConversationInitResponse> {
+  const wrap = (
+    vars: ConversationInitResponse["dynamic_variables"],
+  ): ConversationInitResponse => ({
+    type: "conversation_initiation_client_data",
+    dynamic_variables: vars,
   });
+
+  const callSid = body.call_sid?.trim() ?? "";
+  if (!callSid) return wrap(emptyVariables());
+
+  const supabase = makeServiceClient();
+
+  // Resolve the call by the Twilio CallSid we stamped at dial time.
+  const { data: call } = await supabase
+    .from("calls")
+    .select("id, lead_id, campaign_id")
+    .eq("twilio_call_sid", callSid)
+    .maybeSingle();
+  if (!call) return wrap(emptyVariables());
+
+  return wrap(await buildVarsForCall(supabase, call));
 }

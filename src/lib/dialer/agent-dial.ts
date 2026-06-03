@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { buildCallDynamicVariables } from "@/lib/elevenlabs/conversation-init";
 import type { Database } from "@/lib/supabase/database.types";
 import {
   importTwilioNumberToElevenLabs,
@@ -84,11 +85,18 @@ export async function resolveAndPlaceAgentCall(
       .eq("id", input.twilioNumberId);
   }
 
+  // Build the agent's personalization variables (lead name, city, call_type,
+  // last-call summary, transfer number, …). ElevenLabs does NOT call our
+  // conversation-init webhook for API-placed outbound calls, so we MUST pass
+  // these here or the agent runs with blank placeholders. Caller-supplied
+  // overrides win.
+  const leadVars = await buildCallDynamicVariables(supabase, input.callId);
+
   return placeAgentCall({
     callId: input.callId,
     toNumber: input.toNumber,
     elevenlabsAgentId: agent.elevenlabs_agent_id,
     elevenlabsPhoneNumberId: phoneNumberId,
-    dynamicVariables: input.dynamicVariables,
+    dynamicVariables: { ...leadVars, ...(input.dynamicVariables ?? {}) },
   });
 }

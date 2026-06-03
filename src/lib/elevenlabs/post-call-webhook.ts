@@ -230,8 +230,11 @@ function makeServiceClient(): SupabaseAdmin {
  *  project, so the DB is the dependable source). Returns null when neither is
  *  set, which makes signature validation fail closed. */
 export async function getElevenLabsWebhookSecret(): Promise<string | null> {
-  const env = process.env.ELEVENLABS_WEBHOOK_SECRET?.trim();
-  if (env) return env;
+  // DB-FIRST: the webhook secret that pairs with the registered post-call
+  // webhook id lives in app_settings (written when we create the webhook). A
+  // stale ELEVENLABS_WEBHOOK_SECRET in Vercel's (unreliable) env store would
+  // otherwise win and make every delivery fail signature validation (403), so
+  // the DB value is authoritative; env is only a fallback for local/dev.
   try {
     const supabase = makeServiceClient();
     const { data } = await supabase
@@ -240,10 +243,11 @@ export async function getElevenLabsWebhookSecret(): Promise<string | null> {
       .eq("id", 1)
       .maybeSingle();
     const v = data?.elevenlabs_post_call_webhook_secret;
-    return typeof v === "string" && v.length > 0 ? v : null;
+    if (typeof v === "string" && v.length > 0) return v;
   } catch {
-    return null;
+    // fall through to env
   }
+  return process.env.ELEVENLABS_WEBHOOK_SECRET?.trim() || null;
 }
 
 export type ProcessResult =
