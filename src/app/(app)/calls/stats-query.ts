@@ -1,3 +1,4 @@
+import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 import type { createClient } from "@/lib/supabase/server";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -21,18 +22,6 @@ const ACTIVE_STATUSES = [
   "ringing",
   "in_progress",
 ] as const;
-
-/** Outcomes that count as a "connected" call for the connect-rate stat.
- *  Mirrors the rationale used on the Today page's pace strip. */
-const CONNECTED_OUTCOMES = new Set([
-  "goal_met",
-  "transferred_to_human",
-  "not_interested",
-  "callback",
-  "ai_receptionist",
-  "language_barrier",
-  "gatekeeper",
-]);
 
 /** Compute the 3-stat strip shown under the /calls page header.
  *  Read-only — every stat is "today so far" against the server clock.

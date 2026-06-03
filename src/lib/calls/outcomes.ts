@@ -34,3 +34,50 @@ export type OverridableOutcome = (typeof OVERRIDABLE_OUTCOMES)[number];
 export function outcomeLabel(value: string): string {
   return centralOutcomeLabel(value);
 }
+
+/**
+ * CANONICAL outcome groupings — the single source of truth for every metric
+ * surface (Analytics, Calls stat strip, Today pace strip). Previously each page
+ * defined its own divergent sets, so one call could be "connected" on one page
+ * and not another (the 100% / 0% / 75% connect-rate bug). Import these; do not
+ * re-declare locally.
+ */
+
+/** A live human (or human screener) actually answered — the "connect" in
+ *  connect rate. EXCLUDES machine / no-pickup outcomes: voicemail, no_answer,
+ *  busy, failed, invalid_number, ai_error, and ai_receptionist (a bot answered,
+ *  not a person). hung_up_immediately counts — a person did pick up. */
+export const CONNECTED_OUTCOMES = new Set<string>([
+  "goal_met",
+  "callback",
+  "call_back_later",
+  "not_interested",
+  "gatekeeper",
+  "dm_reached",
+  "transferred_to_human",
+  "language_barrier",
+  "hung_up_immediately",
+]);
+
+/** Reached a real, qualifying two-way conversation. Excludes the brush-off
+ *  (call_back_later) and the instant hang-up — those connected but weren't a
+ *  real conversation. */
+export const CONVERSATION_OUTCOMES = new Set<string>([
+  "goal_met",
+  "callback",
+  "not_interested",
+  "gatekeeper",
+  "dm_reached",
+  "transferred_to_human",
+  "language_barrier",
+]);
+
+/** Spoke with the decision maker (outcome-level proxy). */
+export const DM_REACHED_OUTCOMES = new Set<string>([
+  "goal_met",
+  "not_interested",
+  "callback",
+  "dnc",
+  "transferred_to_human",
+  "dm_reached",
+]);

@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
+
 /** Today-page data: three hero counts + an action queue of items that
  *  need the user's attention right now. Pure read-only — no mutations. */
 
@@ -30,23 +32,6 @@ export type ActionItem = {
   // ISO timestamp for sorting/age.
   at: string;
 };
-
-const CONVERSATION_OUTCOMES = new Set([
-  "goal_met",
-  "not_interested",
-  "callback",
-  "dnc",
-  "transferred_to_human",
-  "gatekeeper",
-  "language_barrier",
-]);
-const CONNECTED_OUTCOMES = new Set([
-  ...CONVERSATION_OUTCOMES,
-  "voicemail",
-  "hung_up_immediately",
-  "ai_receptionist",
-  "ai_error",
-]);
 
 function todayStart(): Date {
   const d = new Date();

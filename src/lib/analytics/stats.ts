@@ -1,36 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** Outcomes that imply we actually spoke to a decision-maker. */
-const DM_REACHED_OUTCOMES = new Set([
-  "goal_met",
-  "not_interested",
-  "callback",
-  "dnc",
-  "transferred_to_human",
-]);
-
-/** Outcomes that count as a real conversation (alive on the call). */
-const CONVERSATION_OUTCOMES = new Set([
-  "goal_met",
-  "not_interested",
-  "callback",
-  "dnc",
-  "transferred_to_human",
-  "gatekeeper",
-  "language_barrier",
-]);
-
-/** Outcomes where the call actually connected. `call_back_later` (a busy
- *  brush-off) connected and we spoke briefly, but it is deliberately NOT in
- *  CONVERSATION/DM_REACHED — it's not a win or a real qualifying conversation. */
-const CONNECTED_OUTCOMES = new Set([
-  ...CONVERSATION_OUTCOMES,
-  "voicemail",
-  "hung_up_immediately",
-  "ai_receptionist",
-  "ai_error",
-  "call_back_later",
-]);
+// Canonical outcome groupings — shared across every metric surface so connect
+// rate (and conversation / DM-reached) means the same thing everywhere.
+import {
+  CONNECTED_OUTCOMES,
+  CONVERSATION_OUTCOMES,
+  DM_REACHED_OUTCOMES,
+} from "@/lib/calls/outcomes";
 
 export type CallRow = {
   id: string;
