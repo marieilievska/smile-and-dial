@@ -13,6 +13,7 @@ export type DisplayLead = {
   status: string;
   last_outcome: string | null;
   category: string | null;
+  decision_maker_reached: boolean;
   city: string | null;
   state: string | null;
   conversations: number;
@@ -267,6 +268,28 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     text: (l) => l.category ?? "",
   },
   {
+    key: "dm_reached",
+    label: "DM reached",
+    sortKey: "decision_maker_reached",
+    width: "w-[120px]",
+    /** Have we ever spoken with the decision maker on this lead? A sticky
+     *  yes/no the post-call webhook sets once any call gets past the
+     *  gatekeeper. Emerald "Yes" reads as progress; a quiet dash otherwise. */
+    cell: (l) =>
+      l.decision_maker_reached ? (
+        <span className="text-foreground/80 inline-flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className="size-1.5 shrink-0 rounded-full bg-emerald-500"
+          />
+          Yes
+        </span>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
+    text: (l) => (l.decision_maker_reached ? "Yes" : "No"),
+  },
+  {
     key: "city",
     label: "City",
     sortKey: "city",
@@ -361,7 +384,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
  *  The Column picker lets users add the rest. */
 export const DEFAULT_COLUMN_KEYS = [
   "company",
-  "category",
+  "dm_reached",
   "status",
   "last_outcome",
   "list",

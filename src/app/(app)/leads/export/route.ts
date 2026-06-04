@@ -72,6 +72,7 @@ export async function GET(request: NextRequest) {
     status: l.status,
     last_outcome: l.last_outcome,
     category: l.category,
+    decision_maker_reached: l.decision_maker_reached ?? false,
     city: l.city,
     state: l.state,
     conversations: l.conversations,

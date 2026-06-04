@@ -4,7 +4,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
+import { DM_REACHED_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
 import type { Database, Json } from "@/lib/supabase/database.types";
@@ -224,6 +224,24 @@ function telephonyOutcome(reason: string): CallOutcome | null {
   if (/busy/.test(r)) return "busy";
   if (/fail|carrier|invalid number|rejected|\berror\b/.test(r)) return "failed";
   return null;
+}
+
+/** Did this single call reach the decision maker? Prefer the agent's explicit
+ *  decision_maker_reached capture (yes/no); fall back to the outcome proxy
+ *  (goal_met / callback / not_interested / … all imply we got past any
+ *  gatekeeper to the buyer). Mirrors analytics' rowReachedDm so the Leads
+ *  flag and the dashboards agree. */
+function callReachedDm(
+  outcome: CallOutcome | null,
+  extracted: Record<string, unknown> | null,
+): boolean {
+  const v = extracted?.decision_maker_reached;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (s === "yes") return true;
+    if (s === "no") return false;
+  }
+  return Boolean(outcome && DM_REACHED_OUTCOMES.has(outcome));
 }
 
 /** slug for a custom field, matching the custom-fields admin slugify. */
@@ -846,6 +864,18 @@ async function processTranscription(
       call.lead_id,
       extractedDataOf(payload.analysis) ?? {},
     );
+
+    // Sticky lead-level "we reached the decision maker" flag for the Leads
+    // table. Only ever set it TRUE (a later voicemail shouldn't un-reach a DM
+    // we already spoke to), and only from a real conversation.
+    if (
+      callReachedDm(outcomeFromDisposition, extractedDataOf(payload.analysis))
+    ) {
+      await supabase
+        .from("leads")
+        .update({ decision_maker_reached: true })
+        .eq("id", call.lead_id);
+    }
   }
 
   // Outcome-driven side effects: DNC insertion, callback row creation, and

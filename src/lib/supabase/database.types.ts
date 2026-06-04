@@ -1112,6 +1112,7 @@ export type Database = {
           company: string | null;
           conversations: number;
           created_at: string;
+          decision_maker_reached: boolean;
           deleted_at: string | null;
           employee_name: string | null;
           google_place_id: string | null;
@@ -1147,6 +1148,7 @@ export type Database = {
           company?: string | null;
           conversations?: number;
           created_at?: string;
+          decision_maker_reached?: boolean;
           deleted_at?: string | null;
           employee_name?: string | null;
           google_place_id?: string | null;
@@ -1182,6 +1184,7 @@ export type Database = {
           company?: string | null;
           conversations?: number;
           created_at?: string;
+          decision_maker_reached?: boolean;
           deleted_at?: string | null;
           employee_name?: string | null;
           google_place_id?: string | null;
