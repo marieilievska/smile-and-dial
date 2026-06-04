@@ -49,7 +49,9 @@ export function DeleteListDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete &ldquo;{list.name}&rdquo;?</AlertDialogTitle>
           <AlertDialogDescription>
-            This removes the list. This action cannot be undone.
+            This permanently deletes the list{" "}
+            <strong>and every lead in it</strong>, along with those leads&apos;
+            call history and any scheduled callbacks. This cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
