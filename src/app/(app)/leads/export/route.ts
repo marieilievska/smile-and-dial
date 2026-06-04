@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
     business_email: l.business_email,
     status: l.status,
     last_outcome: l.last_outcome,
+    category: l.category,
     city: l.city,
     state: l.state,
     conversations: l.conversations,

@@ -12,6 +12,7 @@ export type DisplayLead = {
   business_email: string | null;
   status: string;
   last_outcome: string | null;
+  category: string | null;
   city: string | null;
   state: string | null;
   conversations: number;
@@ -251,6 +252,21 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     text: (l) => l.listName,
   },
   {
+    key: "category",
+    label: "Category",
+    sortKey: "category",
+    width: "w-[160px]",
+    cell: (l) => (
+      <span
+        className="text-muted-foreground block truncate"
+        title={l.category ?? undefined}
+      >
+        {l.category || "—"}
+      </span>
+    ),
+    text: (l) => l.category ?? "",
+  },
+  {
     key: "city",
     label: "City",
     sortKey: "city",
@@ -345,6 +361,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
  *  The Column picker lets users add the rest. */
 export const DEFAULT_COLUMN_KEYS = [
   "company",
+  "category",
   "status",
   "last_outcome",
   "list",
