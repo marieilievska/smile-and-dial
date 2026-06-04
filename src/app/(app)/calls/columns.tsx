@@ -13,6 +13,9 @@ export type DisplayCall = {
   status: string;
   outcome: string | null;
   goal_met: boolean;
+  /** Whether this call reached the decision maker (explicit capture, else the
+   *  outcome proxy). Computed in the page query via shared rowReachedDm. */
+  decisionMakerReached: boolean;
   started_at: string | null;
   ended_at: string | null;
   duration_seconds: number | null;
@@ -301,6 +304,25 @@ export const CALL_COLUMNS: CallColumn[] = [
       ),
   },
   {
+    key: "dm_reached",
+    label: "DM reached",
+    width: "w-[120px]",
+    /** Did this call get past any gatekeeper to the decision maker? Emerald
+     *  "Yes" reads as a win; a quiet dash otherwise. */
+    cell: (c) =>
+      c.decisionMakerReached ? (
+        <span className="text-foreground/80 inline-flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className="size-1.5 shrink-0 rounded-full bg-emerald-500"
+          />
+          Yes
+        </span>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
+  },
+  {
     key: "score",
     label: "Score",
     width: "w-[80px]",
@@ -347,6 +369,7 @@ export const DEFAULT_COLUMN_KEYS = [
   "started_at",
   "duration",
   "outcome",
+  "dm_reached",
   "cost",
 ];
 

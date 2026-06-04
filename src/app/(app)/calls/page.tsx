@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { rowReachedDm } from "@/lib/analytics/stats";
 import { createClient } from "@/lib/supabase/server";
 
 import { CallsActiveFilterChips } from "./active-filter-chips";
@@ -163,6 +164,10 @@ export default async function CallsPage({
     recording_path: c.recording_path,
     score: c.score,
     cost_breakdown: c.cost_breakdown,
+    decisionMakerReached: rowReachedDm({
+      outcome: c.outcome,
+      extracted_data: c.extracted_data,
+    }),
     hasCallback: hasCallback.has(c.id),
     leadId: c.lead?.id ?? null,
     company: c.lead?.company ?? null,

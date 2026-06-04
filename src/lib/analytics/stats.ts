@@ -26,7 +26,7 @@ export type CallRow = {
 /** Did this call reach the decision maker? Prefers the agent's explicit
  *  `decision_maker_reached` capture (yes/no); falls back to the outcome proxy
  *  when the field is absent (older calls) or "unknown". */
-function rowReachedDm(row: {
+export function rowReachedDm(row: {
   outcome: string | null;
   extracted_data: unknown;
 }): boolean {
