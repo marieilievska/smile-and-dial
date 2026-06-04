@@ -23,6 +23,7 @@ const DISPOSITION_TO_OUTCOME: Record<string, CallOutcome> = {
   not_interested: "not_interested",
   callback: "callback",
   call_back_later: "call_back_later",
+  hung_up: "hung_up_immediately",
   dnc: "dnc",
   goal_met: "goal_met",
   voicemail: "voicemail",
@@ -650,18 +651,52 @@ async function processTranscription(
   //      guessed disposition override a confirmed voicemail.
   //   2. Otherwise the agent's disposition (most accurate for live calls).
   //   3. Otherwise an unambiguous telephony state (no-answer / busy / failed).
-  // A conversational hang-up with NO disposition stays null on purpose.
+  //   4. Otherwise, if a human answered and ended the call within a few
+  //      seconds (too short for any real conversation), label it an immediate
+  //      hang-up rather than leaving the outcome blank. The analysis LLM tends
+  //      to either guess "gatekeeper" or leave the disposition empty on these,
+  //      so we infer it from the call shape: short duration + the OTHER party
+  //      ended the call (never our own end_call / completed state).
   const reachedVoicemail = /voicemail/i.test(terminationReason);
-  const outcomeFromDisposition: CallOutcome | null = reachedVoicemail
+  // How long the conversation actually ran (real field first, legacy second).
+  const callDurationSecs =
+    payload.metadata?.call_duration_secs ??
+    payload.metadata?.duration_seconds ??
+    0;
+  // "Remote party / client / user / caller hung up / disconnected" — i.e. they
+  // ended it, not us. A normal completed call says "end call tool" / "completed".
+  const remotePartyEnded =
+    /remote party|client|caller|\buser\b|hung ?up|hang ?up|disconnect/i.test(
+      terminationReason,
+    );
+  const dispositionOutcome = DISPOSITION_TO_OUTCOME[disposition];
+  let outcomeFromDisposition: CallOutcome | null = reachedVoicemail
     ? "voicemail"
-    : (DISPOSITION_TO_OUTCOME[disposition] ??
-      telephonyOutcome(terminationReason));
+    : (dispositionOutcome ?? telephonyOutcome(terminationReason));
+  // Immediate-hang-up correction. On a sub-20-second call that the OTHER party
+  // ended, there was no time for a real conversation. The analysis LLM tends to
+  // either leave the disposition blank OR mislabel it "gatekeeper" (it sees a
+  // human voice in the greeting and guesses a screener). A genuine gatekeeper
+  // interaction — being told "she's not available, let me take a message" —
+  // takes longer than this. So when the call is that short and they hung up,
+  // override both the blank and the "gatekeeper" guess to a clean hang-up.
+  const tooShortForRealTalk =
+    remotePartyEnded && callDurationSecs > 0 && callDurationSecs <= 20;
+  if (
+    !reachedVoicemail &&
+    tooShortForRealTalk &&
+    (outcomeFromDisposition == null || outcomeFromDisposition === "gatekeeper")
+  ) {
+    outcomeFromDisposition = "hung_up_immediately";
+  }
 
-  // Did a live human actually answer? If not (voicemail / no-answer / failure),
-  // we don't keep or mirror the AI's guessed extraction (decision maker,
-  // sentiment, …) — a machine greeting yields no real lead info.
+  // Did we have a real conversation worth extracting from? If not (voicemail /
+  // no-answer / failure / an immediate hang-up before anyone spoke), we don't
+  // keep or mirror the AI's guessed extraction (decision maker, sentiment, …) —
+  // a machine greeting or a 5-second hang-up yields no real lead info.
   const reachedHuman =
     !reachedVoicemail &&
+    outcomeFromDisposition !== "hung_up_immediately" &&
     !(
       outcomeFromDisposition != null &&
       NO_HUMAN_OUTCOMES.has(outcomeFromDisposition)
@@ -704,10 +739,8 @@ async function processTranscription(
     callUpdate.outcome_source = "elevenlabs";
     callUpdate.goal_met = outcomeFromDisposition === "goal_met";
   }
-  const durationSecs =
-    payload.metadata?.call_duration_secs ?? payload.metadata?.duration_seconds;
-  if (durationSecs) {
-    callUpdate.duration_seconds = durationSecs;
+  if (callDurationSecs) {
+    callUpdate.duration_seconds = callDurationSecs;
   }
   if (payload.metadata?.talk_time_seconds) {
     callUpdate.talk_time_seconds = payload.metadata.talk_time_seconds;
