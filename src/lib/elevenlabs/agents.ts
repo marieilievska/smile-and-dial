@@ -85,17 +85,29 @@ const DATA_COLLECTION_FIELDS = [
   },
   {
     id: "owner_name",
-    description: "The owner's name, if mentioned.",
+    description:
+      "The business OWNER's name — ONLY when the person is explicitly identified " +
+      "as the owner (they say 'I'm the owner', or someone refers to them as the " +
+      "owner). Do NOT put a name here just because that person answered the phone " +
+      "or gave their name — an unspecified role is NOT the owner. Leave blank if " +
+      "no one was clearly identified as the owner.",
     type: "string",
   },
   {
     id: "manager_name",
-    description: "The manager's name, if mentioned.",
+    description:
+      "The manager's name — ONLY when the person is explicitly identified as a " +
+      "manager. Leave blank otherwise.",
     type: "string",
   },
   {
     id: "employee_name",
-    description: "Any other employee name mentioned.",
+    description:
+      "The name of whoever we actually spoke with when their role is NOT clearly " +
+      "the owner or a manager — e.g. a receptionist, front-desk, or anyone who " +
+      "answers and gives a name ('this is Wilson') without stating they own or " +
+      "manage the business. When in doubt about someone's role, put their name " +
+      "here, not in owner_name.",
     type: "string",
   },
   {
