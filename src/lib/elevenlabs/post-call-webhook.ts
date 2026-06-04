@@ -186,6 +186,33 @@ function nextDayLocalHourIso(
   return new Date(wallGuess - offset).toISOString();
 }
 
+/** Tell-tale phrases of an answering machine, voicemail, or IVR auto-attendant
+ *  greeting. These are deliberately specific so a live receptionist ("thanks
+ *  for calling, how can I help?") never matches — only recorded systems say
+ *  things like "leave a message", "after the tone", "press 1", or "you've
+ *  reached us after hours". */
+const MACHINE_GREETING_RE =
+  /\bleave (us |you |your |a )*(a )?(message|voicemail)\b|\bafter (the )?(tone|beep)\b|\bat the (tone|beep)\b|\byou(?:'ve| have)? reached\b|\bpress (one|two|three|[0-9*#])\b|\bfor [a-z ,'-]{1,40}press\b|\bafter[- ]hours\b|\b(we are|we're|currently) closed\b|\bour office is closed\b|\bun(?:able|available) to (take|answer)\b|\b(can(?:no|')t|cannot) (take|come to)\b|\bmissed your call\b|\bplease leave\b|\byour party'?s extension\b|\breturn your call\b|\bvoice ?mail\b|\bmailbox\b|\bif this is an emergency\b|\bplease (stay on the line|hold)\b|\bthank you for calling\b[\s\S]{0,60}\bpress\b/i;
+
+/** True when the OPENING of the called party's audio reads like a recorded
+ *  greeting / IVR rather than a person picking up. ElevenLabs' voicemail_detection
+ *  tool doesn't always fire (it sometimes just reports "remote party ended"),
+ *  so we also sniff the transcript: a machine greeting always lands in the first
+ *  couple of caller turns. Used so these never get mislabeled as a hang-up. */
+function transcriptLooksLikeMachine(transcript: unknown): boolean {
+  if (!Array.isArray(transcript)) return false;
+  const opening = transcript
+    .filter(
+      (t): t is { role?: unknown; message?: unknown } =>
+        !!t && typeof t === "object",
+    )
+    .filter((t) => t.role === "user" && typeof t.message === "string")
+    .slice(0, 2)
+    .map((t) => t.message as string)
+    .join("  ");
+  return opening.length > 0 && MACHINE_GREETING_RE.test(opening);
+}
+
 /** Map an ElevenLabs termination reason to an UNAMBIGUOUS telephony outcome.
  *  Only the clear-cut carrier states are inferred here; a conversational
  *  "remote party ended" is intentionally left to the agent's disposition. */
@@ -680,8 +707,11 @@ async function processTranscription(
   //   1. VOICEMAIL WINS. The agent's voicemail_detection tool ends the call on
   //      an answering machine, but the analysis LLM is still forced to guess a
   //      disposition and often picks "gatekeeper" for the greeting. The machine
-  //      signal (in the termination reason) is authoritative — never let a
-  //      guessed disposition override a confirmed voicemail.
+  //      signal is authoritative — never let a guessed disposition (or our own
+  //      short-call hang-up heuristic below) override a confirmed voicemail.
+  //      We detect it two ways: the termination reason mentions voicemail, OR
+  //      the opening transcript reads like a recorded greeting / IVR (the tool
+  //      doesn't always fire — it sometimes just says "remote party ended").
   //   2. Otherwise the agent's disposition (most accurate for live calls).
   //   3. Otherwise an unambiguous telephony state (no-answer / busy / failed).
   //   4. Otherwise, if a human answered and ended the call within a few
@@ -690,7 +720,9 @@ async function processTranscription(
   //      to either guess "gatekeeper" or leave the disposition empty on these,
   //      so we infer it from the call shape: short duration + the OTHER party
   //      ended the call (never our own end_call / completed state).
-  const reachedVoicemail = /voicemail/i.test(terminationReason);
+  const reachedVoicemail =
+    /voicemail/i.test(terminationReason) ||
+    transcriptLooksLikeMachine(payload.transcript);
   // How long the conversation actually ran (real field first, legacy second).
   const callDurationSecs =
     payload.metadata?.call_duration_secs ??
