@@ -16,6 +16,7 @@ import {
   CollapsibleSection,
   CONTACT_FIELDS,
   CustomFieldEditor,
+  DecisionMakerToggle,
   GOOGLE_FIELDS,
   LOCATION_FIELDS,
   statusVariant,
@@ -202,7 +203,13 @@ export function LeadPageClient({
         {/* LEFT */}
         <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-3 delay-150 duration-500">
           <CollapsibleSection title="Basics" defaultOpen>
-            {renderFields(CONTACT_FIELDS)}
+            <div className="flex flex-col gap-4">
+              {renderFields(CONTACT_FIELDS)}
+              <DecisionMakerToggle
+                leadId={leadId}
+                initial={meta.decisionMakerReached}
+              />
+            </div>
           </CollapsibleSection>
           <CollapsibleSection title="Address">
             {renderFields(LOCATION_FIELDS)}

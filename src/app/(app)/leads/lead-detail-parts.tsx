@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { type CustomFieldType } from "@/lib/custom-fields/actions";
 import {
+  setLeadDecisionMakerReached,
   updateLeadCustomValue,
   updateLeadField,
 } from "@/lib/leads/lead-actions";
@@ -91,6 +92,9 @@ export type LeadMeta = {
    *  it's the lead's daytime. */
   timezone: string | null;
   aiSummary: string | null;
+  /** Sticky "have we ever reached the decision maker?" flag. Maintained by the
+   *  post-call webhook, manually correctable on the detail page. */
+  decisionMakerReached: boolean;
   /** True when the dialer has a call in flight for this lead right now —
    *  drives the live "On call now" pulse in the hero. */
   onCall: boolean;
@@ -259,6 +263,67 @@ export function AutosaveField({
         onChange={(event) => setValue(event.target.value)}
         onBlur={commit}
       />
+    </div>
+  );
+}
+
+/** Manually correctable "decision maker reached?" control. A two-state Yes/No
+ *  segmented toggle that writes through to the lead immediately (optimistic,
+ *  reverts on error). Lets an operator fix the AI's read when it was wrong. */
+export function DecisionMakerToggle({
+  leadId,
+  initial,
+}: {
+  leadId: string;
+  initial: boolean;
+}) {
+  const [value, setValue] = useState(initial);
+  const [saving, setSaving] = useState(false);
+
+  function set(next: boolean) {
+    if (next === value || saving) return;
+    const prev = value;
+    setValue(next);
+    setSaving(true);
+    setLeadDecisionMakerReached({ leadId, value: next })
+      .then((result) => {
+        if (result.error) {
+          setValue(prev);
+          toast.error(result.error);
+        }
+      })
+      .finally(() => setSaving(false));
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>Decision maker reached</Label>
+      <div className="border-border bg-muted/40 inline-flex w-fit rounded-md border p-0.5">
+        {[
+          { label: "Yes", on: true },
+          { label: "No", on: false },
+        ].map((opt) => {
+          const active = value === opt.on;
+          return (
+            <button
+              key={opt.label}
+              type="button"
+              aria-pressed={active}
+              disabled={saving}
+              onClick={() => set(opt.on)}
+              className={`rounded px-3 py-1 text-sm font-medium transition-colors disabled:opacity-60 ${
+                active
+                  ? opt.on
+                    ? "bg-emerald-500 text-white"
+                    : "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -192,6 +192,7 @@ export default async function LeadDetailPage({
     state: lead.state ?? null,
     timezone: lead.timezone ?? null,
     aiSummary: lead.ai_summary,
+    decisionMakerReached: lead.decision_maker_reached ?? false,
     onCall: Boolean(activeCall),
     onCallStartedAt: activeCall?.started_at ?? null,
   };

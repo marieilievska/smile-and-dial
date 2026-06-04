@@ -47,6 +47,30 @@ export async function updateLeadField(input: {
   return { error: null };
 }
 
+/** Manually set the lead's "decision maker reached" flag. The post-call
+ *  webhook maintains this automatically, but operators can correct it when the
+ *  AI's read was wrong (e.g. a receptionist declined and it was logged as a DM
+ *  contact). RLS enforces ownership. */
+export async function setLeadDecisionMakerReached(input: {
+  leadId: string;
+  value: boolean;
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { error } = await supabase
+    .from("leads")
+    .update({ decision_maker_reached: input.value })
+    .eq("id", input.leadId);
+  if (error) return { error: "Could not save that change." };
+
+  revalidatePath("/leads");
+  return { error: null };
+}
+
 /**
  * Set (or clear) a custom field value on a lead. An empty value removes the
  * row so a blank custom field never lingers in the database.

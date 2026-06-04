@@ -31,14 +31,19 @@ export function rowReachedDm(row: {
   extracted_data: unknown;
 }): boolean {
   const ex = row.extracted_data;
-  if (ex && typeof ex === "object") {
+  if (
+    ex &&
+    typeof ex === "object" &&
+    "decision_maker_reached" in (ex as Record<string, unknown>)
+  ) {
+    // The agent captured an explicit read — trust it over the coarse outcome
+    // proxy. Only "yes" counts; "no"/"unknown"/blank mean we did NOT confirm
+    // the decision maker (e.g. a receptionist declined on the owner's behalf —
+    // that's not_interested but NOT a DM contact).
     const v = (ex as Record<string, unknown>).decision_maker_reached;
-    if (typeof v === "string") {
-      const s = v.trim().toLowerCase();
-      if (s === "yes") return true;
-      if (s === "no") return false;
-    }
+    return typeof v === "string" && v.trim().toLowerCase() === "yes";
   }
+  // Legacy calls that never captured the field: fall back to the outcome proxy.
   return Boolean(row.outcome && DM_REACHED_OUTCOMES.has(row.outcome));
 }
 

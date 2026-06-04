@@ -235,11 +235,12 @@ function callReachedDm(
   outcome: CallOutcome | null,
   extracted: Record<string, unknown> | null,
 ): boolean {
-  const v = extracted?.decision_maker_reached;
-  if (typeof v === "string") {
-    const s = v.trim().toLowerCase();
-    if (s === "yes") return true;
-    if (s === "no") return false;
+  if (extracted && "decision_maker_reached" in extracted) {
+    // Explicit read present — trust it. Only "yes" counts; "no"/"unknown"
+    // mean we never confirmed the decision maker (a receptionist declining on
+    // the owner's behalf is not_interested but NOT a DM contact).
+    const v = extracted.decision_maker_reached;
+    return typeof v === "string" && v.trim().toLowerCase() === "yes";
   }
   return Boolean(outcome && DM_REACHED_OUTCOMES.has(outcome));
 }
