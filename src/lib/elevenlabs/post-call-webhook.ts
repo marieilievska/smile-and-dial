@@ -90,6 +90,39 @@ const RESERVED_EXTRACTION_KEYS = new Set([
   "employee_name",
 ]);
 
+/** Factual identity/contact details worth keeping even when no real two-way
+ *  conversation happened. If someone answers, says "this is Wilson", and hangs
+ *  up — or a voicemail greeting names the owner — that name is still real and
+ *  should be captured. Everything OUTSIDE this set (decision_maker_reached,
+ *  sentiment, objection_summary, research answers, …) is a judgment the LLM
+ *  can only make from an actual conversation, so it's dropped on
+ *  voicemails / no-answers / immediate hang-ups. Compared against the
+ *  slugified key. */
+const IDENTITY_EXTRACTION_KEYS = new Set([
+  "owner_name",
+  "manager_name",
+  "employee_name",
+  "business_email",
+  "callback_datetime",
+]);
+
+/** When a real conversation happened, keep the full extraction. Otherwise keep
+ *  only the populated identity/contact fields (names, email, callback time) and
+ *  drop the LLM's guesses (decision maker, sentiment, …). */
+function sanitizeExtraction(
+  extracted: Record<string, unknown>,
+  conversationHappened: boolean,
+): Record<string, unknown> {
+  if (conversationHappened) return extracted;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(extracted)) {
+    if (IDENTITY_EXTRACTION_KEYS.has(slugifyKey(key)) && isPopulated(value)) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 /** Non-answers the analysis LLM emits when it didn't actually learn anything.
  *  These must never create or fill a custom field (e.g. an "Objection category"
  *  field reading "none" is noise). */
@@ -728,9 +761,16 @@ async function processTranscription(
     summary:
       payload.analysis?.transcript_summary ?? payload.analysis?.summary ?? null,
     score: payload.analysis?.evaluation?.score ?? null,
-    extracted_data: (reachedHuman
-      ? extractedDataOf(payload.analysis)
-      : null) as Database["public"]["Tables"]["calls"]["Update"]["extracted_data"],
+    extracted_data:
+      ((): Database["public"]["Tables"]["calls"]["Update"]["extracted_data"] => {
+        const clean = sanitizeExtraction(
+          extractedDataOf(payload.analysis) ?? {},
+          reachedHuman,
+        );
+        return (
+          Object.keys(clean).length > 0 ? clean : null
+        ) as Database["public"]["Tables"]["calls"]["Update"]["extracted_data"];
+      })(),
     cost_breakdown:
       mergedCost as unknown as Database["public"]["Tables"]["calls"]["Update"]["cost_breakdown"],
   };
@@ -757,15 +797,18 @@ async function processTranscription(
     .eq("id", call.id);
   if (callError) return { ok: false, reason: "could_not_update_call" };
 
-  // Only fill the lead / custom fields from a call where a HUMAN answered.
-  // Voicemails and no-answers carry only the analysis LLM's guesses, which
-  // shouldn't touch the lead.
-  if (reachedHuman) {
-    // Auto-fill empty built-in lead fields from extracted data.
-    await autoFillLeadFromExtraction(supabase, call.lead_id, payload);
+  // Identity/contact details are always worth filling: a name or email the
+  // agent heard is real whether or not the call became a full conversation
+  // (someone saying "this is Wilson" then hanging up still tells us the owner).
+  // autoFillLeadFromExtraction only writes non-blank values into empty lead
+  // fields, so it's safe to run on every call.
+  await autoFillLeadFromExtraction(supabase, call.lead_id, payload);
 
-    // Mirror the rest of the captured data onto the lead's custom fields
-    // (creating fields on first sight, populating only non-blank values).
+  // The judgment fields + research answers (decision maker, sentiment, …) only
+  // mean something when a human actually talked with us, so mirror those onto
+  // the lead's custom fields only for a real conversation — never from a
+  // voicemail, no-answer, or immediate hang-up.
+  if (reachedHuman) {
     await applyExtractionToCustomFields(
       supabase,
       call.lead_id,
