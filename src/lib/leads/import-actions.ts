@@ -87,30 +87,45 @@ export async function analyzeImport(input: {
   }
 
   const phoneHeader = phoneHeaderFrom(input.mapping);
-  const rowLineTypes: LineType[] = [];
   const skipped: { phone: string; reason: string }[] = [];
   let importable = 0;
   let mobile = 0;
   let invalid = 0;
-  let lookups = 0;
 
-  for (const row of input.rows) {
+  // Normalize each row's phone to E.164 first — CSV phones are often
+  // "(205) 259-8928" with no country code, which Twilio Lookup can't take.
+  // A null means there's nothing to look up (import as-is, line type unknown).
+  const e164s = input.rows.map((row) => {
     const raw = phoneHeader ? (row[phoneHeader] ?? "").trim() : "";
-    // Normalize to E.164 first — CSV phones are often "(205) 259-8928" with no
-    // country code, which Twilio Lookup can't take. No phone, or a number we
-    // can't coerce to US/CA E.164: nothing to look up, import as-is.
-    const phone = toE164UsCa(raw);
-    if (!phone) {
-      rowLineTypes.push("unknown");
-      importable++;
-      continue;
+    return toE164UsCa(raw);
+  });
+
+  // Run the Twilio lookups CONCURRENTLY with a bounded pool. Sequential
+  // lookups (one await per row) made large imports time the function out; a
+  // pool keeps each batch fast while staying well under Twilio's rate limit.
+  // Results are written back by index so rowLineTypes stays aligned to rows.
+  const rowLineTypes: LineType[] = new Array(input.rows.length).fill("unknown");
+  const CONCURRENCY = 15;
+  let cursor = 0;
+  async function worker() {
+    for (;;) {
+      const i = cursor++;
+      if (i >= e164s.length) return;
+      const phone = e164s[i];
+      if (!phone) continue; // no phone → leave "unknown"
+      rowLineTypes[i] = await lookupLineType(phone);
     }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, input.rows.length) }, worker),
+  );
 
-    lookups++;
-    const lineType = await lookupLineType(phone);
-    rowLineTypes.push(lineType);
-
-    if (lineType === "mobile") {
+  const lookups = e164s.filter(Boolean).length;
+  e164s.forEach((phone, i) => {
+    const lineType = rowLineTypes[i];
+    if (!phone) {
+      importable++;
+    } else if (lineType === "mobile") {
       mobile++;
       skipped.push({ phone, reason: "Mobile number (TCPA compliance)" });
     } else if (lineType === "invalid") {
@@ -119,7 +134,7 @@ export async function analyzeImport(input: {
     } else {
       importable++;
     }
-  }
+  });
 
   const estCost = lookups * COST_PER_LOOKUP;
 
@@ -258,11 +273,29 @@ export async function importLeads(input: {
   // is deleted so we can REVIVE it (below) instead of either skipping it as a
   // duplicate (which would make delete-then-reimport a no-op) or trying to
   // insert a fresh row (which the unique constraint would reject).
-  const { data: existing } = await supabase
+  // Collect the E.164 phones present in THIS batch so we only fetch the
+  // existing leads that could actually collide. Fetching every owned lead
+  // instead (a) is needless work and (b) silently hit PostgREST's 1000-row
+  // cap, which broke dedup once a workspace passed 1000 leads.
+  const phoneFieldHeader = [...headerToField.entries()].find(
+    ([, key]) => key === "business_phone",
+  )?.[0];
+  const batchPhones = new Set<string>();
+  if (phoneFieldHeader) {
+    for (const row of input.rows) {
+      const e164 = toE164UsCa((row[phoneFieldHeader] ?? "").trim());
+      if (e164) batchPhones.add(e164);
+    }
+  }
+  let existingQuery = supabase
     .from("leads")
     .select("id, business_phone, deleted_at")
     .eq("owner_id", user.id)
     .not("business_phone", "is", null);
+  if (batchPhones.size > 0) {
+    existingQuery = existingQuery.in("business_phone", [...batchPhones]);
+  }
+  const { data: existing } = await existingQuery;
   // Key by the normalized (E.164) phone so a match is found regardless of how
   // each side was formatted — e.g. a stored "(205) 259-8928" matches an
   // incoming "+12052598928". Falls back to the raw value for non-US numbers.

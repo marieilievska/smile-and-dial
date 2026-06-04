@@ -54,6 +54,11 @@ const CREATE_LIST_SENTINEL = "__create__";
  *  field" — picks it, the wizard opens the inline create dialog. */
 const CREATE_FIELD_SENTINEL = "newcustom";
 
+/** Rows per server-action call. Large imports (10k+) are chunked into batches
+ *  so each call stays well under the function timeout and payload limit —
+ *  sending everything at once timed out on the Twilio lookups. */
+const IMPORT_BATCH = 500;
+
 function guessMapping(header: string): string {
   const norm = header.toLowerCase().replace(/[^a-z0-9]/g, "");
   for (const field of IMPORTABLE_FIELDS) {
@@ -104,6 +109,12 @@ export function ImportWizard({
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [analysis, setAnalysis] = useState<ImportAnalysis | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
+  // Progress across batched server-action calls (large imports are chunked so
+  // each call stays under the function timeout / payload limit).
+  const [progress, setProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const selectedListName = useMemo(
@@ -185,34 +196,91 @@ export function ImportWizard({
 
   function runAnalyze() {
     if (!parsed) return;
+    const rows = parsed.rows;
     startTransition(async () => {
-      const res = await analyzeImport({
-        mapping,
-        rows: parsed.rows,
-        skipLookup,
-      });
-      if (res.error) {
-        toast.error(res.error);
-        return;
+      const merged: ImportAnalysis = {
+        total: rows.length,
+        importable: 0,
+        mobile: 0,
+        invalid: 0,
+        estCost: 0,
+        rowLineTypes: [],
+        skipped: [],
+        error: null,
+      };
+      setProgress({ done: 0, total: rows.length });
+      // Chunked so 10k+ row imports don't time the function out on Twilio
+      // lookups. Batches run in order so rowLineTypes stays aligned to rows.
+      for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
+        const chunk = rows.slice(i, i + IMPORT_BATCH);
+        const res = await analyzeImport({ mapping, rows: chunk, skipLookup });
+        if (res.error) {
+          toast.error(res.error);
+          setProgress(null);
+          return;
+        }
+        merged.importable += res.importable;
+        merged.mobile += res.mobile;
+        merged.invalid += res.invalid;
+        merged.estCost += res.estCost;
+        merged.rowLineTypes.push(...res.rowLineTypes);
+        merged.skipped.push(...res.skipped);
+        setProgress({
+          done: Math.min(i + IMPORT_BATCH, rows.length),
+          total: rows.length,
+        });
       }
-      setAnalysis(res);
+      setProgress(null);
+      setAnalysis(merged);
       setStep("summary");
     });
   }
 
   function runImport() {
     if (!parsed || !analysis) return;
+    const rows = parsed.rows;
+    const lineTypes = analysis.rowLineTypes;
     startTransition(async () => {
-      const res = await importLeads({
-        listId,
-        dedup,
-        mapping,
-        rows: parsed.rows,
-        rowLineTypes: analysis.rowLineTypes,
-      });
-      setResult(res);
-      if (res.error) toast.error(res.error);
-      else setStep("done");
+      const total: ImportResult = {
+        imported: 0,
+        revived: 0,
+        updated: 0,
+        skipped: 0,
+        skippedMobile: 0,
+        skippedInvalid: 0,
+        error: null,
+      };
+      setProgress({ done: 0, total: rows.length });
+      // Batches MUST run sequentially: each one dedups against leads already
+      // inserted by earlier batches.
+      for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
+        const res = await importLeads({
+          listId,
+          dedup,
+          mapping,
+          rows: rows.slice(i, i + IMPORT_BATCH),
+          rowLineTypes: lineTypes.slice(i, i + IMPORT_BATCH),
+        });
+        total.imported += res.imported;
+        total.revived += res.revived;
+        total.updated += res.updated;
+        total.skipped += res.skipped;
+        total.skippedMobile += res.skippedMobile;
+        total.skippedInvalid += res.skippedInvalid;
+        if (res.error) {
+          setResult({ ...total, error: res.error });
+          toast.error(res.error);
+          setProgress(null);
+          return;
+        }
+        setProgress({
+          done: Math.min(i + IMPORT_BATCH, rows.length),
+          total: rows.length,
+        });
+      }
+      setProgress(null);
+      setResult(total);
+      setStep("done");
     });
   }
 
@@ -268,6 +336,7 @@ export function ImportWizard({
           fileName={fileName}
           skippedLookup={skipLookup}
           pending={pending}
+          progress={progress}
           onBack={() => setStep("map")}
           onImport={runImport}
           onDownloadErrors={downloadErrorReport}
@@ -290,6 +359,7 @@ export function ImportWizard({
           mapping={mapping}
           customFields={customFields}
           pending={pending}
+          progress={progress}
           skipLookup={skipLookup}
           onMappingChange={onMappingChange}
           onBack={() => setStep("upload")}
@@ -487,6 +557,7 @@ function MapStep({
   mapping,
   customFields,
   pending,
+  progress,
   skipLookup,
   onMappingChange,
   onBack,
@@ -497,6 +568,7 @@ function MapStep({
   mapping: Record<string, string>;
   customFields: { id: string; name: string }[];
   pending: boolean;
+  progress: { done: number; total: number } | null;
   skipLookup: boolean;
   onMappingChange: (header: string, value: string) => void;
   onBack: () => void;
@@ -627,10 +699,14 @@ function MapStep({
             <>
               <Loader2 className="size-4 animate-spin" />
               {skipLookup
-                ? "Preparing import…"
-                : `Verifying ${parsed.rows.length.toLocaleString()} ${
-                    parsed.rows.length === 1 ? "number" : "numbers"
-                  } with Twilio…`}
+                ? progress
+                  ? `Preparing ${progress.done.toLocaleString()} / ${progress.total.toLocaleString()}…`
+                  : "Preparing import…"
+                : progress
+                  ? `Verifying ${progress.done.toLocaleString()} / ${progress.total.toLocaleString()} with Twilio…`
+                  : `Verifying ${parsed.rows.length.toLocaleString()} ${
+                      parsed.rows.length === 1 ? "number" : "numbers"
+                    } with Twilio…`}
             </>
           ) : (
             <>
@@ -653,6 +729,7 @@ function ReviewStep({
   fileName,
   skippedLookup,
   pending,
+  progress,
   onBack,
   onImport,
   onDownloadErrors,
@@ -661,6 +738,7 @@ function ReviewStep({
   fileName: string;
   skippedLookup: boolean;
   pending: boolean;
+  progress: { done: number; total: number } | null;
   onBack: () => void;
   onImport: () => void;
   onDownloadErrors: () => void;
@@ -752,7 +830,9 @@ function ReviewStep({
         </Button>
         <Button onClick={onImport} disabled={pending || noImportable}>
           {pending
-            ? "Importing…"
+            ? progress
+              ? `Importing ${progress.done.toLocaleString()} / ${progress.total.toLocaleString()}…`
+              : "Importing…"
             : `Import ${plural(analysis.importable, "lead")}`}
         </Button>
       </div>
