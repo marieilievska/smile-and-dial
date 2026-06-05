@@ -1,7 +1,21 @@
-// US state -> IANA timezone. State-level is an approximation (a few states
-// span zones); BUILD_PLAN.md Section 5.1 uses state as the primary signal.
+import fs from "node:fs";
 
-const STATE_TIMEZONES: Record<string, string> = {
+const env = Object.fromEntries(
+  fs
+    .readFileSync(".env.local", "utf8")
+    .split(/\r?\n/)
+    .filter((l) => l && !l.startsWith("#") && l.includes("="))
+    .map((l) => {
+      const i = l.indexOf("=");
+      return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
+    }),
+);
+const S = env.NEXT_PUBLIC_SUPABASE_URL;
+const K = env.SUPABASE_SERVICE_ROLE_KEY;
+const hGet = { apikey: K, Authorization: `Bearer ${K}` };
+const hWrite = { ...hGet, "Content-Type": "application/json" };
+
+const STATE_TIMEZONES = {
   AL: "America/Chicago",
   AK: "America/Anchorage",
   AZ: "America/Phoenix",
@@ -54,81 +68,7 @@ const STATE_TIMEZONES: Record<string, string> = {
   WV: "America/New_York",
   WY: "America/Denver",
 };
-
-const STATE_NAME_TO_CODE: Record<string, string> = {
-  alabama: "AL",
-  alaska: "AK",
-  arizona: "AZ",
-  arkansas: "AR",
-  california: "CA",
-  colorado: "CO",
-  connecticut: "CT",
-  delaware: "DE",
-  "district of columbia": "DC",
-  florida: "FL",
-  georgia: "GA",
-  hawaii: "HI",
-  idaho: "ID",
-  illinois: "IL",
-  indiana: "IN",
-  iowa: "IA",
-  kansas: "KS",
-  kentucky: "KY",
-  louisiana: "LA",
-  maine: "ME",
-  maryland: "MD",
-  massachusetts: "MA",
-  michigan: "MI",
-  minnesota: "MN",
-  mississippi: "MS",
-  missouri: "MO",
-  montana: "MT",
-  nebraska: "NE",
-  nevada: "NV",
-  "new hampshire": "NH",
-  "new jersey": "NJ",
-  "new mexico": "NM",
-  "new york": "NY",
-  "north carolina": "NC",
-  "north dakota": "ND",
-  ohio: "OH",
-  oklahoma: "OK",
-  oregon: "OR",
-  pennsylvania: "PA",
-  "rhode island": "RI",
-  "south carolina": "SC",
-  "south dakota": "SD",
-  tennessee: "TN",
-  texas: "TX",
-  utah: "UT",
-  vermont: "VT",
-  virginia: "VA",
-  washington: "WA",
-  "west virginia": "WV",
-  wisconsin: "WI",
-  wyoming: "WY",
-};
-
-/** Best-effort IANA timezone for a US state (2-letter code or full name). */
-export function stateToTimezone(
-  state: string | null | undefined,
-): string | null {
-  if (!state) return null;
-  const trimmed = state.trim();
-  if (!trimmed) return null;
-  if (trimmed.length === 2) {
-    return STATE_TIMEZONES[trimmed.toUpperCase()] ?? null;
-  }
-  const code = STATE_NAME_TO_CODE[trimmed.toLowerCase()];
-  return code ? STATE_TIMEZONES[code] : null;
-}
-
-// NANP area code -> US state, so we can recover a state (and thus a timezone)
-// from a phone number when the CSV had no state column. State-level only, same
-// approximation as STATE_TIMEZONES. Authored as state -> codes for legibility;
-// flattened to code -> state below. Unknown / Canadian / toll-free codes fall
-// through to null and the caller's default timezone.
-const STATE_AREA_CODES: Record<string, string[]> = {
+const STATE_AREA_CODES = {
   AL: ["205", "251", "256", "334", "659", "938"],
   AK: ["907"],
   AZ: ["480", "520", "602", "623", "928"],
@@ -350,35 +290,68 @@ const STATE_AREA_CODES: Record<string, string[]> = {
   WI: ["262", "274", "414", "534", "608", "715", "920"],
   WY: ["307"],
 };
+const AC2STATE = {};
+for (const [st, codes] of Object.entries(STATE_AREA_CODES))
+  for (const c of codes) AC2STATE[c] = st;
 
-const AREA_CODE_TO_STATE: Record<string, string> = {};
-for (const [state, codes] of Object.entries(STATE_AREA_CODES)) {
-  for (const code of codes) AREA_CODE_TO_STATE[code] = state;
+function stateTz(state) {
+  if (!state) return null;
+  const t = String(state).trim();
+  if (t.length === 2) return STATE_TIMEZONES[t.toUpperCase()] ?? null;
+  return null;
 }
-
-/** Extract the 3-digit area code from a US/CA phone in any format
- *  ("(205) 259-8928", "2052598928", "+12052598928"). Returns null when the
- *  value isn't a 10-digit NANP number. */
-function areaCodeOf(phone: string | null | undefined): string | null {
+function stateFromPhone(phone) {
   if (!phone) return null;
-  let digits = phone.replace(/\D/g, "");
-  if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
-  if (digits.length < 10) return null;
-  return digits.slice(0, 3);
+  let d = String(phone).replace(/\D/g, "");
+  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+  if (d.length < 10) return null;
+  return AC2STATE[d.slice(0, 3)] ?? null;
 }
 
-/** Best-effort US state (2-letter) inferred from a phone number's area code. */
-export function stateFromPhone(
-  phone: string | null | undefined,
-): string | null {
-  const ac = areaCodeOf(phone);
-  return ac ? (AREA_CODE_TO_STATE[ac] ?? null) : null;
+let from = 0,
+  PAGE = 1000,
+  tzSet = 0,
+  stateSet = 0,
+  scanned = 0,
+  noMatch = 0;
+for (;;) {
+  const rows = await (
+    await fetch(
+      S +
+        `/rest/v1/leads?select=id,state,business_phone,timezone&timezone=is.null&deleted_at=is.null&order=id.asc&offset=${from}&limit=${PAGE}`,
+      { headers: hGet },
+    )
+  ).json();
+  if (!Array.isArray(rows) || rows.length === 0) break;
+  scanned += rows.length;
+  for (const lead of rows) {
+    let tz = stateTz(lead.state);
+    const patch = {};
+    if (!tz) {
+      const st = stateFromPhone(lead.business_phone);
+      if (st) {
+        tz = stateTz(st);
+        if (!lead.state) {
+          patch.state = st;
+          stateSet++;
+        }
+      }
+    }
+    if (!tz) {
+      noMatch++;
+      continue;
+    }
+    patch.timezone = tz;
+    tzSet++;
+    await fetch(S + "/rest/v1/leads?id=eq." + lead.id, {
+      method: "PATCH",
+      headers: hWrite,
+      body: JSON.stringify(patch),
+    });
+  }
+  if (rows.length < PAGE) break;
+  from += PAGE;
 }
-
-/** Best-effort IANA timezone from a phone number's area code — the fallback
- *  when a lead has no state. */
-export function phoneToTimezone(
-  phone: string | null | undefined,
-): string | null {
-  return stateToTimezone(stateFromPhone(phone));
-}
+console.log(
+  `Scanned ${scanned} | timezone set ${tzSet} | state set ${stateSet} | no area-code match ${noMatch}`,
+);

@@ -12,7 +12,7 @@ import {
   type ImportResult,
   type LineType,
 } from "./import-fields";
-import { stateToTimezone } from "./timezone";
+import { stateFromPhone, stateToTimezone } from "./timezone";
 import { isLookupLive, lookupLineType, toE164UsCa } from "./twilio-lookup";
 
 type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
@@ -351,9 +351,25 @@ export async function importLeads(input: {
         fields[key] = raw;
       }
     }
-    if (typeof fields.state === "string" && !fields.timezone) {
-      const tz = stateToTimezone(fields.state);
-      if (tz) fields.timezone = tz;
+    // Timezone for calling-hours. Primary signal is the state; if there's no
+    // state, fall back to the phone's area code — which maps to a state and
+    // thus a timezone — and backfill the state too so the lead isn't blank.
+    const phoneRaw =
+      typeof fields.business_phone === "string" ? fields.business_phone : "";
+    if (typeof fields.state === "string" && fields.state.trim()) {
+      if (!fields.timezone) {
+        const tz = stateToTimezone(fields.state);
+        if (tz) fields.timezone = tz;
+      }
+    } else if (phoneRaw) {
+      const st = stateFromPhone(phoneRaw);
+      if (st) {
+        if (!fields.state) fields.state = st;
+        if (!fields.timezone) {
+          const tz = stateToTimezone(st);
+          if (tz) fields.timezone = tz;
+        }
+      }
     }
     // Store the phone in E.164 so it's dialable by Twilio and dedups
     // consistently. Leave non-US/CA numbers untouched.
