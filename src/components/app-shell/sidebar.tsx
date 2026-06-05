@@ -1,9 +1,12 @@
 "use client";
 
-import { Bookmark, Plus } from "lucide-react";
+import { Bookmark, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
 
+import { deleteSavedView } from "@/lib/saved-views/actions";
 import {
   NAV_SECTION_LABELS,
   navItems,
@@ -64,6 +67,25 @@ export function AppSidebar({
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  // Which saved view is mid-delete, so we can disable just its trash button.
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [, startDeleteTransition] = useTransition();
+
+  function removeSavedView(id: string, name: string) {
+    setDeletingId(id);
+    startDeleteTransition(async () => {
+      const result = await deleteSavedView(id);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success(`Deleted "${name}".`);
+        router.refresh();
+      }
+      setDeletingId(null);
+    });
+  }
+
   const visible = navItems.filter((item) => !item.adminOnly || isAdmin);
 
   // Group by section, preserving the order defined in nav.ts.
@@ -172,7 +194,10 @@ export function AppSidebar({
                           const viewActive =
                             active && currentParams === view.params;
                           return (
-                            <li key={view.id}>
+                            <li
+                              key={view.id}
+                              className="group/view flex items-center gap-0.5"
+                            >
                               <Link
                                 href={
                                   view.params
@@ -181,7 +206,7 @@ export function AppSidebar({
                                 }
                                 aria-current={viewActive ? "page" : undefined}
                                 className={cn(
-                                  "flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors",
+                                  "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors",
                                   viewActive
                                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
@@ -190,6 +215,18 @@ export function AppSidebar({
                                 <Bookmark className="size-3 shrink-0" />
                                 <span className="truncate">{view.name}</span>
                               </Link>
+                              <button
+                                type="button"
+                                aria-label={`Delete view ${view.name}`}
+                                title="Delete view"
+                                disabled={deletingId === view.id}
+                                onClick={() =>
+                                  removeSavedView(view.id, view.name)
+                                }
+                                className="text-sidebar-foreground/40 hover:bg-sidebar-accent/60 hover:text-destructive flex size-6 shrink-0 items-center justify-center rounded-md opacity-0 transition-[opacity,color] group-hover/view:opacity-100 focus-visible:opacity-100 disabled:opacity-40"
+                              >
+                                <Trash2 className="size-3" />
+                              </button>
                             </li>
                           );
                         })}
