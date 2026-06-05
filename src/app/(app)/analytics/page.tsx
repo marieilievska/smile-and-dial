@@ -253,14 +253,14 @@ export default async function AnalyticsPage({
           <section className="flex flex-col gap-3">
             <Link href={goalMetCallsHref} className="block">
               <HeroKpi
-                label="Appointments Booked"
+                label="Goals Met"
                 value={kpis.goalMet.toLocaleString()}
                 priorValue={prior?.goalMet ?? null}
                 deltaPct={
                   prior ? pctDelta(kpis.goalMet, prior.goalMet) : undefined
                 }
                 sparkline={dailyBookings}
-                helper="Calls where the AI agent successfully booked a meeting"
+                helper="Calls where the AI hit the campaign's goal (booking, survey, etc.)"
                 cta="View calls"
               />
             </Link>
@@ -308,7 +308,7 @@ export default async function AnalyticsPage({
               <KpiTile
                 label="Goal Met Rate"
                 value={fmtPct(kpis.goalMetRate)}
-                hint="Of conversations that booked"
+                hint="Of conversations that hit the goal"
                 pctDelta={
                   prior
                     ? pctDelta(kpis.goalMetRate, prior.goalMetRate)
@@ -317,7 +317,7 @@ export default async function AnalyticsPage({
               />
               <Link href={costsHref} className="block">
                 <KpiTile
-                  label="Cost per Appointment"
+                  label="Cost per Goal"
                   value={kpis.goalMet === 0 ? "—" : fmtUsd(kpis.costPerGoalMet)}
                   hint="All-in: Twilio + 11Labs + OpenAI"
                   pctDelta={
@@ -338,10 +338,10 @@ export default async function AnalyticsPage({
               series={[
                 {
                   key: "appts",
-                  label: "Appointments",
+                  label: "Goals met",
                   values: dailyBookings,
                   format: "count",
-                  noun: "appointment",
+                  noun: "goal met",
                 },
                 {
                   key: "calls",

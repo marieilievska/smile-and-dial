@@ -42,7 +42,7 @@ export function HeroPace({
       <Link
         href="/analytics"
         className="text-muted-foreground hover:text-foreground absolute top-3 right-3 inline-flex items-center gap-1 text-xs transition-colors"
-        aria-label="Open analytics for windowed appointment trends"
+        aria-label="Open analytics for windowed goal-completion trends"
       >
         See analytics
         <ArrowUpRight className="size-3" />
@@ -50,7 +50,7 @@ export function HeroPace({
       <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between md:gap-8">
         <div className="flex flex-col gap-2.5">
           <p className="text-muted-foreground text-[10px] font-medium tracking-[0.18em] uppercase">
-            Appointments today
+            Goals met today
           </p>
           <p className="text-foreground text-4xl leading-none font-semibold tracking-tight tabular-nums">
             {current}
@@ -84,7 +84,7 @@ function PaceLine({
     return (
       <p className="text-muted-foreground inline-flex items-center gap-1.5 text-sm">
         <Minus className="size-3.5" />
-        No appointments yesterday to compare against yet
+        No goals met yesterday to compare against yet
       </p>
     );
   }
@@ -165,7 +165,7 @@ function HourlySparkline({ hourly }: { hourly: number[] }) {
       viewBox={`0 0 ${width} ${height}`}
       className="h-20 w-full md:w-80"
       role="img"
-      aria-label="Appointments booked per hour today"
+      aria-label="Goals met per hour today"
     >
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">

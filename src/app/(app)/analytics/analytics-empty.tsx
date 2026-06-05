@@ -18,9 +18,9 @@ export function AnalyticsEmpty() {
         No activity in this window yet
       </h2>
       <p className="text-muted-foreground max-w-md text-sm">
-        Once your AI places calls in this date range, your booked appointments,
-        conversion funnel, and top campaigns show up here. Try widening the
-        range, or get a campaign dialing.
+        Once your AI places calls in this date range, your goals met, conversion
+        funnel, and top campaigns show up here. Try widening the range, or get a
+        campaign dialing.
       </p>
       <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
         <Link

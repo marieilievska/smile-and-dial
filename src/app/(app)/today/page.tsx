@@ -160,7 +160,7 @@ export default async function TodayPage() {
   } else if (paceDelta <= -2) {
     subtitle = `Behind yesterday by ${Math.abs(paceDelta)} — let's pick it up.`;
   } else if (counts.appointmentsToday > 0) {
-    subtitle = `${counts.appointmentsToday} appointment${counts.appointmentsToday === 1 ? "" : "s"} booked — keeping pace with yesterday.`;
+    subtitle = `${counts.appointmentsToday} goal${counts.appointmentsToday === 1 ? "" : "s"} met — keeping pace with yesterday.`;
   } else {
     subtitle = "The AI is handling things. You're free to step away.";
   }

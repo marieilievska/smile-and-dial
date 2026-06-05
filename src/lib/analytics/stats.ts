@@ -380,29 +380,29 @@ export function buildInsights(opts: {
     };
   }
 
-  const appts = `${kpis.goalMet.toLocaleString()} appointment${
+  const appts = `${kpis.goalMet.toLocaleString()} goal${
     kpis.goalMet === 1 ? "" : "s"
-  }`;
+  } met`;
   const leader = ranking.find((r) => r.goalMet > 0);
   const lead = leader ? `, led by ${leader.campaignName}` : "";
 
-  // Headline — appointments + trend vs the prior period when we have one.
+  // Headline — goals met + trend vs the prior period when we have one.
   let headline: string;
   let tone: AnalyticsInsight["tone"];
   const delta = prior ? pctDelta(kpis.goalMet, prior.goalMet) : null;
   if (prior && prior.goalMet > 0 && delta != null) {
     if (Math.abs(delta) < 0.005) {
-      headline = `You booked ${appts} — flat vs the prior period${lead}.`;
+      headline = `${appts} — flat vs the prior period${lead}.`;
       tone = "flat";
     } else {
       const dir = delta > 0 ? "up" : "down";
-      headline = `Appointments are ${dir} ${Math.abs(delta * 100).toFixed(
+      headline = `Goals met are ${dir} ${Math.abs(delta * 100).toFixed(
         0,
       )}% vs the prior period — ${appts} against ${prior.goalMet}${lead}.`;
       tone = delta > 0 ? "up" : "down";
     }
   } else {
-    headline = `You booked ${appts} in this window${lead}.`;
+    headline = `${appts} in this window${lead}.`;
     tone = "none";
   }
 
@@ -429,9 +429,7 @@ export function buildInsights(opts: {
   }
   if (kpis.goalMet > 0 && kpis.costPerGoalMet > 0) {
     parts.push(
-      `Each booked appointment costs $${kpis.costPerGoalMet.toFixed(
-        2,
-      )} all-in.`,
+      `Each goal met costs $${kpis.costPerGoalMet.toFixed(2)} all-in.`,
     );
   }
 
