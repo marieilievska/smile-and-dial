@@ -862,6 +862,9 @@ async function liveSync(
         ...(payload.extraDataCollection ?? []).map(toElevenLabsDataCollection),
       ],
       evaluation: {
+        // Three layers, all merged: the agent's own goal criterion, our
+        // standard call-quality criteria (so every new agent gets a 0–10
+        // score with no extra setup), then any criteria the creator added.
         criteria: [
           {
             id: "goal",
@@ -870,6 +873,7 @@ async function liveSync(
             conversation_goal_prompt:
               payload.goal || "Did the agent accomplish its stated goal?",
           },
+          ...standardEvaluationCriteria(),
           ...(payload.extraEvaluation ?? []).map(toElevenLabsEvaluation),
         ],
       },
