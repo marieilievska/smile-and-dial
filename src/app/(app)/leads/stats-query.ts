@@ -5,7 +5,7 @@ type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 export type LeadStats = {
   readyToCall: number;
   callbacksDue: number;
-  saleThisWeek: number;
+  goalsMetThisWeek: number;
 };
 
 /** Compute the 3-stat strip shown under the Leads page header.
@@ -27,7 +27,7 @@ export async function fetchLeadStats(
   startOfWeek.setDate(now.getDate() - dow);
   startOfWeek.setHours(0, 0, 0, 0);
 
-  const [readyResult, callbackResult, saleResult] = await Promise.all([
+  const [readyResult, callbackResult, goalsMetResult] = await Promise.all([
     supabase
       .from("leads")
       .select("*", { count: "exact", head: true })
@@ -42,13 +42,16 @@ export async function fetchLeadStats(
       .from("leads")
       .select("*", { count: "exact", head: true })
       .is("deleted_at", null)
-      .in("status", ["sale", "goal_met", "attended", "closed"])
+      // Goal-met and the positive milestones past it (showed up, bought).
+      // NOT "closed" — that status is "Closed lost", a terminal loss, and
+      // must never count as a win.
+      .in("status", ["goal_met", "attended", "sale"])
       .gte("updated_at", startOfWeek.toISOString()),
   ]);
 
   return {
     readyToCall: readyResult.count ?? 0,
     callbacksDue: callbackResult.count ?? 0,
-    saleThisWeek: saleResult.count ?? 0,
+    goalsMetThisWeek: goalsMetResult.count ?? 0,
   };
 }

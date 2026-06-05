@@ -8,7 +8,7 @@ import type { LeadStats } from "./stats-query";
  *  page already filtered to status=callback.
  *
  *  Coral accents the "needs attention" stats (Ready to call, Callbacks
- *  due). The "good news" Sale-this-week sits in emerald.
+ *  due). The "good news" Goals-met-this-week sits in emerald.
  *
  *  Round 30 — dropped the "Added today" tile (D3, 4→3). It was the
  *  only non-actionable stat (just a recency count) and the primary
@@ -37,9 +37,9 @@ export function LeadsStatStrip({ stats }: { stats: LeadStats }) {
       />
       <StatLink
         icon={<Trophy className="size-3.5" />}
-        label="Sale this week"
-        value={stats.saleThisWeek}
-        href="/leads?status=sale"
+        label="Goals met this week"
+        value={stats.goalsMetThisWeek}
+        href="/leads?status=goal_met"
         tone="emerald"
         divider
       />
