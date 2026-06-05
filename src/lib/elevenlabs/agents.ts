@@ -139,6 +139,103 @@ function standardDataCollectionObject(): Record<
   return out;
 }
 
+/**
+ * Call-quality evaluation criteria (BUILD_PLAN §8 "score"). ElevenLabs' analysis
+ * LLM grades each one success / failure / unknown after the call; our post-call
+ * webhook averages the gradable ones into a 0–10 score (unknown = "not
+ * applicable", excluded). Each prompt says explicitly when to return unknown so
+ * a short / no-conversation call doesn't get unfairly graded a 0 — those are
+ * gated out of scoring anyway, but it keeps the rationale honest.
+ *
+ * IDs are prefixed `quality_` so the webhook can tell our quality dimensions
+ * apart from any goal/success criterion an agent was built with.
+ */
+const QUALITY_CRITERIA_FIELDS = [
+  {
+    id: "quality_rapport",
+    name: "quality_rapport",
+    prompt:
+      "Judge the agent's rapport. Mark success if the agent was warm, natural, " +
+      "and personable and the person seemed at ease. Mark failure if the agent " +
+      "was robotic, cold, pushy, or awkward. Mark unknown if the call was too " +
+      "short to tell (immediate hang-up, voicemail, or no real exchange).",
+  },
+  {
+    id: "quality_objection_handling",
+    name: "quality_objection_handling",
+    prompt:
+      "Judge how the agent handled questions, hesitation, or objections. Mark " +
+      "success if it responded calmly, respectfully, and helpfully. Mark failure " +
+      "if it ignored, fumbled, or argued with an objection. Mark unknown if no " +
+      "questions or objections came up.",
+  },
+  {
+    id: "quality_goal_progress",
+    name: "quality_goal_progress",
+    prompt:
+      "Judge whether the agent advanced the call's purpose — booking the goal, " +
+      "capturing the needed information, or earning a clear next step. Mark " +
+      "success if it clearly moved things forward, failure if it had the chance " +
+      "and didn't, unknown if there was no real conversation to move forward.",
+  },
+  {
+    id: "quality_clarity",
+    name: "quality_clarity",
+    prompt:
+      "Judge clarity and professionalism. Mark success if the agent was clear, " +
+      "concise, on-message, and professional throughout. Mark failure if it was " +
+      "confusing, rambling, repetitive, or unprofessional. Mark unknown if the " +
+      "call was too short to judge.",
+  },
+];
+
+/** Our quality criteria in ElevenLabs' canonical evaluation shape (an array of
+ *  prompt criteria scoped to the whole conversation). Merged into each agent's
+ *  existing criteria so an agent's own goal criterion is preserved. */
+function standardEvaluationCriteria(): Array<{
+  id: string;
+  name: string;
+  type: "prompt";
+  conversation_goal_prompt: string;
+  use_knowledge_base: boolean;
+  scope: "conversation";
+}> {
+  return QUALITY_CRITERIA_FIELDS.map((c) => ({
+    id: c.id,
+    name: c.name,
+    type: "prompt" as const,
+    conversation_goal_prompt: c.prompt,
+    use_knowledge_base: false,
+    scope: "conversation" as const,
+  }));
+}
+
+/** The set of quality-criterion IDs, exported so the post-call webhook scores
+ *  over exactly these (and ignores agent-specific goal criteria). */
+export const QUALITY_CRITERIA_IDS = QUALITY_CRITERIA_FIELDS.map((c) => c.id);
+
+/** Merge our quality criteria INTO an agent's existing evaluation criteria:
+ *  keep any the agent already had (e.g. a goal/success criterion), replace ours
+ *  by id so re-syncs stay idempotent. Returns the full criteria array. */
+function mergeEvaluationCriteria(
+  existingEvaluation: unknown,
+): Array<Record<string, unknown>> {
+  const ours = standardEvaluationCriteria();
+  const ourIds = new Set(ours.map((c) => c.id));
+  const prevCriteria =
+    existingEvaluation &&
+    typeof existingEvaluation === "object" &&
+    Array.isArray((existingEvaluation as { criteria?: unknown }).criteria)
+      ? ((existingEvaluation as { criteria: unknown[] }).criteria as Array<
+          Record<string, unknown>
+        >)
+      : [];
+  const kept = prevCriteria.filter(
+    (c) => c && typeof c === "object" && !ourIds.has(String(c.id)),
+  );
+  return [...kept, ...ours];
+}
+
 /** Built-in system tools every agent gets. These need no per-agent config,
  *  so they're safe as a global default:
  *   - end_call: agent hangs up gracefully when the conversation is done
@@ -498,6 +595,17 @@ export async function applyConnectedAgentIntegration(
           ? (ps.data_collection as Record<string, unknown>)
           : {}),
         ...standardDataCollectionObject(),
+      },
+      // Merge our quality criteria into the agent's evaluation so every call
+      // gets graded (the post-call webhook averages them into a 0–10 score).
+      // The agent's own goal criterion, if any, is preserved.
+      evaluation: {
+        ...(ps.evaluation &&
+        typeof ps.evaluation === "object" &&
+        !Array.isArray(ps.evaluation)
+          ? (ps.evaluation as Record<string, unknown>)
+          : {}),
+        criteria: mergeEvaluationCriteria(ps.evaluation),
       },
       ...(Object.keys(workspaceOverrides).length > 0
         ? { workspace_overrides: workspaceOverrides }

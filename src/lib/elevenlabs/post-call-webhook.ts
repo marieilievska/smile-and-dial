@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { QUALITY_CRITERIA_IDS } from "@/lib/elevenlabs/agents";
 import { DM_REACHED_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
@@ -245,6 +246,33 @@ function callReachedDm(
   return Boolean(outcome && DM_REACHED_OUTCOMES.has(outcome));
 }
 
+/** Average the gradable quality criteria into a 0–10 call score. ElevenLabs'
+ *  analysis LLM grades each criterion success / failure / unknown; we count
+ *  success as 1 and failure as 0 and ignore "unknown" (the criterion didn't
+ *  apply, e.g. no objections arose). Returns null when nothing was gradable —
+ *  so a no-conversation call shows "—" rather than a misleading 0. We only look
+ *  at OUR quality criteria ids, so an agent's own goal criterion never skews
+ *  the quality score. */
+function scoreFromEvaluation(
+  analysis: ElevenLabsPostCallPayload["analysis"],
+): number | null {
+  const results = analysis?.evaluation_criteria_results;
+  if (!results || typeof results !== "object") return null;
+  let pass = 0;
+  let gradable = 0;
+  for (const id of QUALITY_CRITERIA_IDS) {
+    const result = results[id]?.result?.trim().toLowerCase();
+    if (result === "success") {
+      pass++;
+      gradable++;
+    } else if (result === "failure") {
+      gradable++;
+    }
+  }
+  if (gradable === 0) return null;
+  return Math.round((pass / gradable) * 100) / 10;
+}
+
 /** slug for a custom field, matching the custom-fields admin slugify. */
 function slugifyKey(key: string): string {
   return key
@@ -425,6 +453,13 @@ export type ElevenLabsPostCallPayload = {
       objection_summary?: string;
     };
     evaluation?: { score?: number };
+    /** REAL field: per-criterion success-evaluation results, keyed by
+     *  criterion id. result ∈ success | failure | unknown. We average the
+     *  gradable quality criteria into the call's 0–10 score. */
+    evaluation_criteria_results?: Record<
+      string,
+      { result?: string; rationale?: string } | undefined
+    >;
   };
   metadata?: {
     // REAL field is `call_duration_secs`; `duration_seconds` is legacy.
@@ -811,7 +846,10 @@ async function processTranscription(
         : (payload.transcript as Database["public"]["Tables"]["calls"]["Update"]["transcript_json"]),
     summary:
       payload.analysis?.transcript_summary ?? payload.analysis?.summary ?? null,
-    score: payload.analysis?.evaluation?.score ?? null,
+    // AI call-quality score (0–10), averaged from the ElevenLabs quality
+    // criteria — only for real conversations. Voicemails / no-answers /
+    // immediate hang-ups get no score (the criteria can't fairly judge them).
+    score: reachedHuman ? scoreFromEvaluation(payload.analysis) : null,
     extracted_data:
       ((): Database["public"]["Tables"]["calls"]["Update"]["extracted_data"] => {
         const clean = sanitizeExtraction(
