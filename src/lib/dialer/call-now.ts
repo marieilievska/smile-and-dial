@@ -274,3 +274,79 @@ export async function callNow(input: {
   revalidatePath("/calls");
   return { error: null, callId: call.id };
 }
+
+export type CallNowFromLeadResult = {
+  error: string | null;
+  callId?: string;
+  /** True when the lead's list is attached to more than one active campaign and
+   *  no saved preference picks one — the caller should open the lead's Call
+   *  dialog so the user can choose. */
+  needsPicker?: boolean;
+};
+
+/**
+ * One-click "Call now" from the Leads list: resolve which campaign to dial with
+ * (the user's active-campaign preference if it's valid for this lead, otherwise
+ * the lead's list's single active campaign) and fire `callNow` — no navigation.
+ * When the campaign can't be resolved unambiguously we return `needsPicker` so
+ * the row can fall back to opening the lead's Call dialog.
+ */
+export async function callNowFromLead(
+  leadId: string,
+): Promise<CallNowFromLeadResult> {
+  const userClient = await createClient();
+  const {
+    data: { user },
+  } = await userClient.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: lead } = await userClient
+    .from("leads")
+    .select("id, list_id")
+    .eq("id", leadId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!lead) return { error: "Lead not found." };
+
+  // Active campaigns attached to this lead's list (same query the detail page
+  // uses to populate the Call dialog).
+  const { data: campaignRows } = await userClient
+    .from("list_campaign_attachments")
+    .select("campaign:campaigns(id, status)")
+    .eq("list_id", lead.list_id)
+    .is("detached_at", null);
+  type Row = { campaign: { id: string; status: string } | null };
+  const activeCampaignIds = ((campaignRows ?? []) as unknown as Row[])
+    .map((r) => r.campaign)
+    .filter((c): c is { id: string; status: string } => Boolean(c))
+    .filter((c) => c.status === "active")
+    .map((c) => c.id);
+
+  if (activeCampaignIds.length === 0) {
+    return {
+      error:
+        "No active campaign is attached to this lead's list. Attach one from Campaigns first.",
+    };
+  }
+
+  // Prefer the user's saved active-campaign when it's valid for this lead;
+  // otherwise only auto-pick when there's exactly one choice.
+  const { data: profile } = await userClient
+    .from("profiles")
+    .select("active_campaign_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  const preferred = profile?.active_campaign_id;
+  let campaignId: string | null = null;
+  if (preferred && activeCampaignIds.includes(preferred)) {
+    campaignId = preferred;
+  } else if (activeCampaignIds.length === 1) {
+    campaignId = activeCampaignIds[0];
+  }
+  if (!campaignId) {
+    // Multiple campaigns and no saved preference — let the user choose.
+    return { error: null, needsPicker: true };
+  }
+
+  return callNow({ leadId, campaignId });
+}

@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { localHourDaysAheadIso } from "@/lib/dialer/local-schedule";
 import type { Database } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -129,7 +130,7 @@ export async function applyRetryForCall(
   // case logic.
   const { data: lead } = await supabase
     .from("leads")
-    .select("retry_counter, retry_position, status")
+    .select("retry_counter, retry_position, status, timezone")
     .eq("id", call.lead_id)
     .single();
 
@@ -156,22 +157,25 @@ export async function applyRetryForCall(
     // (defensive — lead.status went stale somehow).
   }
 
+  // Schedule the next attempt at the START of the lead's calling day (9am
+  // local) N days out — not the odd clock time of this call — so Next-call
+  // reads cleanly ("Mon 9:00am") instead of a random "20 hours ago" timestamp.
+  const tz = lead?.timezone ?? null;
+
   if (RETRY_OUTCOMES.has(call.outcome)) {
     const position = ((lead?.retry_position ?? 0) % 3) as 0 | 1 | 2;
     const delayDays = RETRY_DELAY_DAYS[position];
     update.retry_counter = (lead?.retry_counter ?? 0) + 1;
     update.retry_position = (position + 1) % 3;
-    update.next_call_at = new Date(
-      Date.now() + delayDays * 24 * 60 * 60 * 1000,
-    ).toISOString();
+    update.next_call_at = localHourDaysAheadIso(tz, delayDays);
     update.status = "ready_to_call";
     update.resting_until = null;
   } else if (RESTING_OUTCOMES[call.outcome] !== undefined) {
     const days = RESTING_OUTCOMES[call.outcome];
-    const restingUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    const restingUntil = localHourDaysAheadIso(tz, days);
     update.status = "resting";
-    update.resting_until = restingUntil.toISOString();
-    update.next_call_at = restingUntil.toISOString();
+    update.resting_until = restingUntil;
+    update.next_call_at = restingUntil;
     update.retry_counter = 0;
     update.retry_position = 0;
   } else if (call.outcome === "call_back_later") {
@@ -180,17 +184,15 @@ export async function applyRetryForCall(
     // pre_call_check, so a next-day timestamp can't dial outside hours.
     const attempts = (lead?.retry_counter ?? 0) + 1;
     if (attempts > 2) {
-      const restingUntil = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+      const restingUntil = localHourDaysAheadIso(tz, 15);
       update.status = "resting";
-      update.resting_until = restingUntil.toISOString();
-      update.next_call_at = restingUntil.toISOString();
+      update.resting_until = restingUntil;
+      update.next_call_at = restingUntil;
       update.retry_counter = 0;
       update.retry_position = 0;
     } else {
       update.retry_counter = attempts;
-      update.next_call_at = new Date(
-        Date.now() + 24 * 60 * 60 * 1000,
-      ).toISOString();
+      update.next_call_at = localHourDaysAheadIso(tz, 1);
       update.status = "ready_to_call";
       update.resting_until = null;
     }
