@@ -2,6 +2,7 @@ import { Download, Upload, Users } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AutoRefresh } from "@/components/auto-refresh";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -230,7 +231,11 @@ export default async function LeadsPage({
         </p>
       </div>
 
-      {/* L1 — stat strip: ready · callbacks · sale this week · added today.
+      {/* Live-update the list as calls land (statuses, outcomes, "on call"
+          pulse). Faster cadence while any lead is on a call right now. */}
+      <AutoRefresh active={onCallIds.size > 0} />
+
+      {/* L1 — stat strip: ready · callbacks · goals met this week.
           Each tile is a clickable filter shortcut. */}
       <LeadsStatStrip stats={stats} />
 
