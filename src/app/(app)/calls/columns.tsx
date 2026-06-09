@@ -47,26 +47,26 @@ export type CallColumn = {
   width?: string;
 };
 
-/** Low-signal outcomes that get a muted/grey pill — no useful business
- *  conversation happened. call_back_later (a busy brush-off) belongs here even
- *  though a human briefly picked up: it isn't promising work, so it shouldn't
- *  read coral like an agreed callback. */
-const NON_CONNECT_OUTCOMES = new Set([
-  "voicemail",
-  "no_answer",
-  "busy",
-  "failed",
-  "invalid_number",
-  "hung_up_immediately",
-  "call_back_later",
+// Outcomes are colored by sentiment so the call log reads at a glance:
+// green = good, red = bad, grey = neutral / nothing happened.
+
+/** POSITIVE (green) — a win or genuine forward progress: the goal was met,
+ *  we reached the decision maker, they agreed to a callback, or we handed
+ *  off to a human. */
+const POSITIVE_OUTCOMES = new Set([
+  "goal_met",
+  "transferred_to_human",
+  "dm_reached",
+  "callback",
 ]);
 
-/** Outcomes that count as a real win for the operator. */
-const WIN_OUTCOMES = new Set(["goal_met", "transferred_to_human"]);
+/** NEGATIVE (red) — a clear no, a block, or an error: not interested,
+ *  do-not-call, AI error. */
+const NEGATIVE_OUTCOMES = new Set(["not_interested", "dnc", "ai_error"]);
 
-/** Outcomes that count as hard-stop / destructive (do-not-call,
- *  AI error, etc.). */
-const HARD_OUTCOMES = new Set(["dnc", "ai_error"]);
+// NEUTRAL (grey) is the fallback: no useful conversation happened —
+// voicemail, no_answer, busy, failed, invalid_number, hung_up_immediately,
+// call_back_later, and any unknown outcome.
 
 /** Call statuses that mean "the dialer is on this line right now."
  *  Drives the live coral pulse in the Lead cell so the most call-
@@ -119,13 +119,11 @@ export function statusVariant(
 
 export function outcomeVariant(
   outcome: string,
-): "coral" | "success" | "destructive" | "secondary" {
-  if (WIN_OUTCOMES.has(outcome)) return "success";
-  if (HARD_OUTCOMES.has(outcome)) return "destructive";
-  if (NON_CONNECT_OUTCOMES.has(outcome)) return "secondary";
-  // "callback", "not_interested", "dm_reached" are connected-but-not-
-  // closed — read coral to signal "still active work".
-  return "coral";
+): "success" | "destructive" | "secondary" {
+  if (POSITIVE_OUTCOMES.has(outcome)) return "success"; // green
+  if (NEGATIVE_OUTCOMES.has(outcome)) return "destructive"; // red
+  // Neutral bucket + any unknown outcome read grey.
+  return "secondary";
 }
 
 export const CALL_COLUMNS: CallColumn[] = [
@@ -272,17 +270,8 @@ export const CALL_COLUMNS: CallColumn[] = [
       </span>
     ),
   },
-  {
-    key: "talk",
-    label: "Talk time",
-    sortKey: "talk_time_seconds",
-    width: "w-[110px]",
-    cell: (c) => (
-      <span className="text-muted-foreground tabular-nums">
-        {fmtDuration(c.talk_time_seconds)}
-      </span>
-    ),
-  },
+  // Talk-time column removed: ElevenLabs never reports a separate talk-time
+  // figure (only total duration, shown above), so the column was always empty.
   // Status (queued/dialing/ringing/in_progress/completed/failed/cancelled)
   // is the technical state of one dial attempt. For finished calls in the
   // history list it's "completed" 95% of the time — pure noise. It still

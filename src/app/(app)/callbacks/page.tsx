@@ -368,7 +368,13 @@ export default async function CallbacksPage({
                       isPending &&
                       (when.urgency === "overdue" || when.urgency === "urgent");
                     return (
-                      <CallbackRow key={cb.id} leadId={cb.lead?.id ?? null}>
+                      <CallbackRow
+                        key={cb.id}
+                        callId={
+                          cb.originating_call_id ?? cb.result_call_id ?? null
+                        }
+                        leadId={cb.lead?.id ?? null}
+                      >
                         {isAdmin ? (
                           <TableCell className="w-10">
                             <CallbackRowCheckbox callbackId={cb.id} />

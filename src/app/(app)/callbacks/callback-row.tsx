@@ -4,8 +4,10 @@ import { useRouter } from "next/navigation";
 
 import { TableRow } from "@/components/ui/table";
 
-/** A callbacks-table row that navigates to the full lead detail route
- *  at /leads/<leadId> when clicked. Mirrors the calls row pattern:
+/** A callbacks-table row that opens the call detail modal for the call this
+ *  callback came from (the recording/transcript of where it was promised),
+ *  via /calls?call=<callId>. Falls back to the lead detail route when there's
+ *  no associated call. Mirrors the calls row pattern:
  *   - Click → router.push
  *   - Middle-click (mouse button 1) → window.open new tab
  *   - Clicks landing on <a> or <button> children fall through so the
@@ -13,30 +15,40 @@ import { TableRow } from "@/components/ui/table";
  *     link inside the primary cell, the action buttons on the right).
  */
 export function CallbackRow({
+  callId,
   leadId,
   children,
 }: {
+  callId: string | null;
   leadId: string | null;
   children: React.ReactNode;
 }) {
   const router = useRouter();
 
+  // Prefer the call detail modal; fall back to the lead page when there's no
+  // call to show.
+  const target = callId
+    ? `/calls?call=${callId}`
+    : leadId
+      ? `/leads/${leadId}`
+      : null;
+
   function open() {
-    if (!leadId) return;
-    router.push(`/leads/${leadId}`);
+    if (!target) return;
+    router.push(target, { scroll: false });
   }
 
   function onMouseDown(event: React.MouseEvent) {
-    if (!leadId) return;
+    if (!target) return;
     if (event.button === 1) {
       event.preventDefault();
-      window.open(`/leads/${leadId}`, "_blank", "noopener");
+      window.open(target, "_blank", "noopener");
     }
   }
 
   function onRowClick(event: React.MouseEvent<HTMLTableRowElement>) {
-    const target = event.target as HTMLElement;
-    if (target.closest("a, button")) return;
+    const el = event.target as HTMLElement;
+    if (el.closest("a, button")) return;
     open();
   }
 
@@ -47,9 +59,9 @@ export function CallbackRow({
       onKeyDown={(event) => {
         if (event.key === "Enter") open();
       }}
-      tabIndex={leadId ? 0 : -1}
+      tabIndex={target ? 0 : -1}
       className={`group hover:bg-muted/50 ${
-        leadId ? "cursor-pointer" : "cursor-default"
+        target ? "cursor-pointer" : "cursor-default"
       }`}
     >
       {children}

@@ -137,11 +137,17 @@ export default async function TodayPage() {
   });
   const mockMode = isMockMode();
 
-  // Autopilot pace — rough calls/hour so far today. Guard the early-morning
-  // divide-by-near-zero with a half-hour floor so the figure stays sane.
-  const now = new Date();
-  const hoursElapsed = Math.max(0.5, now.getHours() + now.getMinutes() / 60);
-  const pacePerHour = Math.round(counts.callsToday / hoursElapsed);
+  // Autopilot pace — the TRUE current rate: how many calls actually went out
+  // in the last 60 minutes. (The old version divided today's calls by hours
+  // since midnight, which diluted the figure with overnight zero-dial hours
+  // and read far lower than the real pace.)
+  const oneHourAgo = new Date();
+  oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+  const { count: callsLastHour } = await supabase
+    .from("calls")
+    .select("id", { count: "exact", head: true })
+    .gte("created_at", oneHourAgo.toISOString());
+  const pacePerHour = callsLastHour ?? 0;
   const autopilotRunning = autopilot.activeCampaigns > 0;
 
   // AI-aware subtitle — server-computed one-liner that reflects what's
