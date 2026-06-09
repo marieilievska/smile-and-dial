@@ -467,15 +467,31 @@ async function scheduleCallback(
   }
 
   const scheduledAt = when.toISOString();
-  const { error } = await ctx.supabase.from("callbacks").insert({
-    lead_id: ctx.lead.id,
-    campaign_id: ctx.campaignId,
-    originating_call_id: ctx.callId,
-    scheduled_at: scheduledAt,
-    status: "pending",
-    // Auto-created by the agent during a call, so created_by stays null.
-    created_by: null,
-  });
+
+  // If this same call already booked a callback (the lead changed the time
+  // mid-conversation), update that one in place instead of inserting a second.
+  const { data: existing } = await ctx.supabase
+    .from("callbacks")
+    .select("id")
+    .eq("originating_call_id", ctx.callId)
+    .eq("status", "pending")
+    .limit(1)
+    .maybeSingle();
+
+  const { error } = existing
+    ? await ctx.supabase
+        .from("callbacks")
+        .update({ scheduled_at: scheduledAt })
+        .eq("id", existing.id)
+    : await ctx.supabase.from("callbacks").insert({
+        lead_id: ctx.lead.id,
+        campaign_id: ctx.campaignId,
+        originating_call_id: ctx.callId,
+        scheduled_at: scheduledAt,
+        status: "pending",
+        // Auto-created by the agent during a call, so created_by stays null.
+        created_by: null,
+      });
   if (error) {
     return {
       success: false,

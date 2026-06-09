@@ -1224,6 +1224,20 @@ async function applyOutcomeSideEffects(
 
   // --- callback ---
   if (input.outcome === "callback") {
+    // Don't double-book. The in-call `schedule_callback` tool may have already
+    // created a callback for THIS call (with the exact time the agent agreed).
+    // If so, defer to it — just make sure the lead points at its earliest
+    // pending callback — instead of inserting a second from our default time.
+    const { data: alreadyBooked } = await supabase
+      .from("callbacks")
+      .select("id")
+      .eq("originating_call_id", input.callId)
+      .limit(1)
+      .maybeSingle();
+    if (alreadyBooked) {
+      await syncLeadNextCallToEarliestCallback(supabase, input.leadId);
+      return;
+    }
     // Use the time the lead actually named; otherwise schedule for tomorrow
     // morning in the LEAD's timezone (a predictable, in-hours slot) rather than
     // copying the original call's arbitrary clock time.
