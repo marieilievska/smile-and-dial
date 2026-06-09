@@ -14,6 +14,7 @@ import { formatCreatedAt } from "../format-created";
 import { CalendlyForm } from "./calendly-form";
 import { CloseForm } from "./close-form";
 import { ElevenLabsForm } from "./elevenlabs-form";
+import { MetaForm } from "./meta-form";
 
 export default async function IntegrationsPage() {
   const supabase = await createClient();
@@ -48,13 +49,27 @@ export default async function IntegrationsPage() {
   ]);
 
   let voiceIds = "";
+  let metaConnected = false;
+  let metaLastSyncAt: string | null = null;
+  let metaLastSyncCount = 0;
+  let metaLastSyncError: string | null = null;
   if (isAdmin) {
     const { data: settings } = await supabase
       .from("app_settings")
-      .select("elevenlabs_voice_ids")
+      .select(
+        "elevenlabs_voice_ids, meta_connected_at, meta_access_token, meta_last_sync_at, meta_last_sync_count, meta_last_sync_error",
+      )
       .eq("id", 1)
       .maybeSingle();
     voiceIds = settings?.elevenlabs_voice_ids ?? "";
+    // meta_access_token is only read here to compute `connected`; it is
+    // never passed to the client form.
+    metaConnected = Boolean(
+      settings?.meta_connected_at && settings?.meta_access_token,
+    );
+    metaLastSyncAt = settings?.meta_last_sync_at ?? null;
+    metaLastSyncCount = settings?.meta_last_sync_count ?? 0;
+    metaLastSyncError = settings?.meta_last_sync_error ?? null;
   }
 
   // Round L1 — the ElevenLabs API key now lives in the server env, so
@@ -89,6 +104,29 @@ export default async function IntegrationsPage() {
             delay={75}
           >
             <ElevenLabsForm voiceIds={voiceIds} />
+          </IntegrationCard>
+        ) : null}
+
+        {isAdmin ? (
+          <IntegrationCard
+            title="Meta Ads (Facebook / Instagram)"
+            description="Sync collected lead emails into a Meta Custom Audience for ads and lookalikes. Emails are hashed before they leave the server."
+            connected={metaConnected}
+            subtitle={
+              metaConnected && metaLastSyncAt
+                ? `Last synced ${formatCreatedAt(metaLastSyncAt, now)}`
+                : metaConnected
+                  ? "Connected"
+                  : undefined
+            }
+            delay={100}
+          >
+            <MetaForm
+              connected={metaConnected}
+              lastSyncAt={metaLastSyncAt}
+              lastSyncCount={metaLastSyncCount}
+              lastSyncError={metaLastSyncError}
+            />
           </IntegrationCard>
         ) : null}
 
