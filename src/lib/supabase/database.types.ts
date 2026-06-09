@@ -1641,6 +1641,7 @@ export type Database = {
           campaign_id: string | null;
           concurrency_cap_per_user: number | null;
           daily_spend_cap: number | null;
+          dial_priority: number | null;
           lead_id: string | null;
           lead_timezone: string | null;
           monthly_spend_cap: number | null;

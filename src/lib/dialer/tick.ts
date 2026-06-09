@@ -239,6 +239,10 @@ export async function runDialerTick(
     .select(
       "lead_id, owner_id, business_phone, campaign_id, agent_id, twilio_number_id",
     )
+    // Scheduled callbacks (dial_priority = 0) jump ahead of cold leads
+    // (dial_priority = 1) so an agreed appointment is never buried behind a
+    // large import. Within each priority band, soonest-due dials first.
+    .order("dial_priority", { ascending: true })
     .order("next_call_at", { ascending: true, nullsFirst: true })
     .limit(options.limit ?? 50);
   if (options.leadIds && options.leadIds.length > 0) {
