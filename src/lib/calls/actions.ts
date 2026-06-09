@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
+import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 
 export type TranscriptTurn = {
@@ -318,6 +319,13 @@ export async function scheduleManualCallback(input: {
     created_by: user.id,
   });
   if (error) return { error: "Could not schedule the callback." };
+
+  // Move the lead into the callback queue at its earliest pending callback so
+  // the dialer actually picks it up (a manually-scheduled callback otherwise
+  // never set the lead's status / next_call_at).
+  if (call.lead_id) {
+    await syncLeadNextCallToEarliestCallback(supabase, call.lead_id);
+  }
 
   revalidatePath("/calls");
   return { error: null };

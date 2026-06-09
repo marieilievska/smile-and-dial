@@ -8,6 +8,7 @@ import {
   createInvitee,
   getAvailableTimes as calendlyGetAvailableTimes,
 } from "@/lib/calendly/api";
+import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
@@ -482,11 +483,10 @@ async function scheduleCallback(
     };
   }
 
-  // Hand the lead to the callback queue at the requested time.
-  await ctx.supabase
-    .from("leads")
-    .update({ status: "callback", next_call_at: scheduledAt })
-    .eq("id", ctx.lead.id);
+  // Hand the lead to the callback queue at its EARLIEST pending callback (this
+  // new one, or a sooner still-pending one) so a later callback never strands
+  // an earlier overdue one.
+  await syncLeadNextCallToEarliestCallback(ctx.supabase, ctx.lead.id);
 
   await logToolEvent(ctx, "tool_schedule_callback", {
     scheduled_at: scheduledAt,

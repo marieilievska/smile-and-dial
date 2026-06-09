@@ -5,6 +5,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 import { QUALITY_CRITERIA_IDS } from "@/lib/elevenlabs/agents";
+import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import { DM_REACHED_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
@@ -1249,13 +1250,10 @@ async function applyOutcomeSideEffects(
       status: "pending",
       // created_by left null — the agent auto-scheduled this.
     });
-    await supabase
-      .from("leads")
-      .update({
-        status: "callback",
-        next_call_at: scheduledAt,
-      })
-      .eq("id", input.leadId);
+    // Point the lead at its EARLIEST pending callback (this one, or a sooner
+    // still-pending one) so a later callback can't strand an earlier overdue
+    // one out of the dial queue.
+    await syncLeadNextCallToEarliestCallback(supabase, input.leadId);
     return;
   }
 
