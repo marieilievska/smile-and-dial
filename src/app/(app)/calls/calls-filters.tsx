@@ -41,6 +41,7 @@ const FILTER_KEYS = [
   "agent",
   "owner",
   "goal_met",
+  "mode",
   "min_dur",
   "max_dur",
   "from",
@@ -75,6 +76,7 @@ export function CallsFilters({
   const [agent, setAgent] = useState(get("agent") || "any");
   const [owner, setOwner] = useState(get("owner") || "any");
   const [goalMet, setGoalMet] = useState(get("goal_met") || "any");
+  const [mode, setMode] = useState(get("mode") || "any");
   const [minDur, setMinDur] = useState(get("min_dur"));
   const [maxDur, setMaxDur] = useState(get("max_dur"));
   const [from, setFrom] = useState(get("from"));
@@ -97,6 +99,7 @@ export function CallsFilters({
     set("agent", agent);
     set("owner", owner);
     set("goal_met", goalMet);
+    set("mode", mode);
     set("min_dur", minDur);
     set("max_dur", maxDur);
     set("from", from);
@@ -117,6 +120,7 @@ export function CallsFilters({
     setAgent("any");
     setOwner("any");
     setGoalMet("any");
+    setMode("any");
     setMinDur("");
     setMaxDur("");
     setFrom("");
@@ -186,6 +190,31 @@ export function CallsFilters({
                 })),
               ]}
             />
+            <div className="col-span-2 flex flex-col gap-1.5">
+              <Label>Call type</Label>
+              <div className="flex gap-1">
+                {(
+                  [
+                    { value: "any", label: "All" },
+                    { value: "ai", label: "AI" },
+                    { value: "human", label: "Human" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setMode(opt.value)}
+                    className={`focus-visible:ring-ring flex-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none ${
+                      mode === opt.value
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background text-foreground border-input hover:bg-muted"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </Section>
 

@@ -10,6 +10,7 @@ import { exactDateTime, relativeTime } from "@/lib/relative-time";
 export type DisplayCall = {
   id: string;
   direction: "outbound" | "inbound";
+  call_mode: "ai" | "human";
   status: string;
   outcome: string | null;
   goal_met: boolean;
@@ -198,6 +199,11 @@ export const CALL_COLUMNS: CallColumn[] = [
               >
                 <Mic className="size-2.5 shrink-0" />
                 <span className="truncate">{c.summary}</span>
+              </span>
+            ) : null}
+            {c.call_mode === "human" ? (
+              <span className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-full bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-700 uppercase dark:text-emerald-400">
+                Human
               </span>
             ) : null}
           </div>

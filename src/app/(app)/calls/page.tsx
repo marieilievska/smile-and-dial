@@ -153,6 +153,7 @@ export default async function CallsPage({
   const calls: DisplayCall[] = rawCalls.map((c) => ({
     id: c.id,
     direction: c.direction as DisplayCall["direction"],
+    call_mode: (c.call_mode ?? "ai") as DisplayCall["call_mode"],
     status: c.status,
     outcome: c.outcome,
     goal_met: c.goal_met,
@@ -197,7 +198,8 @@ export default async function CallsPage({
       str(params.campaign) ||
       str(params.agent) ||
       str(params.owner) ||
-      str(params.goal_met),
+      str(params.goal_met) ||
+      str(params.mode),
     ) ||
     Boolean(
       str(params.min_dur) ||

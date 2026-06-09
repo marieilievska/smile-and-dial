@@ -50,6 +50,13 @@ export function CallsActiveFilterChips({
       label: `Goal met: ${goalMet === "yes" ? "Yes" : "No"}`,
     });
   }
+  const mode = searchParams.get("mode");
+  if (mode) {
+    chips.push({
+      key: "mode",
+      label: `Type: ${mode === "human" ? "Human" : "AI"}`,
+    });
+  }
   const campaign = searchParams.get("campaign");
   if (campaign) {
     chips.push({
@@ -107,6 +114,7 @@ export function CallsActiveFilterChips({
       "status",
       "outcome",
       "goal_met",
+      "mode",
       "campaign",
       "agent",
       "owner",
