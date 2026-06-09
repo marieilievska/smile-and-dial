@@ -249,6 +249,7 @@ export default async function LeadDetailPage({
   return (
     <LeadPageClient
       leadId={lead.id}
+      userId={user.id}
       leadCompany={lead.company}
       fieldValues={fieldValues}
       customFields={customFields}

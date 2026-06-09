@@ -34,6 +34,7 @@ import {
 import { MergeInboundDialog } from "../merge-inbound-dialog";
 import { EditableCompanyName } from "./editable-company-name";
 import { LeadHeroActions } from "./lead-hero-actions";
+import { ManualCallPanel } from "./manual-call-panel";
 import { SinceLastViewed } from "./since-last-viewed";
 
 /** v3 — two-zone layout. Left = every field surface + at-a-glance.
@@ -43,6 +44,7 @@ import { SinceLastViewed } from "./since-last-viewed";
  *  fields below carry that information already. */
 export function LeadPageClient({
   leadId,
+  userId,
   leadCompany,
   fieldValues,
   customFields,
@@ -55,6 +57,7 @@ export function LeadPageClient({
   nav,
 }: {
   leadId: string;
+  userId: string;
   leadCompany: string | null;
   fieldValues: Record<string, string>;
   customFields: CustomFieldDef[];
@@ -176,6 +179,7 @@ export function LeadPageClient({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <LeadHeroActions leadId={leadId} leadName={leadCompany} />
+          <ManualCallPanel leadId={leadId} userId={userId} />
           <CallNowDialog
             leadId={leadId}
             availableCampaigns={availableCampaigns}
