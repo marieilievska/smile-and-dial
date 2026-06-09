@@ -1,6 +1,7 @@
 "use server";
 
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
+import { applyOutcomeSideEffects } from "@/lib/elevenlabs/post-call-webhook";
 import { OVERRIDABLE_OUTCOMES } from "@/lib/calls/outcomes";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -27,7 +28,7 @@ export async function dispositionHumanCall(input: {
   const supabase = createAdminClient();
   const { data: call } = await supabase
     .from("calls")
-    .select("id, summary")
+    .select("id, summary, campaign_id")
     .eq("lead_id", input.leadId)
     .eq("call_mode", "human")
     .order("created_at", { ascending: false })
@@ -49,6 +50,22 @@ export async function dispositionHumanCall(input: {
     })
     .eq("id", call.id);
 
-  await applyRetryForCall(call.id);
+  // Route through the SAME pipeline AI calls use: this creates callback rows,
+  // inserts DNC entries (+ flips the lead to dnc), fires the goal-met
+  // notification, AND drives the retry engine for the remaining outcomes.
+  // applyRetryForCall alone bails on dnc/callback/etc., silently dropping them.
+  if (call.campaign_id) {
+    await applyOutcomeSideEffects(supabase, {
+      callId: call.id,
+      leadId: input.leadId,
+      campaignId: call.campaign_id,
+      outcome: input.outcome as never,
+      callbackDatetime: null,
+    });
+  } else {
+    // No campaign on the row — applyOutcomeSideEffects needs a campaignId for
+    // callback rows, so fall back to at least running retry scheduling.
+    await applyRetryForCall(call.id);
+  }
   return {};
 }

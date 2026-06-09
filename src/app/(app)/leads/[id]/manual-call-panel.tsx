@@ -31,6 +31,8 @@ export function ManualCallPanel({
 
   const startCall = useCallback(async () => {
     setError(null);
+    setMuted(false);
+    setSeconds(0);
     setPhase("connecting");
     try {
       const res = await fetch("/api/twilio/voice-token", { method: "POST" });
@@ -129,6 +131,7 @@ function DispositionForm({
   const [outcome, setOutcome] = useState("goal_met");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const options = [
     "goal_met",
     "callback",
@@ -139,8 +142,13 @@ function DispositionForm({
   ];
   async function save() {
     setSaving(true);
-    await dispositionHumanCall({ leadId, outcome, note });
+    setError(null);
+    const result = await dispositionHumanCall({ leadId, outcome, note });
     setSaving(false);
+    if (result?.error) {
+      setError(result.error);
+      return;
+    }
     onDone();
   }
   return (
@@ -166,6 +174,7 @@ function DispositionForm({
       <Button size="sm" onClick={save} disabled={saving}>
         {saving ? "Saving…" : "Save outcome"}
       </Button>
+      {error ? <p className="text-xs text-rose-600">{error}</p> : null}
     </div>
   );
 }

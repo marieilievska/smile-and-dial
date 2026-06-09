@@ -1156,7 +1156,7 @@ function dncReasonForOutcome(
  * goal_met, ai_*, transferred_to_human) is the retry engine's job in
  * Step 24. For those outcomes we leave lead.status alone here.
  */
-async function applyOutcomeSideEffects(
+export async function applyOutcomeSideEffects(
   supabase: SupabaseAdmin,
   input: {
     callId: string;
