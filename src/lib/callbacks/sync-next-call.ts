@@ -35,3 +35,23 @@ export async function syncLeadNextCallToEarliestCallback(
     .update({ status: "callback", next_call_at: data.scheduled_at })
     .eq("id", leadId);
 }
+
+/**
+ * Mark a lead's DUE pending callbacks as completed once we've actually dialed
+ * the lead. Without this, the callback row stays `pending` forever after the
+ * call, so the lead keeps showing as an "overdue callback" in the UI even
+ * though the callback was already made. Call this when a call to the lead is
+ * placed/completed. Only callbacks whose scheduled time has arrived are
+ * closed — a future callback is left untouched.
+ */
+export async function resolveDueCallbacksForLead(
+  supabase: SupabaseClient<Database>,
+  leadId: string,
+): Promise<void> {
+  await supabase
+    .from("callbacks")
+    .update({ status: "completed" })
+    .eq("lead_id", leadId)
+    .eq("status", "pending")
+    .lte("scheduled_at", new Date().toISOString());
+}

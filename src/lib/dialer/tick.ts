@@ -3,6 +3,7 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
+import { resolveDueCallbacksForLead } from "@/lib/callbacks/sync-next-call";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 
@@ -155,6 +156,10 @@ async function placeMockCall(
     .single();
 
   if (error || !call) return null;
+
+  // We just dialed the lead, so close any callback that was due — otherwise the
+  // callback row stays pending and the lead shows as an overdue callback.
+  await resolveDueCallbacksForLead(supabase, c.lead_id);
 
   // Push next_call_at out so this lead isn't re-picked immediately. The real
   // retry engine (Step 24) replaces this with proper per-outcome scheduling.

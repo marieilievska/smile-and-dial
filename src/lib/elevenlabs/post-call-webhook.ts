@@ -5,7 +5,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 import { QUALITY_CRITERIA_IDS } from "@/lib/elevenlabs/agents";
-import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
+import {
+  resolveDueCallbacksForLead,
+  syncLeadNextCallToEarliestCallback,
+} from "@/lib/callbacks/sync-next-call";
 import { DM_REACHED_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
@@ -1163,6 +1166,11 @@ async function applyOutcomeSideEffects(
     callbackDatetime: string | null;
   },
 ): Promise<void> {
+  // We just dialed this lead, so any callback that was due is now fulfilled —
+  // close it so the lead stops showing as an "overdue callback" in the UI.
+  // Runs regardless of outcome (even a no-answer was still an attempt).
+  await resolveDueCallbacksForLead(supabase, input.leadId);
+
   // If THIS webhook didn't change the outcome, still drive the retry
   // engine — the call row may already have an outcome set by Twilio
   // (busy/no-answer/failed) or by a manual override. The engine's
