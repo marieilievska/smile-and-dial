@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 
 import { mintVoiceToken } from "../src/lib/twilio/voice-token";
 import { buildDialTwiml } from "../src/lib/twilio/human-call";
+import { transcribeAudioUrl } from "../src/lib/openai/transcribe";
 
 function decodeJwtPart(part: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
@@ -26,6 +27,12 @@ test("mintVoiceToken builds a Twilio FPA voice grant token", () => {
   expect(grants.identity).toBe("user-1");
   const voice = grants.voice as { outgoing: { application_sid: string } };
   expect(voice.outgoing.application_sid).toBe("APtest");
+});
+
+test("transcribeAudioUrl returns null in mock mode", async () => {
+  delete process.env.OPENAI_LIVE;
+  const result = await transcribeAudioUrl("https://example.com/rec.mp3");
+  expect(result).toBeNull();
 });
 
 test("buildDialTwiml dials the lead from the caller id with recording on", () => {
