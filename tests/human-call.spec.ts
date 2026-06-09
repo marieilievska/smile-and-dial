@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 import { mintVoiceToken } from "../src/lib/twilio/voice-token";
+import { buildDialTwiml } from "../src/lib/twilio/human-call";
 
 function decodeJwtPart(part: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
@@ -25,4 +26,18 @@ test("mintVoiceToken builds a Twilio FPA voice grant token", () => {
   expect(grants.identity).toBe("user-1");
   const voice = grants.voice as { outgoing: { application_sid: string } };
   expect(voice.outgoing.application_sid).toBe("APtest");
+});
+
+test("buildDialTwiml dials the lead from the caller id with recording on", () => {
+  const xml = buildDialTwiml({
+    leadPhone: "+16505551234",
+    callerId: "+18885550000",
+    appBaseUrl: "https://app.example.com",
+  });
+  expect(xml).toContain('callerId="+18885550000"');
+  expect(xml).toContain("record-from-answer-dual");
+  expect(xml).toContain("https://app.example.com/api/twilio/recording");
+  expect(xml).toContain("<Number");
+  expect(xml).toContain("+16505551234");
+  expect(xml.startsWith("<?xml")).toBe(true);
 });
