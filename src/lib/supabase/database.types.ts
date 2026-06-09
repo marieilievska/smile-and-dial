@@ -511,6 +511,7 @@ export type Database = {
         Row: {
           agent_id: string | null;
           answered_at: string | null;
+          call_mode: string;
           campaign_id: string;
           cost_breakdown: Json | null;
           created_at: string;
@@ -524,6 +525,7 @@ export type Database = {
           lead_id: string;
           outcome: string | null;
           outcome_source: string | null;
+          placed_by: string | null;
           recording_path: string | null;
           retry_applied_at: string | null;
           score: number | null;
@@ -538,6 +540,7 @@ export type Database = {
         Insert: {
           agent_id?: string | null;
           answered_at?: string | null;
+          call_mode?: string;
           campaign_id: string;
           cost_breakdown?: Json | null;
           created_at?: string;
@@ -551,6 +554,7 @@ export type Database = {
           lead_id: string;
           outcome?: string | null;
           outcome_source?: string | null;
+          placed_by?: string | null;
           recording_path?: string | null;
           retry_applied_at?: string | null;
           score?: number | null;
@@ -565,6 +569,7 @@ export type Database = {
         Update: {
           agent_id?: string | null;
           answered_at?: string | null;
+          call_mode?: string;
           campaign_id?: string;
           cost_breakdown?: Json | null;
           created_at?: string;
@@ -578,6 +583,7 @@ export type Database = {
           lead_id?: string;
           outcome?: string | null;
           outcome_source?: string | null;
+          placed_by?: string | null;
           recording_path?: string | null;
           retry_applied_at?: string | null;
           score?: number | null;
@@ -623,6 +629,13 @@ export type Database = {
             columns: ["lead_id"];
             isOneToOne: false;
             referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "calls_placed_by_fkey";
+            columns: ["placed_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
           {
