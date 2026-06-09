@@ -7,6 +7,7 @@ import {
   createHumanCallRow,
   resolveHumanCallTarget,
 } from "@/lib/twilio/human-call";
+import { isValidTwilioSignature } from "@/lib/twilio/status-webhook";
 
 function twimlSay(message: string): Response {
   const body =
@@ -20,8 +21,33 @@ function twimlSay(message: string): Response {
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
-  const leadId = String(form.get("leadId") ?? "");
-  const userId = String(form.get("userId") ?? "");
+  const params: Record<string, string> = {};
+  for (const [key, value] of form.entries()) {
+    if (typeof value === "string") params[key] = value;
+  }
+
+  // This is the TwiML App's Voice URL — Twilio POSTs here when the browser
+  // connects. Validate the Twilio signature (same HMAC the inbound webhook
+  // uses) BEFORE resolving the lead or inserting any row: otherwise the route
+  // is an unauthenticated oracle that would leak the lead's phone number in the
+  // returned <Dial> TwiML and create spurious call rows. Tests bypass via
+  // TWILIO_LIVE != "live".
+  const signature = request.headers.get("x-twilio-signature");
+  const pathWithQuery = `${request.nextUrl.pathname}${request.nextUrl.search}`;
+  const base = appBaseUrl();
+  const candidateUrls = [
+    `${request.nextUrl.origin}${pathWithQuery}`,
+    base ? `${base}${pathWithQuery}` : null,
+  ].filter((u): u is string => Boolean(u));
+  const signatureOk = candidateUrls.some((url) =>
+    isValidTwilioSignature({ url, params, signature }),
+  );
+  if (!signatureOk) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
+  const leadId = params.leadId ?? "";
+  const userId = params.userId ?? "";
   if (!leadId || !userId) {
     return twimlSay("Missing call details.");
   }
