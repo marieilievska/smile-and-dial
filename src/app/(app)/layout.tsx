@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { AutoRefresh } from "@/components/auto-refresh";
 import { MobileNavTrigger } from "@/components/app-shell/mobile-nav-trigger";
 import { AppSidebar } from "@/components/app-shell/sidebar";
 import { TopBar } from "@/components/app-shell/top-bar";
@@ -159,6 +160,11 @@ export default async function AppLayout({
             tabIndex={-1}
             className="flex-1 overflow-y-auto"
           >
+            {/* App-wide live refresh: every page quietly re-fetches on an
+             *  interval so results update without a manual reload. Pauses on a
+             *  hidden tab and while any dialog/popover is open, and uses a soft
+             *  refresh so scroll + open client state are preserved. */}
+            <AutoRefresh idleMs={8000} />
             {children}
           </main>
         </div>

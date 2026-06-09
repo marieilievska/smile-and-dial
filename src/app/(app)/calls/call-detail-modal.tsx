@@ -239,7 +239,10 @@ export function CallDetailModal() {
     // /leads/<id>, /callbacks → "View original call", etc.). Fall
     // back to /calls if pathname isn't set (server-side render).
     const base = pathname || "/calls";
-    router.push(qs ? `${base}?${qs}` : base);
+    // scroll: false — closing the modal must NOT jump the list back to the top;
+    // the operator should land right where they were (same reason opening uses
+    // scroll:false in call-row.tsx).
+    router.push(qs ? `${base}?${qs}` : base, { scroll: false });
   }
 
   function seekTo(seconds: number) {

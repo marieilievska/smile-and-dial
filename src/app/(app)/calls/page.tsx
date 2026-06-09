@@ -15,7 +15,6 @@ import { rowReachedDm } from "@/lib/analytics/stats";
 import { createClient } from "@/lib/supabase/server";
 
 import { CallsActiveFilterChips } from "./active-filter-chips";
-import { CallsAutoRefresh } from "./calls-auto-refresh";
 import { CallDetailModal } from "./call-detail-modal";
 import { CallRow } from "./call-row";
 import { CallRowActions } from "./call-row-actions";
@@ -209,9 +208,8 @@ export default async function CallsPage({
 
   return (
     <div className="flex flex-col gap-5 p-6">
-      {/* Live updates: re-fetch outcomes/statuses on an interval so the page
-          keeps itself current while you watch calls land. */}
-      <CallsAutoRefresh hasActive={stats.inProgressNow > 0} />
+      {/* Live updates are handled app-wide by <AutoRefresh> in the (app)
+          layout — no per-page poller needed. */}
       <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-1.5 delay-75 duration-500">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-foreground text-2xl font-bold tracking-tight">
