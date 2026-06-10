@@ -87,7 +87,7 @@ export default async function CampaignsPage({
     supabase
       .from("campaigns")
       .select(
-        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, calendly_event_id, email_template_id, created_at, agent:agents(name), goal:goals(name)",
+        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, calendly_event_id, email_template_id, created_at, agent:agents(name), goal:goals(name)",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -242,6 +242,8 @@ export default async function CampaignsPage({
     daily_spend_cap: c.daily_spend_cap,
     monthly_spend_cap: c.monthly_spend_cap,
     autopilot_enabled: c.autopilot_enabled ?? true,
+    smart_scheduling:
+      (c as { smart_scheduling?: boolean }).smart_scheduling ?? false,
     calendly_event_id: c.calendly_event_id ?? null,
     email_template_id: c.email_template_id ?? null,
     created_at: c.created_at,
@@ -294,6 +296,7 @@ export default async function CampaignsPage({
       daily_spend_cap: campaign.daily_spend_cap,
       monthly_spend_cap: campaign.monthly_spend_cap,
       autopilot_enabled: campaign.autopilot_enabled,
+      smart_scheduling: campaign.smart_scheduling,
       calendly_event_id: campaign.calendly_event_id,
       email_template_id: campaign.email_template_id,
     };

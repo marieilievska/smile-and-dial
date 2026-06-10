@@ -67,6 +67,7 @@ export type CampaignData = {
   daily_spend_cap: number | null;
   monthly_spend_cap: number | null;
   autopilot_enabled: boolean;
+  smart_scheduling: boolean;
   calendly_event_id: string | null;
   email_template_id: string | null;
 };
@@ -158,6 +159,9 @@ export function CampaignSettingsDialog({
   const [autopilotEnabled, setAutopilotEnabled] = useState(
     campaign?.autopilot_enabled ?? true,
   );
+  const [smartSchedulingEnabled, setSmartSchedulingEnabled] = useState(
+    campaign?.smart_scheduling ?? false,
+  );
   const [calendlyEventId, setCalendlyEventId] = useState(
     campaign?.calendly_event_id ?? NO_EVENT,
   );
@@ -190,6 +194,7 @@ export function CampaignSettingsDialog({
         dailySpendCap,
         monthlySpendCap,
         autopilotEnabled,
+        smartSchedulingEnabled,
         calendlyEventId: calendlyEventId === NO_EVENT ? "" : calendlyEventId,
         emailTemplateId: emailTemplateId === NO_TEMPLATE ? "" : emailTemplateId,
       };
@@ -226,6 +231,7 @@ export function CampaignSettingsDialog({
         setDailySpendCap("");
         setMonthlySpendCap("");
         setAutopilotEnabled(true);
+        setSmartSchedulingEnabled(false);
         setCalendlyEventId(NO_EVENT);
         setEmailTemplateId(NO_TEMPLATE);
         setSelectedListIds([]);
@@ -458,6 +464,28 @@ export function CampaignSettingsDialog({
                   On: the AI dials leads automatically during calling hours.
                   Off: nothing dials on its own, but you can still place manual
                   Call Now calls one by one.
+                </span>
+              </div>
+            </label>
+            <label
+              htmlFor="campaign-smart-scheduling"
+              className="border-border hover:bg-muted/40 flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+            >
+              <Checkbox
+                id="campaign-smart-scheduling"
+                checked={smartSchedulingEnabled}
+                onCheckedChange={(v) => setSmartSchedulingEnabled(v === true)}
+                className="mt-0.5"
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-foreground text-sm font-medium">
+                  Smart scheduling
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  When on, retries aim for each lead&apos;s best-answering hour
+                  (in their timezone) instead of a fixed time. Uses your
+                  connect-rate history; falls back to mid-morning until
+                  there&apos;s enough data.
                 </span>
               </div>
             </label>

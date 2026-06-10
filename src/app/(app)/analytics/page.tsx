@@ -23,6 +23,7 @@ import { AnalyticsDatePills } from "./analytics-date-pills";
 import { AnalyticsEmpty } from "./analytics-empty";
 import { AnalyticsFilters } from "./analytics-filters";
 import { AnalyticsInsight } from "./analytics-insight";
+import { BestTimeHeatmap } from "./best-time-heatmap";
 import { CampaignLeaderboard, FunnelChart, OutcomeBreakdown } from "./charts";
 import { HeroKpi } from "./hero-kpi";
 import { KpiTile } from "./kpi-tile";
@@ -395,6 +396,11 @@ export default async function AnalyticsPage({
                 total={kpis.totalCalls}
               />
             </section>
+          </div>
+
+          {/* Best time to call heatmap — workspace-wide connect-rate signal. */}
+          <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-1 gap-4 delay-250 duration-500 lg:grid-cols-2">
+            <BestTimeHeatmap />
           </div>
 
           {/* Inventory strip — six low-priority counts displayed as a grid

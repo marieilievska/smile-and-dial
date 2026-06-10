@@ -39,6 +39,9 @@ export type CampaignInput = {
   /** When false the AI auto-dialer skips this campaign; manual Call Now still
    *  works. Optional so existing call sites default it to on. */
   autopilotEnabled?: boolean;
+  /** When true, retries aim for each lead's best-answering hour (in their
+   *  timezone) instead of a fixed time window. Optional, defaults to false. */
+  smartSchedulingEnabled?: boolean;
   /** Calendly event type (calendly_event_types.id) the booking tools check
    *  availability against and book into. Empty = booking is OFF for this
    *  campaign (the agent won't offer times or book; no fallback event). */
@@ -80,6 +83,7 @@ function buildUpdate(input: CampaignInput) {
     daily_spend_cap: parseNumber(input.dailySpendCap),
     monthly_spend_cap: parseNumber(input.monthlySpendCap),
     autopilot_enabled: input.autopilotEnabled ?? true,
+    smart_scheduling: input.smartSchedulingEnabled ?? false,
     calendly_event_id: input.calendlyEventId?.trim() || null,
     email_template_id: input.emailTemplateId?.trim() || null,
   };
@@ -317,6 +321,26 @@ export async function cloneCampaign(id: string): Promise<CampaignResult> {
 
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: created.id };
+}
+
+/** Flip a campaign's Smart Scheduling flag.
+ *  On: retries aim for each lead's best-answering hour in their timezone.
+ *  Off: retries fall back to the campaign's fixed calling-hours window. */
+export async function setCampaignSmartScheduling(
+  id: string,
+  enabled: boolean,
+): Promise<CampaignResult> {
+  const { supabase, error: authError } = await requireAuth();
+  if (authError) return { error: authError };
+
+  const { error } = await supabase
+    .from("campaigns")
+    .update({ smart_scheduling: enabled })
+    .eq("id", id);
+  if (error) return { error: "Could not update Smart scheduling." };
+
+  revalidatePath(CAMPAIGNS_PATH);
+  return { error: null, campaignId: id };
 }
 
 /** Delete a campaign. */
