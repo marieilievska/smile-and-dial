@@ -20,6 +20,7 @@ export type PreCallReason =
   | "lead_missing_or_deleted"
   | "lead_has_no_phone"
   | "lead_on_dnc"
+  | "call_in_flight"
   | "campaign_not_active"
   | "campaign_has_no_twilio_number"
   | "twilio_number_missing"

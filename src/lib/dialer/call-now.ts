@@ -28,6 +28,7 @@ const PRE_CALL_REASON_LABELS: Record<string, string> = {
   lead_missing_or_deleted: "Lead is missing or deleted.",
   lead_has_no_phone: "Lead has no phone number.",
   lead_on_dnc: "This number is on the DNC list.",
+  call_in_flight: "This lead already has a call in progress.",
   campaign_not_active: "Campaign is paused or ended.",
   campaign_has_no_twilio_number: "Campaign has no Twilio number attached.",
   twilio_number_missing: "The campaign's Twilio number isn't available.",
