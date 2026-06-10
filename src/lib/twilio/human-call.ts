@@ -14,17 +14,23 @@ function xmlEscape(value: string): string {
 
 /** Build the TwiML that bridges the browser caller to the lead with recording
  *  enabled. `record-from-answer-dual` records both legs once the lead answers.
- *  The recording callback fires our /api/twilio/recording handler. */
+ *  The recording callback fires our /api/twilio/recording handler ONLY when the
+ *  lead answers. The Dial `action` callback fires when the dial finishes for
+ *  ANY reason (answered, no-answer, busy, failed), carrying DialCallStatus +
+ *  DialCallDuration — that's what terminalizes every human call, including the
+ *  ones the lead never picked up. */
 export function buildDialTwiml(opts: {
   leadPhone: string;
   callerId: string;
   appBaseUrl: string;
 }): string {
   const recordingCb = `${opts.appBaseUrl}/api/twilio/recording`;
+  const completeCb = `${opts.appBaseUrl}/api/twilio/voice-browser-dial/complete`;
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<Response>` +
     `<Dial callerId="${xmlEscape(opts.callerId)}" answerOnBridge="true" ` +
+    `action="${xmlEscape(completeCb)}" method="POST" ` +
     `record="record-from-answer-dual" ` +
     `recordingStatusCallback="${xmlEscape(recordingCb)}" ` +
     `recordingStatusCallbackEvent="completed">` +
@@ -99,6 +105,10 @@ export async function createHumanCallRow(
     campaignId: string;
     twilioNumberId: string;
     placedBy: string;
+    /** The parent call leg's SID from Twilio's POST to voice-browser-dial.
+     *  Stored so the Dial-completion and recording callbacks can correlate
+     *  this exact row by CallSid instead of "most recent human call". */
+    callSid?: string | null;
   },
 ): Promise<string | null> {
   const { data, error } = await supabase
@@ -112,6 +122,7 @@ export async function createHumanCallRow(
       call_mode: "human",
       placed_by: input.placedBy,
       outcome_source: "manual",
+      twilio_call_sid: input.callSid ?? null,
       started_at: new Date().toISOString(),
     })
     .select("id")

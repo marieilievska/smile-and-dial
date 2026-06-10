@@ -60,11 +60,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Twilio includes the parent call leg's SID on this POST. Stamp it on the
+  // row so the Dial-completion and recording callbacks (which carry the SAME
+  // CallSid) correlate by it instead of "most recent human call".
+  const callSid = params.CallSid ?? null;
+
   await createHumanCallRow(supabase, {
     leadId,
     campaignId: target.campaignId,
     twilioNumberId: target.twilioNumberId,
     placedBy: userId,
+    callSid,
   });
 
   const xml = buildDialTwiml({

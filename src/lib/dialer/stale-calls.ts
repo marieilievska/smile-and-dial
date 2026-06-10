@@ -42,6 +42,14 @@ export async function closeStaleActiveCalls(
     .in("status", ACTIVE_STATUSES)
     .lt("created_at", cutoff)
     .is("ended_at", null)
+    // Only autopilot (AI) calls. Human browser calls are terminalized by their
+    // Dial-completion callback (and dispositioned by the human), so a long live
+    // human call must never be killed mid-call by this reaper.
+    .eq("call_mode", "ai")
+    // Never overwrite a call that already has an outcome — this protects manual
+    // dispositions and any already-classified call from being clobbered to
+    // failed/failed.
+    .is("outcome", null)
     .select("id");
 
   // FIX A (#8 / #6): a reaped call set the lead nowhere — it still held the

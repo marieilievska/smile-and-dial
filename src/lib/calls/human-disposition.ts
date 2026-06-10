@@ -28,7 +28,7 @@ export async function dispositionHumanCall(input: {
   const supabase = createAdminClient();
   const { data: call } = await supabase
     .from("calls")
-    .select("id, summary, campaign_id")
+    .select("id, summary, campaign_id, ended_at")
     .eq("lead_id", input.leadId)
     .eq("call_mode", "human")
     .order("created_at", { ascending: false })
@@ -40,6 +40,10 @@ export async function dispositionHumanCall(input: {
     ? [call.summary, `Note: ${input.note.trim()}`].filter(Boolean).join("\n")
     : call.summary;
 
+  // Dispositioning a human call also terminalizes it: set status='completed'
+  // and stamp ended_at (only when not already set, so we don't move a real end
+  // time the Dial-completion/recording callback already wrote). This guarantees
+  // a dispositioned call is fully terminal and never reaped.
   await supabase
     .from("calls")
     .update({
@@ -47,6 +51,8 @@ export async function dispositionHumanCall(input: {
       outcome_source: "manual",
       goal_met: input.outcome === "goal_met",
       summary,
+      status: "completed",
+      ended_at: call.ended_at ?? new Date().toISOString(),
     })
     .eq("id", call.id);
 

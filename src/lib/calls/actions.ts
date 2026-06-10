@@ -112,8 +112,10 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
   // { role: "user"|"agent", message: string|null, time_in_call_secs: number,
   // tool_calls?, … } — NOT our { text, started_at } shape. Older/test rows used
   // { text, started_at }, and some payloads wrap the array in { transcript: […] }
-  // or { turns: […] }. Normalize all of them into TranscriptTurn and drop turns
-  // with no spoken text (e.g. pure tool-call turns like voicemail_detection).
+  // or { turns: […] }. Human browser-call recordings store a single Whisper
+  // transcript as { text: string } (no per-turn breakdown). Normalize all of
+  // them into TranscriptTurn and drop turns with no spoken text (e.g. pure
+  // tool-call turns like voicemail_detection).
   const tj = data.transcript_json;
   const rawTurns: unknown[] = Array.isArray(tj)
     ? tj
@@ -125,7 +127,15 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
           typeof tj === "object" &&
           Array.isArray((tj as { turns?: unknown }).turns)
         ? (tj as { turns: unknown[] }).turns
-        : [];
+        : // Human-call shape: a flat { text: string } from Whisper. Render it as
+          // one synthetic turn. role 'agent' makes the modal label it "AI" and
+          // show it as a left-aligned bubble; no start time (it's not a turn).
+          tj &&
+            typeof tj === "object" &&
+            typeof (tj as { text?: unknown }).text === "string" &&
+            (tj as { text: string }).text.trim().length > 0
+          ? [{ role: "agent", text: (tj as { text: string }).text }]
+          : [];
   const transcript: TranscriptTurn[] = rawTurns
     .map((t): TranscriptTurn => {
       const turn = (t ?? {}) as Record<string, unknown>;

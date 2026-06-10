@@ -44,6 +44,11 @@ test("buildDialTwiml dials the lead from the caller id with recording on", () =>
   expect(xml).toContain('callerId="+18885550000"');
   expect(xml).toContain("record-from-answer-dual");
   expect(xml).toContain("https://app.example.com/api/twilio/recording");
+  // Dial completion callback terminalizes every call, answered or not.
+  expect(xml).toContain(
+    'action="https://app.example.com/api/twilio/voice-browser-dial/complete"',
+  );
+  expect(xml).toContain('method="POST"');
   expect(xml).toContain("<Number");
   expect(xml).toContain("+16505551234");
   expect(xml.startsWith("<?xml")).toBe(true);
