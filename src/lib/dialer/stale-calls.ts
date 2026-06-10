@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import type { Database } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -31,7 +32,7 @@ export async function closeStaleActiveCalls(
   supabase: SupabaseAdmin,
 ): Promise<void> {
   const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString();
-  await supabase
+  const { data: reaped } = await supabase
     .from("calls")
     .update({
       status: "failed",
@@ -40,5 +41,17 @@ export async function closeStaleActiveCalls(
     })
     .in("status", ACTIVE_STATUSES)
     .lt("created_at", cutoff)
-    .is("ended_at", null);
+    .is("ended_at", null)
+    .select("id");
+
+  // FIX A (#8 / #6): a reaped call set the lead nowhere — it still held the
+  // 2-minute claim lease (or a 30-min placeholder), so the lead would be
+  // re-dialed almost immediately and never reach the 2-day cool-off. Run the
+  // retry engine for each reaped call so the lead gets the proper 'failed'
+  // backoff. Idempotent via the engine's CAS on retry_applied_at. (A later
+  // task will make this reaper skip human calls; for now we reschedule
+  // whatever it reaps.)
+  for (const call of reaped ?? []) {
+    await applyRetryForCall(call.id);
+  }
 }

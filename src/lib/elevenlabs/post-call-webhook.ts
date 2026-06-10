@@ -10,7 +10,10 @@ import {
   syncLeadNextCallToEarliestCallback,
 } from "@/lib/callbacks/sync-next-call";
 import { DM_REACHED_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
-import { applyRetryForCall } from "@/lib/dialer/retry-engine";
+import {
+  applyRetryForCall,
+  finalizeFailedCall,
+} from "@/lib/dialer/retry-engine";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
@@ -1108,10 +1111,11 @@ async function processInitiationFailure(
 
   if (!call) return { ok: true, status: "unknown_conversation" };
 
-  await supabase
-    .from("calls")
-    .update({ status: "failed", outcome: "failed" })
-    .eq("id", call.id);
+  // FIX A (#6 / #8): mark the call failed AND run the retry engine so the lead
+  // is rescheduled onto the proper 'failed' 2-day backoff. Without this the
+  // lead kept its short claim-lease / placeholder next_call_at and got redialed
+  // almost immediately, never reaching cool-off.
+  await finalizeFailedCall(supabase, call.id);
 
   return { ok: true, status: "applied" };
 }

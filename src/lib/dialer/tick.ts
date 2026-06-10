@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { resolveDueCallbacksForLead } from "@/lib/callbacks/sync-next-call";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
+import { finalizeFailedCall } from "@/lib/dialer/retry-engine";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 
 import { type PreCallReason } from "./queue";
@@ -380,10 +381,37 @@ async function placeLiveDialerCall(
     toNumber: c.business_phone,
   });
   if (!result.ok) {
+    // FIX B (#6): surface the placement rejection so operators see it on the
+    // System Health page instead of the dialer silently looping. Best-effort.
+    await supabase.from("system_events").insert({
+      kind: "call_placement_failed",
+      actor_user_id: null,
+      ref_table: "calls",
+      ref_id: pending.id,
+      payload: {
+        call_id: pending.id,
+        lead_id: c.lead_id,
+        campaign_id: c.campaign_id,
+        error: result.error,
+      },
+    });
+
+    // The success path bumps the lead's call_attempts; this failure path used
+    // to skip it. Align them — a rejected placement is still an attempt.
     await supabase
-      .from("calls")
-      .update({ status: "failed", outcome: "failed" })
-      .eq("id", pending.id);
+      .from("leads")
+      .update({
+        last_call_at: startedAt.toISOString(),
+        call_attempts: (await currentAttempts(supabase, c.lead_id)) + 1,
+      })
+      .eq("id", c.lead_id);
+
+    // FIX A (#6 / #8): mark the call failed AND run the retry engine so the
+    // lead is scheduled 2 days out (the 'failed' backoff) instead of being
+    // re-picked in 2 minutes off its claim lease. finalizeFailedCall runs LAST
+    // so the retry engine's next_call_at write isn't clobbered by the
+    // call_attempts update above.
+    await finalizeFailedCall(supabase, pending.id);
     return null;
   }
 

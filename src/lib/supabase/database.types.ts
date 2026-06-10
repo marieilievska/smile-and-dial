@@ -1150,6 +1150,7 @@ export type Database = {
           business_phone: string | null;
           calendly_event_uri: string | null;
           call_attempts: number;
+          call_back_later_count: number;
           category: string | null;
           city: string | null;
           company: string | null;
@@ -1187,6 +1188,7 @@ export type Database = {
           business_phone?: string | null;
           calendly_event_uri?: string | null;
           call_attempts?: number;
+          call_back_later_count?: number;
           category?: string | null;
           city?: string | null;
           company?: string | null;
@@ -1224,6 +1226,7 @@ export type Database = {
           business_phone?: string | null;
           calendly_event_uri?: string | null;
           call_attempts?: number;
+          call_back_later_count?: number;
           category?: string | null;
           city?: string | null;
           company?: string | null;

@@ -71,17 +71,26 @@ export type RetryApplyResult =
  * ElevenLabs post-call webhook can call this safely — whoever wins the
  * compare-and-swap races first.
  *
- * Outcomes split into four buckets:
+ * Outcomes split into these buckets:
  *
- *   * **Retry**: voicemail / no_answer / busy / failed / hung_up_immediately
- *     / gatekeeper / ai_error
+ *   * **Retry (unified cycle)**: voicemail / no_answer / busy / failed /
+ *     hung_up_immediately / gatekeeper / ai_error — and dm_reached (a warm
+ *     lead: reached the DM but no goal yet)
  *       → bump retry_counter, advance retry_position 0→1→2→0, push
  *         next_call_at by 2d / 2d / 15d, status stays `ready_to_call`.
+ *   * **call_back_later**: next-day retry up to twice on its OWN counter
+ *     (call_back_later_count, independent of the voicemail/no-answer cycle),
+ *     then 15-day rest.
  *   * **Resting**: not_interested (30d) / ai_receptionist (15d)
  *       → reset counters, status='resting', set resting_until and
  *         next_call_at to (now + N days).
  *   * **Terminal**: goal_met / transferred_to_human
  *       → reset counters, status='goal_met', clear next_call_at.
+ *   * **Completed but unmapped (null outcome)**: a terminal call whose
+ *     disposition never mapped → default onto the unified retry cycle so the
+ *     lead keeps progressing (the call's outcome stays NULL). An IN-FLIGHT
+ *     call with a null outcome instead rolls the claim back (`no_outcome`) to
+ *     wait for the real webhook.
  *   * **Handled elsewhere**: dnc / invalid_number / language_barrier /
  *     callback are owned by `applyOutcomeSideEffects` in the post-call
  *     webhook. We return `outcome_handled_elsewhere` and don't touch
@@ -99,15 +108,27 @@ export async function applyRetryForCall(
     .update({ retry_applied_at: new Date().toISOString() })
     .eq("id", callId)
     .is("retry_applied_at", null)
-    .select("id, lead_id, outcome");
+    .select("id, lead_id, outcome, status");
   if (claimError) return { ok: false, reason: "could_not_claim_call" };
   if (!claimed || claimed.length === 0) {
     return { ok: true, status: "already_applied" };
   }
   const call = claimed[0];
-  if (!call.outcome) {
-    // Roll back the claim — we didn't actually apply anything, and a later
-    // webhook update may still set an outcome that deserves processing.
+  // A null outcome means one of two very different things, and conflating them
+  // stalls leads forever (bug #9):
+  //   * The call is still IN-FLIGHT (queued/dialing/ringing/in_progress) — a
+  //     later webhook will set the real outcome. Roll back the claim and wait.
+  //   * The call is TERMINAL (completed/failed) but the disposition was never
+  //     mapped (unmapped value + every fallback missed). For a completed call
+  //     no later update ever comes (idempotency-deduped), so rolling back would
+  //     strand the lead. Schedule a sensible DEFAULT retry instead — same as
+  //     the unified no-answer/voicemail cycle — and leave the call's stored
+  //     outcome honestly NULL (only the LEAD's schedule changes).
+  const TERMINAL_STATUSES = new Set(["completed", "failed", "no_answer"]);
+  const callIsTerminal = TERMINAL_STATUSES.has(call.status);
+  if (!call.outcome && !callIsTerminal) {
+    // Still in flight — roll back the claim so the real outcome can process
+    // when it arrives.
     await supabase
       .from("calls")
       .update({ retry_applied_at: null })
@@ -130,7 +151,9 @@ export async function applyRetryForCall(
   // case logic.
   const { data: lead } = await supabase
     .from("leads")
-    .select("retry_counter, retry_position, status, timezone")
+    .select(
+      "retry_counter, retry_position, call_back_later_count, status, timezone",
+    )
     .eq("id", call.lead_id)
     .single();
 
@@ -162,7 +185,12 @@ export async function applyRetryForCall(
   // reads cleanly ("Mon 9:00am") instead of a random "20 hours ago" timestamp.
   const tz = lead?.timezone ?? null;
 
-  if (RETRY_OUTCOMES.has(call.outcome)) {
+  // The unified 2d/2d/15d retry cycle: bump retry_counter, advance
+  // retry_position 0→1→2→0, push next_call_at by the position's delay, and keep
+  // the lead `ready_to_call`. Shared by the retry outcomes, the warm-but-no-
+  // goal `dm_reached` bucket (FIX E / #24), and the terminal-but-unmapped
+  // default below (FIX C / #9).
+  const applyUnifiedRetryCycle = (): void => {
     const position = ((lead?.retry_position ?? 0) % 3) as 0 | 1 | 2;
     const delayDays = RETRY_DELAY_DAYS[position];
     update.retry_counter = (lead?.retry_counter ?? 0) + 1;
@@ -170,6 +198,23 @@ export async function applyRetryForCall(
     update.next_call_at = localHourDaysAheadIso(tz, delayDays);
     update.status = "ready_to_call";
     update.resting_until = null;
+  };
+
+  if (!call.outcome) {
+    // FIX C (#9): a TERMINAL call (we only reach here when callIsTerminal) with
+    // no mapped outcome. No later webhook will ever set one (idempotency-
+    // deduped), so default it onto the unified retry cycle so the lead keeps
+    // progressing instead of stalling forever. The call's stored outcome stays
+    // honestly NULL — only the lead's schedule advances.
+    applyUnifiedRetryCycle();
+  } else if (RETRY_OUTCOMES.has(call.outcome)) {
+    applyUnifiedRetryCycle();
+  } else if (call.outcome === "dm_reached") {
+    // FIX E (#24): reached the decision maker but no goal yet — a WARM lead.
+    // Retry on the unified cycle (advance counters like voicemail/no-answer)
+    // so we keep chasing soon rather than dropping it. It's a valid
+    // OVERRIDABLE_OUTCOMES value set by human dispositions.
+    applyUnifiedRetryCycle();
   } else if (RESTING_OUTCOMES[call.outcome] !== undefined) {
     const days = RESTING_OUTCOMES[call.outcome];
     const restingUntil = localHourDaysAheadIso(tz, days);
@@ -182,16 +227,22 @@ export async function applyRetryForCall(
     // Busy brush-off: try again the NEXT DAY, up to a couple of times, then
     // rest so we stop pestering. Calling hours are enforced at dial time by
     // pre_call_check, so a next-day timestamp can't dial outside hours.
-    const attempts = (lead?.retry_counter ?? 0) + 1;
+    //
+    // FIX D (#10): count call_back_later attempts on their OWN counter
+    // (call_back_later_count), NOT the unified retry_counter. Otherwise a lead
+    // with prior voicemails who then says "call me back later" inherits that
+    // voicemail count and jumps straight to the 15-day rest — the opposite of
+    // the intent. A fresh call_back_later always gets its own short next-day
+    // cycle regardless of voicemail history.
+    const attempts = (lead?.call_back_later_count ?? 0) + 1;
     if (attempts > 2) {
       const restingUntil = localHourDaysAheadIso(tz, 15);
       update.status = "resting";
       update.resting_until = restingUntil;
       update.next_call_at = restingUntil;
-      update.retry_counter = 0;
-      update.retry_position = 0;
+      update.call_back_later_count = 0;
     } else {
-      update.retry_counter = attempts;
+      update.call_back_later_count = attempts;
       update.next_call_at = localHourDaysAheadIso(tz, 1);
       update.status = "ready_to_call";
       update.resting_until = null;
@@ -203,9 +254,8 @@ export async function applyRetryForCall(
     update.retry_counter = 0;
     update.retry_position = 0;
   } else {
-    // Outcomes that exist in our enum but the engine doesn't know about
-    // (none today). Roll back the claim so a later code path can pick this
-    // up if needed.
+    // An enum outcome the engine still doesn't bucket. Roll back the claim so a
+    // later code path can pick this up if needed.
     await supabase
       .from("calls")
       .update({ retry_applied_at: null })
@@ -220,6 +270,30 @@ export async function applyRetryForCall(
   if (leadError) return { ok: false, reason: "could_not_update_lead" };
 
   return { ok: true, status: "applied" };
+}
+
+/**
+ * Mark a call terminally FAILED and run the retry engine for it (Improvement 1).
+ *
+ * Several terminal-failure write paths used to flip a call to failed/failed but
+ * never reschedule the lead, so the lead kept whatever next_call_at it had —
+ * often a 2-minute claim lease or a 30-min placeholder — and got redialed far
+ * too fast, never progressing to the 2-day cool-off (bugs #6 / #8). This helper
+ * is the single place that does BOTH: set status='failed' + outcome='failed',
+ * then call `applyRetryForCall` so the lead lands on the proper 2-day backoff.
+ *
+ * Idempotent via the retry engine's CAS on `retry_applied_at`. The caller
+ * provides the supabase client so this can share the caller's service client.
+ */
+export async function finalizeFailedCall(
+  supabase: SupabaseAdmin,
+  callId: string,
+): Promise<void> {
+  await supabase
+    .from("calls")
+    .update({ status: "failed", outcome: "failed" })
+    .eq("id", callId);
+  await applyRetryForCall(callId);
 }
 
 /**
