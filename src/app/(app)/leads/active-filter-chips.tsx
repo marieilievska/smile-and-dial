@@ -3,7 +3,7 @@
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
+import { leadStatusLabel } from "@/lib/labels";
 
 /** Inline chips for each active filter on /leads. Click the × on a chip
  *  to remove just that filter (route.replace, no history pollution).
@@ -23,10 +23,6 @@ export function ActiveFilterChips({
   const status = searchParams.get("status");
   if (status)
     chips.push({ key: "status", label: `Stage: ${leadStatusLabel(status)}` });
-
-  const outcome = searchParams.get("outcome");
-  if (outcome)
-    chips.push({ key: "outcome", label: `Outcome: ${outcomeLabel(outcome)}` });
 
   const list = searchParams.get("list");
   if (list)
@@ -72,7 +68,6 @@ export function ActiveFilterChips({
     const params = new URLSearchParams(searchParams.toString());
     for (const key of [
       "status",
-      "outcome",
       "list",
       "created_from",
       "created_to",

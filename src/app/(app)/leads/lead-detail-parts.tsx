@@ -72,7 +72,6 @@ export type CustomFieldDef = {
 
 export type LeadMeta = {
   status: string;
-  lastOutcome: string | null;
   listName: string;
   isInbound: boolean;
   retryCounter: number;

@@ -180,7 +180,6 @@ export default async function LeadDetailPage({
   const activeCall = (activeCallRows ?? [])[0] ?? null;
   const meta = {
     status: lead.status,
-    lastOutcome: lead.last_outcome,
     listName: lead.list?.name ?? "—",
     isInbound: lead.list?.is_inbound_default ?? false,
     retryCounter: lead.retry_counter ?? 0,

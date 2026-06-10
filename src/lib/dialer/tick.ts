@@ -222,12 +222,11 @@ async function currentAttempts(
 
 /**
  * One dial-loop tick. Read the queue, pre-check each candidate, and place a
- * call for everything that passes. Round L3 — `TWILIO_LIVE=live` now
- * flips each candidate to the real Twilio Calls API; otherwise the
- * synthetic mock-call insert runs so tests and dev environments stay
- * free. `ELEVENLABS_LIVE` is read here only to surface in the summary;
- * the agent-vs-placeholder TwiML choice happens inside the
- * voice-outbound route handler (L4).
+ * call for everything that passes. `TWILIO_LIVE=live` flips each candidate to
+ * the real Twilio Calls API; otherwise the synthetic mock-call insert runs so
+ * tests and dev environments stay free. `ELEVENLABS_LIVE` is read here only to
+ * surface in the summary; the ElevenLabs-native agent bridging is handled by
+ * `place-call.ts` / `agent-dial.ts` — the outbound TwiML route has been removed.
  */
 export async function runDialerTick(
   options: { limit?: number; leadIds?: string[] } = {},

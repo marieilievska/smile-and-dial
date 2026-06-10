@@ -2,7 +2,7 @@ import { Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { formatPhone } from "@/lib/format-phone";
-import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
+import { leadStatusLabel } from "@/lib/labels";
 import { exactDateTime, relativeTimeSigned } from "@/lib/relative-time";
 
 export type DisplayLead = {
@@ -11,7 +11,6 @@ export type DisplayLead = {
   business_phone: string | null;
   business_email: string | null;
   status: string;
-  last_outcome: string | null;
   category: string | null;
   decision_maker_reached: boolean;
   city: string | null;
@@ -78,32 +77,6 @@ export function statusVariant(
   if (["dnc", "closed"].includes(status)) return "destructive";
   // Email replied, resting, etc.
   return "secondary";
-}
-
-/** Tailwind class for a tiny tone dot beside the Last outcome label.
- *  Same three-bucket logic as the Calls page outcome palette: wins are
- *  emerald, hard stops rose, still-active work primary, everything else
- *  a quiet muted dot. Keeps the column from being a wall of flat gray. */
-const WIN_OUTCOMES = new Set(["goal_met", "sale", "attended"]);
-const HARD_OUTCOMES = new Set([
-  "dnc",
-  "invalid_number",
-  "failed",
-  "not_interested",
-]);
-const ACTIVE_OUTCOMES = new Set([
-  "callback",
-  "dm_reached",
-  "transferred_to_human",
-  "gatekeeper",
-  "ai_receptionist",
-]);
-
-function outcomeDotClass(outcome: string): string {
-  if (WIN_OUTCOMES.has(outcome)) return "bg-emerald-500";
-  if (HARD_OUTCOMES.has(outcome)) return "bg-rose-500";
-  if (ACTIVE_OUTCOMES.has(outcome)) return "bg-primary";
-  return "bg-muted-foreground/40";
 }
 
 /** Faint stage-colored left rail revealed on row hover. Returns a
@@ -222,26 +195,6 @@ export const LEAD_COLUMNS: LeadColumn[] = [
       </Badge>
     ),
     text: (l) => leadStatusLabel(l.status),
-  },
-  {
-    key: "last_outcome",
-    label: "Last outcome",
-    width: "w-[150px]",
-    cell: (l) =>
-      l.last_outcome ? (
-        <span className="text-foreground/80 inline-flex items-center gap-1.5">
-          <span
-            aria-hidden
-            className={`size-1.5 shrink-0 rounded-full ${outcomeDotClass(
-              l.last_outcome,
-            )}`}
-          />
-          {outcomeLabel(l.last_outcome)}
-        </span>
-      ) : (
-        <span className="text-muted-foreground">—</span>
-      ),
-    text: (l) => (l.last_outcome ? outcomeLabel(l.last_outcome) : ""),
   },
   {
     key: "list",
@@ -386,7 +339,6 @@ export const DEFAULT_COLUMN_KEYS = [
   "company",
   "dm_reached",
   "status",
-  "last_outcome",
   "list",
   "last_call",
   "next_call",

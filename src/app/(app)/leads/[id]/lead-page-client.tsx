@@ -25,7 +25,7 @@ import {
   type LeadMeta,
   type StandardField,
 } from "../lead-detail-parts";
-import { leadStatusLabel, outcomeLabel } from "@/lib/labels";
+import { leadStatusLabel } from "@/lib/labels";
 import {
   exactDateTime,
   relativeTime,
@@ -288,10 +288,6 @@ export function LeadPageClient({
           <CollapsibleSection title="Pipeline" defaultOpen>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <PipelineRow label="List" value={meta.listName} />
-              <PipelineRow
-                label="Last outcome"
-                value={outcomeLabel(meta.lastOutcome)}
-              />
               <PipelineRow
                 label="Time zone"
                 value={

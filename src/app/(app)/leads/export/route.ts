@@ -41,7 +41,6 @@ function toDisplayLead(
     business_phone: l.business_phone as string | null,
     business_email: l.business_email as string | null,
     status: l.status as string,
-    last_outcome: l.last_outcome as string | null,
     category: l.category as string | null,
     decision_maker_reached: (l.decision_maker_reached as boolean) ?? false,
     city: l.city as string | null,

@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { leadStatusLabel, OUTCOME_LABELS, outcomeLabel } from "@/lib/labels";
+import { leadStatusLabel } from "@/lib/labels";
 
 const STATUSES = [
   "ready_to_call",
@@ -35,14 +35,9 @@ const STATUSES = [
   "email_replied",
 ];
 
-// Derive the outcome filter options from the single label map so this list can
-// never drift from the real enum (it had silently lost "call_back_later").
-const OUTCOMES = Object.keys(OUTCOME_LABELS);
-
 const FILTER_KEYS = [
   "list",
   "status",
-  "outcome",
   "created_from",
   "created_to",
   "lastcall_from",
@@ -63,7 +58,6 @@ export function LeadsFilters({
   const get = (key: string) => searchParams.get(key) ?? "";
   const [list, setList] = useState(get("list") || "any");
   const [status, setStatus] = useState(get("status") || "any");
-  const [outcome, setOutcome] = useState(get("outcome") || "any");
   const [createdFrom, setCreatedFrom] = useState(get("created_from"));
   const [createdTo, setCreatedTo] = useState(get("created_to"));
   const [lastFrom, setLastFrom] = useState(get("lastcall_from"));
@@ -81,7 +75,6 @@ export function LeadsFilters({
     };
     set("list", list);
     set("status", status);
-    set("outcome", outcome);
     set("created_from", createdFrom);
     set("created_to", createdTo);
     set("lastcall_from", lastFrom);
@@ -98,7 +91,6 @@ export function LeadsFilters({
     for (const key of [...FILTER_KEYS, "page"]) params.delete(key);
     setList("any");
     setStatus("any");
-    setOutcome("any");
     setCreatedFrom("");
     setCreatedTo("");
     setLastFrom("");
@@ -149,22 +141,6 @@ export function LeadsFilters({
                 {STATUSES.map((s) => (
                   <SelectItem key={s} value={s}>
                     {leadStatusLabel(s)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="filter-outcome">Last outcome</Label>
-            <Select value={outcome} onValueChange={setOutcome}>
-              <SelectTrigger id="filter-outcome">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="any">Any outcome</SelectItem>
-                {OUTCOMES.map((o) => (
-                  <SelectItem key={o} value={o}>
-                    {outcomeLabel(o)}
                   </SelectItem>
                 ))}
               </SelectContent>

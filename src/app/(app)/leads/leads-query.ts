@@ -12,7 +12,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  * single string literal so Supabase can infer the row type from it.
  */
 export const LEADS_SELECT =
-  "id, company, business_phone, business_email, status, last_outcome, category, decision_maker_reached, city, state, conversations, call_attempts, last_call_at, next_call_at, owner_id, list_id, ai_summary, created_at, list:lists(name)";
+  "id, company, business_phone, business_email, status, category, decision_maker_reached, city, state, conversations, call_attempts, last_call_at, next_call_at, owner_id, list_id, ai_summary, created_at, list:lists(name)";
 
 /** Valid sort keys: every sortable column plus the default created_at. */
 export const SORT_KEYS = new Set<string>([
@@ -67,10 +67,6 @@ export function applyLeadFilters<
   const listId = str(params.list);
   if (/^[0-9a-f-]{36}$/i.test(listId)) query = query.eq("list_id", listId);
   if (str(params.status)) query = query.eq("status", str(params.status));
-  if (str(params.outcome)) {
-    query = query.eq("last_outcome", str(params.outcome));
-  }
-
   const dateFilters: [string, string, string][] = [
     ["created_from", "created_to", "created_at"],
     ["lastcall_from", "lastcall_to", "last_call_at"],
