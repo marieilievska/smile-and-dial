@@ -229,6 +229,7 @@ export async function applyRetryForCall(
     update.next_call_at = restingUntil;
     update.retry_counter = 0;
     update.retry_position = 0;
+    update.call_back_later_count = 0;
   } else if (call.outcome === "call_back_later") {
     // Busy brush-off: try again the NEXT DAY, up to a couple of times, then
     // rest so we stop pestering. Calling hours are enforced at dial time by
@@ -259,6 +260,7 @@ export async function applyRetryForCall(
     update.resting_until = null;
     update.retry_counter = 0;
     update.retry_position = 0;
+    update.call_back_later_count = 0;
   } else {
     // An enum outcome the engine still doesn't bucket. Roll back the claim so a
     // later code path can pick this up if needed.

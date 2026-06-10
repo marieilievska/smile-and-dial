@@ -15,6 +15,14 @@ const ACTIVE_STATUSES = ["queued", "dialing", "ringing", "in_progress"];
  *  ceiling is 700s (~12 min), so anything older than this is dead. */
 const STALE_MINUTES = 15;
 
+/** Human browser calls are normally terminalized by their Twilio Dial-completion
+ *  callback, so they're EXEMPT from the 15-min AI reaper (a real human call can
+ *  legitimately run long). But if that callback never arrives, the row would sit
+ *  'dialing' forever and permanently hold an owner concurrency slot. This far
+ *  longer ceiling is a backstop that frees the slot without ever cutting off a
+ *  genuine conversation. */
+const HUMAN_STALE_MINUTES = 60;
+
 /**
  * Close calls stuck in an in-flight status past the max call window.
  *
@@ -62,4 +70,22 @@ export async function closeStaleActiveCalls(
   for (const call of reaped ?? []) {
     await applyRetryForCall(call.id);
   }
+
+  // Backstop for human browser calls whose Dial-completion callback never
+  // arrived (dropped webhook): terminalize anything still in-flight past the
+  // far-longer human ceiling so it stops holding an owner concurrency slot.
+  // We do NOT run the retry engine here — human calls are operator-driven, not
+  // autopilot-scheduled — and we leave `outcome` null (the call was never
+  // dispositioned; only the disposition or a real completion sets an outcome).
+  const humanCutoff = new Date(
+    Date.now() - HUMAN_STALE_MINUTES * 60 * 1000,
+  ).toISOString();
+  await supabase
+    .from("calls")
+    .update({ status: "failed", ended_at: new Date().toISOString() })
+    .eq("call_mode", "human")
+    .in("status", ACTIVE_STATUSES)
+    .lt("created_at", humanCutoff)
+    .is("ended_at", null)
+    .is("outcome", null);
 }
