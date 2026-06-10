@@ -53,7 +53,11 @@ import { callStatusLabel } from "@/lib/labels";
 import { exactDateTime, relativeTime } from "@/lib/relative-time";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { outcomeVariant, scoreTone, statusVariant } from "./columns";
+import {
+  callStatusBadgeVariant,
+  outcomeBadgeVariant,
+  scoreTone,
+} from "@/lib/outcome-style";
 
 function fmtDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds <= 0) return "—";
@@ -312,12 +316,12 @@ export function CallDetailModal() {
             )}
             <div className="flex flex-wrap items-center gap-2">
               {call?.outcome ? (
-                <Badge variant={outcomeVariant(call.outcome)}>
+                <Badge variant={outcomeBadgeVariant(call.outcome)}>
                   {outcomeLabel(call.outcome)}
                 </Badge>
               ) : null}
               {showStatus ? (
-                <Badge variant={statusVariant(call!.status)} dot>
+                <Badge variant={callStatusBadgeVariant(call!.status)} dot>
                   {callStatusLabel(call!.status)}
                 </Badge>
               ) : null}

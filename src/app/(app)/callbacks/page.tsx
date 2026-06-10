@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { formatPhone } from "@/lib/format-phone";
 import { callbackStatusLabel } from "@/lib/labels";
+import { callbackStatusBadgeVariant } from "@/lib/outcome-style";
 import { createClient } from "@/lib/supabase/server";
 
 import { CallbackRow } from "./callback-row";
@@ -53,25 +54,6 @@ const STATUS_VALUES = new Set([
 ]);
 const ALLOWED_PAGE_SIZES = new Set([25, 50, 100]);
 const DEFAULT_PAGE_SIZE = 25;
-
-/** Pending → coral (active work). Completed → success green.
- *  Missed → destructive red (we missed the appointment). Cancelled →
- *  secondary muted (audit trail, not actionable). */
-function statusVariant(
-  status: string,
-): "coral" | "success" | "destructive" | "secondary" {
-  switch (status) {
-    case "pending":
-      return "coral";
-    case "completed":
-      return "success";
-    case "missed":
-      return "destructive";
-    case "cancelled":
-    default:
-      return "secondary";
-  }
-}
 
 export default async function CallbacksPage({
   searchParams,
@@ -475,7 +457,10 @@ export default async function CallbacksPage({
                         </TableCell>
 
                         <TableCell className="w-[130px]">
-                          <Badge variant={statusVariant(cb.status)} dot>
+                          <Badge
+                            variant={callbackStatusBadgeVariant(cb.status)}
+                            dot
+                          >
                             {callbackStatusLabel(cb.status)}
                           </Badge>
                         </TableCell>

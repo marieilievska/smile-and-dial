@@ -12,7 +12,10 @@ function humanize(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-/** Campaign lifecycle palette.
+/** Campaign lifecycle palette. This is a SEPARATE semantic axis from the
+ *  call/lead/callback status colors centralized in `@/lib/outcome-style`
+ *  — it describes a whole campaign's run-state, not a single contact's
+ *  pipeline stage — so it intentionally stays local here.
  *  - active  → success (green, dialing right now)
  *  - paused  → warning (yellow, intentionally stopped; needs attention)
  *  - draft   → secondary (grey, not running yet)

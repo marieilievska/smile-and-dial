@@ -20,6 +20,7 @@ import {
   updateLeadCustomValue,
   updateLeadField,
 } from "@/lib/leads/lead-actions";
+import { leadStatusBadgeVariant } from "@/lib/outcome-style";
 
 /** Helpers shared by the lead detail modal and the full /leads/[id]
  *  route. Anything that touches lead field state or save lifecycle
@@ -112,27 +113,11 @@ export function formatDateTime(value: string | null): string {
   return value ? new Date(value).toLocaleString() : "—";
 }
 
-/** Map lead status to a Badge variant. Mirrors the leads-table palette
- *  (defined in leads/columns.tsx) so the pill reads identically on
- *  the list and the detail page.
- *
- *  Semantics (updated round 11):
- *   - ready_to_call / callback / goal_met / scheduled → coral (active)
- *   - attended / sale → success (positive milestone)
- *   - no_show → warning (needs rebooking, not lost)
- *   - dnc / closed → destructive (lost / hard-stop)
- *   - everything else → secondary muted */
-export function statusVariant(
-  status: string,
-): "coral" | "success" | "warning" | "destructive" | "secondary" {
-  if (["ready_to_call", "callback", "scheduled", "goal_met"].includes(status)) {
-    return "coral";
-  }
-  if (["attended", "sale"].includes(status)) return "success";
-  if (status === "no_show") return "warning";
-  if (["dnc", "closed"].includes(status)) return "destructive";
-  return "secondary";
-}
+/** Lead-status Badge variant. Re-exported from the shared color module
+ *  (`@/lib/outcome-style`) under the historical name so the lead detail
+ *  page keeps importing it from here; the pill reads identically on the
+ *  list, detail page, and goals pipeline. */
+export const statusVariant = leadStatusBadgeVariant;
 
 /** Wraps a save call so the surrounding component can show a single
  *  saving/saved/error status. */

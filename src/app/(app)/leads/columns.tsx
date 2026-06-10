@@ -3,7 +3,13 @@ import { Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatPhone } from "@/lib/format-phone";
 import { leadStatusLabel } from "@/lib/labels";
+import { leadStatusBadgeVariant } from "@/lib/outcome-style";
 import { exactDateTime, relativeTimeSigned } from "@/lib/relative-time";
+
+// Lead-status colors now live in `@/lib/outcome-style` (single source of
+// truth). Re-exported here under the historical name so the inline
+// status cell and lead detail page keep importing it from `./columns`.
+export const statusVariant = leadStatusBadgeVariant;
 
 export type DisplayLead = {
   id: string;
@@ -55,36 +61,13 @@ function dateText(value: string | null): string {
   return value ? new Date(value).toLocaleDateString() : "";
 }
 
-/** Status palette tightened to navy + coral + emerald + one neutral.
- *  Three buckets: Active (coral) for in-flight work, Won (emerald) for
- *  good outcomes, Closed-out (muted) for everything else.
- *
- *  Returns the *Badge variant token name*; the matching styles live in
- *  the Badge component. We also extend the Badge here with a coral
- *  variant via the dedicated `coral` value (see badge.tsx). */
-export function statusVariant(
-  status: string,
-): "coral" | "success" | "warning" | "destructive" | "secondary" {
-  // Active work — AI is still moving the lead forward.
-  if (["ready_to_call", "callback", "goal_met"].includes(status)) {
-    return "coral";
-  }
-  // Positive milestones — they showed up, they bought.
-  if (["attended", "sale"].includes(status)) return "success";
-  // Needs rebooking attention but not lost.
-  if (status === "no_show") return "warning";
-  // Lost / hard-stop.
-  if (["dnc", "closed"].includes(status)) return "destructive";
-  // Email replied, resting, etc.
-  return "secondary";
-}
-
 /** Faint stage-colored left rail revealed on row hover. Returns a
  *  group-hover border-color class keyed to the same status buckets as
- *  `statusVariant`. The transparent base border is always present so
- *  the 2px never causes a layout shift — only the color changes. */
+ *  `leadStatusBadgeVariant`. The transparent base border is always
+ *  present so the 2px never causes a layout shift — only the color
+ *  changes. */
 export function statusRailClass(status: string): string {
-  switch (statusVariant(status)) {
+  switch (leadStatusBadgeVariant(status)) {
     case "coral":
       return "group-hover:border-l-[color:var(--primary)]";
     case "success":

@@ -1,31 +1,28 @@
 import type { GoalStatus } from "@/lib/goals/goal-statuses";
+import { leadStatusBadgeVariant } from "@/lib/outcome-style";
 
-/** Goal-pipeline status palette — the single source of truth for how
- *  each pipeline status reads visually across the app (table, board,
- *  lead detail badge, leads-list pill).
+/** Goal-pipeline status Badge variant. Goal-pipeline statuses are a
+ *  subset of the lead pipeline statuses, so this delegates to the shared
+ *  `leadStatusBadgeVariant` (single source of truth in
+ *  `@/lib/outcome-style`) — the pill reads identically on the goals
+ *  table/board, the leads list, and the lead detail page.
  *
- *  Semantics:
+ *  Semantics (all inherited from the shared mapping):
  *   - goal_met   → coral        (active hand-off, needs human follow-up)
  *   - attended   → success      (positive milestone — they actually showed)
- *   - no_show    → warning      (didn't attend; needs rebooking attention,
- *                                but not lost)
+ *   - no_show    → warning      (didn't attend; needs rebooking, not lost)
  *   - sale       → success      (the win)
  *   - closed     → destructive  (closed lost — didn't convert) */
 export function goalStatusVariant(
   status: GoalStatus,
 ): "coral" | "success" | "warning" | "destructive" {
-  switch (status) {
-    case "goal_met":
-      return "coral";
-    case "attended":
-      return "success";
-    case "no_show":
-      return "warning";
-    case "sale":
-      return "success";
-    case "closed":
-      return "destructive";
-  }
+  // Every GoalStatus maps to one of these four in the shared function;
+  // narrow the return for the Badge prop's benefit.
+  return leadStatusBadgeVariant(status) as
+    | "coral"
+    | "success"
+    | "warning"
+    | "destructive";
 }
 
 export const GOAL_STATUS_LABELS: Record<GoalStatus, string> = {

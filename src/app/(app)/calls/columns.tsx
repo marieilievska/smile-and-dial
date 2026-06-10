@@ -4,7 +4,19 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { formatPhone } from "@/lib/format-phone";
 import { outcomeLabel } from "@/lib/labels";
+import {
+  callStatusBadgeVariant,
+  outcomeBadgeVariant,
+  scoreTone,
+} from "@/lib/outcome-style";
 import { exactDateTime, relativeTime } from "@/lib/relative-time";
+
+// Re-exported under their historical names for the few callers that
+// still import them from this file. Colors now live in
+// `@/lib/outcome-style` (the single source of truth).
+export { scoreTone };
+export const statusVariant = callStatusBadgeVariant;
+export const outcomeVariant = outcomeBadgeVariant;
 
 /** A row passed to a column's `cell` renderer. */
 export type DisplayCall = {
@@ -48,27 +60,6 @@ export type CallColumn = {
   width?: string;
 };
 
-// Outcomes are colored by sentiment so the call log reads at a glance:
-// green = good, red = bad, grey = neutral / nothing happened.
-
-/** POSITIVE (green) — a win or genuine forward progress: the goal was met,
- *  we reached the decision maker, they agreed to a callback, or we handed
- *  off to a human. */
-const POSITIVE_OUTCOMES = new Set([
-  "goal_met",
-  "transferred_to_human",
-  "dm_reached",
-  "callback",
-]);
-
-/** NEGATIVE (red) — a clear no, a block, or an error: not interested,
- *  do-not-call, AI error. */
-const NEGATIVE_OUTCOMES = new Set(["not_interested", "dnc", "ai_error"]);
-
-// NEUTRAL (grey) is the fallback: no useful conversation happened —
-// voicemail, no_answer, busy, failed, invalid_number, hung_up_immediately,
-// call_back_later, and any unknown outcome.
-
 /** Call statuses that mean "the dialer is on this line right now."
  *  Drives the live coral pulse in the Lead cell so the most call-
  *  centric page in the app actually feels alive. */
@@ -83,17 +74,6 @@ export function isActiveCall(status: string): boolean {
   return ACTIVE_STATUSES.has(status);
 }
 
-/** Tailwind tone for a call's 0–10 score so a good call reads at a
- *  glance instead of as a bare decimal. 8+ = strong (emerald),
- *  5–7.9 = okay (amber), below 5 = weak (rose). Null scores stay
- *  muted via the caller's "—" fallback. */
-export function scoreTone(score: number | null): string {
-  if (score == null) return "text-muted-foreground";
-  if (score >= 8) return "text-emerald-600 dark:text-emerald-400";
-  if (score >= 5) return "text-amber-600 dark:text-amber-400";
-  return "text-rose-600 dark:text-rose-400";
-}
-
 function fmtDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds <= 0) return "—";
   const m = Math.floor(seconds / 60);
@@ -106,25 +86,6 @@ function fmtCost(breakdown: unknown): string {
   const total = (breakdown as { total?: unknown }).total;
   if (typeof total !== "number") return "—";
   return `$${total.toFixed(2)}`;
-}
-
-export function statusVariant(
-  status: string,
-): "coral" | "secondary" | "destructive" {
-  if (["queued", "dialing", "ringing", "in_progress"].includes(status)) {
-    return "coral";
-  }
-  if (status === "failed" || status === "cancelled") return "destructive";
-  return "secondary";
-}
-
-export function outcomeVariant(
-  outcome: string,
-): "success" | "destructive" | "secondary" {
-  if (POSITIVE_OUTCOMES.has(outcome)) return "success"; // green
-  if (NEGATIVE_OUTCOMES.has(outcome)) return "destructive"; // red
-  // Neutral bucket + any unknown outcome read grey.
-  return "secondary";
 }
 
 export const CALL_COLUMNS: CallColumn[] = [
