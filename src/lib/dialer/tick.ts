@@ -158,9 +158,13 @@ async function placeMockCall(
 
   if (error || !call) return null;
 
-  // We just dialed the lead, so close any callback that was due — otherwise the
-  // callback row stays pending and the lead shows as an overdue callback.
-  await resolveDueCallbacksForLead(supabase, c.lead_id);
+  // We just dialed the lead. A due callback is only fulfilled when the call
+  // actually connected — pass the mock outcome so a mocked voicemail / no-answer
+  // leaves the callback PENDING for the escalation ladder (#23), while a goal_met
+  // / callback / not_interested completes it.
+  await resolveDueCallbacksForLead(supabase, c.lead_id, {
+    outcome: mock.outcome,
+  });
 
   // Push next_call_at out so this lead isn't re-picked immediately. The real
   // retry engine (Step 24) replaces this with proper per-outcome scheduling.

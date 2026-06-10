@@ -1206,10 +1206,15 @@ export async function applyOutcomeSideEffects(
     callbackDatetime: string | null;
   },
 ): Promise<void> {
-  // We just dialed this lead, so any callback that was due is now fulfilled —
-  // close it so the lead stops showing as an "overdue callback" in the UI.
-  // Runs regardless of outcome (even a no-answer was still an attempt).
-  await resolveDueCallbacksForLead(supabase, input.leadId);
+  // We just dialed this lead. A due callback is only FULFILLED when the call
+  // actually connected to a human — pass the outcome so a voicemail / no-answer
+  // leaves the callback PENDING (#23). Otherwise the callback would be wrongly
+  // marked 'completed' here and the retry engine's voicemail-escalation ladder
+  // (escalateCallbackVoicemail, run via applyRetryForCall below) would find no
+  // pending callback and the lead would fall into the generic 2-day retry.
+  await resolveDueCallbacksForLead(supabase, input.leadId, {
+    outcome: input.outcome,
+  });
 
   // If THIS webhook didn't change the outcome, still drive the retry
   // engine — the call row may already have an outcome set by Twilio
