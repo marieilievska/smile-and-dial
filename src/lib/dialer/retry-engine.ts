@@ -2,6 +2,8 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { bestHourForDay, localDowHour } from "@/lib/dialer/best-time";
+import { loadCachedHeatmap } from "@/lib/dialer/best-time-cache";
 import { localHourDaysAheadIso } from "@/lib/dialer/local-schedule";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -43,6 +45,20 @@ const TERMINAL_OUTCOMES: Record<
   goal_met: { status: "goal_met" },
   transferred_to_human: { status: "goal_met" },
 };
+
+/**
+ * Parse a campaign's 'HH:MM:SS' calling-hours string to an integer hour,
+ * falling back to `fallback` when the value is null/blank/unparseable. Used only
+ * by smart scheduling to bound the best-hour search to the calling window.
+ */
+function parseCallingHour(
+  hhmmss: string | null | undefined,
+  fallback: number,
+): number {
+  if (!hhmmss) return fallback;
+  const h = Number(hhmmss.split(":")[0]);
+  return Number.isFinite(h) ? h : fallback;
+}
 
 function makeServiceClient(): SupabaseAdmin {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -108,7 +124,7 @@ export async function applyRetryForCall(
     .update({ retry_applied_at: new Date().toISOString() })
     .eq("id", callId)
     .is("retry_applied_at", null)
-    .select("id, lead_id, outcome, status");
+    .select("id, lead_id, campaign_id, outcome, status");
   if (claimError) return { ok: false, reason: "could_not_claim_call" };
   if (!claimed || claimed.length === 0) {
     return { ok: true, status: "already_applied" };
@@ -147,15 +163,24 @@ export async function applyRetryForCall(
     return { ok: true, status: "outcome_handled_elsewhere" };
   }
 
-  // Pull the lead so we can check status for callback-voicemail special-
-  // case logic.
-  const { data: lead } = await supabase
-    .from("leads")
-    .select(
-      "retry_counter, retry_position, call_back_later_count, status, timezone",
-    )
-    .eq("id", call.lead_id)
-    .single();
+  // Pull the lead (for callback-voicemail status + timezone) and the campaign
+  // (for smart scheduling + calling-hours window) in parallel. The campaign
+  // fetch is best-effort: a missing campaign or null calling hours must never
+  // throw — smart scheduling just falls back to the default 9am behavior.
+  const [{ data: lead }, { data: campaign }] = await Promise.all([
+    supabase
+      .from("leads")
+      .select(
+        "retry_counter, retry_position, call_back_later_count, status, timezone",
+      )
+      .eq("id", call.lead_id)
+      .single(),
+    supabase
+      .from("campaigns")
+      .select("smart_scheduling, calling_hours_start, calling_hours_end")
+      .eq("id", call.campaign_id)
+      .maybeSingle(),
+  ]);
 
   const update: LeadUpdate = { updated_at: new Date().toISOString() };
 
@@ -185,6 +210,40 @@ export async function applyRetryForCall(
   // reads cleanly ("Mon 9:00am") instead of a random "20 hours ago" timestamp.
   const tz = lead?.timezone ?? null;
 
+  // Smart scheduling: when the campaign opted in AND we have a cached heatmap,
+  // keep the SAME backoff cadence (which DAY each branch picks) but aim at that
+  // day's best hour (from the connect heatmap, within calling hours) instead of
+  // the default 9am. The heatmap is precomputed daily by a cron — we only READ
+  // the cache here. Everything is guarded so a missing campaign, null calling
+  // hours, or an empty/unparseable heatmap can never throw: we fall straight
+  // back to the existing `localHourDaysAheadIso(tz, n)` (9am) behavior.
+  const heatmap = campaign?.smart_scheduling
+    ? await loadCachedHeatmap(supabase)
+    : null;
+  const smartActive = Boolean(campaign?.smart_scheduling && heatmap);
+
+  // Resolve the best HOUR for the local day `daysAhead` out, then build the
+  // same DST-correct ISO `localHourDaysAheadIso` would, just at that hour.
+  const smartDayIso = (daysAhead: number): string => {
+    // The lead-local day-of-week `daysAhead` days from now (same Intl tz logic
+    // used everywhere in the dialer).
+    const targetMs = Date.now() + daysAhead * 24 * 60 * 60 * 1000;
+    const { dayOfWeek: targetDow } = localDowHour(
+      new Date(targetMs),
+      tz || "America/New_York",
+    );
+    const startH = parseCallingHour(campaign?.calling_hours_start, 9);
+    const endH = parseCallingHour(campaign?.calling_hours_end, 17);
+    const hour = bestHourForDay(heatmap!, targetDow, startH, endH) ?? 9;
+    return localHourDaysAheadIso(tz, daysAhead, hour);
+  };
+
+  // The single scheduling helper every future-retry branch uses. When smart
+  // scheduling is active it picks the day's best hour; otherwise it's the
+  // byte-for-byte original 9am behavior.
+  const scheduleDayIso = (daysAhead: number): string =>
+    smartActive ? smartDayIso(daysAhead) : localHourDaysAheadIso(tz, daysAhead);
+
   // The unified 2d/2d/15d retry cycle: bump retry_counter, advance
   // retry_position 0→1→2→0, push next_call_at by the position's delay, and keep
   // the lead `ready_to_call`. Shared by the retry outcomes and the
@@ -195,7 +254,7 @@ export async function applyRetryForCall(
     const delayDays = RETRY_DELAY_DAYS[position];
     update.retry_counter = (lead?.retry_counter ?? 0) + 1;
     update.retry_position = (position + 1) % 3;
-    update.next_call_at = localHourDaysAheadIso(tz, delayDays);
+    update.next_call_at = scheduleDayIso(delayDays);
     update.status = "ready_to_call";
     update.resting_until = null;
   };
@@ -218,12 +277,12 @@ export async function applyRetryForCall(
     // stranded on the dial-time claim lease, leaving retry_counter/
     // retry_position untouched. The outcome stays recorded on the call so the
     // "DMs reached" metric still counts it.
-    update.next_call_at = localHourDaysAheadIso(tz, 1);
+    update.next_call_at = scheduleDayIso(1);
     update.status = "ready_to_call";
     update.resting_until = null;
   } else if (RESTING_OUTCOMES[call.outcome] !== undefined) {
     const days = RESTING_OUTCOMES[call.outcome];
-    const restingUntil = localHourDaysAheadIso(tz, days);
+    const restingUntil = scheduleDayIso(days);
     update.status = "resting";
     update.resting_until = restingUntil;
     update.next_call_at = restingUntil;
@@ -243,14 +302,14 @@ export async function applyRetryForCall(
     // cycle regardless of voicemail history.
     const attempts = (lead?.call_back_later_count ?? 0) + 1;
     if (attempts > 2) {
-      const restingUntil = localHourDaysAheadIso(tz, 15);
+      const restingUntil = scheduleDayIso(15);
       update.status = "resting";
       update.resting_until = restingUntil;
       update.next_call_at = restingUntil;
       update.call_back_later_count = 0;
     } else {
       update.call_back_later_count = attempts;
-      update.next_call_at = localHourDaysAheadIso(tz, 1);
+      update.next_call_at = scheduleDayIso(1);
       update.status = "ready_to_call";
       update.resting_until = null;
     }

@@ -223,6 +223,8 @@ export type Database = {
       };
       app_settings: {
         Row: {
+          best_time_heatmap: Json | null;
+          best_time_heatmap_at: string | null;
           calendly_access_token: string | null;
           calendly_connected_at: string | null;
           calendly_last_sync_at: string | null;
@@ -250,6 +252,8 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          best_time_heatmap?: Json | null;
+          best_time_heatmap_at?: string | null;
           calendly_access_token?: string | null;
           calendly_connected_at?: string | null;
           calendly_last_sync_at?: string | null;
@@ -277,6 +281,8 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          best_time_heatmap?: Json | null;
+          best_time_heatmap_at?: string | null;
           calendly_access_token?: string | null;
           calendly_connected_at?: string | null;
           calendly_last_sync_at?: string | null;

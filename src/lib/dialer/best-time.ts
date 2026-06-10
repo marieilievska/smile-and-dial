@@ -218,6 +218,36 @@ export function scoreForSlot(
   return DEFAULT_HOUR_SCORES[hour] ?? 0;
 }
 
+/**
+ * The single best integer hour to call on a given local day-of-week, restricted
+ * to the campaign's calling window. Among the whole hours in
+ * `[startHour, endHour)` we return the one with the highest
+ * `scoreForSlot(heatmap, dayOfWeek, hour, minSamples)`, breaking ties toward the
+ * EARLIEST hour. Returns `null` when the range is empty (start >= end) so callers
+ * can fall back to their default hour.
+ *
+ * This is the read-side counterpart to `pickNextBestWindow`: the retry engine
+ * keeps its own backoff cadence (which DAY) and only asks this for the best HOUR
+ * on that day.
+ */
+export function bestHourForDay(
+  heatmap: ConnectHeatmap,
+  dayOfWeek: number,
+  startHour: number,
+  endHour: number,
+  minSamples = 8,
+): number | null {
+  let best: { hour: number; score: number } | null = null;
+  for (let hour = startHour; hour < endHour; hour++) {
+    const score = scoreForSlot(heatmap, dayOfWeek, hour, minSamples);
+    // Strict `>` keeps the EARLIEST hour on ties (we iterate ascending).
+    if (best === null || score > best.score) {
+      best = { hour, score };
+    }
+  }
+  return best ? best.hour : null;
+}
+
 /** Parse an 'HH:MM:SS' (or 'HH:MM') calling-hours string to an integer hour. */
 function parseHour(hhmmss: string): number {
   const h = Number(hhmmss.split(":")[0]);

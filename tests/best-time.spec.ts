@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 import {
+  bestHourForDay,
   DEFAULT_HOUR_SCORES,
   localDowHour,
   pickNextBestWindow,
@@ -112,4 +113,18 @@ test("pickNextBestWindow skips slots inside the minHoursOut guard", () => {
   expect(chosen.getTime()).toBeGreaterThanOrEqual(nowMs + 60 * 60 * 1000);
   // Tomorrow's 9am EDT = 2026-06-16 13:00 UTC.
   expect(iso).toBe("2026-06-16T13:00:00.000Z");
+});
+
+test("bestHourForDay returns the highest-scoring hour within the calling window", () => {
+  const heatmap = emptyHeatmap();
+  // Strongly favor 14:00 (2pm) on Wednesday (dayOfWeek 3) with a well-sampled,
+  // near-perfect connect rate so it beats the cold-start prior at every other
+  // in-window hour.
+  heatmap[3][14] = { dialed: 40, answered: 38, rate: 0.95 };
+
+  // Within [9, 17) the picker should land on 14.
+  expect(bestHourForDay(heatmap, 3, 9, 17)).toBe(14);
+
+  // A degenerate (empty) range returns null so callers fall back to default.
+  expect(bestHourForDay(heatmap, 3, 17, 17)).toBeNull();
 });
