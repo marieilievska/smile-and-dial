@@ -96,10 +96,17 @@ function humanizeMinutes(min: number): string {
   return `${h}h ${m}m`;
 }
 
+/** Clock time PLUS a short timezone abbreviation — "3:00 PM EDT". A callback
+ *  fires in the LEAD's local time, so labeling the zone makes "whose 3 PM"
+ *  unambiguous to the operator. When no lead timezone is known we fall back to
+ *  the viewer's runtime zone (timeZone left undefined) and still label it, so
+ *  the time is never bare. The `timeZoneName: "short"` part yields the
+ *  abbreviation (EDT/CST/…); Intl appends it after the time. */
 function formatTime(d: Date, timeZone?: string): string {
   return d.toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
     timeZone,
+    timeZoneName: "short",
   });
 }

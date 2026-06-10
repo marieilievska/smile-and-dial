@@ -45,6 +45,7 @@ function toDisplayLead(
     decision_maker_reached: (l.decision_maker_reached as boolean) ?? false,
     city: l.city as string | null,
     state: l.state as string | null,
+    timezone: l.timezone as string | null,
     conversations: l.conversations as number,
     call_attempts: l.call_attempts as number,
     last_call_at: l.last_call_at as string | null,

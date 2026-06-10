@@ -125,6 +125,7 @@ export default async function LeadsPage({
     decision_maker_reached: l.decision_maker_reached ?? false,
     city: l.city,
     state: l.state,
+    timezone: l.timezone,
     conversations: l.conversations,
     call_attempts: l.call_attempts,
     last_call_at: l.last_call_at,

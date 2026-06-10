@@ -28,6 +28,7 @@ import {
 import { leadStatusLabel } from "@/lib/labels";
 import {
   exactDateTime,
+  leadZoneClock,
   relativeTime,
   relativeTimeSigned,
 } from "@/lib/relative-time";
@@ -304,8 +305,29 @@ export function LeadPageClient({
               />
               <PipelineRow
                 label="Next call"
-                value={relativeTimeSigned(meta.nextCallAt)}
-                title={exactDateTime(meta.nextCallAt)}
+                value={
+                  meta.nextCallAt ? (
+                    <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+                      {relativeTimeSigned(meta.nextCallAt)}
+                      {/* Absolute time IN THE LEAD'S zone with a short tz label
+                          (e.g. "Eastern · 3:00 PM EDT") — the dialer fires this
+                          call in the lead's local time, so labeling the zone
+                          tells the operator whose 3 PM it is. Falls back to the
+                          viewer's local zone + label when the lead has no
+                          timezone. */}
+                      <span className="text-muted-foreground text-[11px]">
+                        {leadZoneClock(meta.nextCallAt, meta.timezone)}
+                      </span>
+                    </span>
+                  ) : (
+                    relativeTimeSigned(meta.nextCallAt)
+                  )
+                }
+                title={exactDateTime(
+                  meta.nextCallAt,
+                  "",
+                  meta.timezone ?? undefined,
+                )}
               />
               <PipelineRow
                 label="Retry"

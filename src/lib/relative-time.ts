@@ -58,15 +58,52 @@ export function relativeTimeSigned(
 
 /** Full, exact timestamp for hover tooltips — pairs with the relative
  *  helpers so the precise value (which the dialer actually reads for
- *  "Next call") is always one hover away. */
+ *  "Next call") is always one hover away.
+ *
+ *  Pass `timeZone` (an IANA zone like "America/New_York") to render the time
+ *  IN THAT ZONE with a short tz abbreviation appended (e.g. "3:00 PM EDT") —
+ *  used for a lead's "Next call", which fires in the LEAD's local time, so the
+ *  operator can tell whose 3 PM it is. Omit it and the time renders in the
+ *  viewer's local zone with no label, exactly as before (callers that show
+ *  viewer-local times like a call's started_at are unaffected). */
 export function exactDateTime(
   iso: string | null | undefined,
+  fallback = "",
+  timeZone?: string,
+): string {
+  if (!iso) return fallback;
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return fallback;
+  // Only label the zone when an explicit timeZone is supplied, so unrelated
+  // viewer-local tooltips keep their existing bare format.
+  if (timeZone) {
+    return d.toLocaleString(undefined, { timeZone, timeZoneName: "short" });
+  }
+  return d.toLocaleString();
+}
+
+/** Compact absolute date + clock with a short timezone label, for a lead's
+ *  "Next call" (and similar lead-local times). Renders like
+ *  "Mar 5, 3:00 PM EDT". Pass the LEAD's IANA timezone so the operator sees the
+ *  time in the zone the dialer will actually call in; when it's missing we fall
+ *  back to the viewer's local zone but still append its label, so the time is
+ *  never ambiguous. Returns the fallback for null/invalid input. */
+export function leadZoneClock(
+  iso: string | null | undefined,
+  timeZone?: string | null,
   fallback = "",
 ): string {
   if (!iso) return fallback;
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return fallback;
-  return d.toLocaleString();
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: timeZone || undefined,
+    timeZoneName: "short",
+  });
 }
 
 /** Slightly more conversational variant: "just now" / "5 minutes ago"

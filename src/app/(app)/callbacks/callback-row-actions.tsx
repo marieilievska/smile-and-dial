@@ -1,6 +1,12 @@
 "use client";
 
-import { CalendarClock, Phone, Trash2, XCircle } from "lucide-react";
+import {
+  CalendarClock,
+  CheckCircle2,
+  Phone,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -30,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   cancelCallback,
+  completeCallback,
   deleteCallbacks,
   rescheduleCallback,
 } from "@/lib/callbacks/actions";
@@ -110,6 +117,18 @@ export function CallbackRowActions({
     });
   }
 
+  function markCompleted(event: React.MouseEvent) {
+    event.stopPropagation();
+    startTransition(async () => {
+      const result = await completeCallback(callbackId);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Callback marked completed.");
+    });
+  }
+
   function confirmDelete() {
     startTransition(async () => {
       const result = await deleteCallbacks([callbackId]);
@@ -186,6 +205,23 @@ export function CallbackRowActions({
               </DialogFooter>
             </DialogContent>
           </Dialog>
+
+          {/* Mark completed — the operator already handled this redial (or it's
+          otherwise resolved); flips status to completed and re-syncs the lead
+          off this callback. */}
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            onClick={markCompleted}
+            className="h-7 px-2 text-emerald-700 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-400"
+            title="Mark this callback completed"
+            data-testid="callback-row-complete"
+          >
+            <CheckCircle2 className="size-3.5" />
+            Done
+          </Button>
 
           <AlertDialog>
             <AlertDialogTrigger asChild>

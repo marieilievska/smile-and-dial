@@ -419,6 +419,13 @@ export default async function CallbacksPage({
                               {when.primary}
                             </span>
                             <span className="text-muted-foreground text-[11px]">
+                              {/* Absolute date + clock IN THE LEAD'S timezone
+                                  with a short tz label (e.g. "Mar 5, 3:00 PM
+                                  EDT") so an operator always knows whose 3 PM
+                                  this is — the relative "In 2h"/"Overdue" line
+                                  above stays as-is. Falls back to the viewer's
+                                  local zone (and its label) when the lead has
+                                  no timezone set. */}
                               {new Date(cb.scheduled_at).toLocaleString(
                                 undefined,
                                 {
@@ -427,6 +434,7 @@ export default async function CallbacksPage({
                                   hour: "numeric",
                                   minute: "2-digit",
                                   timeZone: cb.lead?.timezone ?? undefined,
+                                  timeZoneName: "short",
                                 },
                               )}
                             </span>

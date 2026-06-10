@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
@@ -34,15 +35,67 @@ export async function cancelCallback(
     .eq("id", callbackId);
   if (error) return { error: "Could not cancel the callback." };
 
-  // The lead was in `callback` status pointing at this scheduled time.
-  // Cancelling should hand the lead back to the standard queue.
-  await supabase
-    .from("leads")
-    .update({ status: "ready_to_call", next_call_at: null })
-    .eq("id", cb.lead_id);
+  // Re-point the lead at its earliest REMAINING pending callback. If this was
+  // its last one, the sync hands the lead back to the standard queue
+  // (ready_to_call, next_call_at cleared) instead of stranding it in 'callback'
+  // pointing at a cancelled row. If other pending callbacks remain, the lead
+  // keeps pointing at the soonest. (This replaces the old blanket
+  // ready_to_call reset, which wrongly dropped a lead that still had a later
+  // pending callback.)
+  if (cb.lead_id) {
+    await syncLeadNextCallToEarliestCallback(supabase, cb.lead_id);
+  }
 
   await supabase.from("system_events").insert({
     kind: "callback_cancelled",
+    actor_user_id: user.id,
+    ref_table: "callbacks",
+    ref_id: callbackId,
+    payload: { lead_id: cb.lead_id },
+  });
+
+  revalidatePath("/callbacks");
+  revalidatePath("/leads");
+  return { error: null };
+}
+
+/** Manually mark a pending callback as completed — the operator handled the
+ *  redial (or it's otherwise resolved) and it should no longer sit in the
+ *  pending queue. Like cancel, this re-syncs the lead: it re-points the lead at
+ *  its earliest REMAINING pending callback, or — if this was the last one —
+ *  hands the lead back to the standard queue rather than stranding it in
+ *  'callback'. RLS scopes the update to the lead's owner or an admin. */
+export async function completeCallback(
+  callbackId: string,
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: cb } = await supabase
+    .from("callbacks")
+    .select("id, lead_id, status")
+    .eq("id", callbackId)
+    .maybeSingle();
+  if (!cb) return { error: "Callback not found." };
+  if (cb.status !== "pending") {
+    return { error: "Only pending callbacks can be marked completed." };
+  }
+
+  const { error } = await supabase
+    .from("callbacks")
+    .update({ status: "completed" })
+    .eq("id", callbackId);
+  if (error) return { error: "Could not mark the callback completed." };
+
+  if (cb.lead_id) {
+    await syncLeadNextCallToEarliestCallback(supabase, cb.lead_id);
+  }
+
+  await supabase.from("system_events").insert({
+    kind: "callback_completed",
     actor_user_id: user.id,
     ref_table: "callbacks",
     ref_id: callbackId,
@@ -91,11 +144,13 @@ export async function rescheduleCallback(input: {
     .eq("id", input.callbackId);
   if (error) return { error: "Could not reschedule." };
 
-  // Bump the lead's next_call_at so the dialer queue picks up the new time.
-  await supabase
-    .from("leads")
-    .update({ next_call_at: newAt })
-    .eq("id", cb.lead_id);
+  // Re-sync the lead's next_call_at to its EARLIEST pending callback. The new
+  // time isn't necessarily the soonest (the lead may have another, earlier
+  // pending callback), so recompute rather than blindly bumping to newAt — that
+  // keeps the dialer pointed at the right one.
+  if (cb.lead_id) {
+    await syncLeadNextCallToEarliestCallback(supabase, cb.lead_id);
+  }
 
   await supabase.from("system_events").insert({
     kind: "callback_rescheduled",
@@ -106,6 +161,7 @@ export async function rescheduleCallback(input: {
   });
 
   revalidatePath("/callbacks");
+  revalidatePath("/leads");
   return { error: null };
 }
 
@@ -167,12 +223,15 @@ export async function deleteCallbacks(
   const { error } = await admin.from("callbacks").delete().in("id", clean);
   if (error) return { error: "Could not delete the selected callbacks." };
 
-  if (pendingLeadIds.length > 0) {
-    await admin
-      .from("leads")
-      .update({ status: "ready_to_call", next_call_at: null })
-      .in("id", pendingLeadIds)
-      .eq("status", "callback");
+  // Re-sync each affected lead against its REMAINING pending callbacks. A lead
+  // can have several pending callbacks; deleting one shouldn't blindly reset it
+  // to ready_to_call if a later one survives. The delete already ran, so
+  // syncLeadNextCallToEarliestCallback now sees the true remaining state: it
+  // re-points the lead at the soonest survivor, or — if none remain — hands it
+  // back to the queue (only when still in 'callback'). Runs sequentially to keep
+  // the service-role load modest; the selection is operator-sized.
+  for (const leadId of pendingLeadIds) {
+    await syncLeadNextCallToEarliestCallback(admin, leadId);
   }
 
   revalidatePath("/callbacks");

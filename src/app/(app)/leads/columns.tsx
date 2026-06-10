@@ -21,6 +21,10 @@ export type DisplayLead = {
   decision_maker_reached: boolean;
   city: string | null;
   state: string | null;
+  /** The lead's IANA timezone (e.g. "America/New_York"), used to render the
+   *  "Next call" time in the lead's local zone with a short tz label — the
+   *  dialer calls in this zone, so it's the one the operator cares about. */
+  timezone: string | null;
   conversations: number;
   call_attempts: number;
   last_call_at: string | null;
@@ -290,12 +294,14 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     sortKey: "next_call_at",
     width: "w-[110px]",
     /** Future-facing relative time ("in 2h"). The precise value the
-     *  dialer schedules against is preserved in the hover title and the
-     *  CSV export. */
+     *  dialer schedules against is preserved in the hover title — shown IN THE
+     *  LEAD'S timezone with a short tz label (e.g. "Mar 5, 3:00 PM EDT") since
+     *  that's when the call fires, falling back to the viewer's zone + label
+     *  when the lead has no timezone — and in the CSV export. */
     cell: (l) => (
       <span
         className="text-muted-foreground"
-        title={exactDateTime(l.next_call_at)}
+        title={exactDateTime(l.next_call_at, "", l.timezone ?? undefined)}
       >
         {relativeTimeSigned(l.next_call_at)}
       </span>

@@ -52,7 +52,16 @@ export function callbackOutcomeConnected(
  * `lead.next_call_at`, so if a *later* callback overwrote it, an earlier —
  * possibly overdue — callback would be stranded and never dialed. Recomputing
  * from MIN(scheduled_at) of the pending callbacks keeps the lead pointed at the
- * soonest one. Call this after inserting/rescheduling/cancelling any callback.
+ * soonest one. Call this after inserting/rescheduling/cancelling/completing any
+ * callback.
+ *
+ * Zero pending left: if the lead's LAST pending callback was just
+ * cancelled/completed/missed, leaving it in status='callback' would strand it
+ * forever pointing at a callback that no longer exists. So when no pending
+ * callbacks remain we conservatively hand the lead back to the standard queue —
+ * but ONLY if it's currently status='callback' (we never touch a lead the
+ * operator/dialer moved to some other state in the meantime). Leads in any
+ * other status are left exactly as-is.
  *
  * Works with any Supabase client (user-scoped or service-role).
  */
@@ -68,7 +77,20 @@ export async function syncLeadNextCallToEarliestCallback(
     .order("scheduled_at", { ascending: true })
     .limit(1)
     .maybeSingle();
-  if (!data) return; // no pending callbacks — leave the lead as-is
+
+  if (!data) {
+    // No pending callbacks left. Don't strand a lead in 'callback' pointing at
+    // a gone callback — hand it back to the queue. Conservative: only a lead
+    // STILL in 'callback' is touched (the .eq guard), so a lead the dialer or
+    // an operator already advanced is left alone.
+    await supabase
+      .from("leads")
+      .update({ status: "ready_to_call", next_call_at: null })
+      .eq("id", leadId)
+      .eq("status", "callback");
+    return;
+  }
+
   await supabase
     .from("leads")
     .update({ status: "callback", next_call_at: data.scheduled_at })
