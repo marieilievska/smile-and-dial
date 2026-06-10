@@ -669,6 +669,7 @@ export type Database = {
           owner_id: string;
           paused_at: string | null;
           paused_reason: string | null;
+          smart_scheduling: boolean;
           status: string;
           transfer_destination_phone: string | null;
           twilio_number_id: string | null;
@@ -694,6 +695,7 @@ export type Database = {
           owner_id: string;
           paused_at?: string | null;
           paused_reason?: string | null;
+          smart_scheduling?: boolean;
           status?: string;
           transfer_destination_phone?: string | null;
           twilio_number_id?: string | null;
@@ -719,6 +721,7 @@ export type Database = {
           owner_id?: string;
           paused_at?: string | null;
           paused_reason?: string | null;
+          smart_scheduling?: boolean;
           status?: string;
           transfer_destination_phone?: string | null;
           twilio_number_id?: string | null;
