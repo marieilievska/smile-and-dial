@@ -39,7 +39,10 @@ export function LeadsStatStrip({ stats }: { stats: LeadStats }) {
         icon={<Trophy className="size-3.5" />}
         label="Goals met this week"
         value={stats.goalsMetThisWeek}
-        href="/leads?status=goal_met"
+        // Count and destination show the SAME set: goal-met calls from this
+        // week. The Calls list, filtered to goal_met=yes and scoped from the
+        // week's Monday, mirrors the count's calls + ended_at window.
+        href={`/calls?goal_met=yes&from=${stats.weekStartDate}`}
         tone="emerald"
         divider
       />

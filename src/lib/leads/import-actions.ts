@@ -12,7 +12,7 @@ import {
   type ImportResult,
   type LineType,
 } from "./import-fields";
-import { stateFromPhone, stateToTimezone } from "./timezone";
+import { phoneToTimezone, stateFromPhone, stateToTimezone } from "./timezone";
 import { isLookupLive, lookupLineType, toE164UsCa } from "./twilio-lookup";
 
 type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
@@ -45,9 +45,10 @@ function phoneHeaderFrom(mapping: Record<string, string>): string {
  *
  * Set `skipLookup` to true to bypass Twilio entirely — all rows pass
  * through as importable, line types come back as "unknown", and the
- * estimated cost is $0. The runtime pre-call check still protects
- * against dialing mobile numbers later; this only opts out of import-
- * time verification.
+ * estimated cost is $0. Skipping the lookup means mobile numbers are
+ * NOT detected or filtered at any later point — there is no runtime
+ * line-type gate — so they may be imported and dialed. Run the lookup
+ * if you want mobiles flagged.
  */
 export async function analyzeImport(input: {
   mapping: Record<string, string>;
@@ -363,12 +364,13 @@ export async function importLeads(input: {
       }
     } else if (phoneRaw) {
       const st = stateFromPhone(phoneRaw);
-      if (st) {
-        if (!fields.state) fields.state = st;
-        if (!fields.timezone) {
-          const tz = stateToTimezone(st);
-          if (tz) fields.timezone = tz;
-        }
+      if (st && !fields.state) fields.state = st;
+      // Resolve the timezone straight from the area code so split-state codes
+      // (915 El Paso -> Denver, 850 Pensacola -> Chicago) get the right zone
+      // rather than the state's single default.
+      if (!fields.timezone) {
+        const tz = phoneToTimezone(phoneRaw);
+        if (tz) fields.timezone = tz;
       }
     }
     // Store the phone in E.164 so it's dialable by Twilio and dedups
@@ -417,14 +419,24 @@ export async function importLeads(input: {
   let revived = 0;
   const failTail = { revived, skipped, skippedMobile, skippedInvalid };
 
-  // Insert new leads in batches, keeping the returned ids aligned by index.
+  // Insert new leads in batches. We UPSERT with ignoreDuplicates rather than a
+  // plain INSERT so a row that already owns its (owner_id, business_phone) slot
+  // is silently skipped instead of aborting the whole atomic batch. This
+  // matters for rows whose phone couldn't be normalized to E.164: they're
+  // stored with the raw string and bypass the dedup pre-fetch above (which only
+  // collects parseable phones), so on a re-import they'd otherwise collide with
+  // the (owner_id, business_phone) unique constraint and fail all 500 rows.
+  // A skipped duplicate counts toward `skipped`, not `imported`.
   let imported = 0;
   for (let i = 0; i < newLeads.length; i += INSERT_BATCH) {
     const batch = newLeads.slice(i, i + INSERT_BATCH);
     const { data: inserted, error } = await supabase
       .from("leads")
-      .insert(batch as LeadInsert[])
-      .select("id");
+      .upsert(batch as LeadInsert[], {
+        onConflict: "owner_id,business_phone",
+        ignoreDuplicates: true,
+      })
+      .select("id, business_phone");
     if (error || !inserted) {
       return {
         ...failTail,
@@ -434,16 +446,42 @@ export async function importLeads(input: {
       };
     }
     imported += inserted.length;
+    // Conflicting rows are NOT returned by an ignoreDuplicates upsert, so they
+    // were silently skipped — count them as dedup skips so the wizard's
+    // imported/skipped totals stay honest.
+    skipped += batch.length - inserted.length;
 
+    // The returned rows omit the skipped duplicates and aren't guaranteed to
+    // be index-aligned with `batch`, so map each inserted lead back to its
+    // batch row by phone to attach the right custom values. Rows with no phone
+    // can't be matched this way, but they also can't collide on the unique
+    // constraint, so they're always inserted and aligned 1:1 in input order;
+    // we handle them positionally as a fallback.
     const customRows: {
       lead_id: string;
       custom_field_id: string;
       value: string;
     }[] = [];
-    inserted.forEach((lead, j) => {
-      for (const c of newCustoms[i + j]) {
+    const idByPhone = new Map<string, string>();
+    for (const lead of inserted) {
+      if (lead.business_phone) idByPhone.set(lead.business_phone, lead.id);
+    }
+    const phonelessIds = inserted
+      .filter((lead) => !lead.business_phone)
+      .map((lead) => lead.id);
+    let phonelessCursor = 0;
+    batch.forEach((row, j) => {
+      const customs = newCustoms[i + j];
+      if (customs.length === 0) return;
+      const phone =
+        typeof row.business_phone === "string" ? row.business_phone : "";
+      const leadId = phone
+        ? idByPhone.get(phone)
+        : phonelessIds[phonelessCursor++];
+      if (!leadId) return; // skipped duplicate — nothing to attach
+      for (const c of customs) {
         customRows.push({
-          lead_id: lead.id,
+          lead_id: leadId,
           custom_field_id: c.customId,
           value: c.value,
         });

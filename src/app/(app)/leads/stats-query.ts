@@ -6,6 +6,10 @@ export type LeadStats = {
   readyToCall: number;
   callbacksDue: number;
   goalsMetThisWeek: number;
+  /** Monday 00:00 of the current week as a YYYY-MM-DD date string. The
+   *  "Goals met this week" tile links to the Calls list scoped from this
+   *  date, so the destination shows the same window the count came from. */
+  weekStartDate: string;
 };
 
 /** Compute the 3-stat strip shown under the Leads page header.
@@ -38,20 +42,31 @@ export async function fetchLeadStats(
       .select("*", { count: "exact", head: true })
       .is("deleted_at", null)
       .eq("status", "callback"),
+    // Goals met this week = goal-met CALLS that ended this week. We count
+    // calls (not leads) so the tile matches its destination exactly: the
+    // Calls list filtered to goal_met=yes for the same window. `ended_at`
+    // never changes after a call finishes, so — unlike the old query, which
+    // keyed off the lead's updated_at — editing a long-ago won lead no
+    // longer re-counts it into this week.
     supabase
-      .from("leads")
+      .from("calls")
       .select("*", { count: "exact", head: true })
-      .is("deleted_at", null)
-      // Goal-met and the positive milestones past it (showed up, bought).
-      // NOT "closed" — that status is "Closed lost", a terminal loss, and
-      // must never count as a win.
-      .in("status", ["goal_met", "attended", "sale"])
-      .gte("updated_at", startOfWeek.toISOString()),
+      .eq("goal_met", true)
+      .gte("ended_at", startOfWeek.toISOString()),
   ]);
+
+  // YYYY-MM-DD for the Calls list's `from` date filter (it expects a plain
+  // date). Built from local parts to match the local-midnight startOfWeek
+  // above rather than risk a UTC date shift from toISOString().
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const weekStartDate = `${startOfWeek.getFullYear()}-${pad(
+    startOfWeek.getMonth() + 1,
+  )}-${pad(startOfWeek.getDate())}`;
 
   return {
     readyToCall: readyResult.count ?? 0,
     callbacksDue: callbackResult.count ?? 0,
     goalsMetThisWeek: goalsMetResult.count ?? 0,
+    weekStartDate,
   };
 }

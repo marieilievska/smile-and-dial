@@ -65,6 +65,27 @@ export function LeadsFilters({
   const [nextFrom, setNextFrom] = useState(get("nextcall_from"));
   const [nextTo, setNextTo] = useState(get("nextcall_to"));
 
+  // Resync the draft fields whenever the URL filters change from OUTSIDE the
+  // popover — removing an active-filter chip, a stat-strip tile, a saved
+  // view. Without this the draft only seeds once (the useState initializers
+  // above) and Apply would silently re-add filters the user just removed.
+  // This is the "derived state with a reset trigger" pattern from
+  // search-input.tsx: track the last params string we synced from and reset
+  // the draft when it changes, rather than putting a setState in an effect.
+  const paramsKey = searchParams.toString();
+  const [lastParamsKey, setLastParamsKey] = useState(paramsKey);
+  if (paramsKey !== lastParamsKey) {
+    setLastParamsKey(paramsKey);
+    setList(get("list") || "any");
+    setStatus(get("status") || "any");
+    setCreatedFrom(get("created_from"));
+    setCreatedTo(get("created_to"));
+    setLastFrom(get("lastcall_from"));
+    setLastTo(get("lastcall_to"));
+    setNextFrom(get("nextcall_from"));
+    setNextTo(get("nextcall_to"));
+  }
+
   const activeCount = FILTER_KEYS.filter((key) => searchParams.get(key)).length;
 
   function apply() {

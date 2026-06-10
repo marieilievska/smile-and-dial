@@ -501,9 +501,10 @@ export function ImportWizard({
 
         {/* Skip-Twilio-Lookup toggle. When checked, analyzeImport
             bypasses lookups so all rows pass through with no per-row
-            cost. The runtime pre-call check still protects against
-            actually dialing mobiles later — this just opts out of the
-            import-time verification. */}
+            cost. There is NO later line-type gate, so skipping means
+            mobile numbers won't be detected or filtered — they may be
+            imported and dialed. This is the only place mobiles are
+            caught, so only skip when you already trust the data. */}
         <div className="border-border bg-muted/20 flex items-start gap-3 rounded-lg border px-4 py-3">
           <Checkbox
             id="skip-lookup"
@@ -766,8 +767,9 @@ function ReviewStep({
           <Info className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
           <p className="text-muted-foreground">
             Twilio number verification was skipped. Every row will be imported
-            as-is. Mobile numbers, if any, still won&apos;t be auto-dialed — the
-            runtime pre-call check will catch them before each call.
+            as-is. Skipping the lookup means mobile numbers won&apos;t be
+            detected or filtered — they may be imported and dialed. Run the
+            lookup if you want mobiles flagged.
           </p>
         </div>
       ) : (

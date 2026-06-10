@@ -6,6 +6,7 @@ import type { Database, Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
 import { IMPORTABLE_FIELDS } from "./import-fields";
+import { toE164UsCa } from "./twilio-lookup";
 
 type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
 
@@ -35,6 +36,16 @@ export async function updateLeadField(input: {
     const parsed = Number(value);
     if (Number.isNaN(parsed)) return { error: "Enter a valid number." };
     value = parsed;
+  }
+  // Phone numbers must be stored in E.164 — DNC matching, dedup, and dialing
+  // all assume it. A manual edit of "(415) 555-1000" would silently break all
+  // three, so normalize here. Clearing the field (null) is allowed; a
+  // non-empty value that can't be a US/CA number is rejected outright rather
+  // than stored in a form nothing downstream can use.
+  if (input.field === "business_phone" && value !== null) {
+    const e164 = toE164UsCa(String(value));
+    if (!e164) return { error: "Enter a valid US/Canada phone number." };
+    value = e164;
   }
 
   const { error } = await supabase

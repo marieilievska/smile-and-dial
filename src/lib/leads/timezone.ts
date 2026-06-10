@@ -356,6 +356,64 @@ for (const [state, codes] of Object.entries(STATE_AREA_CODES)) {
   for (const code of codes) AREA_CODE_TO_STATE[code] = state;
 }
 
+// Area code -> IANA timezone, for the area codes that fall in a DIFFERENT
+// zone than their state's default (STATE_TIMEZONES). Several states span two
+// time zones, so mapping by state alone misroutes calling-hours — e.g. a 915
+// El Paso number would be put on Central time with the rest of Texas. This
+// table overrides the state fallback for those split-state area codes; any
+// area code NOT listed here keeps using the state's single timezone, so we
+// only need to enumerate the exceptions, not every NANP code.
+//
+// Assignment is by where the area code predominantly sits. A handful of codes
+// straddle a zone boundary internally (e.g. ND's 701, NE's 308); those are
+// assigned to the zone covering most of their territory.
+const AREA_CODE_TO_TIMEZONE: Record<string, string> = {
+  // Texas — mostly Central; the far west (El Paso, Hudspeth) is Mountain.
+  "915": "America/Denver", // El Paso
+  "432": "America/Denver", // West Texas: El Paso-region Mountain counties
+
+  // Florida — mostly Eastern; the western panhandle is Central.
+  "850": "America/Chicago", // Pensacola / Panama City panhandle
+
+  // Tennessee — East TN is Eastern; Middle/West TN is Central.
+  "423": "America/New_York", // Chattanooga / Knoxville region (Eastern)
+  "865": "America/New_York", // Knoxville (Eastern)
+  // 615/629 (Nashville), 731 (Jackson), 901 (Memphis), 931 stay Central
+  // via the TN state default.
+
+  // Kentucky — eastern/central KY is Eastern; western KY is Central.
+  "270": "America/Chicago", // Bowling Green / western KY (Central)
+  "364": "America/Chicago", // western KY overlay (Central)
+  // 502 (Louisville), 859 (Lexington), 606 (eastern) stay Eastern via state.
+
+  // Indiana — mostly Eastern; the northwest (Gary) + a SW pocket are Central.
+  "219": "America/Chicago", // Gary / northwest Indiana (Central)
+
+  // Michigan — Lower Peninsula Eastern; four western UP counties are Central.
+  "906": "America/New_York", // Upper Peninsula — predominantly Eastern.
+
+  // North Dakota — mostly Central; the southwest is Mountain.
+  "701": "America/Chicago", // statewide code, predominantly Central.
+
+  // South Dakota — eastern half Central, western half (Black Hills) Mountain.
+  "605": "America/Chicago", // statewide code, predominantly Central.
+
+  // Nebraska — eastern Central; the panhandle is Mountain.
+  "308": "America/Denver", // western/panhandle Nebraska (Mountain)
+  // 402/531 (Omaha/Lincoln) stay Central via the NE state default.
+
+  // Kansas — mostly Central; four far-western counties are Mountain.
+  "620": "America/Chicago", // southern/western KS, predominantly Central.
+
+  // Oregon — mostly Pacific; Malheur County (far east) is Mountain.
+  "541": "America/Los_Angeles", // statewide-ish, predominantly Pacific.
+  "458": "America/Los_Angeles", // overlay on 541, predominantly Pacific.
+
+  // Idaho — north Idaho (incl. 208 panhandle) is Pacific; south is Mountain.
+  // The state default is Mountain; the panhandle is the exception, but 208
+  // covers the whole state, so leave it on the Mountain state default.
+};
+
 /** Extract the 3-digit area code from a US/CA phone in any format
  *  ("(205) 259-8928", "2052598928", "+12052598928"). Returns null when the
  *  value isn't a 10-digit NANP number. */
@@ -376,9 +434,14 @@ export function stateFromPhone(
 }
 
 /** Best-effort IANA timezone from a phone number's area code — the fallback
- *  when a lead has no state. */
+ *  when a lead has no state. Resolves the area code directly first so that
+ *  split-state codes (e.g. 915 El Paso -> America/Denver, 850 Pensacola ->
+ *  America/Chicago) get the right zone; falls back to the area code's state
+ *  timezone for every code not in the override table. */
 export function phoneToTimezone(
   phone: string | null | undefined,
 ): string | null {
-  return stateToTimezone(stateFromPhone(phone));
+  const ac = areaCodeOf(phone);
+  if (ac && AREA_CODE_TO_TIMEZONE[ac]) return AREA_CODE_TO_TIMEZONE[ac];
+  return stateToTimezone(ac ? (AREA_CODE_TO_STATE[ac] ?? null) : null);
 }
