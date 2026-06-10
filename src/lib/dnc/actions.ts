@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
 import { createClient } from "@/lib/supabase/server";
 
 export type DncReason =
@@ -159,8 +160,20 @@ export async function bulkRemoveFromDnc(input: {
 
 /**
  * Bulk-add the selected leads' phone numbers to DNC. Used from the leads
- * bulk action bar. Skips leads without a phone and silently swallows the
- * unique-violation that happens when a number is already on the list.
+ * bulk action bar and the lead-detail "Mark DNC" button. Skips leads
+ * without a phone and silently swallows the unique-violation that happens
+ * when a number is already on the list.
+ *
+ * The lead-id lookup is chunked (`ID_CHUNK` ids per request): a "select all
+ * matching" sweep can carry thousands of ids, and a single `.in("id", …)`
+ * filter overflows the request URL and fails the whole query — which the old
+ * code swallowed into the misleading "None of the selected leads have a phone
+ * number." message. Real errors are now surfaced.
+ *
+ * To match the AI tool path (which writes `dnc_entries` AND moves the lead out
+ * of the calling pipeline), this also flips the matched leads to
+ * `status = 'dnc'` and clears `next_call_at`, so a DNC'd lead leaves the
+ * Ready-to-call count and the dialer queue instead of lingering half-handled.
  */
 export async function bulkAddLeadsToDnc(input: {
   leadIds: string[];
@@ -173,13 +186,22 @@ export async function bulkAddLeadsToDnc(input: {
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
 
-  const { data: leads } = await supabase
-    .from("leads")
-    .select("business_phone, company")
-    .in("id", input.leadIds)
-    .not("business_phone", "is", null);
+  // Look up the leads in chunks so a large selection's id list never
+  // overflows the request URL. Aggregate the rows across chunks and surface
+  // any real error instead of swallowing it.
+  type LeadRow = { business_phone: string | null; company: string | null };
+  const leads: LeadRow[] = [];
+  for (const ids of chunk(input.leadIds, ID_CHUNK)) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select("business_phone, company")
+      .in("id", ids)
+      .not("business_phone", "is", null);
+    if (error) return { error: "Could not look up the selected leads." };
+    leads.push(...((data ?? []) as LeadRow[]));
+  }
 
-  const rows = (leads ?? [])
+  const rows = leads
     .filter(
       (l): l is { business_phone: string; company: string | null } =>
         typeof l.business_phone === "string" && l.business_phone.length > 0,
@@ -202,6 +224,21 @@ export async function bulkAddLeadsToDnc(input: {
     count: "exact",
   });
   if (error) return { error: "Could not add the selected leads to DNC." };
+
+  // Move the leads out of the calling pipeline so the Ready-to-call count
+  // and dialer queue drop them — mirroring the AI tool path. Chunked for the
+  // same URL-length reason as the lookup above. A failure here is non-fatal:
+  // the numbers are already on the DNC list (so the dialer's pre-call check
+  // will block them regardless); we surface it but don't claim success.
+  for (const ids of chunk(input.leadIds, ID_CHUNK)) {
+    const { error: statusError } = await supabase
+      .from("leads")
+      .update({ status: "dnc", next_call_at: null })
+      .in("id", ids);
+    if (statusError) {
+      return { error: "Added to DNC, but could not update lead stages." };
+    }
+  }
 
   revalidatePath(DNC_PATH);
   revalidatePath("/leads");

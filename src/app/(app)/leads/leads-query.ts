@@ -43,7 +43,7 @@ export function parseSort(params: SearchParams): {
  *  whatever its `.select(...)` is. Generic over the builder type so it works
  *  for the full-row table query and the id-only sibling query alike, keeping
  *  "the current view" defined in exactly one place. */
-function applyLeadFilters<
+export function applyLeadFilters<
   Q extends {
     or(filter: string): Q;
     eq(column: string, value: string): Q;

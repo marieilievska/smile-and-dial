@@ -41,7 +41,7 @@ export function SelectAllBanner({ total }: { total: number }) {
       setMatchAllSelection(result.ids);
       if (result.truncated) {
         toast.info(
-          `Selected the first ${result.ids.toLocaleString()} of ${total.toLocaleString()} — large sweeps are capped for safety.`,
+          `Selected the first ${result.ids.length.toLocaleString()} matching leads — large sweeps are capped for safety.`,
         );
       } else {
         toast.success(

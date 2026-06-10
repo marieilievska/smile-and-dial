@@ -4,19 +4,9 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 
+import { ID_CHUNK, chunk } from "./chunk";
+
 type BulkResult = { error: string | null };
-
-/** Max ids per request. A "select all matching" sweep can carry thousands of
- *  ids; sending them in one .in(...) filter overflows the request URL and the
- *  whole update fails. Chunking keeps each request well under that limit. */
-const ID_CHUNK = 200;
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size)
-    out.push(items.slice(i, i + size));
-  return out;
-}
 
 /** Move every selected lead onto a different list. */
 export async function bulkMoveToList(input: {

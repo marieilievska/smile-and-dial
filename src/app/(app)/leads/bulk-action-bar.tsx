@@ -67,13 +67,34 @@ export function BulkActionBar({
   if (count === 0) return null;
   const ids = [...selected];
 
-  function exportSelected() {
-    const qs = new URLSearchParams({ ids: ids.join(",") });
-    const cols = searchParams.get("cols");
-    if (cols) qs.set("cols", cols);
-    const link = document.createElement("a");
-    link.href = `/leads/export?${qs.toString()}`;
-    link.click();
+  async function exportSelected() {
+    // POST the ids in the body, not on the query string: a "select all
+    // matching" sweep can carry thousands of ids, which would overflow the
+    // request URL on a GET. The route streams back the CSV, which we turn
+    // into a blob download.
+    try {
+      const response = await fetch("/leads/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ids,
+          cols: searchParams.get("cols") ?? undefined,
+        }),
+      });
+      if (!response.ok) {
+        toast.error("Could not export the selected leads.");
+        return;
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "leads.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Could not export the selected leads.");
+    }
   }
 
   // v2 — sticky bottom bar (Linear-style). When 1+ leads are selected,

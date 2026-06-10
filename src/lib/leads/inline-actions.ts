@@ -42,20 +42,51 @@ export async function setLeadStatus(input: {
   if (!user) return { error: "You are not signed in." };
 
   // Read the current status so we can audit from→to and short-circuit
-  // a no-op. The RLS policy on leads gates this read for us.
+  // a no-op. Also pull the phone/company up front so a move to the "dnc"
+  // stage can mirror the AI/bulk DNC path (write a dnc_entries row) without
+  // a second round-trip. The RLS policy on leads gates this read for us.
   const { data: before, error: readErr } = await supabase
     .from("leads")
-    .select("status")
+    .select("status, business_phone, company")
     .eq("id", input.leadId)
     .single();
   if (readErr || !before) return { error: "Lead not found." };
   if (before.status === input.status) return { error: null };
 
+  // When the chosen stage is "dnc", also clear the next-call slot so the
+  // lead drops out of the dialer queue, matching bulkAddLeadsToDnc.
+  const update: { status: string; next_call_at?: null } = {
+    status: input.status,
+  };
+  if (input.status === "dnc") update.next_call_at = null;
+
   const { error: writeErr } = await supabase
     .from("leads")
-    .update({ status: input.status })
+    .update(update)
     .eq("id", input.leadId);
   if (writeErr) return { error: "Could not save that change." };
+
+  // The inline Stage picker offers "dnc" as a pickable stage. Flipping
+  // leads.status alone is a split-brain: the dialer's pre-call check tests
+  // the phone against dnc_entries, so without this insert it would keep
+  // calling a lead the operator just marked Do Not Call. Mirror the
+  // dnc_entries insert shape used by addToDnc / bulkAddLeadsToDnc. Skip the
+  // insert (but keep the status change) when there's no phone, and swallow
+  // the unique-violation (23505) that means the number is already listed.
+  if (input.status === "dnc") {
+    const phone = before.business_phone?.trim();
+    if (phone) {
+      const { error: dncErr } = await supabase.from("dnc_entries").insert({
+        phone,
+        reason: "manual",
+        company_snapshot: before.company ?? null,
+        added_by_user_id: user.id,
+      });
+      if (dncErr && dncErr.code !== "23505") {
+        return { error: "Stage saved, but could not add to the DNC list." };
+      }
+    }
+  }
 
   // Audit row — kind matches the existing lead_status_changed family
   // so the activity feed picks it up without a schema change. The
