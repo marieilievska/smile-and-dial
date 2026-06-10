@@ -838,6 +838,13 @@ async function processTranscription(
     total: (prevCost.twilio ?? 0) + elevenLabsCost + (prevCost.lookup ?? 0),
   };
 
+  // The real per-call summary ElevenLabs sends is `transcript_summary`;
+  // `summary` is only the legacy test shape. This single value is written to
+  // the call row AND fed to mergeLeadSummary below, so the rolling lead summary
+  // tracks the same text the call shows.
+  const callSummary =
+    payload.analysis?.transcript_summary ?? payload.analysis?.summary ?? null;
+
   const callUpdate: Database["public"]["Tables"]["calls"]["Update"] = {
     // ElevenLabs places & owns the call now, so Twilio status callbacks don't
     // hit us — the post-call webhook is our completion signal. Mark the call
@@ -848,8 +855,7 @@ async function processTranscription(
       payload.transcript === undefined
         ? null
         : (payload.transcript as Database["public"]["Tables"]["calls"]["Update"]["transcript_json"]),
-    summary:
-      payload.analysis?.transcript_summary ?? payload.analysis?.summary ?? null,
+    summary: callSummary,
     // AI call-quality score (0–10), averaged from the ElevenLabs quality
     // criteria — only for real conversations. Voicemails / no-answers /
     // immediate hang-ups get no score (the criteria can't fairly judge them).
@@ -888,7 +894,21 @@ async function processTranscription(
     .from("calls")
     .update(callUpdate)
     .eq("id", call.id);
-  if (callError) return { ok: false, reason: "could_not_update_call" };
+  if (callError) {
+    // Compensating delete: we claimed the idempotency row FIRST, but the
+    // critical call-row update just failed (route returns 500). ElevenLabs will
+    // retry — but the retry would hit the unique violation and dedupe away as a
+    // "duplicate", permanently dropping the transcript/outcome/cost/callback
+    // effects. Delete the row WE inserted (this conversation_id + event_type)
+    // so the retry re-processes cleanly. Scoped to this invocation's row only;
+    // the success path is untouched.
+    await supabase
+      .from("elevenlabs_webhook_events")
+      .delete()
+      .eq("conversation_id", conversationId)
+      .eq("event_type", eventType);
+    return { ok: false, reason: "could_not_update_call" };
+  }
 
   // Identity/contact details are always worth filling: a name or email the
   // agent heard is real whether or not the call became a full conversation
@@ -926,19 +946,35 @@ async function processTranscription(
   //   dnc / invalid_number / language_barrier → status=dnc, auto-DNC insert
   //   callback                                → status=callback, callbacks row
   //   everything else                         → handled by Step 24
+  // Source the agreed callback time from the REAL payload shape via
+  // extractedDataOf (data_collection_results.callback_datetime.value), which
+  // also falls back to the legacy flat data_collection.callback_datetime. The
+  // old code read only the legacy field, which real ElevenLabs payloads never
+  // send — so an agreed callback always defaulted to tomorrow-10am.
+  const extractedCallbackDatetime = extractedDataOf(
+    payload.analysis,
+  )?.callback_datetime;
   await applyOutcomeSideEffects(supabase, {
     callId: call.id,
     leadId: call.lead_id,
     campaignId: call.campaign_id,
     outcome: outcomeFromDisposition,
     callbackDatetime:
-      payload.analysis?.data_collection?.callback_datetime ?? null,
+      typeof extractedCallbackDatetime === "string"
+        ? extractedCallbackDatetime
+        : null,
   });
 
   // Step 39: roll the per-call summary into the lead's running ai_summary.
   // Mock by default; OPENAI_LIVE=live calls gpt-4o-mini. The merger logs
   // its own cost into cost_breakdown.openai on the call.
-  const latestSummary = payload.analysis?.summary ?? null;
+  // Use the SAME real summary written to the call row (transcript_summary, with
+  // the legacy `summary` fallback) — NOT the legacy-only `analysis.summary`,
+  // which real ElevenLabs payloads never send (that left leads.ai_summary blank
+  // and follow-up calls running with no memory). Only merge a real, non-empty
+  // summary string.
+  const latestSummary =
+    typeof callSummary === "string" && callSummary.trim() ? callSummary : null;
   if (latestSummary) {
     const { cost } = await mergeLeadSummary({
       leadId: call.lead_id,

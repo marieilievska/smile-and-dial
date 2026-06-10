@@ -192,7 +192,21 @@ export async function processTwilioStatus(input: {
     .from("calls")
     .update(update)
     .eq("id", call.id);
-  if (updateError) return { ok: false, reason: "could_not_update_call" };
+  if (updateError) {
+    // Compensating delete: we claimed the idempotency row FIRST, but the
+    // critical call-row update just failed (route returns 500). Twilio will
+    // retry — but the retry would hit the unique violation and dedupe away as a
+    // "duplicate", permanently dropping this status transition (and its outcome
+    // / retry-engine side effects). Delete the row WE inserted (this call_sid +
+    // event_type) so the retry re-processes cleanly. Scoped to this
+    // invocation's row only; the success path is untouched.
+    await supabase
+      .from("twilio_status_events")
+      .delete()
+      .eq("call_sid", input.callSid)
+      .eq("event_type", input.callStatus);
+    return { ok: false, reason: "could_not_update_call" };
+  }
 
   // If we just stamped a terminal status with an inferred outcome
   // (busy / no-answer / failed), fire the retry engine so the lead's
