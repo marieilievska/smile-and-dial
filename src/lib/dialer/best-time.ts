@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
+import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 import type { Database } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -115,7 +116,7 @@ export function localDowHour(
 type CallRow = {
   id: string;
   started_at: string | null;
-  answered_at: string | null;
+  outcome: string | null;
   lead: { timezone: string | null } | { timezone: string | null }[] | null;
 };
 
@@ -131,7 +132,8 @@ function leadTimezone(lead: CallRow["lead"]): string | null {
  * Compute a connect-rate heatmap (local day-of-week × hour) from historical
  * outbound calls. For each call we bucket it by the day/hour in the LEAD's own
  * timezone (falling back to America/New_York), count it as `dialed`, and count
- * it as `answered` when `answered_at` is non-null (a real human connection).
+ * it as `answered` when its outcome is in CONNECTED_OUTCOMES (the app-wide
+ * "reached a human" definition).
  *
  * Reads `calls` keyset-paged on `id` to page past PostgREST's 1,000-row cap,
  * joined to the lead's timezone, restricted to outbound calls with a non-null
@@ -155,7 +157,7 @@ export async function computeConnectHeatmap(
   for (;;) {
     let query = supabase
       .from("calls")
-      .select("id, started_at, answered_at, lead:leads(timezone)")
+      .select("id, started_at, outcome, lead:leads(timezone)")
       .eq("direction", "outbound")
       .not("started_at", "is", null)
       .gte("started_at", sinceIso)
@@ -173,7 +175,13 @@ export async function computeConnectHeatmap(
       const { dayOfWeek, hour } = localDowHour(new Date(call.started_at), tz);
       const bucket = heatmap[dayOfWeek][hour];
       bucket.dialed += 1;
-      if (call.answered_at) bucket.answered += 1;
+      // "Answered" = a real human connection, defined the SAME way as the
+      // app-wide connect-rate metric (CONNECTED_OUTCOMES) rather than
+      // answered_at — ElevenLabs-native AI calls bypass the Twilio status
+      // webhook that stamps answered_at, so the outcome is the reliable signal.
+      if (call.outcome && CONNECTED_OUTCOMES.has(call.outcome)) {
+        bucket.answered += 1;
+      }
     }
 
     if (page.length < PAGE_SIZE) break;
