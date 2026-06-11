@@ -2,11 +2,49 @@
 
 import { revalidatePath } from "next/cache";
 
+import type { ToolsEnabled } from "@/lib/agents/prompt";
+import { applyConnectedAgentIntegration } from "@/lib/elevenlabs/agents";
 import { createClient } from "@/lib/supabase/server";
 
 export type CampaignResult = { error: string | null; campaignId?: string };
 
 const CAMPAIGNS_PATH = "/campaigns";
+
+/**
+ * Re-apply our ElevenLabs integration (post-call + conversation-init webhooks,
+ * the call_id dynamic variable, server tool_ids) to a campaign's agent.
+ *
+ * Attaching an agent to a campaign — or (re)activating one — is the moment that
+ * agent goes into service, so we refresh its webhook wiring here. Without this,
+ * an agent that was synced long ago (e.g. when the post-call webhook id was
+ * different, or whose connect-time overlay failed) keeps a stale/dead webhook,
+ * and ElevenLabs delivers its transcripts/audio to an address we no longer own —
+ * so completed calls never show up in Smile & Dial.
+ *
+ * `campaignAgentId` is the local agents.id stored on the campaign. Best-effort:
+ * a sync hiccup never blocks the campaign action (and "Re-sync all agents"
+ * remains the manual fallback). Off-live this is a no-op (mocked).
+ */
+async function reapplyAgentIntegration(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  campaignAgentId: string | null | undefined,
+): Promise<void> {
+  if (!campaignAgentId) return;
+  const { data: agent } = await supabase
+    .from("agents")
+    .select("elevenlabs_agent_id, tools_enabled")
+    .eq("id", campaignAgentId)
+    .maybeSingle();
+  if (!agent?.elevenlabs_agent_id) return;
+  try {
+    await applyConnectedAgentIntegration(
+      agent.elevenlabs_agent_id,
+      (agent.tools_enabled ?? undefined) as unknown as ToolsEnabled | undefined,
+    );
+  } catch {
+    // best-effort — never block a campaign action on a sync hiccup
+  }
+}
 
 /** Confirm the caller is signed in. RLS handles owner-or-admin scoping. */
 async function requireAuth(): Promise<{
@@ -139,6 +177,9 @@ export async function createCampaign(
     payload.twilio_number_id,
     null,
   );
+  // Connecting an agent to a campaign puts it into service — make sure its
+  // ElevenLabs webhooks are current so completed calls report back to us.
+  await reapplyAgentIntegration(supabase, payload.agent_id);
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: created.id };
 }
@@ -174,6 +215,9 @@ export async function updateCampaign(
     payload.twilio_number_id,
     existing?.twilio_number_id ?? null,
   );
+  // The agent may have changed (or been wired before its webhook was set) —
+  // refresh its ElevenLabs integration so calls report back to us.
+  await reapplyAgentIntegration(supabase, payload.agent_id);
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: id };
 }
@@ -230,6 +274,14 @@ export async function resumeCampaign(id: string): Promise<CampaignResult> {
     })
     .eq("id", id);
   if (error) return { error: "Could not resume the campaign." };
+
+  // Reactivating puts the agent back into service — refresh its webhooks.
+  const { data: camp } = await supabase
+    .from("campaigns")
+    .select("agent_id")
+    .eq("id", id)
+    .maybeSingle();
+  await reapplyAgentIntegration(supabase, camp?.agent_id);
 
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: id };
@@ -318,6 +370,9 @@ export async function cloneCampaign(id: string): Promise<CampaignResult> {
     .select("id")
     .single();
   if (error || !created) return { error: "Could not clone the campaign." };
+
+  // The clone is created active with the same agent — refresh its webhooks.
+  await reapplyAgentIntegration(supabase, original.agent_id);
 
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: created.id };

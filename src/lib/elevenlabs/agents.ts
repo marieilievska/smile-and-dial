@@ -351,30 +351,38 @@ function analysisLlm(): string | undefined {
   const v = process.env.ELEVENLABS_ANALYSIS_LLM?.trim();
   return v && v.length > 0 ? v : DEFAULT_ANALYSIS_LLM;
 }
-/** The workspace post-call webhook id to attach to our agents. Env wins;
- *  otherwise the value stored in app_settings (Vercel's env store has been
- *  unreliable for this project). Returns undefined when neither is set. */
+/** The workspace post-call webhook id to attach to our agents.
+ *
+ *  DB-FIRST: the id that pairs with the registered SmileDial post-call webhook
+ *  lives in app_settings. A stale or empty ELEVENLABS_POST_CALL_WEBHOOK_ID in
+ *  Vercel's (unreliable) env store would otherwise win and stamp the WRONG
+ *  webhook id onto every agent we sync — so ElevenLabs delivers transcripts/
+ *  audio to a dead address and the calls never reach us. The DB value is
+ *  therefore authoritative; env is only a fallback when the DB has none. This
+ *  mirrors getElevenLabsWebhookSecret's DB-first resolution (the id and its
+ *  signing secret must agree). Returns undefined when neither is set. */
 async function postCallWebhookId(): Promise<string | undefined> {
-  const env = process.env.ELEVENLABS_POST_CALL_WEBHOOK_ID?.trim();
-  if (env) return env;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return undefined;
-  try {
-    const sb = createServiceClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    const { data } = await sb
-      .from("app_settings")
-      .select("elevenlabs_post_call_webhook_id")
-      .eq("id", 1)
-      .maybeSingle();
-    const v = (data as { elevenlabs_post_call_webhook_id?: string } | null)
-      ?.elevenlabs_post_call_webhook_id;
-    return typeof v === "string" && v.length > 0 ? v : undefined;
-  } catch {
-    return undefined;
+  if (url && key) {
+    try {
+      const sb = createServiceClient(url, key, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const { data } = await sb
+        .from("app_settings")
+        .select("elevenlabs_post_call_webhook_id")
+        .eq("id", 1)
+        .maybeSingle();
+      const v = (data as { elevenlabs_post_call_webhook_id?: string } | null)
+        ?.elevenlabs_post_call_webhook_id;
+      if (typeof v === "string" && v.length > 0) return v;
+    } catch {
+      // fall through to env
+    }
   }
+  const env = process.env.ELEVENLABS_POST_CALL_WEBHOOK_ID?.trim();
+  return env && env.length > 0 ? env : undefined;
 }
 
 /** The conversation-initiation override every agent reports to: ElevenLabs
