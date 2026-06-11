@@ -77,16 +77,28 @@ export function CallNowDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="default"
-          disabled={disabled}
-          className="bg-primary hover:bg-primary/90 text-white"
-        >
-          <PhoneCall className="size-4" />
-          Call now
-        </Button>
-      </DialogTrigger>
+      {/* The span carries the tooltip so it's still reachable on hover even
+          when the Button itself is disabled (disabled buttons swallow their
+          own pointer events). Explains the otherwise-mysterious grayed state. */}
+      <span
+        className="inline-flex"
+        title={
+          disabled
+            ? "Attach this lead's list to an active campaign (with a Twilio number) to enable calling."
+            : undefined
+        }
+      >
+        <DialogTrigger asChild>
+          <Button
+            variant="default"
+            disabled={disabled}
+            className="bg-primary hover:bg-primary/90 text-white"
+          >
+            <PhoneCall className="size-4" />
+            Call now
+          </Button>
+        </DialogTrigger>
+      </span>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Call this lead now</DialogTitle>
