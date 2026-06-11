@@ -17,10 +17,11 @@ function digits(phone: string | null | undefined): string {
 }
 
 /**
- * Export the eligible audience (one CSV, all leads) for manual upload to Meta.
- * Admin-only and service-role-backed so it matches exactly what the automated
- * sync would push — every lead with an email, excluding deleted and DNC
- * (status OR phone on the DNC list). Raw values; Meta hashes on upload.
+ * Export the signed-in user's eligible audience (one CSV) for manual upload to
+ * Meta. Per-user + service-role-backed so it matches exactly what their
+ * automated sync would push — every lead THEY own with an email, excluding
+ * deleted and DNC (status OR phone on the DNC list). Raw values; Meta hashes on
+ * upload.
  */
 export async function GET(_request: NextRequest) {
   const supabase = await createClient();
@@ -28,14 +29,6 @@ export async function GET(_request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return new Response("Not signed in.", { status: 401 });
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") {
-    return new Response("Admins only.", { status: 403 });
-  }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -59,6 +52,7 @@ export async function GET(_request: NextRequest) {
   const { data } = await admin
     .from("leads")
     .select("business_email, business_phone, city, state")
+    .eq("owner_id", user.id)
     .is("deleted_at", null)
     .neq("status", "dnc")
     .not("business_email", "is", null)

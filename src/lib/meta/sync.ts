@@ -6,7 +6,7 @@ import type { Database } from "@/lib/supabase/database.types";
 
 import { leadToHashedRow, type LeadForAudience } from "./audience-fields";
 import { addUsers, createAudience, META_BATCH, removeUsers } from "./api";
-import { getMetaSettings, patchMetaSettings } from "./settings";
+import { getUserMetaSettings, patchUserMetaSettings } from "./settings";
 
 type Admin = ReturnType<typeof createClient<Database>>;
 const PAGE = 1000;
@@ -108,46 +108,61 @@ function isIneligible(lead: SyncLead, dnc: Set<string>): boolean {
 }
 
 /**
- * Push eligible leads (email present, not deleted, not DNC by status OR phone)
- * into the Custom Audience and remove any previously-synced lead that became
- * ineligible. Both passes use keyset (id-cursor) pagination so stamping rows
- * mid-pass can't make offset windows skip rows. Returns counts; writes status
- * back to app_settings.
+ * Push a user's eligible leads (email present, not deleted, not DNC by status
+ * OR phone) into THAT user's Custom Audience, and remove any previously-synced
+ * lead of theirs that became ineligible. Scoped to leads the user owns
+ * (`owner_id = userId`) so each account only ever touches its own audience.
+ *
+ * Both passes use keyset (id-cursor) pagination so stamping rows mid-pass can't
+ * make offset windows skip rows. Returns counts; writes status back to the
+ * user's user_integrations row.
  */
-export async function runMetaSync(): Promise<MetaSyncResult> {
-  const s = await getMetaSettings();
+export async function runMetaSync(userId: string): Promise<MetaSyncResult> {
+  const s = await getUserMetaSettings(userId);
   if (!s.accessToken || !s.adAccountId) {
     return { ok: false, added: 0, removed: 0, error: "Meta is not connected." };
   }
   const token = s.accessToken;
   const db = admin();
 
-  // Ensure the audience exists (create on first run).
+  // Ensure the audience exists (create on first run). Title it with the owner
+  // so multiple users' audiences are distinguishable in the Meta dashboard.
   let audienceId = s.customAudienceId;
   if (!audienceId) {
+    const { data: owner } = await db
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", userId)
+      .maybeSingle();
+    const ownerLabel = owner?.full_name?.trim() || owner?.email || "Leads";
     const created = await createAudience(
       s.adAccountId,
       token,
-      "Smile & Dial — All Leads",
+      `Smile & Dial — ${ownerLabel}`,
     );
     if (!created.ok) {
-      await patchMetaSettings({ meta_last_sync_error: created.error });
+      await patchUserMetaSettings(userId, {
+        meta_last_sync_error: created.error,
+      });
       return { ok: false, added: 0, removed: 0, error: created.error };
     }
     audienceId = created.data.id;
-    await patchMetaSettings({ meta_custom_audience_id: audienceId });
+    await patchUserMetaSettings(userId, {
+      meta_custom_audience_id: audienceId,
+    });
   }
 
   const dnc = await loadDncDigits(db);
   let added = 0;
   let removed = 0;
 
-  // --- ADD: not-yet-synced, eligible leads (keyset by id) ---
+  // --- ADD: not-yet-synced, eligible leads the user owns (keyset by id) ---
   let addCursor = "";
   for (;;) {
     let q = db
       .from("leads")
       .select("id, business_email, business_phone, city, state")
+      .eq("owner_id", userId)
       .is("deleted_at", null)
       .neq("status", "dnc")
       .not("business_email", "is", null)
@@ -169,7 +184,7 @@ export async function runMetaSync(): Promise<MetaSyncResult> {
       const hashed = keep.map((r) => leadToHashedRow(r as LeadForAudience));
       const err = await pushBatches("add", audienceId, token, hashed);
       if (err) {
-        await patchMetaSettings({ meta_last_sync_error: err });
+        await patchUserMetaSettings(userId, { meta_last_sync_error: err });
         return { ok: false, added, removed, error: err };
       }
       await db
@@ -184,7 +199,7 @@ export async function runMetaSync(): Promise<MetaSyncResult> {
     if (rows.length < PAGE) break;
   }
 
-  // --- REMOVE: previously-synced leads now ineligible (keyset by id) ---
+  // --- REMOVE: this user's previously-synced leads now ineligible (keyset) ---
   let remCursor = "";
   for (;;) {
     let q = db
@@ -192,6 +207,7 @@ export async function runMetaSync(): Promise<MetaSyncResult> {
       .select(
         "id, business_email, business_phone, city, state, deleted_at, status",
       )
+      .eq("owner_id", userId)
       .not("meta_synced_at", "is", null)
       .order("id", { ascending: true })
       .limit(PAGE);
@@ -205,7 +221,7 @@ export async function runMetaSync(): Promise<MetaSyncResult> {
       const hashed = gone.map((r) => leadToHashedRow(r as LeadForAudience));
       const err = await pushBatches("remove", audienceId, token, hashed);
       if (err) {
-        await patchMetaSettings({ meta_last_sync_error: err });
+        await patchUserMetaSettings(userId, { meta_last_sync_error: err });
         return { ok: false, added, removed, error: err };
       }
       await db
@@ -220,13 +236,14 @@ export async function runMetaSync(): Promise<MetaSyncResult> {
     if (rows.length < PAGE) break;
   }
 
-  // Total currently-synced count for the status line.
+  // Total of THIS user's currently-synced leads, for their status line.
   const { count } = await db
     .from("leads")
     .select("id", { count: "exact", head: true })
+    .eq("owner_id", userId)
     .not("meta_synced_at", "is", null);
 
-  await patchMetaSettings({
+  await patchUserMetaSettings(userId, {
     meta_last_sync_at: new Date().toISOString(),
     meta_last_sync_count: count ?? 0,
     meta_last_sync_error: null,

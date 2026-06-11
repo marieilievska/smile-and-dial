@@ -13,7 +13,6 @@ import { createClient } from "@/lib/supabase/server";
 import { formatCreatedAt } from "../format-created";
 import { CalendlyForm } from "./calendly-form";
 import { CloseForm } from "./close-form";
-import { ElevenLabsForm } from "./elevenlabs-form";
 import { MetaForm } from "./meta-form";
 
 export default async function IntegrationsPage() {
@@ -23,21 +22,15 @@ export default async function IntegrationsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  // ElevenLabs/Twilio/OpenAI are global (admin-managed via env). Close +
-  // Calendly are PER-USER — every rep connects their own, so this page is
-  // open to all signed-in users; only the ElevenLabs card is admin-only.
-  const isAdmin = me?.role === "admin";
-
+  // Close, Calendly and Meta are ALL per-user now — every account connects its
+  // own and acts on its own data. So this whole page is the signed-in user's
+  // own integrations; nothing here is admin-gated. (ElevenLabs/Twilio/OpenAI
+  // are a single shared account configured in the server env, not here.)
   const [{ data: integ }, { count: eventTypeCount }] = await Promise.all([
     supabase
       .from("user_integrations")
       .select(
-        "calendly_connected_at, calendly_last_sync_at, close_connected_at",
+        "calendly_connected_at, calendly_last_sync_at, close_connected_at, meta_connected_at, meta_access_token, meta_last_sync_at, meta_last_sync_count, meta_last_sync_error",
       )
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -48,35 +41,16 @@ export default async function IntegrationsPage() {
       .eq("active", true),
   ]);
 
-  let voiceIds = "";
-  let metaConnected = false;
-  let metaLastSyncAt: string | null = null;
-  let metaLastSyncCount = 0;
-  let metaLastSyncError: string | null = null;
-  if (isAdmin) {
-    const { data: settings } = await supabase
-      .from("app_settings")
-      .select(
-        "elevenlabs_voice_ids, meta_connected_at, meta_access_token, meta_last_sync_at, meta_last_sync_count, meta_last_sync_error",
-      )
-      .eq("id", 1)
-      .maybeSingle();
-    voiceIds = settings?.elevenlabs_voice_ids ?? "";
-    // meta_access_token is only read here to compute `connected`; it is
-    // never passed to the client form.
-    metaConnected = Boolean(
-      settings?.meta_connected_at && settings?.meta_access_token,
-    );
-    metaLastSyncAt = settings?.meta_last_sync_at ?? null;
-    metaLastSyncCount = settings?.meta_last_sync_count ?? 0;
-    metaLastSyncError = settings?.meta_last_sync_error ?? null;
-  }
-
-  // Round L1 — the ElevenLabs API key now lives in the server env, so
-  // "connected" is true whenever the deployment has the env var set.
-  const elevenLabsConnected = Boolean(process.env.ELEVENLABS_API_KEY?.trim());
   const closeConnected = Boolean(integ?.close_connected_at);
   const calendlyConnected = Boolean(integ?.calendly_connected_at);
+  // meta_access_token is only read to compute `connected`; never sent to the
+  // client form.
+  const metaConnected = Boolean(
+    integ?.meta_connected_at && integ?.meta_access_token,
+  );
+  const metaLastSyncAt = integ?.meta_last_sync_at ?? null;
+  const metaLastSyncCount = integ?.meta_last_sync_count ?? 0;
+  const metaLastSyncError = integ?.meta_last_sync_error ?? null;
   const now = new Date();
 
   return (
@@ -86,49 +60,32 @@ export default async function IntegrationsPage() {
           Integrations
         </h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          Connect Smile &amp; Dial to the services it relies on.
+          Connect your own accounts. Each of these is personal to you — your
+          campaigns and leads use the accounts you connect here.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {isAdmin ? (
-          <IntegrationCard
-            title="ElevenLabs"
-            description="The voice AI that powers calls. The voice IDs listed here are the ones available when building an agent."
-            connected={elevenLabsConnected}
-            subtitle={
-              elevenLabsConnected
-                ? "API key in server env"
-                : "Set ELEVENLABS_API_KEY in the server env"
-            }
-            delay={75}
-          >
-            <ElevenLabsForm voiceIds={voiceIds} />
-          </IntegrationCard>
-        ) : null}
-
-        {isAdmin ? (
-          <IntegrationCard
-            title="Meta Ads (Facebook / Instagram)"
-            description="Sync collected lead emails into a Meta Custom Audience for ads and lookalikes. Emails are hashed before they leave the server."
+        <IntegrationCard
+          title="Meta Ads (Facebook / Instagram)"
+          description="Sync the emails of leads you own into your own Meta Custom Audience for ads and lookalikes. Emails are hashed before they leave the server."
+          connected={metaConnected}
+          subtitle={
+            metaConnected && metaLastSyncAt
+              ? `Last synced ${formatCreatedAt(metaLastSyncAt, now)}`
+              : metaConnected
+                ? "Connected"
+                : undefined
+          }
+          delay={75}
+        >
+          <MetaForm
             connected={metaConnected}
-            subtitle={
-              metaConnected && metaLastSyncAt
-                ? `Last synced ${formatCreatedAt(metaLastSyncAt, now)}`
-                : metaConnected
-                  ? "Connected"
-                  : undefined
-            }
-            delay={100}
-          >
-            <MetaForm
-              connected={metaConnected}
-              lastSyncAt={metaLastSyncAt}
-              lastSyncCount={metaLastSyncCount}
-              lastSyncError={metaLastSyncError}
-            />
-          </IntegrationCard>
-        ) : null}
+            lastSyncAt={metaLastSyncAt}
+            lastSyncCount={metaLastSyncCount}
+            lastSyncError={metaLastSyncError}
+          />
+        </IntegrationCard>
 
         <IntegrationCard
           title="Close"

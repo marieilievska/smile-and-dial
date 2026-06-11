@@ -5,6 +5,7 @@ import {
   normalizeEvaluation,
 } from "@/lib/agents/data-collection";
 import { type ToolsEnabled } from "@/lib/agents/prompt";
+import { FIXED_VOICES } from "@/lib/elevenlabs/voices";
 import { createClient } from "@/lib/supabase/server";
 
 import { AgentWizard, type AgentInitial } from "../../agent-wizard";
@@ -23,24 +24,17 @@ export default async function EditAgentPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: agent }, { data: voiceIdsString }, { data: kbs }] =
-    await Promise.all([
-      supabase
-        .from("agents")
-        .select(
-          "id, name, voice_id, ai_model, system_prompt, prompt_personality, prompt_environment, prompt_tone, prompt_goal, prompt_guardrails, tools_enabled, knowledge_base_ids, extra_data_collection, extra_evaluation",
-        )
-        .eq("id", id)
-        .maybeSingle(),
-      supabase.rpc("elevenlabs_voice_ids"),
-      supabase.from("knowledge_bases").select("id, name").order("name"),
-    ]);
+  const [{ data: agent }, { data: kbs }] = await Promise.all([
+    supabase
+      .from("agents")
+      .select(
+        "id, name, voice_id, ai_model, system_prompt, prompt_personality, prompt_environment, prompt_tone, prompt_goal, prompt_guardrails, tools_enabled, knowledge_base_ids, extra_data_collection, extra_evaluation",
+      )
+      .eq("id", id)
+      .maybeSingle(),
+    supabase.from("knowledge_bases").select("id, name").order("name"),
+  ]);
   if (!agent) notFound();
-
-  const voiceIds = (voiceIdsString ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
 
   const initial: AgentInitial = {
     id: agent.id,
@@ -61,7 +55,7 @@ export default async function EditAgentPage({
 
   return (
     <AgentWizard
-      voiceIds={voiceIds}
+      voices={FIXED_VOICES}
       knowledgeBases={(kbs ?? []).map((k) => ({ id: k.id, name: k.name }))}
       agent={initial}
     />

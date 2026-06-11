@@ -1,8 +1,9 @@
 import { test, expect } from "@playwright/test";
 
 // Reuses the project's seeded admin session (same fixture every other
-// settings/integrations spec uses, e.g. integrations.spec.ts). The Meta Ads
-// card is admin-only, so this session must belong to an admin.
+// settings/integrations spec uses, e.g. integrations.spec.ts). Meta is a
+// per-user integration now; this session's user must NOT have Meta connected
+// so the card renders the connect form (the seeded e2e admin never connects).
 test.use({ storageState: "playwright/.auth/user.json" });
 
 test.describe("Meta integration", () => {

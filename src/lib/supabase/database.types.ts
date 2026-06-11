@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5";
   };
-  graphql_public: {
-    Tables: {
-      [_ in never]: never;
-    };
-    Views: {
-      [_ in never]: never;
-    };
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json;
-          operationName?: string;
-          query?: string;
-          variables?: Json;
-        };
-        Returns: Json;
-      };
-    };
-    Enums: {
-      [_ in never]: never;
-    };
-    CompositeTypes: {
-      [_ in never]: never;
-    };
-  };
   public: {
     Tables: {
       agents: {
@@ -1623,6 +1598,14 @@ export type Database = {
           calendly_user_uri: string | null;
           close_api_key: string | null;
           close_connected_at: string | null;
+          meta_access_token: string | null;
+          meta_ad_account_id: string | null;
+          meta_audience_terms_accepted_at: string | null;
+          meta_connected_at: string | null;
+          meta_custom_audience_id: string | null;
+          meta_last_sync_at: string | null;
+          meta_last_sync_count: number;
+          meta_last_sync_error: string | null;
           updated_at: string;
           user_id: string;
         };
@@ -1634,6 +1617,14 @@ export type Database = {
           calendly_user_uri?: string | null;
           close_api_key?: string | null;
           close_connected_at?: string | null;
+          meta_access_token?: string | null;
+          meta_ad_account_id?: string | null;
+          meta_audience_terms_accepted_at?: string | null;
+          meta_connected_at?: string | null;
+          meta_custom_audience_id?: string | null;
+          meta_last_sync_at?: string | null;
+          meta_last_sync_count?: number;
+          meta_last_sync_error?: string | null;
           updated_at?: string;
           user_id: string;
         };
@@ -1645,6 +1636,14 @@ export type Database = {
           calendly_user_uri?: string | null;
           close_api_key?: string | null;
           close_connected_at?: string | null;
+          meta_access_token?: string | null;
+          meta_ad_account_id?: string | null;
+          meta_audience_terms_accepted_at?: string | null;
+          meta_connected_at?: string | null;
+          meta_custom_audience_id?: string | null;
+          meta_last_sync_at?: string | null;
+          meta_last_sync_count?: number;
+          meta_last_sync_error?: string | null;
           updated_at?: string;
           user_id?: string;
         };
@@ -1852,9 +1851,6 @@ export type CompositeTypes<
     : never;
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

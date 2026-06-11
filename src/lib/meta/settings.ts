@@ -1,5 +1,7 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
+
 import { createClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
@@ -15,6 +17,13 @@ function admin(): Admin {
   });
 }
 
+/**
+ * Meta config is PER-USER (stored on user_integrations): each account connects
+ * its own ad account + token and its sync pushes only the leads it owns into
+ * its own Custom Audience. The one exception is the sync secret, which is
+ * workspace-level: the nightly cron authenticates once with it and then
+ * iterates every user who has connected Meta.
+ */
 export type MetaSettings = {
   adAccountId: string | null;
   accessToken: string | null;
@@ -23,16 +32,18 @@ export type MetaSettings = {
   lastSyncAt: string | null;
   lastSyncCount: number;
   lastSyncError: string | null;
-  syncSecret: string | null;
 };
 
-export async function getMetaSettings(): Promise<MetaSettings> {
+/** Read one user's Meta connection from their user_integrations row. */
+export async function getUserMetaSettings(
+  userId: string,
+): Promise<MetaSettings> {
   const { data } = await admin()
-    .from("app_settings")
+    .from("user_integrations")
     .select(
-      "meta_ad_account_id, meta_access_token, meta_custom_audience_id, meta_connected_at, meta_last_sync_at, meta_last_sync_count, meta_last_sync_error, meta_sync_secret",
+      "meta_ad_account_id, meta_access_token, meta_custom_audience_id, meta_connected_at, meta_last_sync_at, meta_last_sync_count, meta_last_sync_error",
     )
-    .limit(1)
+    .eq("user_id", userId)
     .maybeSingle();
   return {
     adAccountId: data?.meta_ad_account_id ?? null,
@@ -42,16 +53,49 @@ export async function getMetaSettings(): Promise<MetaSettings> {
     lastSyncAt: data?.meta_last_sync_at ?? null,
     lastSyncCount: data?.meta_last_sync_count ?? 0,
     lastSyncError: data?.meta_last_sync_error ?? null,
-    syncSecret: data?.meta_sync_secret ?? null,
   };
 }
 
-/** Patch the singleton app_settings row (there is exactly one). */
-export async function patchMetaSettings(
+/** Patch one user's Meta columns on their user_integrations row. */
+export async function patchUserMetaSettings(
+  userId: string,
   patch: Record<string, unknown>,
 ): Promise<void> {
   await admin()
+    .from("user_integrations")
+    .update({ ...patch, updated_at: new Date().toISOString() } as never)
+    .eq("user_id", userId);
+}
+
+/** Every user id that currently has Meta connected (token present). The cron
+ *  iterates these, syncing each into their own audience. */
+export async function listMetaConnectedUserIds(): Promise<string[]> {
+  const { data } = await admin()
+    .from("user_integrations")
+    .select("user_id")
+    .not("meta_connected_at", "is", null)
+    .not("meta_access_token", "is", null);
+  return (data ?? []).map((r) => r.user_id);
+}
+
+/** The workspace-level sync secret the cron uses to authenticate. Lives on
+ *  app_settings because the cron is a single job, not a per-user thing. */
+export async function getMetaSyncSecret(): Promise<string | null> {
+  const { data } = await admin()
     .from("app_settings")
-    .update(patch as never)
-    .not("id", "is", null);
+    .select("meta_sync_secret")
+    .eq("id", 1)
+    .maybeSingle();
+  return data?.meta_sync_secret ?? null;
+}
+
+/** Make sure the workspace sync secret exists so the nightly cron is enabled.
+ *  Called when any user connects Meta; generates one once if missing. */
+export async function ensureMetaSyncSecret(): Promise<void> {
+  const existing = await getMetaSyncSecret();
+  if (existing) return;
+  await admin()
+    .from("app_settings")
+    .update({ meta_sync_secret: randomUUID() } as never)
+    .eq("id", 1);
 }
