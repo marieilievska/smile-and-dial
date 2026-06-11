@@ -1,5 +1,16 @@
 # Per-User Integrations + Fixed ElevenLabs Voices — Plan
 
+> **Status (done, on branch — not yet merged/deployed):** Implemented. Key
+> discovery while executing: **Close + Calendly were already per-user**
+> (`user_integrations` table from migration `20260602120000`). So the real work
+> was narrower than this plan assumed — only **Meta** needed moving off the
+> workspace `app_settings` row, plus the **fixed-voices** change. Calendly/Close
+> were left as-is (already correct). The settings page is no longer admin-gated
+> for these (every user manages their own). The `user_integrations` migration is
+> `20260612160000` (adds Meta columns; migrates marie's Meta connection). The old
+> `app_settings` Meta/voice columns are intentionally NOT dropped yet (Phase 5,
+> after deploy is confirmed).
+
 **Branch:** `feat/per-user-integrations`
 **Goal:** Move Close / Calendly / Meta from one workspace-level config to **per-user** config, and make ElevenLabs voices a **fixed code-level set** (drop from integrations). Each account sets up + acts on **their own** data (their owned leads → their own Meta audience; their campaigns → their Calendly/Close). Existing config carries over to **marie@referrizer.com** (`3d5c50a7-7eff-40da-989b-a5ea75067fda`).
 
