@@ -6,7 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
+import { hardDeleteCalls } from "@/lib/calls/delete-calls-core";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
+import { recomputeLeadCallState } from "@/lib/leads/recompute-call-state";
 
 export type TranscriptTurn = {
   role?: string;
@@ -378,28 +380,37 @@ export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Remove recordings stored in the private bucket (object paths, not legacy
-  // http URLs) so deleting a call doesn't orphan its audio. Best-effort.
-  const { data: rows } = await admin
+  // Which leads are affected, so we can reset them from their REMAINING calls
+  // after deletion.
+  const { data: affected } = await admin
     .from("calls")
-    .select("recording_path")
+    .select("lead_id")
     .in("id", clean);
-  const objects = (rows ?? [])
-    .map((r) => r.recording_path)
-    .filter(
-      (p): p is string => Boolean(p) && !/^https?:\/\//i.test(p as string),
-    );
-  if (objects.length > 0) {
-    await admin.storage.from("call-recordings").remove(objects);
-  }
+  const leadIds = [
+    ...new Set(
+      (affected ?? [])
+        .map((c) => c.lead_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
 
-  const { error } = await admin.from("calls").delete().in("id", clean);
+  // Remove callbacks these calls scheduled (artifacts of the deleted calls).
+  // Keep dnc_entries — a do-not-call block survives a call deletion.
+  await admin.from("callbacks").delete().in("originating_call_id", clean);
+
+  const { error } = await hardDeleteCalls(admin, clean);
   if (error) return { error: "Could not delete the selected calls." };
 
-  // The call list, plus everything that aggregates over calls.
+  // Reset each affected lead to reflect only the calls that remain.
+  for (const leadId of leadIds) {
+    await recomputeLeadCallState(admin, leadId);
+  }
+
+  // The call list, plus everything that aggregates over calls + the leads.
   revalidatePath("/calls");
   revalidatePath("/analytics");
   revalidatePath("/costs");
   revalidatePath("/today");
+  revalidatePath("/leads");
   return { error: null, deleted: clean.length };
 }
