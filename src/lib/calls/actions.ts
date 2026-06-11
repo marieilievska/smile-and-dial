@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
+import { anyCallReachedDm } from "@/lib/calls/decision-maker";
 import { hardDeleteCalls } from "@/lib/calls/delete-calls-core";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { recomputeLeadCallState } from "@/lib/leads/recompute-call-state";
@@ -246,7 +247,7 @@ export async function overrideCallOutcome(input: {
 
   const { data: existing } = await supabase
     .from("calls")
-    .select("outcome")
+    .select("outcome, lead_id")
     .eq("id", input.callId)
     .maybeSingle();
   if (!existing) return { error: "Call not found." };
@@ -285,6 +286,21 @@ export async function overrideCallOutcome(input: {
     await applyRetryForCall(input.callId);
   } catch {
     // Best-effort: the outcome is corrected even if rescheduling hiccups.
+  }
+
+  // Keep the lead's decision_maker_reached flag consistent with its (now
+  // corrected) call outcomes — overriding to e.g. not_interested means a person
+  // was reached, so the lead should read "DM reached". Re-derive from ALL the
+  // lead's calls (callReachedDm) instead of leaving the stored flag stale.
+  if (existing.lead_id) {
+    const { data: leadCalls } = await supabase
+      .from("calls")
+      .select("outcome, extracted_data")
+      .eq("lead_id", existing.lead_id);
+    await supabase
+      .from("leads")
+      .update({ decision_maker_reached: anyCallReachedDm(leadCalls ?? []) })
+      .eq("id", existing.lead_id);
   }
 
   revalidatePath("/calls");

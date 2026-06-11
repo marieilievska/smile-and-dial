@@ -9,7 +9,8 @@ import {
   resolveDueCallbacksForLead,
   syncLeadNextCallToEarliestCallback,
 } from "@/lib/callbacks/sync-next-call";
-import { DM_REACHED_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
+import { callReachedDm } from "@/lib/calls/decision-maker";
+import { NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
 import {
   applyRetryForCall,
   finalizeFailedCall,
@@ -232,25 +233,6 @@ function telephonyOutcome(reason: string): CallOutcome | null {
   if (/busy/.test(r)) return "busy";
   if (/fail|carrier|invalid number|rejected|\berror\b/.test(r)) return "failed";
   return null;
-}
-
-/** Did this single call reach the decision maker? Prefer the agent's explicit
- *  decision_maker_reached capture (yes/no); fall back to the outcome proxy
- *  (goal_met / callback / not_interested / … all imply we got past any
- *  gatekeeper to the buyer). Mirrors analytics' rowReachedDm so the Leads
- *  flag and the dashboards agree. */
-function callReachedDm(
-  outcome: CallOutcome | null,
-  extracted: Record<string, unknown> | null,
-): boolean {
-  if (extracted && "decision_maker_reached" in extracted) {
-    // Explicit read present — trust it. Only "yes" counts; "no"/"unknown"
-    // mean we never confirmed the decision maker (a receptionist declining on
-    // the owner's behalf is not_interested but NOT a DM contact).
-    const v = extracted.decision_maker_reached;
-    return typeof v === "string" && v.trim().toLowerCase() === "yes";
-  }
-  return Boolean(outcome && DM_REACHED_OUTCOMES.has(outcome));
 }
 
 /** Average the gradable quality criteria into a 0–10 call score. ElevenLabs'

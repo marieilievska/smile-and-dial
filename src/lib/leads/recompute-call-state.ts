@@ -3,10 +3,8 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
-import {
-  CONVERSATION_OUTCOMES,
-  DM_REACHED_OUTCOMES,
-} from "@/lib/calls/outcomes";
+import { anyCallReachedDm } from "@/lib/calls/decision-maker";
+import { CONVERSATION_OUTCOMES } from "@/lib/calls/outcomes";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Admin = ReturnType<typeof createClient<Database>>;
@@ -28,7 +26,7 @@ export async function recomputeLeadCallState(
 ): Promise<void> {
   const { data: calls } = await admin
     .from("calls")
-    .select("created_at, ended_at, outcome, summary")
+    .select("created_at, ended_at, outcome, summary, extracted_data")
     .eq("lead_id", leadId);
   const remaining = calls ?? [];
 
@@ -75,9 +73,7 @@ export async function recomputeLeadCallState(
     const conversations = remaining.filter(
       (c) => c.outcome && CONVERSATION_OUTCOMES.has(c.outcome),
     ).length;
-    const dmReached = remaining.some(
-      (c) => c.outcome && DM_REACHED_OUTCOMES.has(c.outcome),
-    );
+    const dmReached = anyCallReachedDm(remaining);
 
     let status = "ready_to_call";
     if (remaining.some((c) => c.outcome && TERMINAL_WON.has(c.outcome))) {
