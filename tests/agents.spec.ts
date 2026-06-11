@@ -24,11 +24,8 @@ test.describe("Agent builder", () => {
     // Wipe leftover agents from earlier interrupted runs.
     await admin.from("agents").delete().like("name", "E2E Agent %");
 
-    // Make sure the voice picker has options.
-    await admin
-      .from("app_settings")
-      .update({ elevenlabs_voice_ids: "voice_test_a,voice_test_b" })
-      .eq("id", 1);
+    // The voice picker is a fixed code-level roster now (FIXED_VOICES), so
+    // there's nothing to seed for it — it always has options.
 
     // Seed a knowledge base for the KB picker step.
     const { data: owner } = await admin
@@ -133,7 +130,7 @@ test.describe("Agent builder", () => {
       .insert({
         owner_id: owner!.id,
         name: original,
-        voice_id: "voice_test_a",
+        voice_id: "DODLEQrClDo8wCz460ld",
         ai_model: "gpt-4o",
         prompt_personality: "Patient.",
         elevenlabs_agent_id: "agent_mock_existing",
