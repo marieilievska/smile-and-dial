@@ -28,7 +28,7 @@ export async function recomputeLeadCallState(
 ): Promise<void> {
   const { data: calls } = await admin
     .from("calls")
-    .select("created_at, ended_at, outcome")
+    .select("created_at, ended_at, outcome, summary")
     .eq("lead_id", leadId);
   const remaining = calls ?? [];
 
@@ -38,6 +38,10 @@ export async function recomputeLeadCallState(
     call_back_later_count: 0,
     resting_until: null,
     next_call_at: null,
+    // ai_summary is the rolling memory built from this lead's calls. Clear it
+    // here; the calls-remain branch overrides it with the latest remaining
+    // call's summary (it rebuilds fully on the next real call).
+    ai_summary: null,
     updated_at: new Date().toISOString(),
   };
 
@@ -54,12 +58,20 @@ export async function recomputeLeadCallState(
       })
       .eq("id", leadId);
   } else {
-    const lastCallAt =
-      remaining
-        .map((c) => c.ended_at ?? c.created_at)
-        .filter((v): v is string => Boolean(v))
-        .sort()
-        .at(-1) ?? null;
+    // Most recent remaining call (by ended_at, else created_at) — drives both
+    // last_call_at and the rewound ai_summary.
+    const latest = [...remaining]
+      .sort((a, b) => {
+        const ta = a.ended_at ?? a.created_at ?? "";
+        const tb = b.ended_at ?? b.created_at ?? "";
+        return ta < tb ? -1 : ta > tb ? 1 : 0;
+      })
+      .at(-1);
+    const lastCallAt = latest ? (latest.ended_at ?? latest.created_at) : null;
+    const aiSummary =
+      typeof latest?.summary === "string" && latest.summary.trim()
+        ? latest.summary
+        : null;
     const conversations = remaining.filter(
       (c) => c.outcome && CONVERSATION_OUTCOMES.has(c.outcome),
     ).length;
@@ -99,6 +111,7 @@ export async function recomputeLeadCallState(
         call_attempts: remaining.length,
         conversations,
         decision_maker_reached: dmReached,
+        ai_summary: aiSummary,
       })
       .eq("id", leadId);
   }
