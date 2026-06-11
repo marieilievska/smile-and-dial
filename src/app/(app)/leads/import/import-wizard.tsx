@@ -59,6 +59,24 @@ const CREATE_FIELD_SENTINEL = "newcustom";
  *  sending everything at once timed out on the Twilio lookups. */
 const IMPORT_BATCH = 500;
 
+/** Retry one batched server-action call a few times before giving up. A 20k
+ *  import is ~40 sequential batches; a single transient failure (a function
+ *  timeout on a slow Twilio-lookup batch, a network blip, a cold start) should
+ *  NOT nuke the whole run. Re-throws the last error only after every attempt
+ *  fails, with a short backoff between tries. */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 function guessMapping(header: string): string {
   const norm = header.toLowerCase().replace(/[^a-z0-9]/g, "");
   for (const field of IMPORTABLE_FIELDS) {
@@ -213,7 +231,24 @@ export function ImportWizard({
       // lookups. Batches run in order so rowLineTypes stays aligned to rows.
       for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
         const chunk = rows.slice(i, i + IMPORT_BATCH);
-        const res = await analyzeImport({ mapping, rows: chunk, skipLookup });
+        let res;
+        try {
+          res = await withRetry(() =>
+            analyzeImport({ mapping, rows: chunk, skipLookup }),
+          );
+        } catch {
+          toast.error(
+            `Couldn't verify a batch after several tries (around ${Math.min(
+              i + IMPORT_BATCH,
+              rows.length,
+            ).toLocaleString()} of ${rows.length.toLocaleString()}). Check your connection and try again` +
+              (skipLookup
+                ? "."
+                : " — or turn off the Twilio lookup to make a large import much faster."),
+          );
+          setProgress(null);
+          return;
+        }
         if (res.error) {
           toast.error(res.error);
           setProgress(null);
@@ -254,13 +289,30 @@ export function ImportWizard({
       // Batches MUST run sequentially: each one dedups against leads already
       // inserted by earlier batches.
       for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
-        const res = await importLeads({
-          listId,
-          dedup,
-          mapping,
-          rows: rows.slice(i, i + IMPORT_BATCH),
-          rowLineTypes: lineTypes.slice(i, i + IMPORT_BATCH),
-        });
+        let res;
+        try {
+          // Import batches are idempotent (dedup + upsert), so retrying a
+          // batch is safe — already-inserted leads are skipped on the re-try.
+          res = await withRetry(() =>
+            importLeads({
+              listId,
+              dedup,
+              mapping,
+              rows: rows.slice(i, i + IMPORT_BATCH),
+              rowLineTypes: lineTypes.slice(i, i + IMPORT_BATCH),
+            }),
+          );
+        } catch {
+          // A batch failed even after retries. Everything imported so far is
+          // already saved; running the import again will skip those and pick up
+          // where this left off (the dedup makes a re-run safe).
+          setResult({
+            ...total,
+            error: `Stopped after a batch failed (${total.imported.toLocaleString()} imported so far). Those leads are saved — just run the import again and it'll skip them and continue.`,
+          });
+          setProgress(null);
+          return;
+        }
         total.imported += res.imported;
         total.revived += res.revived;
         total.updated += res.updated;

@@ -5,6 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 
 import { ImportWizard } from "./import-wizard";
 
+// Large imports run as batched server actions from this route; give them the
+// full function budget so a slow Twilio-lookup batch can't hit the default
+// timeout. (Each browser-driven batch is 500 rows; this is the per-call cap.)
+export const maxDuration = 300;
+
 export default async function ImportLeadsPage() {
   const supabase = await createClient();
   const {
