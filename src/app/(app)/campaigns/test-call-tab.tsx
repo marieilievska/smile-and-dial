@@ -1,131 +1,119 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, PhoneOff } from "lucide-react";
+import { ConversationProvider, useConversation } from "@elevenlabs/react";
+import { Mic, MicOff, PhoneOff, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { getTestCallSession } from "@/lib/campaigns/test-call";
 
 /**
- * Browser-based test call from the campaign modal (BUILD_PLAN §17 line 1068).
+ * Real browser test call against THIS campaign's actual ElevenLabs agent.
  *
- * In live mode (ELEVENLABS_LIVE=live), this would open a WebSocket to
- * ElevenLabs Conversational AI's browser SDK so the user can talk to the
- * agent right there in the page. Spending real money on every test press
- * is a safety-rail concern, so the live wiring is deferred behind the env
- * flag — when this PR ships, calling Start runs the mock flow that walks
- * through the same UI states without actually connecting.
- *
- * The mock flow:
- *   idle → connecting (1s) → talking (with a canned transcript that
- *   appears line by line every ~2s) → ended (user hangs up or 12s timer).
- *
- * Tests assert against the state transitions and the visible transcript
- * so the UI scaffolding doesn't regress when the live integration lands.
+ * On "Start", the server mints a short-lived signed URL for the campaign's
+ * agent (its real prompt / voice / tools) and the ElevenLabs browser SDK opens
+ * a live mic conversation right here. This spends real ElevenLabs credits, like
+ * any other call.
  */
 
-type CallState = "idle" | "connecting" | "talking" | "ended";
+type Line = { role: "agent" | "user"; text: string };
 
-const MOCK_LINES: { role: "agent" | "user"; text: string }[] = [
-  {
-    role: "agent",
-    text: "Hi, this is Sara calling from Referrizer — how are you today?",
-  },
-  { role: "user", text: "Doing well, what's this about?" },
-  {
-    role: "agent",
-    text: "Quick question — are you the right person to talk to about your business's lead pipeline?",
-  },
-  { role: "user", text: "Yes, that's me." },
-  {
-    role: "agent",
-    text: "Great. Would you have 15 minutes later this week for a quick walkthrough?",
-  },
-];
+/** Representative lead context so the agent's {{placeholders}} resolve during a
+ *  test (there's no real lead behind a test call). */
+function testDynamicVariables(): Record<string, string> {
+  const today = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(new Date());
+  return {
+    call_type: "cold",
+    last_call_summary: "",
+    last_callback_notes: "",
+    transfer_number: "",
+    owner_name: "Alex (test)",
+    city: "Austin",
+    category: "fitness studio",
+    google_rating: "4.8",
+    google_reviews: "120",
+    call_id: "test",
+    current_date: today,
+    lead_timezone: "America/Chicago",
+  };
+}
 
-export function TestCallTab({ liveMode }: { liveMode: boolean }) {
-  const [state, setState] = useState<CallState>("idle");
-  const [transcript, setTranscript] = useState<typeof MOCK_LINES>([]);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+function TestCallInner({ campaignId }: { campaignId: string }) {
+  const [transcript, setTranscript] = useState<Line[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const endRef = useRef<HTMLLIElement | null>(null);
 
-  function clearTimers() {
-    timers.current.forEach((t) => clearTimeout(t));
-    timers.current = [];
-  }
+  const convo = useConversation({
+    onConnect: () => setError(null),
+    onMessage: ({ message, source }) =>
+      setTranscript((prev) => [
+        ...prev,
+        { role: source === "ai" ? "agent" : "user", text: message },
+      ]),
+    onError: (message) =>
+      setError(message || "The call hit an error. Please try again."),
+  });
 
-  function start() {
-    if (liveMode) {
-      // Real ElevenLabs convai WebSocket wiring lives behind the live flag
-      // and isn't implemented in this step. The Test tab is intentionally
-      // a UI shell until you flip ELEVENLABS_LIVE off (mock) or implement
-      // the convai client.
+  const status = convo.status; // disconnected | connecting | connected | error
+  const onCall = status === "connected";
+  const connecting = preparing || status === "connecting";
+
+  // Keep the latest transcript line in view.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [transcript]);
+
+  async function start() {
+    setError(null);
+    setTranscript([]);
+    setPreparing(true);
+    const session = await getTestCallSession(campaignId);
+    setPreparing(false);
+    if (session.signedUrl === null) {
+      setError(session.error);
       return;
     }
-    clearTimers();
-    setTranscript([]);
-    setState("connecting");
-    timers.current.push(setTimeout(() => setState("talking"), 1000));
-    // Reveal the canned transcript line by line.
-    MOCK_LINES.forEach((line, i) => {
-      timers.current.push(
-        setTimeout(
-          () => setTranscript((prev) => [...prev, line]),
-          1000 + 1500 * (i + 1),
-        ),
+    try {
+      convo.startSession({
+        signedUrl: session.signedUrl,
+        dynamicVariables: testDynamicVariables(),
+      });
+    } catch {
+      setError(
+        "Couldn't start the call — make sure your browser microphone is allowed.",
       );
-    });
-    // Auto-end after the last line.
-    timers.current.push(
-      setTimeout(
-        () => setState("ended"),
-        1000 + 1500 * (MOCK_LINES.length + 1),
-      ),
-    );
+    }
   }
 
   function hangUp() {
-    clearTimers();
-    setState("ended");
+    convo.endSession();
   }
 
-  function reset() {
-    clearTimers();
-    setTranscript([]);
-    setState("idle");
-  }
-
-  // Clean up timers when the tab unmounts.
+  // End the session if the tab unmounts mid-call so we don't leave it running.
   useEffect(() => {
-    return () => clearTimers();
+    return () => {
+      convo.endSession();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  if (liveMode) {
-    return (
-      <div className="flex flex-col gap-4">
-        <div className="border-border bg-muted/30 flex flex-col gap-2 rounded-lg border p-4">
-          <h4 className="text-foreground text-sm font-semibold">
-            Live test call not implemented
-          </h4>
-          <p className="text-muted-foreground text-sm">
-            ELEVENLABS_LIVE=live is set, but the browser-based test call wiring
-            against ElevenLabs Conversational AI hasn&apos;t shipped yet — every
-            press would attempt a paid connection. Unset the env var to use the
-            mock flow, or wire up the convai SDK and remove this guard.
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-4">
       <p className="text-muted-foreground text-sm">
-        Talk to this campaign&apos;s agent right here. Mock mode simulates the
-        conversation flow without spending ElevenLabs credits.
+        Talk to this campaign&apos;s real agent right here — its actual prompt,
+        voice, and tools. Uses your microphone and spends ElevenLabs credits,
+        just like a live call.
       </p>
 
       <div className="border-border flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
         <div className="flex items-center gap-2">
-          {state === "talking" ? (
+          {onCall ? (
             <Mic className="text-success size-4" aria-label="On call" />
           ) : (
             <MicOff
@@ -137,36 +125,68 @@ export function TestCallTab({ liveMode }: { liveMode: boolean }) {
             className="text-foreground text-sm font-medium"
             aria-live="polite"
           >
-            {state === "idle" && "Ready to start"}
-            {state === "connecting" && "Connecting…"}
-            {state === "talking" && "On call (mock)"}
-            {state === "ended" && "Call ended"}
+            {connecting
+              ? "Connecting…"
+              : onCall
+                ? convo.isSpeaking
+                  ? "Agent speaking…"
+                  : "Listening…"
+                : transcript.length > 0
+                  ? "Call ended"
+                  : "Ready to start"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {state === "idle" || state === "ended" ? (
-            <Button
-              onClick={state === "ended" ? reset : start}
-              variant="outline"
-            >
-              {state === "ended" ? "Start new test" : "Start test call"}
-            </Button>
+          {onCall ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => convo.setMuted(!convo.isMuted)}
+              >
+                {convo.isMuted ? (
+                  <MicOff className="size-4" />
+                ) : (
+                  <Mic className="size-4" />
+                )}
+                {convo.isMuted ? "Unmute" : "Mute"}
+              </Button>
+              <Button type="button" variant="destructive" onClick={hangUp}>
+                <PhoneOff className="size-4" />
+                Hang up
+              </Button>
+            </>
           ) : (
-            <Button onClick={hangUp} variant="outline">
-              <PhoneOff className="size-4" />
-              Hang up
+            <Button
+              type="button"
+              variant="outline"
+              onClick={start}
+              disabled={connecting}
+            >
+              {connecting ? <Loader2 className="size-4 animate-spin" /> : null}
+              {transcript.length > 0 ? "Start new test" : "Start test call"}
             </Button>
           )}
         </div>
       </div>
 
+      {error ? (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      ) : null}
+
       {transcript.length > 0 ? (
         <ol
-          className="border-border flex flex-col gap-2 rounded-lg border p-3"
+          className="border-border flex max-h-72 flex-col gap-2 overflow-y-auto rounded-lg border p-3"
           aria-label="Test call transcript"
         >
           {transcript.map((line, i) => (
-            <li key={i} className="flex gap-3">
+            <li
+              key={i}
+              className="flex gap-3"
+              ref={i === transcript.length - 1 ? endRef : undefined}
+            >
               <span className="text-muted-foreground w-12 shrink-0 text-xs font-medium uppercase">
                 {line.role}
               </span>
@@ -176,5 +196,13 @@ export function TestCallTab({ liveMode }: { liveMode: boolean }) {
         </ol>
       ) : null}
     </div>
+  );
+}
+
+export function TestCallTab({ campaignId }: { campaignId: string }) {
+  return (
+    <ConversationProvider>
+      <TestCallInner campaignId={campaignId} />
+    </ConversationProvider>
   );
 }
