@@ -55,6 +55,7 @@ import {
   type ToolKey,
   type ToolsEnabled,
 } from "@/lib/agents/prompt";
+import type { FixedVoice } from "@/lib/elevenlabs/voices";
 
 /** Per-model helper line so the dropdown isn't a guessing game. */
 const AI_MODELS: { value: string; helper: string }[] = [
@@ -190,11 +191,11 @@ function StepIndicator({ current }: { current: number }) {
 }
 
 export function AgentWizard({
-  voiceIds,
+  voices,
   knowledgeBases,
   agent,
 }: {
-  voiceIds: string[];
+  voices: FixedVoice[];
   knowledgeBases: KbOption[];
   agent?: AgentInitial;
 }) {
@@ -202,7 +203,7 @@ export function AgentWizard({
   const isEdit = Boolean(agent);
   const [step, setStep] = useState(1);
   const [name, setName] = useState(agent?.name ?? "");
-  const [voiceId, setVoiceId] = useState(agent?.voiceId || voiceIds[0] || "");
+  const [voiceId, setVoiceId] = useState(agent?.voiceId || voices[0]?.id || "");
   const [aiModel, setAiModel] = useState(agent?.aiModel || AI_MODELS[0].value);
   const [personality, setPersonality] = useState(agent?.personality ?? "");
   const [environment, setEnvironment] = useState(agent?.environment ?? "");
@@ -454,30 +455,34 @@ export function AgentWizard({
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="agent-voice">Voice</Label>
-                {voiceIds.length > 0 ? (
+                {voices.length > 0 ? (
                   <>
                     <Select value={voiceId} onValueChange={setVoiceId}>
                       <SelectTrigger id="agent-voice">
                         <SelectValue placeholder="Choose a voice" />
                       </SelectTrigger>
                       <SelectContent>
-                        {voiceIds.map((v) => (
-                          <SelectItem key={v} value={v}>
-                            <span className="font-mono text-xs">{v}</span>
+                        {voices.map((v) => (
+                          <SelectItem key={v.id} value={v.id}>
+                            <span className="flex flex-col">
+                              <span className="font-medium">{v.name}</span>
+                              <span className="text-muted-foreground text-xs">
+                                {v.gender === "female" ? "Female" : "Male"} ·{" "}
+                                {v.accent} · {v.vibe}
+                              </span>
+                            </span>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <p className="text-muted-foreground text-xs">
-                      ElevenLabs voice ID. Preview voices in the ElevenLabs
-                      dashboard; add or remove available IDs under{" "}
-                      <strong>Settings → Integrations</strong>.
+                      Preview these voices in the ElevenLabs dashboard. The
+                      roster is the same across Smile &amp; Dial.
                     </p>
                   </>
                 ) : (
                   <p className="text-muted-foreground text-sm">
-                    No voices configured yet. Add some in Settings →
-                    Integrations.
+                    No voices available.
                   </p>
                 )}
               </div>
