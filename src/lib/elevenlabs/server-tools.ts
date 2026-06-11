@@ -107,7 +107,12 @@ function bodySchemaFor(
     case "schedule_callback":
       add(
         "callback_datetime",
-        "The requested time in ISO 8601 with timezone offset, e.g. '2026-01-15T14:00:00-06:00'.",
+        "The requested callback time as a full ISO 8601 datetime WITH timezone " +
+          "offset, e.g. '2026-01-15T14:00:00-06:00'. Today is {{current_date}}; " +
+          "resolve relative requests against it ('tomorrow at 3' -> tomorrow at " +
+          "14:00; 'next Tuesday morning' -> that Tuesday at 09:00; a loose " +
+          "timeframe like 'next week' -> a business-hours time inside it). Use " +
+          "the lead's timezone {{lead_timezone}} for the offset.",
         true,
       );
       add("note", "Optional note about the callback.", false);

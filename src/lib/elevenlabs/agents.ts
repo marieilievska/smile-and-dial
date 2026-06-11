@@ -60,14 +60,25 @@ const DATA_COLLECTION_FIELDS = [
     description:
       "The single best read on how the call ended. Use EXACTLY one of: " +
       "goal_met (the person agreed to the booking/goal); " +
-      "callback (the person EXPLICITLY asked to be called back later, or clearly agreed to a specific later time — NOT just being busy); " +
-      "call_back_later (the person was busy or brushed us off — 'not now', 'I'm with a patient', 'call me some other time' — WITHOUT agreeing to a real callback); " +
+      "callback (the person gave a SPECIFIC time OR a timeframe to call them back — e.g. 'call me tomorrow at 3', 'try me next week', 'call back this afternoon'. This is a POSITIVE signal: they're open to talking, just not right now. Whenever you use this, also fill callback_datetime); " +
+      "call_back_later (a retry seems worthwhile but the person gave NO specific time or timeframe — a busy brush-off like 'not now', 'I'm with a patient', 'call me some other time'); " +
       "not_interested (the person clearly declined and does not want us to call again); " +
       "gatekeeper (a HUMAN screener — receptionist/front desk — answered, understood who we wanted, and refused to connect us to a decision maker; do NOT use this just because someone answered briefly); " +
       "hung_up (a human answered but ended the call within the first few seconds — hung up during or right after the greeting, before any real conversation happened); " +
+      "voicemail (you only reached a voicemail, answering machine, or automated greeting — no human ever answered); " +
       "dnc (asked never to be called again). " +
-      "Leave BLANK if you only reached a voicemail or automated greeting (no human answered), or if none clearly apply.",
+      "Leave blank only if none of these clearly apply.",
     type: "string",
+    enum: [
+      "goal_met",
+      "callback",
+      "call_back_later",
+      "not_interested",
+      "gatekeeper",
+      "hung_up",
+      "voicemail",
+      "dnc",
+    ],
   },
   {
     id: "decision_maker_reached",
@@ -77,10 +88,15 @@ const DATA_COLLECTION_FIELDS = [
       "a receptionist, front-desk, or other gatekeeper. Answer exactly one of: " +
       "yes, no, unknown.",
     type: "string",
+    enum: ["yes", "no", "unknown"],
   },
   {
     id: "business_email",
-    description: "The lead's business email, if mentioned.",
+    description:
+      "The lead's business email, ONLY if they actually provide one. Record it " +
+      "in standard email format, e.g. 'jane@acmeclinic.com'. If they spell it " +
+      "out or say it aloud ('jane at acme clinic dot com', 'j-a-n-e ...'), " +
+      "convert it to a proper email address. Leave blank if no email was given.",
     type: "string",
   },
   {
@@ -113,7 +129,16 @@ const DATA_COLLECTION_FIELDS = [
   {
     id: "callback_datetime",
     description:
-      "ISO 8601 datetime, when the lead asks to be called back at a specific time.",
+      "The date and time to call the person back. Fill this ONLY when the " +
+      "disposition is callback — i.e. they gave a specific time OR a timeframe. " +
+      "Output a full ISO 8601 datetime WITH a timezone offset, e.g. " +
+      "'2026-06-12T15:00:00-04:00'. Resolve relative requests against today, " +
+      "{{current_date}}: 'tomorrow at 3' -> tomorrow at 15:00; 'next Tuesday " +
+      "morning' -> that Tuesday at 09:00; a loose timeframe ('next week', 'in a " +
+      "couple days', 'sometime this afternoon') -> a sensible business-hours " +
+      "time inside it (e.g. the next business day in that window at 10:00). Use " +
+      "the lead's timezone {{lead_timezone}} for the offset. Leave blank when no " +
+      "time or timeframe was given (e.g. call_back_later).",
     type: "string",
   },
   {
@@ -130,11 +155,18 @@ const DATA_COLLECTION_FIELDS = [
  *  outcome (disposition) plus the contact fields our post-call webhook reads. */
 function standardDataCollectionObject(): Record<
   string,
-  { type: string; description: string }
+  { type: string; description: string; enum?: string[] }
 > {
-  const out: Record<string, { type: string; description: string }> = {};
+  const out: Record<
+    string,
+    { type: string; description: string; enum?: string[] }
+  > = {};
   for (const f of DATA_COLLECTION_FIELDS) {
     out[f.id] = { type: f.type, description: f.description };
+    // Categorical fields (disposition, decision_maker_reached) ship an `enum`
+    // so ElevenLabs constrains the analysis LLM to valid values instead of
+    // free text — more reliable than relying on the description alone.
+    if ("enum" in f && Array.isArray(f.enum)) out[f.id].enum = f.enum;
   }
   return out;
 }

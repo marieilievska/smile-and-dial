@@ -53,8 +53,25 @@ export type ConversationInitResponse = {
     category: string;
     google_rating: string;
     google_reviews: string;
+    // Today's date (in the lead's timezone) + the lead's IANA timezone, so the
+    // agent can resolve "tomorrow at 3" / "next Tuesday" into an absolute time
+    // when booking a callback. Without these it has no anchor for relative times.
+    current_date: string;
+    lead_timezone: string;
   };
 };
+
+/** Today's date spelled out (e.g. "Thursday, June 12, 2026") in the given
+ *  timezone, for the agent's callback-time reasoning. */
+function todayInTimezone(timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(new Date());
+}
 
 /**
  * Validate the shared-secret header configured on the ElevenLabs side
@@ -127,6 +144,8 @@ function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
     category: "",
     google_rating: "",
     google_reviews: "",
+    current_date: todayInTimezone("America/New_York"),
+    lead_timezone: "",
   };
 }
 
@@ -153,7 +172,7 @@ async function buildVarsForCall(
       supabase
         .from("leads")
         .select(
-          "ai_summary, status, owner_name, city, category, google_rating, google_reviews",
+          "ai_summary, status, owner_name, city, category, google_rating, google_reviews, timezone",
         )
         .eq("id", call.lead_id)
         .maybeSingle(),
@@ -201,6 +220,8 @@ async function buildVarsForCall(
     category: lead?.category?.trim() ?? "",
     google_rating: numStr(lead?.google_rating),
     google_reviews: numStr(lead?.google_reviews),
+    current_date: todayInTimezone(lead?.timezone || "America/New_York"),
+    lead_timezone: lead?.timezone ?? "",
   };
 }
 
