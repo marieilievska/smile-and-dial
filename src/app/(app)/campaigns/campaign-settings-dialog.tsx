@@ -708,18 +708,12 @@ export function CampaignSettingsDialog({
             </div>
           </CampaignSection>
 
-          {isEdit ? (
+          {isEdit && campaign ? (
             <CampaignSection
               title="Test"
               icon={<PlayCircle className="size-4" />}
             >
-              {/*
-                liveMode is hard-wired to false for now — live ElevenLabs
-                browser calls are a safety-rail item. Flip this to
-                process.env.NEXT_PUBLIC_ELEVENLABS_LIVE === "live" once the
-                convai SDK wiring lands.
-              */}
-              <TestCallTab liveMode={false} />
+              <TestCallTab campaignId={campaign.id} />
             </CampaignSection>
           ) : null}
         </div>

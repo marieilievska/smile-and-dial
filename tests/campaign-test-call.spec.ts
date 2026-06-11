@@ -6,10 +6,10 @@ test.use({ storageState: "playwright/.auth/user.json" });
 test.describe.configure({ mode: "serial" });
 
 /**
- * Test tab on the campaign settings dialog (Step 31 / BUILD_PLAN §17 line
- * 1068). The mock flow walks: idle → connecting → talking (transcript
- * appears) → ended. Live wiring against ElevenLabs convai is a safety-rail
- * item; this test only covers the mock path.
+ * Test tab on the campaign settings dialog. It now opens a REAL ElevenLabs
+ * browser voice session with the campaign's agent (mic + live convai), so the
+ * end-to-end flow can't be driven headlessly. This test just verifies the real
+ * test-call UI renders (copy + Start button) instead of the old mock.
  */
 test.describe("Campaign test call", () => {
   const stamp = Date.now();
@@ -84,42 +84,23 @@ test.describe("Campaign test call", () => {
       .eq("id", goalId ?? "");
   });
 
-  test("mock test call walks idle → connecting → transcript → ended", async ({
-    page,
-  }) => {
-    // Round 14 — default tab is Active; this campaign is in draft
-    // initially via the seed, so use ?status=all.
+  test("the real test-call UI renders on the Test tab", async ({ page }) => {
     await page.goto("/campaigns?status=all");
-    // Round 14 — the campaign name in the primary cell IS the
-    // settings trigger (the Edit hover button was retired). The
-    // trigger sits in an overflow-x-auto table that's wider than the
-    // test viewport, so dispatch the click via DOM.
+    // The campaign name in the primary cell IS the settings trigger; it sits
+    // in an overflow-x-auto table wider than the test viewport, so click via DOM.
     const campaignName = `E2E TestCall Campaign ${stamp}`;
     await page.evaluate((name) => {
       const buttons = Array.from(document.querySelectorAll("button"));
       const target = buttons.find((b) => b.textContent?.trim() === name);
       (target as HTMLButtonElement | undefined)?.click();
     }, campaignName);
-    // The edit dialog is now a drawer with collapsible sections. Expand
-    // the Test section.
+    // Expand the Test section in the settings drawer.
     await page.getByTestId("campaign-section-test").locator("summary").click();
-    await expect(page.getByText("Ready to start")).toBeVisible();
 
-    // Start the mock call.
-    await page.getByRole("button", { name: "Start test call" }).click();
-    await expect(page.getByText("Connecting…")).toBeVisible();
-    // First transcript line appears within a few seconds.
+    // The real (non-mock) test tab: talk to the campaign's actual agent.
     await expect(
-      page.getByText("Hi, this is Sara calling from Referrizer"),
-    ).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText("On call (mock)")).toBeVisible();
-
-    // Hang up before the auto-end timer fires.
-    await page.getByRole("button", { name: "Hang up" }).click();
-    await expect(page.getByText("Call ended")).toBeVisible();
-
-    // "Start new test" resets to idle so the button label flips back.
-    await page.getByRole("button", { name: "Start new test" }).click();
+      page.getByText("Talk to this campaign's real agent"),
+    ).toBeVisible();
     await expect(page.getByText("Ready to start")).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Start test call" }),
