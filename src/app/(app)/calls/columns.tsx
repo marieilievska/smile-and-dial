@@ -47,6 +47,9 @@ export type DisplayCall = {
   /** ElevenLabs per-call AI summary. Surfaced as a third line in the Lead
    *  cell so the call log reads as "what the AI heard," not just metadata. */
   summary: string | null;
+  /** Which of the lead's numbers this call dialed. "owner" surfaces an
+   *  "Owner line" chip so owner calls are distinguishable from business ones. */
+  dialedTarget: "business" | "owner" | null;
 };
 
 export type CallColumn = {
@@ -163,11 +166,18 @@ export const CALL_COLUMNS: CallColumn[] = [
                 <span className="truncate">{c.summary}</span>
               </span>
             ) : null}
-            {c.call_mode === "human" ? (
-              <span className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-full bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-700 uppercase dark:text-emerald-400">
-                Human
-              </span>
-            ) : null}
+            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+              {c.dialedTarget === "owner" ? (
+                <span className="inline-flex w-fit items-center gap-1 rounded-full bg-sky-500/12 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-sky-700 uppercase dark:text-sky-400">
+                  Owner line
+                </span>
+              ) : null}
+              {c.call_mode === "human" ? (
+                <span className="inline-flex w-fit items-center gap-1 rounded-full bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-700 uppercase dark:text-emerald-400">
+                  Human
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
       );

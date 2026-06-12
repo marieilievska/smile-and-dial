@@ -48,6 +48,7 @@ export type ConversationInitResponse = {
     // Lead context for the agent's opening + personalization. All strings
     // (ElevenLabs dynamic variables are string-valued); numbers are
     // stringified, blank when we have no value.
+    business_name: string;
     owner_name: string;
     city: string;
     category: string;
@@ -139,6 +140,7 @@ function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
     last_callback_notes: "",
     transfer_number: "",
     call_id: "",
+    business_name: "",
     owner_name: "",
     city: "",
     category: "",
@@ -172,7 +174,7 @@ async function buildVarsForCall(
       supabase
         .from("leads")
         .select(
-          "ai_summary, status, owner_name, city, category, google_rating, google_reviews, timezone",
+          "company, ai_summary, status, owner_name, city, category, google_rating, google_reviews, timezone",
         )
         .eq("id", call.lead_id)
         .maybeSingle(),
@@ -215,6 +217,7 @@ async function buildVarsForCall(
     last_callback_notes: lastCallbackNotes,
     transfer_number: campaign?.transfer_destination_phone?.trim() ?? "",
     call_id: call.id,
+    business_name: lead?.company?.trim() ?? "",
     owner_name: lead?.owner_name?.trim() ?? "",
     city: lead?.city?.trim() ?? "",
     category: lead?.category?.trim() ?? "",

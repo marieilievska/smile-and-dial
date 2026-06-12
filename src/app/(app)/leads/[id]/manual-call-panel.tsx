@@ -37,9 +37,16 @@ const HUMAN_CALL_OUTCOMES = [
 export function ManualCallPanel({
   leadId,
   userId,
+  target = "business",
+  label = "Call manually",
 }: {
   leadId: string;
   userId: string;
+  /** Which of the lead's numbers to dial. "owner" routes to owner_phone
+   *  server-side (in the voice-browser-dial TwiML route). */
+  target?: "business" | "owner";
+  /** Button label — lets the owner control read "Call owner". */
+  label?: string;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [muted, setMuted] = useState(false);
@@ -97,7 +104,9 @@ export function ManualCallPanel({
         const { Device } = await import("@twilio/voice-sdk");
         const device = new Device(token, { logLevel: "error" });
         deviceRef.current = device;
-        const call = await device.connect({ params: { leadId, userId } });
+        const call = await device.connect({
+          params: { leadId, userId, target },
+        });
         callRef.current = call;
         call.on("accept", () => {
           setSeconds(0);
@@ -133,7 +142,7 @@ export function ManualCallPanel({
       setError("Something went wrong starting the call — please try again.");
       setPhase("error");
     }
-  }, [leadId, userId]);
+  }, [leadId, userId, target]);
 
   const hangUp = useCallback(() => {
     callRef.current?.disconnect();
@@ -162,7 +171,7 @@ export function ManualCallPanel({
       <div className="flex flex-col gap-1">
         <Button onClick={startCall} className="gap-2">
           <Phone className="size-4" />
-          Call manually
+          {label}
         </Button>
         {error ? <p className="text-xs text-rose-600">{error}</p> : null}
       </div>

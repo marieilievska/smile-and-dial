@@ -45,24 +45,30 @@ export type HumanCallTarget = {
   callerId: string;
   campaignId: string;
   twilioNumberId: string;
+  /** Which of the lead's numbers this resolved to, stamped on the call row. */
+  dialedTarget: "business" | "owner";
 };
 
 /**
- * Resolve where a human call to `leadId` should go: the lead's phone, the
+ * Resolve where a human call to `leadId` should go: the chosen phone (business
+ * line by default, or the owner's direct line when `target` is "owner"), the
  * campaign that owns the lead's list, and that campaign's Twilio number (caller
- * ID). Returns null when the lead has no phone or no active campaign with a
- * usable number.
+ * ID). Returns null when the lead has no such number or no active campaign with
+ * a usable number.
  */
 export async function resolveHumanCallTarget(
   supabase: SupabaseAdmin,
   leadId: string,
+  target: "business" | "owner" = "business",
 ): Promise<HumanCallTarget | null> {
   const { data: lead } = await supabase
     .from("leads")
-    .select("business_phone, list_id")
+    .select("business_phone, owner_phone, list_id")
     .eq("id", leadId)
     .maybeSingle();
-  if (!lead?.business_phone || !lead.list_id) return null;
+  if (!lead?.list_id) return null;
+  const leadPhone = target === "owner" ? lead.owner_phone : lead.business_phone;
+  if (!leadPhone) return null;
 
   const { data: attach } = await supabase
     .from("list_campaign_attachments")
@@ -90,10 +96,11 @@ export async function resolveHumanCallTarget(
   if (!num?.phone_number) return null;
 
   return {
-    leadPhone: lead.business_phone,
+    leadPhone,
     callerId: num.phone_number,
     campaignId: campaign.id,
     twilioNumberId: campaign.twilio_number_id,
+    dialedTarget: target,
   };
 }
 
@@ -109,6 +116,8 @@ export async function createHumanCallRow(
      *  Stored so the Dial-completion and recording callbacks can correlate
      *  this exact row by CallSid instead of "most recent human call". */
     callSid?: string | null;
+    /** Which number was dialed, for the "→ Owner" marker. */
+    dialedTarget?: "business" | "owner";
   },
 ): Promise<string | null> {
   const { data, error } = await supabase
@@ -123,6 +132,7 @@ export async function createHumanCallRow(
       placed_by: input.placedBy,
       outcome_source: "manual",
       twilio_call_sid: input.callSid ?? null,
+      dialed_target: input.dialedTarget === "owner" ? "owner" : null,
       started_at: new Date().toISOString(),
     })
     .select("id")

@@ -52,12 +52,27 @@ export async function POST(request: NextRequest) {
     return twimlSay("Missing call details.");
   }
 
+  // Which of the lead's numbers to dial. The browser passes target=owner from
+  // the lead-detail owner call control; anything else is the business line.
+  const dialTarget = params.target === "owner" ? "owner" : "business";
+
   const supabase = createAdminClient();
-  const target = await resolveHumanCallTarget(supabase, leadId);
+  const target = await resolveHumanCallTarget(supabase, leadId, dialTarget);
   if (!target) {
     return twimlSay(
       "This lead has no phone number or active campaign to call from.",
     );
+  }
+
+  // Owner calls dial a personal cell — honour the DNC list for that number
+  // even on a human-placed call.
+  if (dialTarget === "owner") {
+    const { data: onDnc } = await supabase.rpc("is_phone_on_dnc", {
+      phone_to_check: target.leadPhone,
+    });
+    if (onDnc) {
+      return twimlSay("This number is on the do not call list.");
+    }
   }
 
   // Twilio includes the parent call leg's SID on this POST. Stamp it on the
@@ -71,6 +86,7 @@ export async function POST(request: NextRequest) {
     twilioNumberId: target.twilioNumberId,
     placedBy: userId,
     callSid,
+    dialedTarget: target.dialedTarget,
   });
 
   const xml = buildDialTwiml({

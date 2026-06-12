@@ -514,6 +514,7 @@ export type Database = {
           status: string;
           summary: string | null;
           talk_time_seconds: number | null;
+          dialed_target: string | null;
           transcript_json: Json | null;
           twilio_call_sid: string | null;
           twilio_number_id: string | null;
@@ -543,6 +544,7 @@ export type Database = {
           status?: string;
           summary?: string | null;
           talk_time_seconds?: number | null;
+          dialed_target?: string | null;
           transcript_json?: Json | null;
           twilio_call_sid?: string | null;
           twilio_number_id?: string | null;
@@ -572,6 +574,7 @@ export type Database = {
           status?: string;
           summary?: string | null;
           talk_time_seconds?: number | null;
+          dialed_target?: string | null;
           transcript_json?: Json | null;
           twilio_call_sid?: string | null;
           twilio_number_id?: string | null;
