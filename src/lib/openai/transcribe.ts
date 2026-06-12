@@ -1,11 +1,12 @@
+import { openAiKey } from "./live";
+
 /** Transcribe an audio URL with OpenAI Whisper. The Twilio recording URL needs
  *  Basic auth (account SID : auth token). Returns null in mock mode or on
  *  failure so callers degrade gracefully. */
 export async function transcribeAudioUrl(
   recordingUrl: string,
 ): Promise<string | null> {
-  if (process.env.OPENAI_LIVE !== "live") return null;
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = openAiKey();
   if (!apiKey) return null;
 
   const sid = process.env.TWILIO_ACCOUNT_SID ?? "";
@@ -36,8 +37,7 @@ export async function transcribeAudioUrl(
 export async function summarizeTranscript(
   transcript: string,
 ): Promise<string | null> {
-  if (process.env.OPENAI_LIVE !== "live") return null;
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = openAiKey();
   if (!apiKey || !transcript.trim()) return null;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {

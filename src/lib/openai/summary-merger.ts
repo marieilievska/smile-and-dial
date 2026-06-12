@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
+import { openAiKey } from "./live";
+
 /**
  * Rolling AI summary merger (Step 39 / BUILD_PLAN §13).
  *
@@ -57,14 +59,11 @@ export async function mergeLeadSummary(input: {
     return { newSummary: null, cost: 0, mode: "mock" };
   }
 
-  const live = process.env.OPENAI_LIVE === "live";
+  const apiKey = openAiKey();
+  const live = Boolean(apiKey);
   let newSummary: string;
   let cost = 0;
-  if (live) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return { newSummary: null, cost: 0, mode: "live" };
-    }
+  if (apiKey) {
     newSummary = await callOpenAi(apiKey, existing, latest);
     // gpt-4o-mini cost approximation: ~$0.001 per call per spec.
     cost = 0.001;
