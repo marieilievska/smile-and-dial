@@ -17,7 +17,6 @@ export const OVERRIDABLE_OUTCOMES = [
   "hung_up_immediately",
   "invalid_number",
   "gatekeeper",
-  "dm_reached",
   "not_interested",
   "callback",
   "call_back_later",
@@ -53,7 +52,6 @@ export const CONNECTED_OUTCOMES = new Set<string>([
   "call_back_later",
   "not_interested",
   "gatekeeper",
-  "dm_reached",
   "transferred_to_human",
   "language_barrier",
   "hung_up_immediately",
@@ -67,7 +65,6 @@ export const CONVERSATION_OUTCOMES = new Set<string>([
   "callback",
   "not_interested",
   "gatekeeper",
-  "dm_reached",
   "transferred_to_human",
   "language_barrier",
 ]);
@@ -83,14 +80,4 @@ export const NO_HUMAN_OUTCOMES = new Set<string>([
   "failed",
   "invalid_number",
   "ai_error",
-]);
-
-/** Spoke with the decision maker (outcome-level proxy). */
-export const DM_REACHED_OUTCOMES = new Set<string>([
-  "goal_met",
-  "not_interested",
-  "callback",
-  "dnc",
-  "transferred_to_human",
-  "dm_reached",
 ]);

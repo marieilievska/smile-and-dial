@@ -83,10 +83,15 @@ const DATA_COLLECTION_FIELDS = [
   {
     id: "decision_maker_reached",
     description:
-      "Whether the agent actually spoke with the business's DECISION MAKER " +
-      "(the owner or someone who can make the buying decision) — as opposed to " +
-      "a receptionist, front-desk, or other gatekeeper. Answer exactly one of: " +
-      "yes, no, unknown.",
+      "Whether the person we actually SPOKE WITH on this call is the business " +
+      "OWNER or a MANAGER. Answer 'yes' ONLY when they indicated they are the " +
+      "owner or a manager — e.g. they said 'I'm the owner', 'I'm the manager', " +
+      "'this is my business', or they're clearly the one in charge. If the " +
+      "person was a receptionist / front desk, OR no one said anything about " +
+      "their role at all, answer 'no'. This is a standalone fact, NOT tied to " +
+      "how the call ended — a gatekeeper, a callback, or a decline can each be " +
+      "either yes or no depending only on who you spoke with. Use 'unknown' " +
+      "only when it is genuinely ambiguous whether they're the owner/manager.",
     type: "string",
     enum: ["yes", "no", "unknown"],
   },

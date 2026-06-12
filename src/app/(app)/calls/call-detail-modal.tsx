@@ -103,8 +103,6 @@ function noRecordingReason(outcome: string | null): string {
       return "They asked for a callback. The conversation should appear above; if not, the recording wasn't returned.";
     case "not_interested":
       return "Spoke with someone who declined. The conversation should appear above.";
-    case "dm_reached":
-      return "Reached the decision maker. The conversation should appear above.";
     case "ai_receptionist":
       return "Reached the business's own AI/auto-receptionist — no human conversation.";
     case "goal_met":

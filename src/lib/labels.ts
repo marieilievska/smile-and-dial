@@ -56,7 +56,6 @@ export const OUTCOME_LABELS: Record<string, string> = {
   ai_receptionist: "AI receptionist",
   ai_error: "AI error",
   transferred_to_human: "Transferred to human",
-  dm_reached: "DM reached",
 };
 
 /** Fallback humanizer for any string the lookup tables don't cover.

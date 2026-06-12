@@ -43,7 +43,6 @@ export type StatusBadgeVariant =
 const POSITIVE_OUTCOMES = new Set([
   "goal_met",
   "transferred_to_human",
-  "dm_reached",
   "callback",
 ]);
 
