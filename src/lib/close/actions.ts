@@ -5,6 +5,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
+import {
+  closeSenderEmail,
+  createCloseLead,
+  findCloseLeadByEmail,
+  sendCloseEmail,
+} from "./api";
 import { renderTemplate, type TemplateContext } from "./templates";
 
 function makeServiceClient() {
@@ -65,22 +71,18 @@ export async function disconnectClose(): Promise<{ error: string | null }> {
   return { error: null };
 }
 
-/** Send an email via Close (mock). The agent's `send_email` tool calls into
- *  this, and the lead-detail Activity area exposes a manual send. In mock
- *  mode we render the template, write the `emails` row with status=sent
- *  and a fake close_message_id; live mode will POST to Close. */
+/** Send an email via Close. The agent's `send_email` tool calls into this, and
+ *  the lead-detail Activity area exposes a manual send. When the lead's owner
+ *  has connected their Close account, this REALLY sends: it finds-or-creates the
+ *  contact in Close and posts an outbox email from the owner's connected email
+ *  account. Owners with no Close connection fall back to logging the email
+ *  locally so the flow still works for them. */
 export async function sendEmail(input: {
   leadId: string;
   templateId: string;
   campaignId?: string;
   callId?: string;
 }): Promise<{ error: string | null; emailId?: string }> {
-  if (process.env.CLOSE_LIVE === "live") {
-    return {
-      error:
-        "Live Close email send isn't implemented yet — leave CLOSE_LIVE unset to use mock mode.",
-    };
-  }
   const supabase = await createClient();
   const {
     data: { user },
@@ -143,6 +145,75 @@ export async function sendEmail(input: {
   const body = renderTemplate(template.body, ctx);
 
   const admin = makeServiceClient();
+  const toAddress = leadRecord.business_email as string;
+
+  // Send from the LEAD OWNER's own Close account (per-user). If they've
+  // connected Close, this really sends via their connected email; otherwise we
+  // log the email locally (mock) so the flow still works without Close.
+  const { data: ownerIntegration } = await admin
+    .from("user_integrations")
+    .select("close_api_key")
+    .eq("user_id", lead.owner_id)
+    .maybeSingle();
+  const closeKey = ownerIntegration?.close_api_key?.trim() || null;
+
+  let closeMessageId: string;
+  let fromAddress: string;
+
+  if (closeKey) {
+    const senderEmail = await closeSenderEmail(closeKey);
+    if (!senderEmail) {
+      return {
+        error:
+          "Your Close account has no connected email to send from. Connect an email account in Close, then try again.",
+      };
+    }
+    const sender = ownerProfile?.full_name
+      ? `${ownerProfile.full_name} <${senderEmail}>`
+      : senderEmail;
+
+    // Find the contact in Close, creating the lead there if it's new.
+    const contactName =
+      (leadRecord.owner_name as string | null | undefined) ||
+      (leadRecord.manager_name as string | null | undefined) ||
+      null;
+    let ref = await findCloseLeadByEmail(closeKey, toAddress);
+    if (!ref) {
+      ref = await createCloseLead(closeKey, {
+        companyName: (leadRecord.company as string | null | undefined) ?? null,
+        contactName,
+        email: toAddress,
+        phone: (leadRecord.business_phone as string | null | undefined) ?? null,
+      });
+    }
+    if (!ref) {
+      return { error: "Could not create the contact in Close." };
+    }
+
+    const sent = await sendCloseEmail(closeKey, {
+      leadId: ref.leadId,
+      contactId: ref.contactId,
+      to: toAddress,
+      subject,
+      bodyText: body,
+      sender,
+    });
+    if (sent.error || !sent.id) {
+      return {
+        error:
+          `Couldn't send the email through Close. ${sent.error ?? ""}`.trim(),
+      };
+    }
+    closeMessageId = sent.id;
+    fromAddress = sender;
+  } else {
+    // No Close connected for this owner — log the email without sending.
+    closeMessageId = `mock-msg-${Date.now()}`;
+    fromAddress = ownerProfile?.full_name
+      ? `${ownerProfile.full_name} via Close`
+      : "Close mock";
+  }
+
   const { data: email, error: emailErr } = await admin
     .from("emails")
     .insert({
@@ -153,11 +224,9 @@ export async function sendEmail(input: {
       direction: "sent",
       subject,
       body,
-      to_address: leadRecord.business_email as string,
-      from_address: ownerProfile?.full_name
-        ? `${ownerProfile.full_name} via Close`
-        : "Close mock",
-      close_message_id: `mock-msg-${Date.now()}`,
+      to_address: toAddress,
+      from_address: fromAddress,
+      close_message_id: closeMessageId,
       status: "sent",
       template_id: template.id,
     })
