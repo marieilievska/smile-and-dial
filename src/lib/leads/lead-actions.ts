@@ -79,6 +79,9 @@ export async function setLeadDecisionMakerReached(input: {
   if (error) return { error: "Could not save that change." };
 
   revalidatePath("/leads");
+  // Also bust the lead DETAIL page cache, otherwise the flag persists in the DB
+  // but the [id] page keeps serving the stale server-rendered value on revisit.
+  revalidatePath(`/leads/${input.leadId}`);
   return { error: null };
 }
 
