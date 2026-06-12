@@ -57,10 +57,13 @@ const STATUS_TONES: Record<keyof SidebarStatusCounts, string> = {
 
 export function AppSidebar({
   isAdmin,
+  userEmail = "",
   savedViews = [],
   statusCounts,
 }: {
   isAdmin: boolean;
+  /** The signed-in user's email — gates `restrictToEmail` nav items. */
+  userEmail?: string;
   savedViews?: SidebarSavedView[];
   /** Status badges driven by the layout's queries. Omitted = no dots. */
   statusCounts?: SidebarStatusCounts;
@@ -86,7 +89,11 @@ export function AppSidebar({
     });
   }
 
-  const visible = navItems.filter((item) => !item.adminOnly || isAdmin);
+  const visible = navItems.filter(
+    (item) =>
+      (!item.adminOnly || isAdmin) &&
+      (!item.restrictToEmail || item.restrictToEmail === userEmail),
+  );
 
   // Group by section, preserving the order defined in nav.ts.
   const grouped = new Map<NavSection, NavItem[]>();

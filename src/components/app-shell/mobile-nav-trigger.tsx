@@ -30,10 +30,12 @@ import {
  *  handling takes care of long sections. */
 export function MobileNavTrigger({
   isAdmin,
+  userEmail,
   savedViews,
   statusCounts,
 }: {
   isAdmin: boolean;
+  userEmail: string;
   savedViews: SidebarSavedView[];
   statusCounts: SidebarStatusCounts;
 }) {
@@ -75,6 +77,7 @@ export function MobileNavTrigger({
         <div onClick={() => requestAnimationFrame(() => setOpen(false))}>
           <AppSidebar
             isAdmin={isAdmin}
+            userEmail={userEmail}
             savedViews={savedViews}
             statusCounts={statusCounts}
           />
