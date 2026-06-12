@@ -1302,6 +1302,31 @@ export async function applyOutcomeSideEffects(
     return;
   }
 
+  // --- agent-scheduled callback (any disposition) ---
+  // If the agent scheduled a callback mid-call (via the schedule_callback tool),
+  // honor it no matter how the final disposition came out. A gatekeeper who says
+  // "call back at 9 to reach the owner" is a real callback even though the
+  // disposition is "gatekeeper" — without this the callback row exists but the
+  // lead is never pointed at it and falls into the generic retry instead. DNC
+  // already returned above; goal_met is terminal and keeps its own status.
+  if (input.outcome !== "goal_met") {
+    const { data: scheduledCallback } = await supabase
+      .from("callbacks")
+      .select("id")
+      .eq("originating_call_id", input.callId)
+      .eq("status", "pending")
+      .limit(1)
+      .maybeSingle();
+    if (scheduledCallback) {
+      await supabase
+        .from("leads")
+        .update({ status: "callback" })
+        .eq("id", input.leadId);
+      await syncLeadNextCallToEarliestCallback(supabase, input.leadId);
+      return;
+    }
+  }
+
   // --- callback ---
   if (input.outcome === "callback") {
     // Don't double-book. The in-call `schedule_callback` tool may have already
