@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { leadStatusLabel } from "@/lib/labels";
-import { US_TIMEZONES } from "@/lib/leads/timezone";
+import { LEAD_TIMEZONES } from "@/lib/leads/timezone";
 
 const STATUSES = [
   "ready_to_call",
@@ -181,7 +181,7 @@ export function LeadsFilters({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="any">Any time zone</SelectItem>
-                {US_TIMEZONES.map((tz) => (
+                {LEAD_TIMEZONES.map((tz) => (
                   <SelectItem key={tz.value} value={tz.value}>
                     {tz.label}
                   </SelectItem>

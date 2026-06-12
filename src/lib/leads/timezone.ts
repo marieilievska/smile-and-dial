@@ -109,12 +109,18 @@ const STATE_NAME_TO_CODE: Record<string, string> = {
   wyoming: "WY",
 };
 
-/** The IANA timezones our US lead data actually uses, paired with a short,
- *  scannable label. Single source of truth for the Leads "Time zone" column
- *  and its filter dropdown so the two always agree on the same values. */
-export const US_TIMEZONES: { value: string; label: string }[] = [
+/** The IANA timezones our US + Canadian lead data uses, paired with a short,
+ *  scannable label, ordered east → west. Single source of truth for the Leads
+ *  "Time zone" column and its filter dropdown so the two always agree. Canadian
+ *  leads collapse onto the matching US zone where DST rules are identical
+ *  (Pacific/Mountain/Central/Eastern); the distinct ones — Atlantic,
+ *  Newfoundland, and Saskatchewan (Central, no DST) — are listed separately. */
+export const LEAD_TIMEZONES: { value: string; label: string }[] = [
+  { value: "America/St_Johns", label: "Newfoundland" },
+  { value: "America/Halifax", label: "Atlantic" },
   { value: "America/New_York", label: "Eastern" },
   { value: "America/Chicago", label: "Central" },
+  { value: "America/Regina", label: "Saskatchewan" },
   { value: "America/Denver", label: "Mountain" },
   { value: "America/Phoenix", label: "Arizona" },
   { value: "America/Los_Angeles", label: "Pacific" },
@@ -122,7 +128,7 @@ export const US_TIMEZONES: { value: string; label: string }[] = [
   { value: "Pacific/Honolulu", label: "Hawaii" },
 ];
 
-const TIMEZONE_LABELS = new Map(US_TIMEZONES.map((t) => [t.value, t.label]));
+const TIMEZONE_LABELS = new Map(LEAD_TIMEZONES.map((t) => [t.value, t.label]));
 
 /** Short, human label for a lead's IANA timezone ("America/New_York" →
  *  "Eastern"). Falls back to the city portion of the IANA id for anything
@@ -134,7 +140,8 @@ export function timezoneLabel(tz: string | null | undefined): string {
   return tz.split("/").pop()?.replace(/_/g, " ") || tz;
 }
 
-/** Best-effort IANA timezone for a US state (2-letter code or full name). */
+/** Best-effort IANA timezone for a US state or Canadian province (2-letter
+ *  code or full name). */
 export function stateToTimezone(
   state: string | null | undefined,
 ): string | null {
@@ -142,10 +149,14 @@ export function stateToTimezone(
   const trimmed = state.trim();
   if (!trimmed) return null;
   if (trimmed.length === 2) {
-    return STATE_TIMEZONES[trimmed.toUpperCase()] ?? null;
+    const up = trimmed.toUpperCase();
+    return STATE_TIMEZONES[up] ?? CA_PROVINCE_TIMEZONES[up] ?? null;
   }
-  const code = STATE_NAME_TO_CODE[trimmed.toLowerCase()];
-  return code ? STATE_TIMEZONES[code] : null;
+  const lower = trimmed.toLowerCase();
+  const usCode = STATE_NAME_TO_CODE[lower];
+  if (usCode) return STATE_TIMEZONES[usCode];
+  const caCode = CA_PROVINCE_NAME_TO_CODE[lower];
+  return caCode ? CA_PROVINCE_TIMEZONES[caCode] : null;
 }
 
 // NANP area code -> US state, so we can recover a state (and thus a timezone)
@@ -381,6 +392,122 @@ for (const [state, codes] of Object.entries(STATE_AREA_CODES)) {
   for (const code of codes) AREA_CODE_TO_STATE[code] = state;
 }
 
+// --- Canada -----------------------------------------------------------------
+// Canadian numbers share the NANP (+1) but none of the US tables above cover
+// them, so Canadian leads were left with NO timezone (or a wrong default).
+//
+// Each Canadian area code maps to a CANONICAL IANA zone chosen so the Leads
+// timezone column / filter group naturally with their US equivalents. BC↔Pacific,
+// AB↔Mountain, MB↔Central, and ON/QC↔Eastern share identical DST rules with the
+// US zones, so we store the US zone string (a Toronto number → America/New_York,
+// shown as "Eastern"). The genuinely-distinct Canadian zones keep their own IANA
+// id: Atlantic (America/Halifax), Newfoundland (America/St_Johns), and
+// Saskatchewan (America/Regina — Central WITHOUT DST). Calling-hours math is
+// identical either way; this just keeps the UI to one "Pacific", one "Eastern".
+const CA_AREA_CODE_TO_TIMEZONE: Record<string, string> = {
+  // British Columbia — Pacific
+  "236": "America/Los_Angeles",
+  "250": "America/Los_Angeles",
+  "257": "America/Los_Angeles",
+  "604": "America/Los_Angeles",
+  "672": "America/Los_Angeles",
+  "778": "America/Los_Angeles",
+  // Alberta — Mountain
+  "368": "America/Denver",
+  "403": "America/Denver",
+  "587": "America/Denver",
+  "780": "America/Denver",
+  "825": "America/Denver",
+  // Saskatchewan — Central, NO daylight saving (America/Regina)
+  "306": "America/Regina",
+  "474": "America/Regina",
+  "639": "America/Regina",
+  // Manitoba — Central
+  "204": "America/Chicago",
+  "431": "America/Chicago",
+  "584": "America/Chicago",
+  // Ontario — Eastern
+  "226": "America/New_York",
+  "249": "America/New_York",
+  "289": "America/New_York",
+  "343": "America/New_York",
+  "365": "America/New_York",
+  "382": "America/New_York",
+  "416": "America/New_York",
+  "437": "America/New_York",
+  "519": "America/New_York",
+  "548": "America/New_York",
+  "613": "America/New_York",
+  "647": "America/New_York",
+  "683": "America/New_York",
+  "705": "America/New_York",
+  "742": "America/New_York",
+  "753": "America/New_York",
+  "807": "America/New_York", // NW Ontario: Thunder Bay (Eastern) predominates over Kenora (Central)
+  "905": "America/New_York",
+  // Quebec — Eastern
+  "263": "America/New_York",
+  "354": "America/New_York",
+  "367": "America/New_York",
+  "418": "America/New_York",
+  "438": "America/New_York",
+  "450": "America/New_York",
+  "468": "America/New_York",
+  "514": "America/New_York",
+  "579": "America/New_York",
+  "581": "America/New_York",
+  "819": "America/New_York",
+  "873": "America/New_York",
+  // New Brunswick / Nova Scotia / PEI — Atlantic
+  "428": "America/Halifax",
+  "506": "America/Halifax",
+  "782": "America/Halifax",
+  "902": "America/Halifax",
+  // Newfoundland & Labrador — Newfoundland Time (UTC-3:30)
+  "709": "America/St_Johns",
+  "879": "America/St_Johns",
+  // Territories (Yukon / NWT / Nunavut share 867) — best-effort Mountain.
+  "867": "America/Denver",
+};
+
+// Canadian province (2-letter code or full name) -> canonical IANA zone, for
+// leads that carry a province in the `state` field. Same canonical-zone scheme
+// as the area-code table above. No US 2-letter code collides with these.
+const CA_PROVINCE_TIMEZONES: Record<string, string> = {
+  BC: "America/Los_Angeles",
+  AB: "America/Denver",
+  SK: "America/Regina",
+  MB: "America/Chicago",
+  ON: "America/New_York",
+  QC: "America/New_York",
+  NB: "America/Halifax",
+  NS: "America/Halifax",
+  PE: "America/Halifax",
+  NL: "America/St_Johns",
+  YT: "America/Denver",
+  NT: "America/Denver",
+  NU: "America/New_York",
+};
+
+const CA_PROVINCE_NAME_TO_CODE: Record<string, string> = {
+  "british columbia": "BC",
+  alberta: "AB",
+  saskatchewan: "SK",
+  manitoba: "MB",
+  ontario: "ON",
+  quebec: "QC",
+  québec: "QC",
+  "new brunswick": "NB",
+  "nova scotia": "NS",
+  "prince edward island": "PE",
+  "newfoundland and labrador": "NL",
+  newfoundland: "NL",
+  labrador: "NL",
+  yukon: "YT",
+  "northwest territories": "NT",
+  nunavut: "NU",
+};
+
 // Area code -> IANA timezone, for the area codes that fall in a DIFFERENT
 // zone than their state's default (STATE_TIMEZONES). Several states span two
 // time zones, so mapping by state alone misroutes calling-hours — e.g. a 915
@@ -467,6 +594,8 @@ export function phoneToTimezone(
   phone: string | null | undefined,
 ): string | null {
   const ac = areaCodeOf(phone);
-  if (ac && AREA_CODE_TO_TIMEZONE[ac]) return AREA_CODE_TO_TIMEZONE[ac];
-  return stateToTimezone(ac ? (AREA_CODE_TO_STATE[ac] ?? null) : null);
+  if (!ac) return null;
+  if (AREA_CODE_TO_TIMEZONE[ac]) return AREA_CODE_TO_TIMEZONE[ac];
+  if (CA_AREA_CODE_TO_TIMEZONE[ac]) return CA_AREA_CODE_TO_TIMEZONE[ac];
+  return stateToTimezone(AREA_CODE_TO_STATE[ac] ?? null);
 }
