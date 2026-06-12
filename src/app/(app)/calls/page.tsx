@@ -178,6 +178,8 @@ export default async function CallsPage({
       ? (ownerNameById.get(c.lead.owner_id) ?? "—")
       : "—",
     summary: c.summary ?? null,
+    dialedTarget:
+      (c.dialed_target as DisplayCall["dialedTarget"] | undefined) ?? null,
   }));
 
   // Visible columns (URL param `cols` overrides the default set).

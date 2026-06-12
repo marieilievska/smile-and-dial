@@ -39,6 +39,8 @@ export function CallNowDialog({
   initialCampaignId,
   open: openProp,
   onOpenChange,
+  target = "business",
+  trigger,
 }: {
   leadId: string;
   availableCampaigns: { id: string; name: string }[];
@@ -48,6 +50,11 @@ export function CallNowDialog({
   initialCampaignId?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Which lead number to dial. "owner" routes the AI call to owner_phone. */
+  target?: "business" | "owner";
+  /** Custom trigger element. When provided, replaces the default "Call now"
+   *  button — used by the owner call control to render a compact button. */
+  trigger?: React.ReactNode;
 }) {
   const [openSelf, setOpenSelf] = useState(false);
   const open = openProp ?? openSelf;
@@ -63,7 +70,7 @@ export function CallNowDialog({
   function confirm() {
     if (!campaignId) return;
     startTransition(async () => {
-      const result = await callNow({ leadId, campaignId });
+      const result = await callNow({ leadId, campaignId, target });
       if (result.error) {
         toast.error(result.error);
         return;
@@ -77,32 +84,39 @@ export function CallNowDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {/* The span carries the tooltip so it's still reachable on hover even
-          when the Button itself is disabled (disabled buttons swallow their
-          own pointer events). Explains the otherwise-mysterious grayed state. */}
-      <span
-        className="inline-flex"
-        title={
-          disabled
-            ? "Attach this lead's list to an active campaign (with a Twilio number) to enable calling."
-            : undefined
-        }
-      >
-        <DialogTrigger asChild>
-          <Button
-            variant="default"
-            disabled={disabled}
-            className="bg-primary hover:bg-primary/90 text-white"
-          >
-            <PhoneCall className="size-4" />
-            Call now
-          </Button>
-        </DialogTrigger>
-      </span>
+      {trigger ? (
+        <DialogTrigger asChild>{trigger}</DialogTrigger>
+      ) : (
+        /* The span carries the tooltip so it's still reachable on hover even
+           when the Button itself is disabled (disabled buttons swallow their
+           own pointer events). Explains the otherwise-mysterious grayed state. */
+        <span
+          className="inline-flex"
+          title={
+            disabled
+              ? "Attach this lead's list to an active campaign (with a Twilio number) to enable calling."
+              : undefined
+          }
+        >
+          <DialogTrigger asChild>
+            <Button
+              variant="default"
+              disabled={disabled}
+              className="bg-primary hover:bg-primary/90 text-white"
+            >
+              <PhoneCall className="size-4" />
+              Call now
+            </Button>
+          </DialogTrigger>
+        </span>
+      )}
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Call this lead now</DialogTitle>
+          <DialogTitle>
+            {target === "owner" ? "Call the owner now" : "Call this lead now"}
+          </DialogTitle>
           <DialogDescription>
+            {target === "owner" ? "Dials the owner's direct line. " : ""}
             Pick which campaign to dial under. The pre-call check still runs —
             DNC, calling hours, caps, and concurrency all apply.
           </DialogDescription>

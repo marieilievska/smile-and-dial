@@ -58,6 +58,10 @@ export type CallNowResult = { error: string | null; callId?: string };
 export async function callNow(input: {
   leadId: string;
   campaignId: string;
+  /** Which of the lead's two numbers to dial. Defaults to the business line.
+   *  "owner" dials the owner's direct line (from the lead-detail owner call
+   *  control) and adds a DNC check on that specific number. */
+  target?: "business" | "owner";
 }): Promise<CallNowResult> {
   // Live calling now runs through ElevenLabs' native Twilio integration:
   // ElevenLabs places the call and owns the media. Gate on ELEVENLABS_LIVE.
@@ -76,11 +80,22 @@ export async function callNow(input: {
   // dial; mock mode never used it, but the live placeCall helper does.
   const { data: lead } = await userClient
     .from("leads")
-    .select("id, list_id, owner_id, business_phone")
+    .select("id, list_id, owner_id, business_phone, owner_phone")
     .eq("id", input.leadId)
     .is("deleted_at", null)
     .maybeSingle();
   if (!lead) return { error: "Lead not found." };
+
+  // Which number to dial. Default is the business line; "owner" dials the
+  // owner's direct line. Validate the owner number exists up front so the
+  // user gets a clear message instead of a generic placement failure.
+  const dialTarget: "business" | "owner" =
+    input.target === "owner" ? "owner" : "business";
+  const dialNumber =
+    dialTarget === "owner" ? lead.owner_phone : lead.business_phone;
+  if (dialTarget === "owner" && !lead.owner_phone) {
+    return { error: "This lead has no owner phone number on file." };
+  }
 
   const { data: campaign } = await userClient
     .from("campaigns")
@@ -132,6 +147,19 @@ export async function callNow(input: {
     };
   }
 
+  // pre_call_check only screens the business line against the DNC list. An
+  // owner call dials a different number, so screen THAT number too — calling a
+  // decision-maker's personal cell after they asked us not to is exactly what
+  // DNC is for.
+  if (dialTarget === "owner") {
+    const { data: ownerOnDnc } = await userClient.rpc("is_phone_on_dnc", {
+      phone_to_check: dialNumber as string,
+    });
+    if (ownerOnDnc) {
+      return { error: "The owner's number is on the DNC list." };
+    }
+  }
+
   // Use the service-role client so we don't trip RLS when stamping
   // fields the user doesn't directly own (status updates, costs).
   const admin = makeServiceClient();
@@ -139,7 +167,7 @@ export async function callNow(input: {
 
   // Fork: live calling (ElevenLabs places + runs the call) vs. mock synthetic.
   if (liveCalling) {
-    if (!lead.business_phone) {
+    if (!dialNumber) {
       return { error: "Lead has no phone number on file." };
     }
     if (!campaign.twilio_number_id) {
@@ -161,6 +189,7 @@ export async function callNow(input: {
         status: "queued",
         outcome: null,
         outcome_source: "elevenlabs",
+        dialed_target: dialTarget === "owner" ? "owner" : null,
       })
       .select("id")
       .single();
@@ -172,7 +201,7 @@ export async function callNow(input: {
       callId: pending.id,
       agentId: campaign.agent_id,
       twilioNumberId: campaign.twilio_number_id,
-      toNumber: lead.business_phone,
+      toNumber: dialNumber,
     });
     if (!result.ok) {
       await admin
@@ -234,6 +263,7 @@ export async function callNow(input: {
       status: "completed",
       outcome: "no_answer",
       outcome_source: "twilio",
+      dialed_target: dialTarget === "owner" ? "owner" : null,
       started_at: startedAt.toISOString(),
       ended_at: new Date(
         startedAt.getTime() + durationSeconds * 1000,
@@ -294,6 +324,7 @@ export type CallNowFromLeadResult = {
  */
 export async function callNowFromLead(
   leadId: string,
+  target: "business" | "owner" = "business",
 ): Promise<CallNowFromLeadResult> {
   const userClient = await createClient();
   const {
@@ -349,5 +380,5 @@ export async function callNowFromLead(
     return { error: null, needsPicker: true };
   }
 
-  return callNow({ leadId, campaignId });
+  return callNow({ leadId, campaignId, target });
 }

@@ -36,6 +36,7 @@ import { MergeInboundDialog } from "../merge-inbound-dialog";
 import { EditableCompanyName } from "./editable-company-name";
 import { LeadHeroActions } from "./lead-hero-actions";
 import { ManualCallPanel } from "./manual-call-panel";
+import { OwnerCallControl } from "./owner-call-control";
 import { SinceLastViewed } from "./since-last-viewed";
 
 /** v3 — two-zone layout. Left = every field surface + at-a-glance.
@@ -129,16 +130,37 @@ export function LeadPageClient({
   function renderFields(fields: StandardField[]) {
     return (
       <div className="grid grid-cols-1 gap-4">
-        {fields.map((field) => (
-          <AutosaveField
-            key={field.key}
-            id={`lead-${field.key}`}
-            label={field.label}
-            type={field.type}
-            initial={fieldValues[field.key] ?? ""}
-            onSave={saveField(field.key)}
-          />
-        ))}
+        {fields.map((field) => {
+          const input = (
+            <AutosaveField
+              id={`lead-${field.key}`}
+              label={field.label}
+              type={field.type}
+              initial={fieldValues[field.key] ?? ""}
+              onSave={saveField(field.key)}
+            />
+          );
+          // The Owner phone field carries an inline "call the owner" control
+          // (AI dial + manual softphone, both pinned to owner_phone) — but only
+          // when there's actually an owner number on file to dial.
+          if (
+            field.key === "owner_phone" &&
+            (fieldValues["owner_phone"] ?? "").trim()
+          ) {
+            return (
+              <div key={field.key} className="flex flex-col gap-2">
+                {input}
+                <OwnerCallControl
+                  leadId={leadId}
+                  userId={userId}
+                  availableCampaigns={availableCampaigns}
+                  initialCampaignId={activeCampaignId}
+                />
+              </div>
+            );
+          }
+          return <div key={field.key}>{input}</div>;
+        })}
       </div>
     );
   }
