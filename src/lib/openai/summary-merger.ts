@@ -109,19 +109,27 @@ async function callOpenAi(
   existing: string,
   latest: string,
 ): Promise<string> {
-  const userPrompt = `Previous context note:
-${existing || "(none)"}
+  const userPrompt = `Existing note about this lead:
+${existing || "(none yet)"}
 
-Latest call summary:
+Newest call summary:
 ${latest}
 
-Merge these into a single concise note (max 200 words) covering:
-- What we know about the lead (name, role, company specifics)
-- What they've said they want or don't want
-- Any commitments made (callback, send info, etc.)
-- Where the conversation left off
+Update the note. Include ONLY:
+- Facts the LEAD gave (their name, role, business details, hours).
+- What the LEAD actually said — their own questions, objections, or stated
+  interest/disinterest. If the lead said little or didn't engage, say exactly
+  that (e.g. "the lead only answered and didn't respond to the question").
+- Concrete commitments, but ONLY if the lead explicitly agreed (a callback
+  time, permission to send info). If none, say no commitments were made.
+- Where the call left off.
 
-Write in the format "we know X / we last left off Y." No filler.`;
+Do NOT restate the agent's pitch, questions, or talking points as the lead's
+interest. Do NOT invent details. When unsure whether the lead said something,
+leave it out.
+
+Write 1–4 plain sentences as "We know X. We last left off Y." Max 200 words.
+No filler.`;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -135,7 +143,17 @@ Write in the format "we know X / we last left off Y." No filler.`;
         {
           role: "system",
           content:
-            "You are maintaining a running context note about a sales lead.",
+            "You maintain a short, factual running context note about a sales " +
+            "lead, written for the next cold-caller who will phone them. " +
+            "Attribution is critical: every call is between OUR agent (e.g. " +
+            "'Jack from Referrizer') and the lead (the business we're calling). " +
+            "The agent's pitch, questions, and talking points are NOT the " +
+            "lead's views. Never write that the lead wants, likes, is " +
+            "interested in, or agreed to something unless the LEAD clearly " +
+            "said so themselves. If the agent asked a question the lead didn't " +
+            "answer, the lead's position is still unknown — say that. Do not " +
+            "infer interest from the fact that the agent made a pitch. When in " +
+            "doubt, under-claim.",
         },
         { role: "user", content: userPrompt },
       ],
