@@ -2,10 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Canonical outcome groupings — shared across every metric surface so connect
 // rate (and conversation / DM-reached) means the same thing everywhere.
+import { callReachedDm } from "@/lib/calls/decision-maker";
 import {
   CONNECTED_OUTCOMES,
   CONVERSATION_OUTCOMES,
-  DM_REACHED_OUTCOMES,
 } from "@/lib/calls/outcomes";
 
 export type CallRow = {
@@ -23,28 +23,18 @@ export type CallRow = {
   created_at: string;
 };
 
-/** Did this call reach the decision maker? Prefers the agent's explicit
- *  `decision_maker_reached` capture (yes/no); falls back to the outcome proxy
- *  when the field is absent (older calls) or "unknown". */
+/** Did this call reach the decision maker? Delegates to the shared
+ *  `callReachedDm` so the Calls page, analytics, and the lead-level flag all
+ *  agree: TRUE only on an explicit agent "yes" or a deliberate "dm_reached"
+ *  outcome — never inferred from goal_met / not_interested / etc. */
 export function rowReachedDm(row: {
   outcome: string | null;
   extracted_data: unknown;
 }): boolean {
-  const ex = row.extracted_data;
-  if (
-    ex &&
-    typeof ex === "object" &&
-    "decision_maker_reached" in (ex as Record<string, unknown>)
-  ) {
-    // The agent captured an explicit read — trust it over the coarse outcome
-    // proxy. Only "yes" counts; "no"/"unknown"/blank mean we did NOT confirm
-    // the decision maker (e.g. a receptionist declined on the owner's behalf —
-    // that's not_interested but NOT a DM contact).
-    const v = (ex as Record<string, unknown>).decision_maker_reached;
-    return typeof v === "string" && v.trim().toLowerCase() === "yes";
-  }
-  // Legacy calls that never captured the field: fall back to the outcome proxy.
-  return Boolean(row.outcome && DM_REACHED_OUTCOMES.has(row.outcome));
+  return callReachedDm(
+    row.outcome,
+    (row.extracted_data ?? null) as Record<string, unknown> | null,
+  );
 }
 
 export type Slicers = {
