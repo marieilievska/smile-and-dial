@@ -134,6 +134,7 @@ export default async function AppLayout({
         <div className="hidden md:flex">
           <AppSidebar
             isAdmin={role === "admin"}
+            userEmail={email}
             savedViews={savedViews}
             statusCounts={statusCounts}
           />
@@ -150,6 +151,7 @@ export default async function AppLayout({
             mobileNav={
               <MobileNavTrigger
                 isAdmin={role === "admin"}
+                userEmail={email}
                 savedViews={savedViews}
                 statusCounts={statusCounts}
               />

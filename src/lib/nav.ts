@@ -1,5 +1,6 @@
 import {
   Activity,
+  Archive,
   Ban,
   BarChart3,
   DollarSign,
@@ -22,7 +23,15 @@ export type NavItem = {
   section: NavSection;
   /** When true, the item is hidden from members and shown only to admins. */
   adminOnly?: boolean;
+  /** When set, the item is shown ONLY to the user whose email matches this
+   *  value (everyone else never sees it). Used for the access-gated
+   *  Archived storage entry. */
+  restrictToEmail?: string;
 };
+
+/** The single account allowed to see (and reach) the Archived storage page.
+ *  Imported by both the nav filter and the page guard so they can't drift. */
+export const ARCHIVED_OWNER_EMAIL = "aicoach@referrizer.com";
 
 export const NAV_SECTION_LABELS: Record<NavSection, string> = {
   workflow: "Workflow",
@@ -42,6 +51,13 @@ export const navItems: NavItem[] = [
   },
   { label: "Leads", href: "/leads", icon: Users, section: "workflow" },
   { label: "Calls", href: "/calls", icon: Phone, section: "workflow" },
+  {
+    label: "Archived",
+    href: "/archived",
+    icon: Archive,
+    section: "workflow",
+    restrictToEmail: ARCHIVED_OWNER_EMAIL,
+  },
   {
     label: "Callbacks",
     href: "/callbacks",
