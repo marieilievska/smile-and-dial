@@ -62,8 +62,8 @@ const DATA_COLLECTION_FIELDS = [
       "goal_met (the person agreed to the booking/goal); " +
       "callback (the person gave a SPECIFIC time OR a timeframe to call them back — e.g. 'call me tomorrow at 3', 'try me next week', 'call back this afternoon'. This is a POSITIVE signal: they're open to talking, just not right now. Whenever you use this, also fill callback_datetime); " +
       "call_back_later (a retry seems worthwhile but the person gave NO specific time or timeframe — a busy brush-off like 'not now', 'I'm with a patient', 'call me some other time'); " +
-      "not_interested (the person clearly declined and does not want us to call again); " +
-      "gatekeeper (a HUMAN screener — receptionist/front desk — answered, understood who we wanted, and refused to connect us to a decision maker; do NOT use this just because someone answered briefly); " +
+      "not_interested (the DECISION MAKER — the owner, or a manager who can make the decision — clearly declined and does not want us to call again. ONLY use this when the person who declined is actually the owner/decision maker); " +
+      "gatekeeper (the only HUMAN you spoke with was NOT the decision maker — a receptionist, front desk, or other staff who isn't the owner/manager. Use this whenever you never got through to the decision maker, INCLUDING when that non-decision-maker declines, brushes you off, or answers the pitch on the business's behalf — you do NOT need to be explicitly refused a transfer. Do NOT use it for a voicemail or a call that hung up in the first few seconds); " +
       "hung_up (a human answered but ended the call within the first few seconds — hung up during or right after the greeting, before any real conversation happened); " +
       "voicemail (you only reached a voicemail, answering machine, or automated greeting — no human ever answered); " +
       "dnc (asked never to be called again). " +
