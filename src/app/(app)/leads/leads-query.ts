@@ -67,6 +67,9 @@ export function applyLeadFilters<
   const listId = str(params.list);
   if (/^[0-9a-f-]{36}$/i.test(listId)) query = query.eq("list_id", listId);
   if (str(params.status)) query = query.eq("status", str(params.status));
+  if (str(params.timezone)) {
+    query = query.eq("timezone", str(params.timezone));
+  }
   const dateFilters: [string, string, string][] = [
     ["created_from", "created_to", "created_at"],
     ["lastcall_from", "lastcall_to", "last_call_at"],

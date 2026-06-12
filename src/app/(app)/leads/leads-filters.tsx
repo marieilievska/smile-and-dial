@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { leadStatusLabel } from "@/lib/labels";
+import { US_TIMEZONES } from "@/lib/leads/timezone";
 
 const STATUSES = [
   "ready_to_call",
@@ -38,6 +39,7 @@ const STATUSES = [
 const FILTER_KEYS = [
   "list",
   "status",
+  "timezone",
   "created_from",
   "created_to",
   "lastcall_from",
@@ -58,6 +60,7 @@ export function LeadsFilters({
   const get = (key: string) => searchParams.get(key) ?? "";
   const [list, setList] = useState(get("list") || "any");
   const [status, setStatus] = useState(get("status") || "any");
+  const [timezone, setTimezone] = useState(get("timezone") || "any");
   const [createdFrom, setCreatedFrom] = useState(get("created_from"));
   const [createdTo, setCreatedTo] = useState(get("created_to"));
   const [lastFrom, setLastFrom] = useState(get("lastcall_from"));
@@ -78,6 +81,7 @@ export function LeadsFilters({
     setLastParamsKey(paramsKey);
     setList(get("list") || "any");
     setStatus(get("status") || "any");
+    setTimezone(get("timezone") || "any");
     setCreatedFrom(get("created_from"));
     setCreatedTo(get("created_to"));
     setLastFrom(get("lastcall_from"));
@@ -96,6 +100,7 @@ export function LeadsFilters({
     };
     set("list", list);
     set("status", status);
+    set("timezone", timezone);
     set("created_from", createdFrom);
     set("created_to", createdTo);
     set("lastcall_from", lastFrom);
@@ -112,6 +117,7 @@ export function LeadsFilters({
     for (const key of [...FILTER_KEYS, "page"]) params.delete(key);
     setList("any");
     setStatus("any");
+    setTimezone("any");
     setCreatedFrom("");
     setCreatedTo("");
     setLastFrom("");
@@ -162,6 +168,22 @@ export function LeadsFilters({
                 {STATUSES.map((s) => (
                   <SelectItem key={s} value={s}>
                     {leadStatusLabel(s)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="filter-timezone">Time zone</Label>
+            <Select value={timezone} onValueChange={setTimezone}>
+              <SelectTrigger id="filter-timezone">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any time zone</SelectItem>
+                {US_TIMEZONES.map((tz) => (
+                  <SelectItem key={tz.value} value={tz.value}>
+                    {tz.label}
                   </SelectItem>
                 ))}
               </SelectContent>
