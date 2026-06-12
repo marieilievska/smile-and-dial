@@ -10,7 +10,7 @@ import {
   syncLeadNextCallToEarliestCallback,
 } from "@/lib/callbacks/sync-next-call";
 import { callReachedDm } from "@/lib/calls/decision-maker";
-import { NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
+import { CONVERSATION_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
 import {
   applyRetryForCall,
   finalizeFailedCall,
@@ -949,6 +949,26 @@ async function processTranscription(
         .update({ decision_maker_reached: true })
         .eq("id", call.lead_id);
     }
+  }
+
+  // Keep the lead's call counters in sync with its calls. These used to be
+  // recomputed ONLY when a call was deleted, so on a normally-completed call
+  // they stayed at 0. Recompute from the calls table on every call:
+  // call_attempts = every call placed; conversations = the calls that became a
+  // real two-way conversation.
+  {
+    const { data: leadCalls } = await supabase
+      .from("calls")
+      .select("outcome")
+      .eq("lead_id", call.lead_id);
+    const all = leadCalls ?? [];
+    const conversations = all.filter(
+      (c) => c.outcome && CONVERSATION_OUTCOMES.has(c.outcome),
+    ).length;
+    await supabase
+      .from("leads")
+      .update({ call_attempts: all.length, conversations })
+      .eq("id", call.lead_id);
   }
 
   // Outcome-driven side effects: DNC insertion, callback row creation, and

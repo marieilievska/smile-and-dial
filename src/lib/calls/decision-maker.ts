@@ -1,22 +1,21 @@
-import { DM_REACHED_OUTCOMES } from "@/lib/calls/outcomes";
-
 /**
- * Did a single call reach the decision maker? Prefer the agent's explicit
- * `decision_maker_reached` capture (only "yes" counts); otherwise fall back to
- * the outcome proxy (goal_met / callback / not_interested / … all imply we got
- * past any gatekeeper to the buyer). Shared by the post-call webhook, the
- * manual outcome override, and the call-deletion recompute so the lead's
- * `decision_maker_reached` flag is derived the same way everywhere.
+ * Did a single call reach the decision maker? TRUE only when the agent
+ * explicitly confirmed it ("decision_maker_reached" = "yes"), or the call was
+ * deliberately marked with the "dm_reached" outcome (including a manual
+ * override). We no longer INFER it from goal_met / not_interested / callback /
+ * etc. — those over-claimed: a gatekeeper can decline on the owner's behalf, and
+ * a research survey can be completed without ever reaching the owner. Any other
+ * read ("no" / "unknown" / blank) means we did NOT confirm a DM contact;
+ * operators flip it manually when they know better. Shared by the post-call
+ * webhook, the manual outcome override, and the call-deletion recompute.
  */
 export function callReachedDm(
   outcome: string | null | undefined,
   extracted: Record<string, unknown> | null | undefined,
 ): boolean {
-  if (extracted && "decision_maker_reached" in extracted) {
-    const v = extracted.decision_maker_reached;
-    return typeof v === "string" && v.trim().toLowerCase() === "yes";
-  }
-  return Boolean(outcome && DM_REACHED_OUTCOMES.has(outcome));
+  const v = extracted?.decision_maker_reached;
+  if (typeof v === "string" && v.trim().toLowerCase() === "yes") return true;
+  return outcome === "dm_reached";
 }
 
 /** True when ANY of the lead's calls reached the decision maker. The lead-level
