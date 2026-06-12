@@ -9,6 +9,7 @@ import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-ca
 import { anyCallReachedDm } from "@/lib/calls/decision-maker";
 import { hardDeleteCalls } from "@/lib/calls/delete-calls-core";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
+import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
 import { recomputeLeadCallState } from "@/lib/leads/recompute-call-state";
 
 export type TranscriptTurn = {
@@ -397,22 +398,25 @@ export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
   });
 
   // Which leads are affected, so we can reset them from their REMAINING calls
-  // after deletion.
-  const { data: affected } = await admin
-    .from("calls")
-    .select("lead_id")
-    .in("id", clean);
-  const leadIds = [
-    ...new Set(
-      (affected ?? [])
-        .map((c) => c.lead_id)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  ];
+  // after deletion. Chunk the `.in()` so a large "select all matching" sweep
+  // (thousands of ids) never overflows the request URL.
+  const leadIdSet = new Set<string>();
+  for (const idsChunk of chunk(clean, ID_CHUNK)) {
+    const { data: affected } = await admin
+      .from("calls")
+      .select("lead_id")
+      .in("id", idsChunk);
+    for (const c of affected ?? []) {
+      if (c.lead_id) leadIdSet.add(c.lead_id);
+    }
+  }
+  const leadIds = [...leadIdSet];
 
   // Remove callbacks these calls scheduled (artifacts of the deleted calls).
   // Keep dnc_entries — a do-not-call block survives a call deletion.
-  await admin.from("callbacks").delete().in("originating_call_id", clean);
+  for (const idsChunk of chunk(clean, ID_CHUNK)) {
+    await admin.from("callbacks").delete().in("originating_call_id", idsChunk);
+  }
 
   const { error } = await hardDeleteCalls(admin, clean);
   if (error) return { error: "Could not delete the selected calls." };

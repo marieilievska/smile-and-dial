@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { leadStatusLabel } from "@/lib/labels";
+import { timezoneLabel } from "@/lib/leads/timezone";
 
 /** Inline chips for each active filter on /leads. Click the × on a chip
  *  to remove just that filter (route.replace, no history pollution).
@@ -29,6 +30,13 @@ export function ActiveFilterChips({
     chips.push({
       key: "list",
       label: `List: ${listMap.get(list) ?? "Unknown"}`,
+    });
+
+  const timezone = searchParams.get("timezone");
+  if (timezone)
+    chips.push({
+      key: "timezone",
+      label: `Time zone: ${timezoneLabel(timezone)}`,
     });
 
   const pairs: [string, string, string][] = [
@@ -69,6 +77,7 @@ export function ActiveFilterChips({
     for (const key of [
       "status",
       "list",
+      "timezone",
       "created_from",
       "created_to",
       "lastcall_from",

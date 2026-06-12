@@ -7,8 +7,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 type SelectionValue = {
   selected: Set<string>;
   allIds: string[];
+  /** When true, the user clicked "Select all N matching" — the selection spans
+   *  every match across pages, not just the visible page. The set in `selected`
+   *  is the materialized (capped) list of those ids. */
+  matchAll: boolean;
   toggle: (id: string) => void;
   toggleAll: () => void;
+  setMatchAllSelection: (ids: string[]) => void;
   clear: () => void;
 };
 
@@ -28,6 +33,7 @@ export function CallsSelectionProvider({
   children: React.ReactNode;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [matchAll, setMatchAll] = useState(false);
 
   // Reset selection when the visible calls change.
   const allKey = allIds.join(",");
@@ -35,6 +41,7 @@ export function CallsSelectionProvider({
   if (seenKey !== allKey) {
     setSeenKey(allKey);
     setSelected(new Set());
+    setMatchAll(false);
   }
 
   function toggle(id: string) {
@@ -44,21 +51,39 @@ export function CallsSelectionProvider({
       else next.add(id);
       return next;
     });
+    // Hand-picking a row escapes match-all mode — the user is no longer
+    // sweeping the whole result set.
+    if (matchAll) setMatchAll(false);
   }
 
   function toggleAll() {
     setSelected((prev) =>
       prev.size === allIds.length ? new Set() : new Set(allIds),
     );
+    setMatchAll(false);
+  }
+
+  function setMatchAllSelection(ids: string[]) {
+    setSelected(new Set(ids));
+    setMatchAll(true);
   }
 
   function clear() {
     setSelected(new Set());
+    setMatchAll(false);
   }
 
   return (
     <CallsSelectionContext.Provider
-      value={{ selected, allIds, toggle, toggleAll, clear }}
+      value={{
+        selected,
+        allIds,
+        matchAll,
+        toggle,
+        toggleAll,
+        setMatchAllSelection,
+        clear,
+      }}
     >
       {children}
     </CallsSelectionContext.Provider>

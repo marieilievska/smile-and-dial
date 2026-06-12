@@ -109,6 +109,31 @@ const STATE_NAME_TO_CODE: Record<string, string> = {
   wyoming: "WY",
 };
 
+/** The IANA timezones our US lead data actually uses, paired with a short,
+ *  scannable label. Single source of truth for the Leads "Time zone" column
+ *  and its filter dropdown so the two always agree on the same values. */
+export const US_TIMEZONES: { value: string; label: string }[] = [
+  { value: "America/New_York", label: "Eastern" },
+  { value: "America/Chicago", label: "Central" },
+  { value: "America/Denver", label: "Mountain" },
+  { value: "America/Phoenix", label: "Arizona" },
+  { value: "America/Los_Angeles", label: "Pacific" },
+  { value: "America/Anchorage", label: "Alaska" },
+  { value: "Pacific/Honolulu", label: "Hawaii" },
+];
+
+const TIMEZONE_LABELS = new Map(US_TIMEZONES.map((t) => [t.value, t.label]));
+
+/** Short, human label for a lead's IANA timezone ("America/New_York" →
+ *  "Eastern"). Falls back to the city portion of the IANA id for anything
+ *  outside the curated US set, and an em dash when there's no timezone. */
+export function timezoneLabel(tz: string | null | undefined): string {
+  if (!tz) return "—";
+  const known = TIMEZONE_LABELS.get(tz);
+  if (known) return known;
+  return tz.split("/").pop()?.replace(/_/g, " ") || tz;
+}
+
 /** Best-effort IANA timezone for a US state (2-letter code or full name). */
 export function stateToTimezone(
   state: string | null | undefined,

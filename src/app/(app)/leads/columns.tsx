@@ -3,6 +3,7 @@ import { Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatPhone } from "@/lib/format-phone";
 import { leadStatusLabel } from "@/lib/labels";
+import { timezoneLabel } from "@/lib/leads/timezone";
 import { leadStatusBadgeVariant } from "@/lib/outcome-style";
 import { exactDateTime, relativeTimeSigned } from "@/lib/relative-time";
 
@@ -246,6 +247,21 @@ export const LEAD_COLUMNS: LeadColumn[] = [
       <span className="text-muted-foreground">{l.state || "—"}</span>
     ),
     text: (l) => l.state ?? "",
+  },
+  {
+    key: "timezone",
+    label: "Time zone",
+    sortKey: "timezone",
+    width: "w-[110px]",
+    /** The lead's local zone — what the dialer schedules against. Shown as a
+     *  short label ("Eastern") with the full IANA id one hover away; the CSV
+     *  exports the precise IANA value. */
+    cell: (l) => (
+      <span className="text-muted-foreground" title={l.timezone ?? undefined}>
+        {timezoneLabel(l.timezone)}
+      </span>
+    ),
+    text: (l) => l.timezone ?? "",
   },
   {
     key: "conversations",
