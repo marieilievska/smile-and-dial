@@ -1,10 +1,12 @@
 /**
  * Draft the prompt blocks of a voice agent from a one-line plain-English
- * description. Mirrors the rolling-summary merger convention: live mode is
- * a plain fetch to OpenAI gated behind OPENAI_LIVE=live + OPENAI_API_KEY,
- * and everything else falls back to a deterministic mock so the feature
- * works in local dev and CI without spend or an SDK dependency.
+ * description. Mirrors the rolling-summary merger convention: live mode is a
+ * plain fetch to OpenAI whenever an OPENAI_API_KEY is configured, and
+ * everything else falls back to a deterministic mock so the feature works in
+ * local dev and CI without spend or an SDK dependency.
  */
+import { openAiKey } from "@/lib/openai/live";
+
 export interface AgentDraft {
   name: string;
   personality: string;
@@ -28,9 +30,8 @@ export async function draftAgent(description: string): Promise<AgentDraft> {
   const trimmed = description.replace(/\s+/g, " ").trim();
   if (!trimmed) return { ...emptyDraft(), source: "mock" };
 
-  const live = process.env.OPENAI_LIVE === "live";
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!live || !apiKey) return mockDraft(trimmed);
+  const apiKey = openAiKey();
+  if (!apiKey) return mockDraft(trimmed);
 
   try {
     return await callOpenAi(apiKey, trimmed);

@@ -6,6 +6,7 @@ import {
   type ActionItem,
   type HeroCounts,
 } from "@/lib/today/queries";
+import { openAiKey } from "@/lib/openai/live";
 import { createClient } from "@/lib/supabase/server";
 
 import { PRODUCT_GUIDE, matchHowTo } from "./product-guide";
@@ -216,10 +217,9 @@ export async function askSmile(question: string): Promise<AskSmileResult> {
     howto?.href != null
       ? { href: howto.href, hrefLabel: howto.hrefLabel ?? "Take me there" }
       : suggestLink(trimmed, hero, actions);
-  const live = process.env.OPENAI_LIVE === "live";
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = openAiKey();
 
-  if (live && apiKey) {
+  if (apiKey) {
     try {
       const context = buildContext(hero, actions);
       const answer = await callOpenAi(apiKey, trimmed, context);
