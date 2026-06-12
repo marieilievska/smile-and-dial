@@ -113,10 +113,10 @@ const STATE_NAME_TO_CODE: Record<string, string> = {
  *  scannable label, ordered east → west. Single source of truth for the Leads
  *  "Time zone" column and its filter dropdown so the two always agree. Canadian
  *  leads collapse onto the matching US zone where DST rules are identical
- *  (Pacific/Mountain/Central/Eastern); the distinct ones — Atlantic,
- *  Newfoundland, and Saskatchewan (Central, no DST) — are listed separately. */
+ *  (Pacific/Mountain/Central/Eastern); the distinct ones — Atlantic and
+ *  Saskatchewan (Central, no DST) — are listed separately. (Newfoundland is
+ *  folded into Atlantic per ops preference, so it isn't its own option.) */
 export const LEAD_TIMEZONES: { value: string; label: string }[] = [
-  { value: "America/St_Johns", label: "Newfoundland" },
   { value: "America/Halifax", label: "Atlantic" },
   { value: "America/New_York", label: "Eastern" },
   { value: "America/Chicago", label: "Central" },
@@ -401,9 +401,10 @@ for (const [state, codes] of Object.entries(STATE_AREA_CODES)) {
 // AB↔Mountain, MB↔Central, and ON/QC↔Eastern share identical DST rules with the
 // US zones, so we store the US zone string (a Toronto number → America/New_York,
 // shown as "Eastern"). The genuinely-distinct Canadian zones keep their own IANA
-// id: Atlantic (America/Halifax), Newfoundland (America/St_Johns), and
-// Saskatchewan (America/Regina — Central WITHOUT DST). Calling-hours math is
-// identical either way; this just keeps the UI to one "Pacific", one "Eastern".
+// id: Atlantic (America/Halifax) and Saskatchewan (America/Regina — Central
+// WITHOUT DST). Newfoundland (UTC-3:30) is folded into Atlantic per ops
+// preference. Calling-hours math is otherwise identical; this just keeps the UI
+// to one "Pacific", one "Eastern".
 const CA_AREA_CODE_TO_TIMEZONE: Record<string, string> = {
   // British Columbia — Pacific
   "236": "America/Los_Angeles",
@@ -463,9 +464,11 @@ const CA_AREA_CODE_TO_TIMEZONE: Record<string, string> = {
   "506": "America/Halifax",
   "782": "America/Halifax",
   "902": "America/Halifax",
-  // Newfoundland & Labrador — Newfoundland Time (UTC-3:30)
-  "709": "America/St_Johns",
-  "879": "America/St_Johns",
+  // Newfoundland & Labrador — grouped with Atlantic per ops preference. Their
+  // true zone is Newfoundland Time (UTC-3:30), but we treat NL as Atlantic so
+  // there isn't a separate half-hour bucket on the board / in the dialer.
+  "709": "America/Halifax",
+  "879": "America/Halifax",
   // Territories (Yukon / NWT / Nunavut share 867) — best-effort Mountain.
   "867": "America/Denver",
 };
@@ -483,7 +486,7 @@ const CA_PROVINCE_TIMEZONES: Record<string, string> = {
   NB: "America/Halifax",
   NS: "America/Halifax",
   PE: "America/Halifax",
-  NL: "America/St_Johns",
+  NL: "America/Halifax", // grouped with Atlantic per ops preference (see above)
   YT: "America/Denver",
   NT: "America/Denver",
   NU: "America/New_York",
