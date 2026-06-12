@@ -26,8 +26,9 @@ export type DisplayCall = {
   status: string;
   outcome: string | null;
   goal_met: boolean;
-  /** Whether this call reached the decision maker (explicit capture, else the
-   *  outcome proxy). Computed in the page query via shared rowReachedDm. */
+  /** The LEAD's "decision maker reached" flag (the single source of truth — set
+   *  by the transcript analysis or the manual toggle). Shown per call so the
+   *  Calls page agrees with the Leads page. */
   decisionMakerReached: boolean;
   started_at: string | null;
   ended_at: string | null;
