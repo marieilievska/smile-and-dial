@@ -43,18 +43,21 @@ export function parseSort(params: SearchParams): {
 }
 
 /**
- * Build a Supabase calls query with the page's filters applied. Search is
- * handled separately by `resolveSearchLeadIds` because PostgREST can't
- * filter the parent rows on a `to-one` embed without an `!inner` join, and
- * we don't want to complicate the select string for one feature.
+ * Apply the Calls page's filters to any calls query builder, whatever its
+ * `.select(...)` is. Generic over the builder type so the full-row table query
+ * and the id-only "select all matching" sweep share one definition of "the
+ * current view". Search + owner are pre-resolved to `searchLeadIds` by the
+ * caller because PostgREST can't filter parent rows on a `to-one` embed without
+ * an `!inner` join.
  */
-export function buildCallsQuery(
-  supabase: SupabaseServerClient,
-  params: SearchParams,
-  searchLeadIds?: string[],
-) {
-  let query = supabase.from("calls").select(CALLS_SELECT, { count: "exact" });
-
+export function applyCallFilters<
+  Q extends {
+    in(column: string, values: readonly string[]): Q;
+    eq(column: string, value: string | boolean): Q;
+    gte(column: string, value: string | number): Q;
+    lte(column: string, value: string | number): Q;
+  },
+>(query: Q, params: SearchParams, searchLeadIds?: string[]): Q {
   if (searchLeadIds !== undefined) {
     // Empty array → no calls match. PostgREST's `.in("col", [])` is buggy
     // (matches everything), so guard with a sentinel uuid.
@@ -123,6 +126,20 @@ export function buildCallsQuery(
   }
 
   return query;
+}
+
+/**
+ * Build the Calls page's full-row table query (with an exact count) and the
+ * page's filters applied. Thin wrapper over `applyCallFilters` so the table and
+ * the "select all matching" sweep stay in lockstep.
+ */
+export function buildCallsQuery(
+  supabase: SupabaseServerClient,
+  params: SearchParams,
+  searchLeadIds?: string[],
+) {
+  const query = supabase.from("calls").select(CALLS_SELECT, { count: "exact" });
+  return applyCallFilters(query, params, searchLeadIds);
 }
 
 /**

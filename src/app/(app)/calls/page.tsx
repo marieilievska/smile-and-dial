@@ -35,6 +35,7 @@ import { CallsStatStrip } from "./calls-stat-strip";
 import { CALL_COLUMNS, DEFAULT_COLUMN_KEYS, type DisplayCall } from "./columns";
 import { ColumnPicker } from "./column-picker";
 import { SavedViews } from "./saved-views";
+import { CallsSelectAllBanner } from "./select-all-banner";
 import { SmartPagination } from "../leads/smart-pagination";
 import { SortableHeader } from "./sortable-header";
 import { fetchCallStats } from "./stats-query";
@@ -273,6 +274,7 @@ export default async function CallsPage({
       {calls.length > 0 ? (
         <CallsSelectionProvider allIds={calls.map((c) => c.id)}>
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-5 delay-200 duration-500">
+            {isAdmin ? <CallsSelectAllBanner total={total} /> : null}
             <div className="border-border overflow-x-auto rounded-lg border">
               <Table className="table-fixed">
                 <TableHeader>
