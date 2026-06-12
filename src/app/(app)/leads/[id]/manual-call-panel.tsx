@@ -28,7 +28,6 @@ const HUMAN_CALL_OUTCOMES = [
   "not_interested",
   "no_answer",
   "voicemail",
-  "dm_reached",
   "dnc",
   "call_back_later",
   "gatekeeper",

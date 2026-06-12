@@ -90,8 +90,7 @@ export type RetryApplyResult =
  * Outcomes split into these buckets:
  *
  *   * **Retry (unified cycle)**: voicemail / no_answer / busy / failed /
- *     hung_up_immediately / gatekeeper / ai_error — and dm_reached (a warm
- *     lead: reached the DM but no goal yet)
+ *     hung_up_immediately / gatekeeper / ai_error
  *       → bump retry_counter, advance retry_position 0→1→2→0, push
  *         next_call_at by 2d / 2d / 15d, status stays `ready_to_call`.
  *   * **call_back_later**: next-day retry up to twice on its OWN counter
@@ -247,8 +246,7 @@ export async function applyRetryForCall(
   // The unified 2d/2d/15d retry cycle: bump retry_counter, advance
   // retry_position 0→1→2→0, push next_call_at by the position's delay, and keep
   // the lead `ready_to_call`. Shared by the retry outcomes and the
-  // terminal-but-unmapped default below (FIX C / #9). (dm_reached is handled
-  // separately — it's a tracking-only outcome that must not influence dialing.)
+  // terminal-but-unmapped default below (FIX C / #9).
   const applyUnifiedRetryCycle = (): void => {
     const position = ((lead?.retry_position ?? 0) % 3) as 0 | 1 | 2;
     const delayDays = RETRY_DELAY_DAYS[position];
@@ -268,18 +266,6 @@ export async function applyRetryForCall(
     applyUnifiedRetryCycle();
   } else if (RETRY_OUTCOMES.has(call.outcome)) {
     applyUnifiedRetryCycle();
-  } else if (call.outcome === "dm_reached") {
-    // dm_reached is a TRACKING signal only ("we reached the decision maker") —
-    // it must NOT influence dialing. The lead's pipeline progression is driven
-    // by its STATUS (set by the operator), not by this outcome. So we do not
-    // advance the give-up counters and never rest the lead on account of it; we
-    // simply return it to normal rotation (next calling day) so it isn't
-    // stranded on the dial-time claim lease, leaving retry_counter/
-    // retry_position untouched. The outcome stays recorded on the call so the
-    // "DMs reached" metric still counts it.
-    update.next_call_at = scheduleDayIso(1);
-    update.status = "ready_to_call";
-    update.resting_until = null;
   } else if (RESTING_OUTCOMES[call.outcome] !== undefined) {
     const days = RESTING_OUTCOMES[call.outcome];
     const restingUntil = scheduleDayIso(days);

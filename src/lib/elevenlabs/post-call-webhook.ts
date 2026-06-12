@@ -941,9 +941,7 @@ async function processTranscription(
     // Sticky lead-level "we reached the decision maker" flag for the Leads
     // table. Only ever set it TRUE (a later voicemail shouldn't un-reach a DM
     // we already spoke to), and only from a real conversation.
-    if (
-      callReachedDm(outcomeFromDisposition, extractedDataOf(payload.analysis))
-    ) {
+    if (callReachedDm(extractedDataOf(payload.analysis))) {
       await supabase
         .from("leads")
         .update({ decision_maker_reached: true })

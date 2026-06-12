@@ -25,14 +25,10 @@ export type CallRow = {
 
 /** Did this call reach the decision maker? Delegates to the shared
  *  `callReachedDm` so the Calls page, analytics, and the lead-level flag all
- *  agree: TRUE only on an explicit agent "yes" or a deliberate "dm_reached"
- *  outcome — never inferred from goal_met / not_interested / etc. */
-export function rowReachedDm(row: {
-  outcome: string | null;
-  extracted_data: unknown;
-}): boolean {
+ *  agree: TRUE only when the transcript analysis recorded
+ *  decision_maker_reached = "yes" — independent of the call's outcome. */
+export function rowReachedDm(row: { extracted_data: unknown }): boolean {
   return callReachedDm(
-    row.outcome,
     (row.extracted_data ?? null) as Record<string, unknown> | null,
   );
 }

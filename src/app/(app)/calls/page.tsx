@@ -166,7 +166,6 @@ export default async function CallsPage({
     score: c.score,
     cost_breakdown: c.cost_breakdown,
     decisionMakerReached: rowReachedDm({
-      outcome: c.outcome,
       extracted_data: c.extracted_data,
     }),
     hasCallback: hasCallback.has(c.id),
