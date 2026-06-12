@@ -11,7 +11,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { rowReachedDm } from "@/lib/analytics/stats";
 import { createClient } from "@/lib/supabase/server";
 
 import { CallsActiveFilterChips } from "./active-filter-chips";
@@ -165,9 +164,10 @@ export default async function CallsPage({
     recording_path: c.recording_path,
     score: c.score,
     cost_breakdown: c.cost_breakdown,
-    decisionMakerReached: rowReachedDm({
-      extracted_data: c.extracted_data,
-    }),
+    // Show the LEAD-level DM-reached flag (the single source of truth you toggle
+    // and the webhook maintains), so the Calls page stays consistent with the
+    // Leads page rather than recomputing a divergent per-call value.
+    decisionMakerReached: c.lead?.decision_maker_reached ?? false,
     hasCallback: hasCallback.has(c.id),
     leadId: c.lead?.id ?? null,
     company: c.lead?.company ?? null,
