@@ -203,23 +203,48 @@ function nextDayLocalHourIso(
 const MACHINE_GREETING_RE =
   /\bleave (us |you |your |a )*(a )?(message|voicemail)\b|\bafter (the )?(tone|beep)\b|\bat the (tone|beep)\b|\byou(?:'ve| have)? reached\b|\bpress (one|two|three|[0-9*#])\b|\bfor [a-z ,'-]{1,40}press\b|\bafter[- ]hours\b|\b(we are|we're|currently) closed\b|\bour office is closed\b|\bun(?:able|available) to (take|answer)\b|\b(can(?:no|')t|cannot) (take|come to)\b|\bmissed your call\b|\bplease leave\b|\byour party'?s extension\b|\breturn your call\b|\bvoice ?mail\b|\bmailbox\b|\bif this is an emergency\b|\bplease (stay on the line|hold)\b|\bthank you for calling\b[\s\S]{0,60}\bpress\b/i;
 
-/** True when the OPENING of the called party's audio reads like a recorded
- *  greeting / IVR rather than a person picking up. ElevenLabs' voicemail_detection
- *  tool doesn't always fire (it sometimes just reports "remote party ended"),
- *  so we also sniff the transcript: a machine greeting always lands in the first
- *  couple of caller turns. Used so these never get mislabeled as a hang-up. */
+/** True when the called party never actually came on the line — the call hit a
+ *  recorded greeting / answering machine and NO human replied.
+ *
+ *  ElevenLabs' voicemail_detection tool doesn't always fire, so we also sniff
+ *  the transcript. A machine-like opening (the first caller turns reading like a
+ *  recording) is necessary but NOT sufficient: an IVR auto-attendant ("press 1…
+ *  press 3… if this is an emergency") is a PHONE TREE that routes to a person.
+ *  So we only call it a voicemail when, after the agent starts speaking, the
+ *  called party gives no genuine reply — a reply being a `user` turn that
+ *  follows an `agent` turn and isn't itself another machine line. That way a
+ *  real conversation behind a phone menu (clinic IVR → "Tianna speaking" → "no")
+ *  reads as a reached human, while a true voicemail (greeting, the agent leaves
+ *  a message, nobody answers) still reads as voicemail. */
 function transcriptLooksLikeMachine(transcript: unknown): boolean {
   if (!Array.isArray(transcript)) return false;
-  const opening = transcript
-    .filter(
-      (t): t is { role?: unknown; message?: unknown } =>
-        !!t && typeof t === "object",
-    )
-    .filter((t) => t.role === "user" && typeof t.message === "string")
-    .slice(0, 2)
-    .map((t) => t.message as string)
-    .join("  ");
-  return opening.length > 0 && MACHINE_GREETING_RE.test(opening);
+  const turns = transcript.filter(
+    (t): t is { role?: unknown; message?: unknown } =>
+      !!t &&
+      typeof t === "object" &&
+      typeof (t as { message?: unknown }).message === "string",
+  );
+  const userMsgs = turns
+    .filter((t) => t.role === "user")
+    .map((t) => (t.message as string).trim())
+    .filter((m) => m.length > 0);
+  if (userMsgs.length === 0) return false;
+  const opening = userMsgs.slice(0, 2).join("  ");
+  if (!MACHINE_GREETING_RE.test(opening)) return false;
+  // Opening reads like a recording / IVR menu. Did the called party give a
+  // genuine reply once the agent began? If so, a human was reached.
+  let agentSpoke = false;
+  for (const t of turns) {
+    if (t.role === "agent" || t.role === "ai") {
+      agentSpoke = true;
+      continue;
+    }
+    if (t.role === "user" && agentSpoke) {
+      const m = (t.message as string).trim();
+      if (m.length > 0 && !MACHINE_GREETING_RE.test(m)) return false;
+    }
+  }
+  return true;
 }
 
 /** Map an ElevenLabs termination reason to an UNAMBIGUOUS telephony outcome.
