@@ -115,21 +115,25 @@ ${existing || "(none yet)"}
 Newest call summary:
 ${latest}
 
-Update the note. Include ONLY:
-- Facts the LEAD gave (their name, role, business details, hours).
-- What the LEAD actually said — their own questions, objections, or stated
-  interest/disinterest. If the lead said little or didn't engage, say exactly
-  that (e.g. "the lead only answered and didn't respond to the question").
-- Concrete commitments, but ONLY if the lead explicitly agreed (a callback
-  time, permission to send info). If none, say no commitments were made.
-- Where the call left off.
+Rewrite the running note so the NEXT caller knows what happened and what to do.
+Capture, factually and in PAST tense (these calls already happened):
+- Who/what we know about the lead (their name or role IF they gave it, business
+  specifics, hours).
+- What actually happened on the last call and what the LEAD themselves said —
+  their questions, objections, or stated interest/disinterest. If the lead
+  didn't really engage (put us on hold, hung up, went to voicemail, or we only
+  reached a gatekeeper), say plainly what blocked us.
+- A commitment ONLY if the lead explicitly agreed to one (a callback time,
+  permission to send info). If none, say no commitment was made.
+- What the next caller should DO or open with, given how this went.
 
-Do NOT restate the agent's pitch, questions, or talking points as the lead's
-interest. Do NOT invent details. When unsure whether the lead said something,
-leave it out.
+Do NOT restate the agent's pitch or questions as the lead's interest. Do NOT
+invent details. Do NOT include dates or "X ago" timing — the caller is told
+separately how long ago the last call was.
 
-Write 1–4 plain sentences as "We know X. We last left off Y." Max 200 words.
-No filler.`;
+Write 2–4 short sentences in this shape:
+"We know X. Last call: Y. Next time: Z."
+Max 200 words. No filler.`;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
