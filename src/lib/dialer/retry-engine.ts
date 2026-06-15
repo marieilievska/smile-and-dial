@@ -183,10 +183,18 @@ export async function applyRetryForCall(
 
   const update: LeadUpdate = { updated_at: new Date().toISOString() };
 
-  // Callback voicemail special case (BUILD_PLAN §8): when the lead is in
-  // callback status and the call landed on voicemail, escalate the active
-  // callback rather than the unified retry cycle.
-  if (call.outcome === "voicemail" && lead?.status === "callback") {
+  // Callback voicemail special case (BUILD_PLAN §8): a voicemail on a lead with
+  // a PENDING callback escalates that callback (+30min → next day → 'missed')
+  // instead of the generic 2-day retry cycle.
+  //
+  // Keyed on the callback's EXISTENCE, not lead.status. The status field can
+  // transiently read non-"callback" (a racing webhook, a just-run cycle), and
+  // gating escalation on it let real callback voicemails fall silently into the
+  // cold-call cycle — voicemail_attempts stuck at 0 while retry_counter advanced
+  // (The Nest Yoga). escalateCallbackVoicemail returns false when there's no
+  // pending callback, so an ordinary cold-call voicemail still falls through to
+  // the standard cycle below.
+  if (call.outcome === "voicemail") {
     const escalated = await escalateCallbackVoicemail(
       supabase,
       call.lead_id,
@@ -200,8 +208,7 @@ export async function applyRetryForCall(
       if (leadError) return { ok: false, reason: "could_not_update_lead" };
       return { ok: true, status: "applied" };
     }
-    // Fall through to the standard cycle if no active callback was found
-    // (defensive — lead.status went stale somehow).
+    // No pending callback — fall through to the standard retry cycle.
   }
 
   // Schedule the next attempt at the START of the lead's calling day (9am
