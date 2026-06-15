@@ -9,6 +9,7 @@ import {
   getAvailableTimes as calendlyGetAvailableTimes,
 } from "@/lib/calendly/api";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
+import { parseZonedDatetime } from "@/lib/dialer/local-schedule";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
@@ -451,8 +452,11 @@ async function scheduleCallback(
   body: Record<string, unknown>,
 ): Promise<ToolWebhookResult> {
   const raw = str(body.callback_datetime);
-  const when = new Date(raw);
-  if (!raw || Number.isNaN(when.getTime())) {
+  // Trust an explicit offset; if the model dropped it, read the wall-clock time
+  // in the LEAD's timezone (not the server's UTC) so the callback isn't stored
+  // hours off.
+  const when = parseZonedDatetime(raw, ctx.lead.timezone);
+  if (!raw || !when || Number.isNaN(when.getTime())) {
     return {
       success: false,
       message:

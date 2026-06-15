@@ -11,7 +11,10 @@ import {
 } from "@/lib/callbacks/sync-next-call";
 import { callReachedDm } from "@/lib/calls/decision-maker";
 import { CONVERSATION_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
-import { localHourDaysAheadIso } from "@/lib/dialer/local-schedule";
+import {
+  localHourDaysAheadIso,
+  parseZonedDatetime,
+} from "@/lib/dialer/local-schedule";
 import {
   applyRetryForCall,
   finalizeFailedCall,
@@ -1330,21 +1333,18 @@ export async function applyOutcomeSideEffects(
     }
     // Use the time the lead actually named; otherwise schedule for tomorrow
     // morning in the LEAD's timezone (a predictable, in-hours slot) rather than
-    // copying the original call's arbitrary clock time.
-    const parsed = input.callbackDatetime
-      ? new Date(input.callbackDatetime)
-      : null;
-    let scheduledAt: string;
-    if (parsed && !isNaN(parsed.getTime())) {
-      scheduledAt = parsed.toISOString();
-    } else {
-      const { data: leadTz } = await supabase
-        .from("leads")
-        .select("timezone")
-        .eq("id", input.leadId)
-        .maybeSingle();
-      scheduledAt = nextDayLocalHourIso(leadTz?.timezone, 10);
-    }
+    // copying the original call's arbitrary clock time. Pull the timezone once:
+    // it both interprets an offset-less named time (so it isn't read as UTC) and
+    // anchors the default slot.
+    const { data: leadTz } = await supabase
+      .from("leads")
+      .select("timezone")
+      .eq("id", input.leadId)
+      .maybeSingle();
+    const parsed = parseZonedDatetime(input.callbackDatetime, leadTz?.timezone);
+    const scheduledAt = parsed
+      ? parsed.toISOString()
+      : nextDayLocalHourIso(leadTz?.timezone, 10);
 
     await supabase.from("callbacks").insert({
       lead_id: input.leadId,
