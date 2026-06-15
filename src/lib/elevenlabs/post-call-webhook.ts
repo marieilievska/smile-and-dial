@@ -11,6 +11,7 @@ import {
 } from "@/lib/callbacks/sync-next-call";
 import { callReachedDm } from "@/lib/calls/decision-maker";
 import { CONVERSATION_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
+import { localHourDaysAheadIso } from "@/lib/dialer/local-schedule";
 import {
   applyRetryForCall,
   finalizeFailedCall,
@@ -146,53 +147,15 @@ const EMPTY_EXTRACTION_VALUES = new Set([
   "not provided",
 ]);
 
-/** UTC ISO for "tomorrow at `hour`:00 in the lead's timezone" — a predictable,
- *  in-hours time to schedule a callback/retry when the lead didn't name one,
- *  instead of blindly copying the original call's odd clock time. DST-correct
- *  via the standard Intl offset-correction trick. */
+/** UTC ISO for "the next calling day at `hour`:00 in the lead's timezone" — a
+ *  predictable, in-hours time to schedule a callback/retry when the lead didn't
+ *  name one. Delegates to the shared weekday-aware helper so a "tomorrow" that
+ *  would land on a weekend rolls to Monday (calls run Mon–Fri). */
 function nextDayLocalHourIso(
   timeZone: string | null | undefined,
   hour = 10,
 ): string {
-  const tz = timeZone || "America/New_York";
-  const now = new Date();
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const num = (t: string) => Number(parts.find((x) => x.type === t)?.value);
-  // Desired wall-clock instant (tomorrow hour:00) interpreted as if UTC.
-  const wallGuess = Date.UTC(
-    num("year"),
-    num("month") - 1,
-    num("day") + 1,
-    hour,
-    0,
-    0,
-  );
-  // Read that instant back in the tz to discover the tz's offset there.
-  const rbParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).formatToParts(new Date(wallGuess));
-  const rb = (t: string) => Number(rbParts.find((x) => x.type === t)?.value);
-  const readMs = Date.UTC(
-    rb("year"),
-    rb("month") - 1,
-    rb("day"),
-    rb("hour") % 24,
-    rb("minute"),
-    0,
-  );
-  const offset = readMs - wallGuess;
-  return new Date(wallGuess - offset).toISOString();
+  return localHourDaysAheadIso(timeZone, 1, hour);
 }
 
 /** Tell-tale phrases of an answering machine, voicemail, or IVR auto-attendant
@@ -1277,6 +1240,30 @@ export async function applyOutcomeSideEffects(
       ref_table: "calls",
       ref_id: input.callId,
     });
+  }
+
+  // goal_met / transferred_to_human are TERMINAL — the lead is won, no more
+  // calls. Clear next_call_at authoritatively here instead of leaning on the
+  // retry engine: for a MANUAL call the engine usually already ran (FIX C, no
+  // outcome yet) before the disposition, so its CAS lock no-ops and a stale
+  // retry date is left behind (the Pure Balance Yoga bug). Mirrors how DNC is
+  // handled explicitly just below.
+  if (
+    input.outcome === "goal_met" ||
+    input.outcome === "transferred_to_human"
+  ) {
+    await supabase
+      .from("leads")
+      .update({
+        status: "goal_met",
+        next_call_at: null,
+        resting_until: null,
+        retry_counter: 0,
+        retry_position: 0,
+        call_back_later_count: 0,
+      })
+      .eq("id", input.leadId);
+    return;
   }
 
   // --- DNC ---
