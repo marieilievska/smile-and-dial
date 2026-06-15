@@ -41,6 +41,10 @@ export type ConversationInitResponse = {
     call_type: string;
     last_call_summary: string;
     last_callback_notes: string;
+    // How long ago the previous call was, in plain words ("yesterday", "3 days
+    // ago"). Anchors the agent in time so a callback doesn't sound like it's
+    // continuing a conversation that happened moments ago.
+    last_contact: string;
     transfer_number: string;
     // Our internal calls.id, bound into every server tool's request so the
     // tool webhook can resolve the lead/campaign. Blank when unresolved.
@@ -72,6 +76,23 @@ function todayInTimezone(timeZone: string): string {
     month: "long",
     day: "numeric",
   }).format(new Date());
+}
+
+/** Plain-English "how long ago" for the previous call, so the agent knows time
+ *  has passed and a callback doesn't sound like it's continuing a conversation
+ *  from moments ago. Empty string when there's no prior call. */
+function humanRecency(fromIso: string | null | undefined): string {
+  if (!fromIso) return "";
+  const then = new Date(fromIso).getTime();
+  if (!Number.isFinite(then)) return "";
+  const days = Math.floor((Date.now() - then) / (24 * 60 * 60 * 1000));
+  if (days <= 0) return "earlier today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return "about a week ago";
+  if (days < 31) return `${Math.round(days / 7)} weeks ago`;
+  if (days < 60) return "about a month ago";
+  return `${Math.round(days / 30)} months ago`;
 }
 
 /**
@@ -138,6 +159,7 @@ function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
     call_type: "cold",
     last_call_summary: "",
     last_callback_notes: "",
+    last_contact: "",
     transfer_number: "",
     call_id: "",
     business_name: "",
@@ -174,7 +196,7 @@ async function buildVarsForCall(
       supabase
         .from("leads")
         .select(
-          "company, ai_summary, status, owner_name, city, category, google_rating, google_reviews, timezone",
+          "company, ai_summary, status, owner_name, city, category, google_rating, google_reviews, timezone, last_call_at",
         )
         .eq("id", call.lead_id)
         .maybeSingle(),
@@ -211,10 +233,22 @@ async function buildVarsForCall(
     lastCallbackNotes = originating?.summary?.trim() ?? "";
   }
 
+  // Anchor the rolling summary in time: prefix it with how long ago the last
+  // call was, so the agent doesn't treat a 2-day-old "left off on hold" as if
+  // it just happened. lead.last_call_at is still the PREVIOUS call here (the
+  // current call hasn't stamped it yet).
+  const recency = humanRecency(lead?.last_call_at);
+  const summaryText = lead?.ai_summary?.trim() ?? "";
+  const lastCallSummary =
+    summaryText && recency
+      ? `(Our last call with them was ${recency}.) ${summaryText}`
+      : summaryText;
+
   return {
     call_type: isCallback ? "callback" : "cold",
-    last_call_summary: lead?.ai_summary?.trim() ?? "",
+    last_call_summary: lastCallSummary,
     last_callback_notes: lastCallbackNotes,
+    last_contact: recency,
     transfer_number: campaign?.transfer_destination_phone?.trim() ?? "",
     call_id: call.id,
     business_name: lead?.company?.trim() ?? "",
