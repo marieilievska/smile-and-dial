@@ -91,9 +91,12 @@ function extractedDataOf(
 }
 
 /** Extraction keys that must NOT become custom fields. These are operational
- *  (disposition → outcome, callback_datetime → callbacks) or already map onto
- *  the lead's built-in columns (email / names). Everything else the agent
- *  captures becomes a custom field. Compared against the slugified key. */
+ *  (disposition → outcome, callback_datetime → callbacks), already map onto
+ *  the lead's built-in columns (email / names), or are surfaced by a dedicated
+ *  built-in control — `decision_maker_reached` drives the lead's Decision-maker
+ *  Yes/No flag (see callReachedDm), so mirroring it into a custom field would
+ *  just duplicate that. Everything else the agent captures becomes a custom
+ *  field. Compared against the slugified key. */
 const RESERVED_EXTRACTION_KEYS = new Set([
   "disposition",
   "callback_datetime",
@@ -101,6 +104,7 @@ const RESERVED_EXTRACTION_KEYS = new Set([
   "owner_name",
   "manager_name",
   "employee_name",
+  "decision_maker_reached",
 ]);
 
 /** Factual identity/contact details worth keeping even when no real two-way
