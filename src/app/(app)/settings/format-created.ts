@@ -1,8 +1,7 @@
 /** Humanize a `created_at` (or any past) timestamp for the settings
- *  tables. Same shape as DNC `formatAddedAt` and System Health
- *  `formatEventWhen` — recent rows read as relative ("3h ago"),
- *  older ones get a concrete date. Pure function — pass `now` to
- *  keep the render deterministic.
+ *  tables. Same shape as DNC `formatAddedAt` — recent rows read as
+ *  relative ("3h ago"), older ones get a concrete date. Pure function —
+ *  pass `now` to keep the render deterministic.
  *
  *  Centralised here so every settings page uses the same convention. */
 export function formatCreatedAt(iso: string, now: Date = new Date()): string {

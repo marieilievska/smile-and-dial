@@ -1,5 +1,4 @@
 import {
-  Activity,
   Archive,
   Ban,
   BarChart3,
@@ -79,12 +78,5 @@ export const navItems: NavItem[] = [
   },
   { label: "DNC", href: "/dnc", icon: Ban, section: "operations" },
   { label: "Costs", href: "/costs", icon: DollarSign, section: "operations" },
-  {
-    label: "System Health",
-    href: "/system-health",
-    icon: Activity,
-    section: "admin",
-    adminOnly: true,
-  },
   { label: "Settings", href: "/settings", icon: Settings, section: "admin" },
 ];

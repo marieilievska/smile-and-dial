@@ -1056,7 +1056,7 @@ async function processAudio(data: ElevenLabsAudioData): Promise<ProcessResult> {
 /**
  * Call-initiation-failure event (type=call_initiation_failure): the
  * telephony layer never connected. Mark the call failed and log a system
- * event so it surfaces on /system-health. Idempotent per conversation.
+ * event to the system_events audit log. Idempotent per conversation.
  */
 async function processInitiationFailure(
   data: ElevenLabsFailureData,

@@ -91,7 +91,7 @@ export function TablePageSkeleton({
 }
 
 /** Header + hero + KPI grid + chart — the shape of Analytics, Costs,
- *  Today, System Health. */
+ *  Today. */
 export function DashboardSkeleton({ tiles = 5 }: { tiles?: number }) {
   return (
     <div className="flex flex-col gap-5 p-6">

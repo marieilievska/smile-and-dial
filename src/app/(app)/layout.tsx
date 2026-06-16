@@ -37,8 +37,6 @@ export default async function AppLayout({
   // operator can pick from (for the top-bar chip) + small status
   // counts for the sidebar dots. All in one Promise.all so the layout
   // server-renders in one round-trip.
-  const todayStart = new Date();
-  todayStart.setUTCHours(0, 0, 0, 0);
   const [
     { data: profile },
     { data: rawNotifications },
@@ -47,7 +45,6 @@ export default async function AppLayout({
     { data: campaignOptions },
     { count: overdueCallbacks },
     { count: pausedCampaigns },
-    { count: recentErrors24h },
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -87,13 +84,6 @@ export default async function AppLayout({
       .select("id", { count: "exact", head: true })
       .eq("status", "paused")
       .not("paused_reason", "is", null),
-    // Sidebar status dot: system_events with kind tied to error
-    // severity in the last 24h (admin only — RLS filters for members).
-    supabase
-      .from("system_events")
-      .select("id", { count: "exact", head: true })
-      .in("kind", ["webhook_error", "dialer_failure", "orphan_call"])
-      .gte("created_at", todayStart.toISOString()),
   ]);
 
   const name = profile?.full_name || profile?.email || user.email || "User";
@@ -110,7 +100,6 @@ export default async function AppLayout({
   const statusCounts = {
     callbacks: overdueCallbacks ?? 0,
     campaigns: pausedCampaigns ?? 0,
-    systemHealth: recentErrors24h ?? 0,
   };
 
   return (
