@@ -123,6 +123,10 @@ Capture, factually and in PAST tense (these calls already happened):
   their questions, objections, or stated interest/disinterest. If the lead
   didn't really engage (put us on hold, hung up, went to voicemail, or we only
   reached a gatekeeper), say plainly what blocked us.
+- The lead's main challenge or pain point IN THEIR OWN BUSINESS — what they
+  said they struggle with (e.g. no-shows, slow seasons, staffing, getting
+  reviews, retaining members) — but ONLY if the LEAD themselves raised it. If
+  they mentioned no problem, leave it out; never guess one.
 - A commitment ONLY if the lead explicitly agreed to one (a callback time,
   permission to send info). If none, say no commitment was made.
 - What the next caller should DO or open with, given how this went.
@@ -131,8 +135,9 @@ Do NOT restate the agent's pitch or questions as the lead's interest. Do NOT
 invent details. Do NOT include dates or "X ago" timing — the caller is told
 separately how long ago the last call was.
 
-Write 2–4 short sentences in this shape:
-"We know X. Last call: Y. Next time: Z."
+Write 2–5 short sentences in this shape:
+"We know X (include their main struggle if they shared one). Last call: Y.
+Next time: Z."
 Max 200 words. No filler.`;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
