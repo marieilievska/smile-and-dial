@@ -2,7 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Canonical outcome groupings — shared across every metric surface so connect
 // rate (and conversation / DM-reached) means the same thing everywhere.
-import { callReachedDm } from "@/lib/calls/decision-maker";
 import {
   CONNECTED_OUTCOMES,
   CONVERSATION_OUTCOMES,
@@ -19,18 +18,25 @@ export type CallRow = {
   talk_time_seconds: number | null;
   cost_breakdown: unknown;
   extracted_data: unknown;
+  /** The LEAD's sticky decision_maker_reached flag (operator-correctable),
+   *  joined in by fetchCallsForRange. DM-reached metrics count THIS, not the
+   *  call's frozen AI extraction, so a manual Yes/No correction on the lead is
+   *  reflected in analytics. */
+  lead_decision_maker_reached: boolean;
   started_at: string | null;
   created_at: string;
 };
 
-/** Did this call reach the decision maker? Delegates to the shared
- *  `callReachedDm` so the Calls page, analytics, and the lead-level flag all
- *  agree: TRUE only when the transcript analysis recorded
- *  decision_maker_reached = "yes" — independent of the call's outcome. */
-export function rowReachedDm(row: { extracted_data: unknown }): boolean {
-  return callReachedDm(
-    (row.extracted_data ?? null) as Record<string, unknown> | null,
-  );
+/** Does this call's LEAD count as "decision maker reached"? Reads the lead's
+ *  sticky decision_maker_reached flag (joined in by fetchCallsForRange), NOT
+ *  the call's frozen AI extraction. The flag is what the post-call webhook sets
+ *  automatically AND what an operator can correct with the lead's Yes/No
+ *  toggle — so a manual correction is reflected in these metrics instead of the
+ *  metric showing a stale "yes" the operator already overrode. */
+export function rowReachedDm(row: {
+  lead_decision_maker_reached?: boolean;
+}): boolean {
+  return row.lead_decision_maker_reached === true;
 }
 
 export type Slicers = {
@@ -109,18 +115,30 @@ export async function fetchCallsForRange(
 
   const { data } = await query;
   let rows = (data ?? []) as unknown as CallRow[];
+  if (rows.length === 0) return [];
 
-  // owner / list filters live on `leads`, not `calls`. Post-filter by
-  // intersecting the lead ids — same round-trip count as before.
+  // Join each call's LEAD-level decision_maker_reached flag (the operator-
+  // correctable source of truth) so DM-reached metrics reflect manual Yes/No
+  // corrections, not the call's frozen AI extraction. The same query also
+  // applies the owner / list filters, which live on `leads`, not `calls`.
+  const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
+  let leadQuery = supabase
+    .from("leads")
+    .select("id, decision_maker_reached")
+    .in("id", leadIds);
+  if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
+  if (slicers.ownerId) leadQuery = leadQuery.eq("owner_id", slicers.ownerId);
+  const { data: leads } = await leadQuery;
+  const dmByLead = new Map(
+    (leads ?? []).map((l) => [l.id, l.decision_maker_reached === true]),
+  );
+
+  // When an owner/list filter is set, drop calls whose lead fell outside it.
   if (slicers.ownerId || slicers.listId) {
-    const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
-    if (leadIds.length === 0) return [];
-    let leadQuery = supabase.from("leads").select("id").in("id", leadIds);
-    if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
-    if (slicers.ownerId) leadQuery = leadQuery.eq("owner_id", slicers.ownerId);
-    const { data: leads } = await leadQuery;
-    const ok = new Set((leads ?? []).map((l) => l.id));
-    rows = rows.filter((r) => ok.has(r.lead_id));
+    rows = rows.filter((r) => dmByLead.has(r.lead_id));
+  }
+  for (const r of rows) {
+    r.lead_decision_maker_reached = dmByLead.get(r.lead_id) ?? false;
   }
 
   return rows;
