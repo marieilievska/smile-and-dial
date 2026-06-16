@@ -384,8 +384,8 @@ async function placeLiveDialerCall(
     toNumber: c.business_phone,
   });
   if (!result.ok) {
-    // FIX B (#6): surface the placement rejection so operators see it on the
-    // System Health page instead of the dialer silently looping. Best-effort.
+    // FIX B (#6): record the placement rejection in the system_events audit
+    // log instead of the dialer silently looping. Best-effort.
     await supabase.from("system_events").insert({
       kind: "call_placement_failed",
       actor_user_id: null,

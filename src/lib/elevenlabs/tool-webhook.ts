@@ -382,7 +382,7 @@ async function sendEmail(
 
   // Send the campaign's FIXED template (chosen in campaign settings). When no
   // template is attached we can only record the intent — there's nothing to
-  // send — so the call still flows but ops can see it on /system-health.
+  // send — so the call still flows but the intent is recorded in system_events.
   const tmpl = await resolveCampaignEmailTemplate(ctx.supabase, ctx.campaignId);
   if (!tmpl) {
     await logToolEvent(ctx, "tool_send_email", {

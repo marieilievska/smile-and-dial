@@ -40,19 +40,16 @@ const SAVED_VIEWS_FOR_HREF: Record<string, string> = {
 export type SidebarStatusCounts = {
   callbacks: number;
   campaigns: number;
-  systemHealth: number;
 };
 
 const STATUS_HREFS: Record<string, keyof SidebarStatusCounts> = {
   "/callbacks": "callbacks",
   "/campaigns": "campaigns",
-  "/system-health": "systemHealth",
 };
 
 const STATUS_TONES: Record<keyof SidebarStatusCounts, string> = {
   callbacks: "bg-warning",
   campaigns: "bg-warning",
-  systemHealth: "bg-destructive",
 };
 
 export function AppSidebar({
@@ -169,7 +166,7 @@ export function AppSidebar({
                       {statusKey && statusValue > 0 ? (
                         <span
                           data-testid={`sidebar-status-${statusKey}`}
-                          aria-label={`${statusValue} ${statusKey === "systemHealth" ? "errors" : statusKey === "callbacks" ? "overdue" : "paused"}`}
+                          aria-label={`${statusValue} ${statusKey === "callbacks" ? "overdue" : "paused"}`}
                           className={cn(
                             "inline-flex items-center justify-center rounded-full px-1.5 py-0 text-[10px] font-semibold tabular-nums",
                             active
