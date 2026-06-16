@@ -65,6 +65,11 @@ export async function connectToAgentTwiml(input: {
   if (process.env.ELEVENLABS_LIVE === "live") {
     const bridge = await buildBridgeTwiml({
       elevenlabsAgentId: input.elevenLabsAgentId,
+      // Attach our call_id as a Stream <Parameter> so ElevenLabs echoes it
+      // back in the post-call webhook — without it, the webhook can't link the
+      // conversation to this inbound calls row and the recording/transcript/
+      // summary/outcome never attach.
+      callId: input.callId,
     });
     if (bridge) return bridge;
     // Fall through to the placeholder so the inbound call still
