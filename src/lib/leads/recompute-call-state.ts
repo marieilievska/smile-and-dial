@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import { anyCallReachedDm } from "@/lib/calls/decision-maker";
 import { CONVERSATION_OUTCOMES } from "@/lib/calls/outcomes";
+import { localHourDaysAheadIso } from "@/lib/dialer/local-schedule";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Admin = ReturnType<typeof createClient<Database>>;
@@ -15,10 +16,12 @@ const DNC_OUTCOMES = new Set(["dnc", "invalid_number", "language_barrier"]);
 
 /**
  * Recompute one lead's call-derived fields from its REMAINING calls, after some
- * of its calls were deleted. No calls remain → fresh reset. Calls remain →
- * rewind to reflect them, never un-winning a booked lead or un-blocking a DNC'd
- * one. The forward retry ladder resets to neutral (intentional — the lead
- * re-enters normal rotation; we don't replay the engine).
+ * of its calls were deleted. No calls remain → fresh reset (a genuinely
+ * never-called lead, so next_call_at = null = "call ASAP" is correct). Calls
+ * remain → rewind to reflect them, never un-winning a booked lead or
+ * un-blocking a DNC'd one. The forward retry ladder resets to neutral (we don't
+ * replay the engine), but a lead we've already phoned re-enters rotation on a
+ * one-day cool-off rather than being dialed instantly (see below).
  */
 export async function recomputeLeadCallState(
   admin: Admin,
@@ -76,6 +79,7 @@ export async function recomputeLeadCallState(
     const dmReached = anyCallReachedDm(remaining);
 
     let status = "ready_to_call";
+    let leadTimezone: string | null = null;
     if (remaining.some((c) => c.outcome && TERMINAL_WON.has(c.outcome))) {
       status = "goal_met";
     } else if (
@@ -85,9 +89,10 @@ export async function recomputeLeadCallState(
     } else {
       const { data: lead } = await admin
         .from("leads")
-        .select("business_phone")
+        .select("business_phone, timezone")
         .eq("id", leadId)
         .maybeSingle();
+      leadTimezone = lead?.timezone ?? null;
       if (lead?.business_phone) {
         const { data: dnc } = await admin
           .from("dnc_entries")
@@ -98,11 +103,26 @@ export async function recomputeLeadCallState(
       }
     }
 
+    // A lead with calls still on file that re-enters the standard queue gets a
+    // one-day cool-off (next calling morning, weekday-aware) instead of
+    // next_call_at = null. Null sorts to the FRONT of the dial queue (the view
+    // orders nullsFirst = "due now / call ASAP"), so a lead we already phoned
+    // would otherwise be re-dialed immediately with zero backoff the moment one
+    // of its calls is deleted. We keep it deliberately simple — a gentle
+    // next-day cool-off, not a full replay of the 2d/2d/15d ladder. Terminal
+    // leads (goal_met/dnc) keep next_call_at = null, and a surviving pending
+    // callback overrides this just below.
+    const nextCallAt =
+      status === "ready_to_call"
+        ? localHourDaysAheadIso(leadTimezone, 1)
+        : null;
+
     await admin
       .from("leads")
       .update({
         ...base,
         status,
+        next_call_at: nextCallAt,
         last_call_at: lastCallAt,
         call_attempts: remaining.length,
         conversations,
