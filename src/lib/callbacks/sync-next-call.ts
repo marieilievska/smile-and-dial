@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { reapplyRetryForCall } from "@/lib/dialer/retry-engine";
 import type { Database } from "@/lib/supabase/database.types";
 
 type CallOutcome = Database["public"]["Tables"]["calls"]["Row"]["outcome"];
@@ -95,6 +96,87 @@ export async function syncLeadNextCallToEarliestCallback(
     .from("leads")
     .update({ status: "callback", next_call_at: data.scheduled_at })
     .eq("id", leadId);
+}
+
+/**
+ * Re-point a lead after one of its callbacks was REMOVED by an operator
+ * (deleted / cancelled / completed). Like {@link syncLeadNextCallToEarliestCallback}
+ * for the common case, but with a smarter "no callbacks left" fallback:
+ *
+ *   - Pending callbacks remain → point the lead at the earliest (unchanged).
+ *   - NONE remain and the lead is still in 'callback' → DON'T blank the Next
+ *     call. Re-derive it from the lead's most recent call's DISPOSITION via the
+ *     retry engine (e.g. a gatekeeper call → the unified ~2-day retry). A
+ *     callback frequently sits ON TOP of a real disposition — the agent reached
+ *     a gatekeeper AND booked a callback, so the call's outcome is 'gatekeeper'
+ *     while the callback owns the schedule. Removing the callback should fall
+ *     back to that disposition's schedule, not leave the lead with no Next call.
+ *   - Only when there's no call to derive from (or its outcome is owned
+ *     elsewhere — callback / dnc / invalid_number / language_barrier) do we hand
+ *     the lead back to the standard queue (ready_to_call, next_call_at null) —
+ *     the original behavior.
+ *
+ * Conservative: like the primitive, the no-callbacks-left path only ever touches
+ * a lead STILL in 'callback', so a lead the dialer or an operator already moved
+ * on is left exactly as-is.
+ *
+ * Works with any Supabase client (user-scoped from cancel/complete, or
+ * service-role from delete); the retry engine always runs under the service role
+ * internally.
+ */
+export async function resyncLeadAfterCallbackRemoval(
+  supabase: SupabaseClient<Database>,
+  leadId: string,
+): Promise<void> {
+  const { data: earliest } = await supabase
+    .from("callbacks")
+    .select("scheduled_at")
+    .eq("lead_id", leadId)
+    .eq("status", "pending")
+    .order("scheduled_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (earliest) {
+    await supabase
+      .from("leads")
+      .update({ status: "callback", next_call_at: earliest.scheduled_at })
+      .eq("id", leadId);
+    return;
+  }
+
+  // No pending callbacks remain. Only re-derive for a lead still parked on the
+  // (now-gone) callback — never disturb one the dialer/operator already advanced.
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("status")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (lead?.status !== "callback") return;
+
+  // Fall back to the lead's latest dispositioned call (gatekeeper → 2-day retry,
+  // not_interested → rest, …) instead of blanking the Next call.
+  const { data: latestCall } = await supabase
+    .from("calls")
+    .select("id")
+    .eq("lead_id", leadId)
+    .not("outcome", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (latestCall) {
+    const rescheduled = await reapplyRetryForCall(latestCall.id);
+    if (rescheduled) return;
+  }
+
+  // No usable disposition — hand the lead back to the standard queue (original
+  // behavior). The status guard keeps us from disturbing a lead that moved on.
+  await supabase
+    .from("leads")
+    .update({ status: "ready_to_call", next_call_at: null })
+    .eq("id", leadId)
+    .eq("status", "callback");
 }
 
 /**

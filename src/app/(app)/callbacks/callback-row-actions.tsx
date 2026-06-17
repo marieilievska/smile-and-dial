@@ -242,8 +242,9 @@ export function CallbackRowActions({
               <AlertDialogHeader>
                 <AlertDialogTitle>Cancel callback?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  The lead will move back to ready to call. The original call
-                  row stays in the audit trail.
+                  The lead&apos;s Next call falls back to its last call&apos;s
+                  disposition (or returns to ready to call if there isn&apos;t
+                  one). The call history stays in the audit trail.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -280,7 +281,8 @@ export function CallbackRowActions({
               <AlertDialogTitle>Delete this callback?</AlertDialogTitle>
               <AlertDialogDescription>
                 This permanently removes the callback. If it&apos;s still
-                pending, the lead is handed back to the standard queue. This
+                pending, the lead&apos;s Next call falls back to its last
+                call&apos;s disposition. The call history is untouched. This
                 cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>

@@ -333,6 +333,31 @@ export async function applyRetryForCall(
 }
 
 /**
+ * Force the retry engine to re-derive a lead's schedule from ONE call's
+ * disposition, even if retry was already applied for that call. Clears the
+ * idempotency stamp (`retry_applied_at`) and re-runs `applyRetryForCall`.
+ *
+ * Used when a scheduled callback is REMOVED and the lead should fall back to
+ * whatever its latest call's disposition dictates (e.g. a gatekeeper call →
+ * the unified 2-day retry) instead of being left with no Next call. Mirrors
+ * the clear-then-reapply pattern `overrideCallOutcome` already uses.
+ *
+ * Returns true when the engine actually rescheduled the lead (`applied`);
+ * false when it no-opped — the outcome is owned elsewhere (callback / dnc /
+ * invalid_number / language_barrier) or the call is still in flight — so the
+ * caller can apply its own fallback.
+ */
+export async function reapplyRetryForCall(callId: string): Promise<boolean> {
+  const supabase = makeServiceClient();
+  await supabase
+    .from("calls")
+    .update({ retry_applied_at: null })
+    .eq("id", callId);
+  const result = await applyRetryForCall(callId);
+  return result.ok === true && result.status === "applied";
+}
+
+/**
  * Mark a call terminally FAILED and run the retry engine for it (Improvement 1).
  *
  * Several terminal-failure write paths used to flip a call to failed/failed but

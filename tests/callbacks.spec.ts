@@ -414,4 +414,106 @@ test.describe("Callbacks page", () => {
     expect(lead?.status).toBe("ready_to_call");
     expect(lead?.next_call_at).toBeNull();
   });
+
+  /** Insert a finished call with a fixed disposition so we can verify a lead
+   *  falls back to it once its callback is removed. */
+  async function seedDispositionedCall(
+    leadId: string,
+    outcome: string,
+  ): Promise<string> {
+    const { data } = await admin
+      .from("calls")
+      .insert({
+        lead_id: leadId,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "completed",
+        outcome,
+        outcome_source: "manual",
+      })
+      .select("id")
+      .single();
+    callIds.push(data!.id);
+    return data!.id;
+  }
+
+  test("deleting the last callback falls back to the lead's call disposition", async ({
+    page,
+  }) => {
+    const leadId = await seedLead("70");
+    // The lead reached a gatekeeper AND had a callback booked on top — so the
+    // call's disposition is 'gatekeeper' while the callback owns the schedule.
+    // Deleting the callback should fall back to the gatekeeper disposition
+    // (the unified ~2-day retry), NOT blank the Next call.
+    await seedDispositionedCall(leadId, "gatekeeper");
+    const cbId = await seedCallback({
+      leadId,
+      scheduledAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+    });
+
+    await page.goto("/callbacks?status=pending");
+    await page
+      .getByRole("row", { name: new RegExp(`E2E CB Lead ${stamp}-70`) })
+      .getByLabel("Select callback")
+      .click();
+    await page.getByTestId("callbacks-bulk-delete").click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await expect(page.getByText(/Deleted 1 callback/)).toBeVisible();
+
+    const { data: gone } = await admin
+      .from("callbacks")
+      .select("id")
+      .eq("id", cbId)
+      .maybeSingle();
+    expect(gone).toBeNull();
+
+    // Disposition fallback: a future Next call was scheduled (not null) and the
+    // unified retry cycle advanced the counter, instead of a blank reset.
+    const { data: lead } = await admin
+      .from("leads")
+      .select("status, next_call_at, retry_counter")
+      .eq("id", leadId)
+      .single();
+    expect(lead?.status).toBe("ready_to_call");
+    expect(lead?.next_call_at).not.toBeNull();
+    expect(new Date(lead!.next_call_at!).getTime()).toBeGreaterThan(Date.now());
+    expect(lead?.retry_counter).toBe(1);
+  });
+
+  test("cancelling the last callback falls back to the lead's call disposition", async ({
+    page,
+  }) => {
+    const leadId = await seedLead("80");
+    await seedDispositionedCall(leadId, "gatekeeper");
+    await seedCallback({
+      leadId,
+      scheduledAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    });
+
+    await page.goto(`/callbacks?campaign=${campaignId}`);
+    await page
+      .getByRole("row", { name: new RegExp(`E2E CB Lead ${stamp}-80`) })
+      .getByRole("button", { name: "Cancel" })
+      .click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Cancel callback" })
+      .click();
+    await expect(page.getByText("Callback cancelled.")).toBeVisible();
+
+    const { data: lead } = await admin
+      .from("leads")
+      .select("status, next_call_at, retry_counter")
+      .eq("id", leadId)
+      .single();
+    expect(lead?.status).toBe("ready_to_call");
+    expect(lead?.next_call_at).not.toBeNull();
+    expect(new Date(lead!.next_call_at!).getTime()).toBeGreaterThan(Date.now());
+    expect(lead?.retry_counter).toBe(1);
+  });
 });
