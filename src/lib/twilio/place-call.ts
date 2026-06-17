@@ -86,6 +86,47 @@ export async function importTwilioNumberToElevenLabs(
   }
 }
 
+/** Assign (or change) the agent that answers INBOUND calls to an imported
+ *  ElevenLabs phone number. ElevenLabs' phone-number record carries the inbound
+ *  agent; setting it makes EL answer incoming calls to that number with the
+ *  agent's voice — the same native path outbound already uses, so inbound finally
+ *  reaches a real conversation instead of the dead `<Connect><Stream>` bridge.
+ *
+ *  PATCH /v1/convai/phone-numbers/{id} with { agent_id }. Mocked unless
+ *  ELEVENLABS_LIVE=live. */
+export async function assignInboundAgentToElevenLabsNumber(input: {
+  phoneNumberId: string;
+  elevenlabsAgentId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isLive()) return { ok: true };
+  const apiKey = elevenLabsApiKey();
+  if (!apiKey) return { ok: false, error: "ELEVENLABS_API_KEY is not set." };
+  try {
+    const res = await fetch(
+      `${ELEVENLABS_BASE}/v1/convai/phone-numbers/${encodeURIComponent(
+        input.phoneNumberId,
+      )}`,
+      {
+        method: "PATCH",
+        headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: input.elevenlabsAgentId }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      return {
+        ok: false,
+        error: `ElevenLabs inbound-agent assignment failed (${res.status})${
+          detail ? ` ${detail.slice(0, 200)}` : ""
+        }.`,
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "ElevenLabs inbound-agent assignment failed." };
+  }
+}
+
 export type PlaceCallInput = {
   /** Our internal call_id. Passed to ElevenLabs as a dynamic variable so the
    *  post-call webhook can resolve our `calls` row deterministically. */

@@ -100,29 +100,43 @@ export type InboundResult =
   | { status: "duplicate"; callId: string; twiml: string }
   | { ok: false; reason: string };
 
+export type EnsureInboundResult =
+  | {
+      status: "routed";
+      callId: string;
+      leadId: string;
+      campaignId: string;
+      /** Local agents.id of the campaign's agent (may be null). */
+      agentLocalId: string | null;
+      /** The lead's rolling summary (null for a freshly-created lead). */
+      aiSummary: string | null;
+    }
+  | { status: "no_service" }
+  | { ok: false; reason: string };
+
 /**
- * Route one inbound Twilio call. See BUILD_PLAN §6.
+ * Find-or-create the inbound `calls` row (and its lead) for one incoming call,
+ * with NO TwiML. See BUILD_PLAN §6:
  *
- *   1. Look up which campaign owns the destination Twilio number.
- *      No campaign → "not in service".
- *   2. Look up the caller's phone in that owner's leads.
- *      Match → reuse the lead, preserve ai_summary.
- *      No match → create a new lead in the owner's Inbound list.
- *   3. Insert a `calls` row with direction='inbound', twilio_call_sid=
- *      Twilio's CallSid. Unique constraint on twilio_call_sid gives us
- *      idempotency for free.
- *   4. Return TwiML that connects the audio to the campaign's agent.
+ *   1. Destination Twilio number → its attached campaign. No campaign → no_service.
+ *   2. Caller's phone → a lead in the campaign owner's leads. Match → reuse it
+ *      (preserve ai_summary); no match → create a lead in the owner's Inbound list.
+ *   3. Upsert a `calls` row (direction='inbound', twilio_call_sid=CallSid). The
+ *      unique constraint on twilio_call_sid is the idempotency lock, so this is
+ *      safe to call more than once for the same call — e.g. from BOTH the
+ *      conversation-init webhook (EL-native inbound) and a Twilio retry.
+ *
+ * Shared by `routeInboundCall` (legacy app-mediated voice webhook → TwiML) and
+ * the conversation-init webhook (EL-native inbound), so an inbound call is
+ * logged + lead-matched exactly once regardless of which path EL/Twilio use.
  */
-export async function routeInboundCall(input: {
-  callSid: string;
-  fromNumber: string;
-  toNumber: string;
-}): Promise<InboundResult> {
+export async function ensureInboundCallRow(
+  supabase: SupabaseAdmin,
+  input: { callSid: string; fromNumber: string; toNumber: string },
+): Promise<EnsureInboundResult> {
   if (!input.callSid || !input.toNumber) {
     return { ok: false, reason: "missing_call_sid_or_to" };
   }
-
-  const supabase = makeServiceClient();
 
   // 1. Twilio number → campaign.
   const { data: numberRow } = await supabase
@@ -131,7 +145,7 @@ export async function routeInboundCall(input: {
     .eq("phone_number", input.toNumber)
     .maybeSingle();
   if (!numberRow || !numberRow.attached_campaign_id) {
-    return { status: "no_service", twiml: notInServiceTwiml() };
+    return { status: "no_service" };
   }
 
   const { data: campaign } = await supabase
@@ -140,7 +154,7 @@ export async function routeInboundCall(input: {
     .eq("id", numberRow.attached_campaign_id)
     .maybeSingle();
   if (!campaign) {
-    return { status: "no_service", twiml: notInServiceTwiml() };
+    return { status: "no_service" };
   }
 
   // 2. Caller phone → lead (within campaign owner's leads).
@@ -178,7 +192,8 @@ export async function routeInboundCall(input: {
   }
 
   // 3. Insert the call row. The unique constraint on twilio_call_sid is
-  // our idempotency lock: a Twilio retry maps to a no-op upsert.
+  // our idempotency lock: a Twilio retry (or both inbound paths firing) maps to
+  // a no-op upsert onto the same row.
   const { data: call, error: callError } = await supabase
     .from("calls")
     .upsert(
@@ -200,19 +215,53 @@ export async function routeInboundCall(input: {
     return { ok: false, reason: "could_not_insert_call" };
   }
 
-  // 4. Pull the agent's ElevenLabs ID for the TwiML response.
+  return {
+    status: "routed",
+    callId: call.id,
+    leadId,
+    campaignId: campaign.id,
+    agentLocalId: campaign.agent_id,
+    aiSummary,
+  };
+}
+
+/**
+ * Route one inbound Twilio call for the LEGACY app-mediated voice webhook
+ * (`/api/twilio/voice-inbound`): resolve/insert the call via
+ * `ensureInboundCallRow`, then return TwiML.
+ *
+ * NOTE: with EL-native inbound (the number's agent assigned in ElevenLabs),
+ * Twilio delivers inbound calls to ElevenLabs directly and this route is no
+ * longer hit. It stays as a fallback for any number still pointed at the app —
+ * but the `<Connect><Stream>` bridge it returns never actually connected a
+ * conversation (see twilio-stream.ts / place-call.ts), so EL-native is the
+ * supported path.
+ */
+export async function routeInboundCall(input: {
+  callSid: string;
+  fromNumber: string;
+  toNumber: string;
+}): Promise<InboundResult> {
+  const supabase = makeServiceClient();
+  const res = await ensureInboundCallRow(supabase, input);
+  if ("ok" in res) return res;
+  if (res.status === "no_service") {
+    return { status: "no_service", twiml: notInServiceTwiml() };
+  }
+
+  // Pull the agent's ElevenLabs ID for the TwiML response.
   const { data: agent } = await supabase
     .from("agents")
     .select("elevenlabs_agent_id")
-    .eq("id", campaign.agent_id)
+    .eq("id", res.agentLocalId ?? "")
     .maybeSingle();
   const elevenLabsAgentId = agent?.elevenlabs_agent_id ?? "unknown";
 
   const twiml = await connectToAgentTwiml({
     elevenLabsAgentId,
-    callId: call.id,
-    leadId,
-    aiSummary,
+    callId: res.callId,
+    leadId: res.leadId,
+    aiSummary: res.aiSummary,
   });
-  return { status: "routed", callId: call.id, leadId, twiml };
+  return { status: "routed", callId: res.callId, leadId: res.leadId, twiml };
 }

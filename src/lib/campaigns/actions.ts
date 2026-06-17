@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { ToolsEnabled } from "@/lib/agents/prompt";
 import { applyConnectedAgentIntegration } from "@/lib/elevenlabs/agents";
 import { createClient } from "@/lib/supabase/server";
+import { configureNumberInbound } from "@/lib/twilio/inbound-config";
 
 export type CampaignResult = { error: string | null; campaignId?: string };
 
@@ -43,6 +44,26 @@ async function reapplyAgentIntegration(
     );
   } catch {
     // best-effort — never block a campaign action on a sync hiccup
+  }
+}
+
+/**
+ * Best-effort: wire the campaign's Twilio number for INBOUND so callers reach
+ * the campaign's agent (ElevenLabs answers natively — the old app `<Connect>
+ * <Stream>` bridge never connected a real conversation). Runs whenever a number
+ * is attached, mirroring reapplyAgentIntegration: a sync hiccup never blocks the
+ * campaign save (the number is still attached; the admin can re-save to retry).
+ * Off-live this is a no-op (mocked).
+ */
+async function configureInboundBestEffort(
+  numberId: string | null,
+  agentLocalId: string | null | undefined,
+): Promise<void> {
+  if (!numberId) return;
+  try {
+    await configureNumberInbound({ twilioNumberId: numberId, agentLocalId });
+  } catch {
+    // best-effort — never block a campaign action on an ElevenLabs/Twilio hiccup
   }
 }
 
@@ -180,6 +201,8 @@ export async function createCampaign(
   // Connecting an agent to a campaign puts it into service — make sure its
   // ElevenLabs webhooks are current so completed calls report back to us.
   await reapplyAgentIntegration(supabase, payload.agent_id);
+  // Wire the attached number for inbound so incoming calls reach this agent.
+  await configureInboundBestEffort(payload.twilio_number_id, payload.agent_id);
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: created.id };
 }
@@ -218,6 +241,9 @@ export async function updateCampaign(
   // The agent may have changed (or been wired before its webhook was set) —
   // refresh its ElevenLabs integration so calls report back to us.
   await reapplyAgentIntegration(supabase, payload.agent_id);
+  // Re-wire inbound on the (possibly new) number so incoming calls reach the
+  // campaign's current agent.
+  await configureInboundBestEffort(payload.twilio_number_id, payload.agent_id);
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: id };
 }
