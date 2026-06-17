@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
+import {
+  resyncLeadAfterCallbackRemoval,
+  syncLeadNextCallToEarliestCallback,
+} from "@/lib/callbacks/sync-next-call";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
@@ -36,14 +39,13 @@ export async function cancelCallback(
   if (error) return { error: "Could not cancel the callback." };
 
   // Re-point the lead at its earliest REMAINING pending callback. If this was
-  // its last one, the sync hands the lead back to the standard queue
-  // (ready_to_call, next_call_at cleared) instead of stranding it in 'callback'
-  // pointing at a cancelled row. If other pending callbacks remain, the lead
-  // keeps pointing at the soonest. (This replaces the old blanket
-  // ready_to_call reset, which wrongly dropped a lead that still had a later
-  // pending callback.)
+  // its last one, fall back to the lead's latest call DISPOSITION (e.g. a
+  // gatekeeper call → the ~2-day retry) so its Next call reflects the
+  // disposition instead of being blanked. Only when there's no disposition to
+  // derive from is the lead handed back to the standard queue. If other pending
+  // callbacks remain, the lead keeps pointing at the soonest.
   if (cb.lead_id) {
-    await syncLeadNextCallToEarliestCallback(supabase, cb.lead_id);
+    await resyncLeadAfterCallbackRemoval(supabase, cb.lead_id);
   }
 
   await supabase.from("system_events").insert({
@@ -63,8 +65,10 @@ export async function cancelCallback(
  *  redial (or it's otherwise resolved) and it should no longer sit in the
  *  pending queue. Like cancel, this re-syncs the lead: it re-points the lead at
  *  its earliest REMAINING pending callback, or — if this was the last one —
- *  hands the lead back to the standard queue rather than stranding it in
- *  'callback'. RLS scopes the update to the lead's owner or an admin. */
+ *  falls back to the lead's latest call DISPOSITION (e.g. gatekeeper → ~2-day
+ *  retry), and only hands the lead back to the standard queue when there's no
+ *  disposition to derive from. RLS scopes the update to the lead's owner or an
+ *  admin. */
 export async function completeCallback(
   callbackId: string,
 ): Promise<ActionResult> {
@@ -91,7 +95,7 @@ export async function completeCallback(
   if (error) return { error: "Could not mark the callback completed." };
 
   if (cb.lead_id) {
-    await syncLeadNextCallToEarliestCallback(supabase, cb.lead_id);
+    await resyncLeadAfterCallbackRemoval(supabase, cb.lead_id);
   }
 
   await supabase.from("system_events").insert({
@@ -174,10 +178,13 @@ export type DeleteCallbacksResult = {
  * Permanently delete callbacks (admin only). Callbacks are normally cancelled
  * (status='cancelled') to preserve the audit trail; this is a deliberate
  * escape hatch for clearing test/junk rows. Hard delete. For any deleted row
- * that was still pending, the lead is handed back to the standard queue
- * (status ready_to_call, next_call_at cleared) so it isn't left pointing at a
- * callback time that no longer exists. Runs via the service role (no delete
- * RLS policy on callbacks) after confirming the caller is an admin.
+ * that was still pending, the lead is re-pointed at its earliest remaining
+ * callback, or — if none remain — its Next call falls back to its latest call
+ * DISPOSITION (e.g. gatekeeper → the ~2-day retry), only handing the lead back
+ * to the standard queue when there's no disposition to derive from. Either way
+ * it's never left pointing at a callback time that no longer exists. Runs via
+ * the service role (no delete RLS policy on callbacks) after confirming the
+ * caller is an admin.
  */
 export async function deleteCallbacks(
   ids: string[],
@@ -225,13 +232,14 @@ export async function deleteCallbacks(
 
   // Re-sync each affected lead against its REMAINING pending callbacks. A lead
   // can have several pending callbacks; deleting one shouldn't blindly reset it
-  // to ready_to_call if a later one survives. The delete already ran, so
-  // syncLeadNextCallToEarliestCallback now sees the true remaining state: it
-  // re-points the lead at the soonest survivor, or — if none remain — hands it
-  // back to the queue (only when still in 'callback'). Runs sequentially to keep
-  // the service-role load modest; the selection is operator-sized.
+  // if a later one survives. The delete already ran, so
+  // resyncLeadAfterCallbackRemoval now sees the true remaining state: it
+  // re-points the lead at the soonest survivor, or — if none remain — falls back
+  // to the lead's latest call disposition (only when still in 'callback'). Runs
+  // sequentially to keep the service-role load modest; the selection is
+  // operator-sized.
   for (const leadId of pendingLeadIds) {
-    await syncLeadNextCallToEarliestCallback(admin, leadId);
+    await resyncLeadAfterCallbackRemoval(admin, leadId);
   }
 
   revalidatePath("/callbacks");

@@ -76,8 +76,9 @@ export function CallbacksBulkBar() {
               <AlertDialogDescription>
                 This permanently removes the selected callback
                 {count === 1 ? "" : "s"}. Any pending one
-                {count === 1 ? "" : "s"} will hand the lead back to the standard
-                queue. This cannot be undone.
+                {count === 1 ? "" : "s"} re-point the lead&apos;s Next call to
+                its last call&apos;s disposition. Call history is untouched.
+                This cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
