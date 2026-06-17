@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { localHourDaysAheadIso } from "@/lib/dialer/local-schedule";
 import type { Database } from "@/lib/supabase/database.types";
 
 type CallOutcome = Database["public"]["Tables"]["calls"]["Row"]["outcome"];
@@ -61,7 +62,10 @@ export function callbackOutcomeConnected(
  * callbacks remain we conservatively hand the lead back to the standard queue —
  * but ONLY if it's currently status='callback' (we never touch a lead the
  * operator/dialer moved to some other state in the meantime). Leads in any
- * other status are left exactly as-is.
+ * other status are left exactly as-is. A lead we've ALREADY phoned re-enters
+ * rotation on a one-day cool-off rather than next_call_at = null, so it isn't
+ * re-dialed instantly (null sorts to the front of the dial queue); a
+ * never-called lead keeps null (correctly "call ASAP").
  *
  * Works with any Supabase client (user-scoped or service-role).
  */
@@ -83,9 +87,25 @@ export async function syncLeadNextCallToEarliestCallback(
     // a gone callback — hand it back to the queue. Conservative: only a lead
     // STILL in 'callback' is touched (the .eq guard), so a lead the dialer or
     // an operator already advanced is left alone.
+    //
+    // A lead we've already phoned (call_attempts > 0) gets a one-day cool-off
+    // (next calling morning, weekday-aware) instead of next_call_at = null —
+    // the dial queue sorts nulls FIRST (nullsFirst = "due now"), so clearing it
+    // would re-dial a just-handled lead immediately with no backoff. A
+    // never-called lead keeps null, which correctly means "call ASAP". Mirrors
+    // recomputeLeadCallState's handback.
+    const { data: lead } = await supabase
+      .from("leads")
+      .select("call_attempts, timezone")
+      .eq("id", leadId)
+      .maybeSingle();
+    const nextCallAt =
+      (lead?.call_attempts ?? 0) > 0
+        ? localHourDaysAheadIso(lead?.timezone ?? null, 1)
+        : null;
     await supabase
       .from("leads")
-      .update({ status: "ready_to_call", next_call_at: null })
+      .update({ status: "ready_to_call", next_call_at: nextCallAt })
       .eq("id", leadId)
       .eq("status", "callback");
     return;

@@ -210,7 +210,7 @@ export async function deleteCallbacks(
   // so they don't keep a stale `callback` schedule pointing at nothing.
   const { data: rows } = await admin
     .from("callbacks")
-    .select("lead_id, status")
+    .select("id, lead_id, status")
     .in("id", clean);
   const pendingLeadIds = [
     ...new Set(
@@ -222,6 +222,25 @@ export async function deleteCallbacks(
 
   const { error } = await admin.from("callbacks").delete().in("id", clean);
   if (error) return { error: "Could not delete the selected callbacks." };
+
+  // Audit trail. A hard delete leaves NO row behind, so — unlike cancel /
+  // complete / reschedule, which each log an event — a deletion (and the reason
+  // a lead's next_call_at suddenly cleared) would otherwise vanish without a
+  // trace. Record one `callback_deleted` event per removed row so the history
+  // stays reconstructable. Best-effort: a logging hiccup must not fail the
+  // delete the operator already confirmed.
+  const deletedRows = rows ?? [];
+  if (deletedRows.length > 0) {
+    await supabase.from("system_events").insert(
+      deletedRows.map((r) => ({
+        kind: "callback_deleted",
+        actor_user_id: user.id,
+        ref_table: "callbacks",
+        ref_id: r.id,
+        payload: { lead_id: r.lead_id, status: r.status, hard_delete: true },
+      })),
+    );
+  }
 
   // Re-sync each affected lead against its REMAINING pending callbacks. A lead
   // can have several pending callbacks; deleting one shouldn't blindly reset it
