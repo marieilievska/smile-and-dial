@@ -5,6 +5,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
+import { ensureInboundCallRow } from "@/lib/twilio/inbound-webhook";
 
 /**
  * Conversation-initiation client-data webhook.
@@ -18,7 +19,14 @@ import type { Database } from "@/lib/supabase/database.types";
  *
  * We correlate on call_sid → calls.twilio_call_sid (stamped the moment the
  * dialer places the call), which gives us the lead + campaign to build the
- * per-call context. Read-only.
+ * per-call context.
+ *
+ * For an INBOUND call (EL-native answer), there's no row yet — ElevenLabs only
+ * calls this webhook for inbound, never for API-placed outbound — so an unknown
+ * call_sid here means a fresh incoming call. We create the inbound `calls` row +
+ * match/create the lead on the spot (via ensureInboundCallRow) and return its
+ * call_id, so the call is logged, the agent gets full lead context, and the
+ * post-call webhook can link the recording/transcript/outcome back to it.
  *
  * ALL dynamic variables an agent declares must be present in the response
  * or the conversation can fail to start, so we always return the three keys
@@ -294,13 +302,37 @@ export async function buildConversationInitData(
 
   const supabase = makeServiceClient();
 
-  // Resolve the call by the Twilio CallSid we stamped at dial time.
+  // Resolve the call by the Twilio CallSid we stamped at dial time (outbound).
   const { data: call } = await supabase
     .from("calls")
     .select("id, lead_id, campaign_id")
     .eq("twilio_call_sid", callSid)
     .maybeSingle();
-  if (!call) return wrap(emptyVariables());
+  if (call) return wrap(await buildVarsForCall(supabase, call));
 
-  return wrap(await buildVarsForCall(supabase, call));
+  // No row for this CallSid → an EL-native INBOUND call we haven't logged yet
+  // (this webhook only fires for inbound). Create the inbound call + lead now so
+  // it's tracked in-app, and return its call_id so the post-call webhook links
+  // the recording/transcript/outcome. Falls back to blank context if we can't
+  // resolve the caller/called numbers to a campaign (unknown number, etc.).
+  const fromNumber = body.caller_id?.trim() ?? "";
+  const toNumber = body.called_number?.trim() ?? "";
+  if (fromNumber && toNumber) {
+    const ensured = await ensureInboundCallRow(supabase, {
+      callSid,
+      fromNumber,
+      toNumber,
+    });
+    if ("status" in ensured && ensured.status === "routed") {
+      return wrap(
+        await buildVarsForCall(supabase, {
+          id: ensured.callId,
+          lead_id: ensured.leadId,
+          campaign_id: ensured.campaignId,
+        }),
+      );
+    }
+  }
+
+  return wrap(emptyVariables());
 }

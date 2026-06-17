@@ -216,12 +216,23 @@ export async function repointNumberWebhooks(id: string): Promise<ActionResult> {
 
   const { data: number } = await supabase
     .from("twilio_numbers")
-    .select("twilio_sid, released_at")
+    .select("twilio_sid, released_at, elevenlabs_phone_number_id")
     .eq("id", id)
     .maybeSingle();
   if (!number) return { error: "That number no longer exists." };
   if (!number.twilio_sid) return { error: "No Twilio SID on file." };
   if (number.released_at) return { error: "That number has been released." };
+  // Defense in depth: an ElevenLabs-managed number has EL owning its Twilio
+  // voice + status webhooks (native inbound/outbound). Pointing them back at the
+  // app would send inbound calls to the dead `<Connect><Stream>` bridge and
+  // break them. The UI already hides the button for these; refuse here too in
+  // case it's triggered another way.
+  if (number.elevenlabs_phone_number_id) {
+    return {
+      error:
+        "This number is managed by ElevenLabs (native inbound/outbound). Repointing its webhooks at the app would break inbound calls.",
+    };
+  }
 
   const result = await pointNumberWebhooks(number.twilio_sid);
   if (result.error) return { error: result.error };

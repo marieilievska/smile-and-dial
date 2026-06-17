@@ -52,7 +52,7 @@ export default async function TwilioNumbersPage({
   const { data: rawNumbers } = await supabase
     .from("twilio_numbers")
     .select(
-      "id, phone_number, friendly_name, country, monthly_cost, released_at, purchased_at, voice_webhook_url, status_webhook_url",
+      "id, phone_number, friendly_name, country, monthly_cost, released_at, purchased_at, voice_webhook_url, status_webhook_url, elevenlabs_phone_number_id",
     )
     .order("purchased_at", { ascending: false });
   const numbers = rawNumbers ?? [];
@@ -168,6 +168,7 @@ export default async function TwilioNumbersPage({
                           status={number.status_webhook_url}
                           expected={expectedWebhooks}
                           released={Boolean(number.released_at)}
+                          elManaged={Boolean(number.elevenlabs_phone_number_id)}
                         />
                       </TableCell>
                       <TableCell
@@ -194,7 +195,16 @@ export default async function TwilioNumbersPage({
                             />
                           ) : (
                             <>
-                              <RepointWebhooksButton id={number.id} />
+                              {/* A number handed to ElevenLabs (has an
+                               *  elevenlabs_phone_number_id) is EL-managed —
+                               *  ElevenLabs owns its voice + status webhooks.
+                               *  Repointing would send inbound back to the app's
+                               *  dead bridge, so we hide the button entirely
+                               *  (the server action also refuses, defense in
+                               *  depth). */}
+                              {!number.elevenlabs_phone_number_id && (
+                                <RepointWebhooksButton id={number.id} />
+                              )}
                               <ReleaseNumberDialog
                                 number={{
                                   id: number.id,
@@ -254,14 +264,34 @@ function WebhookStatus({
   status,
   expected,
   released,
+  elManaged,
 }: {
   voice: string | null;
   status: string | null;
   expected: { voiceUrl: string; statusCallback: string } | null;
   released: boolean;
+  /** True when the number has been handed to ElevenLabs (it has an
+   *  elevenlabs_phone_number_id). EL then owns the Twilio voice + status
+   *  webhooks for both inbound (native answer) and outbound, so the app's
+   *  "pointed here / elsewhere" comparison doesn't apply — and repointing at
+   *  the app would break inbound. */
+  elManaged: boolean;
 }) {
   if (released) {
     return <span className="text-muted-foreground text-xs">—</span>;
+  }
+  // EL-managed wins over the app-URL comparison: this is the correct, expected
+  // state, not "drift." (Don't repoint — it would re-break inbound.)
+  if (elManaged) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400"
+        title="Managed by ElevenLabs — it owns this number's voice + status webhooks for native inbound/outbound. Don't repoint at the app; that would break inbound."
+      >
+        <CircleCheck className="size-3.5" />
+        ElevenLabs-managed
+      </span>
+    );
   }
   if (!expected) {
     return (
