@@ -235,11 +235,13 @@ test.describe("ElevenLabs post-call webhook", () => {
     expect(c?.recording_path).toBe("https://example.com/rec.mp3");
     expect(c?.transcript_json).not.toBeNull();
     expect(c?.extracted_data).toMatchObject({ disposition: "callback" });
-    // Cost merged: twilio kept, elevenlabs/openai added, total recomputed.
+    // Cost merged: pre-seeded twilio kept (0.02), ElevenLabs's bundled credit
+    // figure lands under elevenlabs (0.05 + 0.01 = 0.06), openai starts at 0,
+    // total recomputed (0.02 + 0.06).
     expect(c?.cost_breakdown).toMatchObject({
       twilio: 0.02,
-      elevenlabs: 0.05,
-      openai: 0.01,
+      elevenlabs: 0.06,
+      openai: 0,
       total: 0.08,
     });
 
@@ -265,6 +267,67 @@ test.describe("ElevenLabs post-call webhook", () => {
     expect(leadAfter?.status).toBe("callback");
     expect(leadAfter?.next_call_at).not.toBeNull();
 
+    await context.dispose();
+  });
+
+  test("an AI call with no pre-set Twilio cost is priced from its duration", async () => {
+    // A fresh call row with NO twilio cost in cost_breakdown — the AI path
+    // (ElevenLabs places the call) must price the Twilio leg from the duration.
+    const convo = `convo-${stamp}-twilio`;
+    const { data: freshCall } = await admin
+      .from("calls")
+      .insert({
+        lead_id: leadId,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "dialing",
+        elevenlabs_conversation_id: convo,
+        // No cost_breakdown — twilio must be computed, not carried forward.
+      })
+      .select("id")
+      .single();
+
+    const context = await playwrightRequest.newContext({
+      baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+      storageState: undefined,
+    });
+    const res = await context.post("/api/elevenlabs/post-call", {
+      headers: { "content-type": "application/json" },
+      data: {
+        conversation_id: convo,
+        analysis: { data_collection: { disposition: "voicemail" } },
+        // Real ElevenLabs sends cost as a NUMBER of credits and a duration.
+        metadata: { duration_seconds: 92, cost: 100 },
+      },
+    });
+    expect(res.ok()).toBe(true);
+
+    const { data: c } = await admin
+      .from("calls")
+      .select("cost_breakdown")
+      .eq("id", freshCall!.id)
+      .single();
+    const cost = c?.cost_breakdown as {
+      twilio: number;
+      elevenlabs: number;
+      openai: number;
+      total: number;
+    };
+    // 92s → ceil(92/60)=2 min × $0.0185 = $0.037 (assumes default rate).
+    expect(cost.twilio).toBe(0.037);
+    // 100 credits × $0.000198 = $0.0198.
+    expect(cost.elevenlabs).toBe(0.0198);
+    expect(cost.openai).toBe(0);
+    // total = 0.037 + 0.0198.
+    expect(cost.total).toBeCloseTo(0.0568, 4);
+
+    await admin.from("calls").delete().eq("id", freshCall!.id);
+    await admin
+      .from("elevenlabs_webhook_events")
+      .delete()
+      .eq("conversation_id", convo);
     await context.dispose();
   });
 

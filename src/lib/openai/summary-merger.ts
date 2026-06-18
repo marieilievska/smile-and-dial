@@ -1,5 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
+import { priceOpenAiTokens } from "@/lib/costs/rates";
+
 import { openAiKey } from "./live";
 
 /**
@@ -9,8 +11,8 @@ import { openAiKey } from "./live";
  * rolling `ai_summary` so the next outbound dial gets context about
  * everything that's happened before.
  *
- * Cost: ~$0.001 per call with gpt-4o-mini in live mode. Hard-gated behind
- * OPENAI_LIVE=live so we don't spend on accident.
+ * Cost: priced from the actual gpt-4o-mini token usage the API returns, via the
+ * central rates module. Live whenever an OpenAI key is configured.
  *
  * Returns the new summary string (or null if nothing was updated).
  */
@@ -64,9 +66,9 @@ export async function mergeLeadSummary(input: {
   let newSummary: string;
   let cost = 0;
   if (apiKey) {
-    newSummary = await callOpenAi(apiKey, existing, latest);
-    // gpt-4o-mini cost approximation: ~$0.001 per call per spec.
-    cost = 0.001;
+    const result = await callOpenAi(apiKey, existing, latest);
+    newSummary = result.text;
+    cost = priceOpenAiTokens(result.promptTokens, result.completionTokens);
   } else {
     newSummary = mockMerge(existing, latest);
   }
@@ -108,7 +110,7 @@ async function callOpenAi(
   apiKey: string,
   existing: string,
   latest: string,
-): Promise<string> {
+): Promise<{ text: string; promptTokens: number; completionTokens: number }> {
   const userPrompt = `Existing note about this lead:
 ${existing || "(none yet)"}
 
@@ -171,13 +173,22 @@ Max 200 words. No filler.`;
   });
   if (!res.ok) {
     // Live failures fall back to the mock merge — we never want to lose
-    // the latest summary just because OpenAI is down.
-    return mockMerge(existing, latest);
+    // the latest summary just because OpenAI is down (and we charge nothing).
+    return {
+      text: mockMerge(existing, latest),
+      promptTokens: 0,
+      completionTokens: 0,
+    };
   }
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  return (
-    data.choices?.[0]?.message?.content?.trim() ?? mockMerge(existing, latest)
-  );
+  return {
+    text:
+      data.choices?.[0]?.message?.content?.trim() ??
+      mockMerge(existing, latest),
+    promptTokens: data.usage?.prompt_tokens ?? 0,
+    completionTokens: data.usage?.completion_tokens ?? 0,
+  };
 }

@@ -33,10 +33,13 @@ export async function transcribeAudioUrl(
   return json.text?.trim() || null;
 }
 
-/** Summarize a single call transcript into 1–2 sentences. Null in mock mode. */
-export async function summarizeTranscript(
-  transcript: string,
-): Promise<string | null> {
+/** Summarize a single call transcript into 1–2 sentences. Returns the text plus
+ *  the OpenAI token usage so the caller can price it. Null in mock mode. */
+export async function summarizeTranscript(transcript: string): Promise<{
+  text: string;
+  promptTokens: number;
+  completionTokens: number;
+} | null> {
   const apiKey = openAiKey();
   if (!apiKey || !transcript.trim()) return null;
 
@@ -62,6 +65,13 @@ export async function summarizeTranscript(
   if (!res.ok) return null;
   const json = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  return json.choices?.[0]?.message?.content?.trim() || null;
+  const text = json.choices?.[0]?.message?.content?.trim();
+  if (!text) return null;
+  return {
+    text,
+    promptTokens: json.usage?.prompt_tokens ?? 0,
+    completionTokens: json.usage?.completion_tokens ?? 0,
+  };
 }
