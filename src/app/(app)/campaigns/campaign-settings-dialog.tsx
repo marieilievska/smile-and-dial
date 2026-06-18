@@ -5,6 +5,7 @@ import {
   CalendarClock,
   ChevronDown,
   Clock,
+  Filter,
   ListChecks,
   PhoneCall,
   PlayCircle,
@@ -12,7 +13,7 @@ import {
   Target,
   User,
 } from "lucide-react";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,6 +40,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { createCampaign, updateCampaign } from "@/lib/campaigns/actions";
+import { countAudienceMatches } from "@/lib/campaigns/audience-actions";
 import { setCampaignLists } from "@/lib/campaigns/list-attachments-actions";
 
 import { TestCallTab } from "./test-call-tab";
@@ -70,6 +72,7 @@ export type CampaignData = {
   smart_scheduling: boolean;
   calendly_event_id: string | null;
   email_template_id: string | null;
+  audience_search: string | null;
 };
 
 const NO_NUMBER = "__none__";
@@ -170,12 +173,45 @@ export function CampaignSettingsDialog({
   );
   const [selectedListIds, setSelectedListIds] =
     useState<string[]>(currentListIds);
+  const [audienceSearch, setAudienceSearch] = useState(
+    campaign?.audience_search ?? "",
+  );
+  const [audienceCount, setAudienceCount] = useState<number | null>(null);
 
   // Numbers eligible for THIS campaign: include this campaign's current
   // number even if it's flagged as attached.
   const eligibleNumbers = twilioNumbers;
 
   const agentKbs = kbsByAgent[agentId] ?? [];
+
+  // Live "matches N leads" preview. Debounced so we don't fire a count on
+  // every keystroke. All state writes happen inside the timeout callback (never
+  // synchronously in the effect body) to avoid cascading renders. An empty
+  // filter clears the count promptly (0ms); a real term waits out the debounce.
+  useEffect(() => {
+    const term = audienceSearch.trim();
+    let cancelled = false;
+    const handle = setTimeout(
+      () => {
+        if (cancelled) return;
+        if (!term) {
+          setAudienceCount(null);
+          return;
+        }
+        void countAudienceMatches({
+          search: term,
+          campaignId: campaign?.id,
+        }).then((result) => {
+          if (!cancelled) setAudienceCount(result.count);
+        });
+      },
+      term ? 400 : 0,
+    );
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [audienceSearch, campaign?.id]);
 
   function submit() {
     startTransition(async () => {
@@ -197,6 +233,7 @@ export function CampaignSettingsDialog({
         smartSchedulingEnabled,
         calendlyEventId: calendlyEventId === NO_EVENT ? "" : calendlyEventId,
         emailTemplateId: emailTemplateId === NO_TEMPLATE ? "" : emailTemplateId,
+        audienceSearch,
       };
       const result =
         isEdit && campaign
@@ -235,6 +272,7 @@ export function CampaignSettingsDialog({
         setCalendlyEventId(NO_EVENT);
         setEmailTemplateId(NO_TEMPLATE);
         setSelectedListIds([]);
+        setAudienceSearch("");
       }
     });
   }
@@ -611,6 +649,36 @@ export function CampaignSettingsDialog({
                 an existing attachment first.
               </p>
             )}
+          </CampaignSection>
+
+          <CampaignSection
+            title="Audience"
+            icon={<Filter className="size-4" />}
+          >
+            <p className="text-muted-foreground text-sm">
+              Beyond attached lists, this campaign can also call every lead
+              whose company name contains the text below — no matter which list
+              the lead was uploaded into. Leave blank to target only the lists
+              above.
+            </p>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="campaign-audience">Company name contains</Label>
+              <Input
+                id="campaign-audience"
+                value={audienceSearch}
+                onChange={(event) => setAudienceSearch(event.target.value)}
+                placeholder="e.g. F45"
+              />
+              {audienceSearch.trim() ? (
+                <p className="text-muted-foreground text-xs">
+                  {audienceCount === null
+                    ? "Counting matching leads…"
+                    : `Matches ${audienceCount.toLocaleString()} lead${
+                        audienceCount === 1 ? "" : "s"
+                      } across all lists.`}
+                </p>
+              ) : null}
+            </div>
           </CampaignSection>
 
           <CampaignSection title="Goal" icon={<Target className="size-4" />}>
