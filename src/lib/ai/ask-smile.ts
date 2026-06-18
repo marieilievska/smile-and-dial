@@ -143,7 +143,7 @@ async function callOpenAi(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: "gpt-5.4",
       messages: [
         {
           role: "system",
@@ -170,8 +170,10 @@ async function callOpenAi(
           content: `WORKSPACE SNAPSHOT:\n${context}\n\nQUESTION: ${question}`,
         },
       ],
-      temperature: 0.3,
-      max_tokens: 900,
+      // gpt-5.4 is a reasoning model: it only accepts the default temperature
+      // and uses `max_completion_tokens` (not `max_tokens`). The budget is
+      // generous so hidden reasoning tokens don't starve the visible answer.
+      max_completion_tokens: 2000,
     }),
   });
   if (!res.ok) return null;

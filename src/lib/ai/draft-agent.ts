@@ -74,12 +74,13 @@ Keep every block tight and specific to the description. Do not add markdown head
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: "gpt-5.4",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: description },
       ],
-      temperature: 0.5,
+      // gpt-5.4 (reasoning model) only accepts the default temperature, so we
+      // don't pass one. JSON mode is still honored.
       response_format: { type: "json_object" },
     }),
   });
