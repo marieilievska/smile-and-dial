@@ -236,6 +236,7 @@ export async function updateAgent(
       await applyConnectedAgentIntegration(
         existing.elevenlabs_agent_id,
         input.toolsEnabled,
+        extraDataCollection,
       );
     }
     revalidatePath("/settings/agents");
@@ -344,6 +345,7 @@ async function syncAgentRow(
     return applyConnectedAgentIntegration(
       a.elevenlabs_agent_id,
       (a.tools_enabled ?? undefined) as unknown as ToolsEnabled | undefined,
+      normalizeDataCollection(a.extra_data_collection),
     );
   }
   const sync = await syncAgentToElevenLabs(
