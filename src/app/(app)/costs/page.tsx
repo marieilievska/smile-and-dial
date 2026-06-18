@@ -28,8 +28,9 @@ import { createClient } from "@/lib/supabase/server";
 
 import { BudgetProgress } from "./budget-progress";
 import { CostsDatePills } from "./costs-date-pills";
-import { CostsInsight } from "./costs-insight";
-import { CostsStatStrip } from "./costs-stat-strip";
+import { CostsHero } from "./costs-hero";
+import { CostsKpiStrip } from "./costs-kpi-strip";
+import { CostsTopCampaigns } from "./costs-top-campaigns";
 import { CostsVendorBreakdown } from "./costs-vendor-breakdown";
 import { CostsViewTabs } from "./costs-view-tabs";
 import { fmtRangeLabel } from "./format-time";
@@ -218,33 +219,21 @@ export default async function CostsPage({
       ? (periodTotal - prevPeriodTotal) / prevPeriodTotal
       : null;
 
-  // Inputs for the deterministic ROI insight line.
+  // Efficiency KPIs (call-only spend) and the top-campaigns-by-spend list.
   const perCall = totalCalls === 0 ? 0 : summary.total / totalCalls;
   const perGoal = totalGoalMet === 0 ? null : summary.total / totalGoalMet;
   const campaignRollup = rollupByCampaign(rows);
-  const efficient = campaignRollup
-    .filter((c) => c.goalMet > 0)
-    .sort((a, b) => a.costPerGoalMet - b.costPerGoalMet)[0];
-  const bestCampaign = efficient
-    ? {
-        name: campaignName.get(efficient.campaignId) ?? "—",
-        costPerGoal: efficient.costPerGoalMet,
-      }
-    : null;
-  const vendorRanked = [
-    { label: "Twilio Calls", value: summary.twilio },
-    { label: "ElevenLabs", value: summary.elevenlabs },
-    { label: "OpenAI", value: summary.openai },
-    { label: "Twilio Lookup", value: summary.lookup },
-  ].sort((a, b) => b.value - a.value);
-  const topVendor =
-    summary.total > 0 && vendorRanked[0].value > 0
-      ? {
-          label: vendorRanked[0].label,
-          share: Math.round((vendorRanked[0].value / summary.total) * 100),
-        }
-      : null;
-  const showInsight = totalCalls > 0 && summary.total > 0;
+  const topCampaigns = campaignRollup
+    .slice()
+    .sort((a, b) => b.spend.total - a.spend.total)
+    .slice(0, 5)
+    .map((c) => ({
+      campaignId: c.campaignId,
+      name: campaignName.get(c.campaignId) ?? "—",
+      spend: c.spend.total,
+      goalMet: c.goalMet,
+      costPerGoalMet: c.costPerGoalMet,
+    }));
 
   // Nearest campaign to its spend cap — a workspace-level risk signal
   // surfaced regardless of which view is active. Only flagged once a
@@ -351,17 +340,21 @@ export default async function CostsPage({
         </div>
       ) : null}
 
-      <CostsStatStrip
-        spend={summary}
-        goalMet={totalGoalMet}
-        daily={dailySpend}
+      <CostsHero
+        total={periodTotal}
         spendDelta={spendDelta}
-        periodNumberCost={numberRentalInPeriod}
-        periodLookupCost={importLookupCost}
-        monthlyNumberCost={monthlyNumberCost}
-        mtdSpend={headlineStats.mtdSpend}
-        projectedMonthSpend={headlineStats.projectedMonthSpend}
+        projectedMonthSpend={
+          headlineStats.projectedMonthSpend + monthlyNumberCost
+        }
         todaySpend={headlineStats.todaySpend}
+        daily={dailySpend}
+      />
+
+      <CostsKpiStrip
+        perGoal={perGoal}
+        perCall={perCall}
+        goalMet={totalGoalMet}
+        totalCalls={totalCalls}
       />
 
       {capAlert ? (
@@ -390,24 +383,14 @@ export default async function CostsPage({
         </div>
       ) : null}
 
-      <div className={showInsight ? "grid gap-4 lg:grid-cols-2" : "grid gap-4"}>
-        {showInsight ? (
-          <CostsInsight
-            rangeLabel={rangeLabel}
-            calls={totalCalls}
-            spend={summary.total}
-            perCall={perCall}
-            perGoal={perGoal}
-            bestCampaign={bestCampaign}
-            topVendor={topVendor}
-          />
-        ) : null}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <CostsVendorBreakdown
           summary={summary}
           extraLookupCost={importLookupCost}
           monthlyNumberCost={monthlyNumberCost}
           numberCount={numberCount}
         />
+        <CostsTopCampaigns items={topCampaigns} />
       </div>
 
       <CostsViewTabs current={view} buildHref={buildViewHref} />
