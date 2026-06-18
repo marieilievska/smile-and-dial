@@ -6,6 +6,7 @@ import type { ToolsEnabled } from "@/lib/agents/prompt";
 import { sanitizeAudienceSearch } from "@/lib/campaigns/audience-filter";
 import { applyConnectedAgentIntegration } from "@/lib/elevenlabs/agents";
 import { createClient } from "@/lib/supabase/server";
+import { ensureNumberImportedToElevenLabs } from "@/lib/twilio/place-call";
 
 export type CampaignResult = { error: string | null; campaignId?: string };
 
@@ -155,6 +156,12 @@ async function syncTwilioAttachment(
       .from("twilio_numbers")
       .update({ attached_campaign_id: campaignId })
       .eq("id", newNumberId);
+    // Register the attached number with ElevenLabs now (cached on the row) so
+    // outbound is ready before the first dial — the gap that left a freshly
+    // attached number unknown to ElevenLabs. Best-effort: never block the
+    // campaign save on an ElevenLabs hiccup; the per-number "Connect to
+    // ElevenLabs" button is the visible retry.
+    await ensureNumberImportedToElevenLabs(supabase, newNumberId);
   }
 }
 

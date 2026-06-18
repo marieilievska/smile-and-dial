@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { buildCallDynamicVariables } from "@/lib/elevenlabs/conversation-init";
 import type { Database } from "@/lib/supabase/database.types";
 import {
-  importTwilioNumberToElevenLabs,
+  ensureNumberImportedToElevenLabs,
   placeAgentCall,
   type PlaceCallResult,
 } from "@/lib/twilio/place-call";
@@ -46,44 +46,15 @@ export async function resolveAndPlaceAgentCall(
   if (!input.twilioNumberId) {
     return { ok: false, error: "Campaign has no Twilio number assigned." };
   }
-  const { data: num } = await supabase
-    .from("twilio_numbers")
-    .select(
-      "phone_number, friendly_name, released_at, elevenlabs_phone_number_id",
-    )
-    .eq("id", input.twilioNumberId)
-    .maybeSingle();
-  if (!num || num.released_at) {
-    return {
-      ok: false,
-      error: "The campaign's Twilio number isn't available.",
-    };
-  }
-
-  // Import the number into ElevenLabs the first time we dial from it, then
-  // cache the id so we only import once.
-  let phoneNumberId = num.elevenlabs_phone_number_id;
-  if (!phoneNumberId) {
-    const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-    const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-    if (!twilioSid || !twilioToken) {
-      return { ok: false, error: "Twilio credentials are not configured." };
-    }
-    const imported = await importTwilioNumberToElevenLabs({
-      phoneNumber: num.phone_number,
-      label: num.friendly_name
-        ? `${num.friendly_name} (Smile & Dial)`
-        : `Smile & Dial ${num.phone_number}`,
-      twilioSid,
-      twilioToken,
-    });
-    if (!imported.ok) return { ok: false, error: imported.error };
-    phoneNumberId = imported.phoneNumberId;
-    await supabase
-      .from("twilio_numbers")
-      .update({ elevenlabs_phone_number_id: phoneNumberId })
-      .eq("id", input.twilioNumberId);
-  }
+  // Register the number with ElevenLabs (cached after the first import). Shared
+  // helper so the dialer, campaign-attach, and the manual Sync button all
+  // register a number identically.
+  const imported = await ensureNumberImportedToElevenLabs(
+    supabase,
+    input.twilioNumberId,
+  );
+  if (!imported.ok) return { ok: false, error: imported.error };
+  const phoneNumberId = imported.phoneNumberId;
 
   // Build the agent's personalization variables (lead name, city, call_type,
   // last-call summary, transfer number, …). ElevenLabs does NOT call our

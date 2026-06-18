@@ -1,5 +1,9 @@
 import "server-only";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import type { Database } from "@/lib/supabase/database.types";
+
 /** Place outbound calls via ElevenLabs' NATIVE Twilio integration.
  *
  *  Why not a home-grown bridge? We previously dialed Twilio directly and
@@ -84,6 +88,49 @@ export async function importTwilioNumberToElevenLabs(
   } catch {
     return { ok: false, error: "ElevenLabs number import request failed." };
   }
+}
+
+/** Ensure a Twilio number is registered with ElevenLabs (for OUTBOUND dialing),
+ *  caching the returned phone_number_id on the row. Idempotent: returns the
+ *  cached id if already imported. Single registration path shared by the dialer,
+ *  the campaign-attach flow, and the per-number "Connect to ElevenLabs" button,
+ *  so they all register a number identically. Reads Twilio creds from the env. */
+export async function ensureNumberImportedToElevenLabs(
+  supabase: SupabaseClient<Database>,
+  twilioNumberId: string,
+): Promise<ImportNumberResult> {
+  const { data: num } = await supabase
+    .from("twilio_numbers")
+    .select(
+      "phone_number, friendly_name, released_at, elevenlabs_phone_number_id",
+    )
+    .eq("id", twilioNumberId)
+    .maybeSingle();
+  if (!num || num.released_at) {
+    return { ok: false, error: "That Twilio number isn't available." };
+  }
+  if (num.elevenlabs_phone_number_id) {
+    return { ok: true, phoneNumberId: num.elevenlabs_phone_number_id };
+  }
+  const twilioSid = process.env.TWILIO_ACCOUNT_SID;
+  const twilioToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!twilioSid || !twilioToken) {
+    return { ok: false, error: "Twilio credentials are not configured." };
+  }
+  const imported = await importTwilioNumberToElevenLabs({
+    phoneNumber: num.phone_number,
+    label: num.friendly_name
+      ? `${num.friendly_name} (Smile & Dial)`
+      : `Smile & Dial ${num.phone_number}`,
+    twilioSid,
+    twilioToken,
+  });
+  if (!imported.ok) return imported;
+  await supabase
+    .from("twilio_numbers")
+    .update({ elevenlabs_phone_number_id: imported.phoneNumberId })
+    .eq("id", twilioNumberId);
+  return imported;
 }
 
 export type PlaceCallInput = {

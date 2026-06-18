@@ -316,6 +316,99 @@ export type ResyncResult = {
   failed?: number;
 };
 
+type AgentSyncRow = {
+  id: string;
+  name: string;
+  voice_id: string | null;
+  ai_model: string | null;
+  system_prompt: string | null;
+  prompt_goal: string | null;
+  elevenlabs_agent_id: string | null;
+  extra_data_collection: unknown;
+  extra_evaluation: unknown;
+  tools_enabled: unknown;
+  externally_managed: boolean | null;
+};
+
+/** Push ONE agent's current config to ElevenLabs. Connected (externally-managed)
+ *  agents get only our integration overlay — webhooks + call_id var + tool_ids,
+ *  never their prompt/voice. App-managed agents get the FULL sync, including
+ *  their custom data-collection + evaluation fields. Shared by resyncAllAgents
+ *  and the per-agent Sync button so both behave identically. */
+async function syncAgentRow(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  a: AgentSyncRow,
+): Promise<{ error: string | null }> {
+  if (a.externally_managed) {
+    if (!a.elevenlabs_agent_id) return { error: null };
+    return applyConnectedAgentIntegration(
+      a.elevenlabs_agent_id,
+      (a.tools_enabled ?? undefined) as unknown as ToolsEnabled | undefined,
+    );
+  }
+  const sync = await syncAgentToElevenLabs(
+    {
+      name: a.name,
+      systemPrompt: a.system_prompt ?? "",
+      voiceId: a.voice_id?.trim() || null,
+      aiModel: a.ai_model?.trim() || null,
+      goal: a.prompt_goal?.trim() || null,
+      extraDataCollection: normalizeDataCollection(a.extra_data_collection),
+      extraEvaluation: normalizeEvaluation(a.extra_evaluation),
+      toolsEnabled: (a.tools_enabled ?? undefined) as unknown as
+        | ToolsEnabled
+        | undefined,
+    },
+    a.elevenlabs_agent_id,
+  );
+  if (sync.error) return { error: sync.error };
+  if (
+    sync.elevenlabsAgentId &&
+    sync.elevenlabsAgentId !== a.elevenlabs_agent_id
+  ) {
+    await supabase
+      .from("agents")
+      .update({ elevenlabs_agent_id: sync.elevenlabsAgentId })
+      .eq("id", a.id);
+  }
+  return { error: null };
+}
+
+/** Push one agent's config to ElevenLabs on demand (full sync incl. custom data
+ *  collection for app-managed agents; overlay for connected ones). Admin-only.
+ *  The one-click fix for "my new data-collection fields aren't live yet". */
+export async function syncAgent(id: string): Promise<AgentResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  if (me?.role !== "admin") {
+    return { error: "Only an admin can sync agents." };
+  }
+
+  const { data: agent } = await supabase
+    .from("agents")
+    .select(
+      "id, name, voice_id, ai_model, system_prompt, prompt_goal, elevenlabs_agent_id, extra_data_collection, extra_evaluation, tools_enabled, externally_managed",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (!agent) return { error: "That agent no longer exists." };
+
+  const r = await syncAgentRow(supabase, agent);
+  if (r.error) return { error: r.error };
+
+  revalidatePath("/settings/agents");
+  return { error: null, agentId: id };
+}
+
 /** Re-push every agent's current config to ElevenLabs. Use after a sync-layer
  *  change (new defaults, webhooks, dynamic-variable placeholders) so agents
  *  created/edited before the change pick it up without opening each one.
@@ -351,48 +444,9 @@ export async function resyncAllAgents(): Promise<ResyncResult> {
   let synced = 0;
   let failed = 0;
   for (const a of agents) {
-    // Connected agents: re-apply only our integration layer (webhooks +
-    // call_id var + tool_ids), never their prompt/voice.
-    if (a.externally_managed) {
-      if (a.elevenlabs_agent_id) {
-        const r = await applyConnectedAgentIntegration(
-          a.elevenlabs_agent_id,
-          (a.tools_enabled ?? undefined) as unknown as ToolsEnabled | undefined,
-        );
-        if (r.error) failed += 1;
-        else synced += 1;
-      }
-      continue;
-    }
-    const sync = await syncAgentToElevenLabs(
-      {
-        name: a.name,
-        systemPrompt: a.system_prompt ?? "",
-        voiceId: a.voice_id?.trim() || null,
-        aiModel: a.ai_model?.trim() || null,
-        goal: a.prompt_goal?.trim() || null,
-        extraDataCollection: normalizeDataCollection(a.extra_data_collection),
-        extraEvaluation: normalizeEvaluation(a.extra_evaluation),
-        toolsEnabled: (a.tools_enabled ?? undefined) as unknown as
-          | ToolsEnabled
-          | undefined,
-      },
-      a.elevenlabs_agent_id,
-    );
-    if (sync.error) {
-      failed += 1;
-      continue;
-    }
-    if (
-      sync.elevenlabsAgentId &&
-      sync.elevenlabsAgentId !== a.elevenlabs_agent_id
-    ) {
-      await supabase
-        .from("agents")
-        .update({ elevenlabs_agent_id: sync.elevenlabsAgentId })
-        .eq("id", a.id);
-    }
-    synced += 1;
+    const r = await syncAgentRow(supabase, a);
+    if (r.error) failed += 1;
+    else synced += 1;
   }
 
   revalidatePath("/settings/agents");
