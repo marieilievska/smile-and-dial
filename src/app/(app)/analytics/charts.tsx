@@ -6,6 +6,21 @@ import type {
   TimeBucket,
   CampaignRank,
 } from "@/lib/analytics/stats";
+import { outcomeBadgeVariant } from "@/lib/outcome-style";
+
+/** Map an outcome's semantic tier (the same green/amber/red/grey system the
+ *  calls pages use) to a bar color, so the outcome breakdown reads by meaning. */
+const OUTCOME_TIER_COLOR: Record<string, string> = {
+  success: "var(--success)",
+  warning: "var(--warning)",
+  destructive: "var(--destructive)",
+  secondary: "var(--muted-foreground)",
+  coral: "var(--primary)",
+};
+
+function outcomeBarColor(outcome: string): string {
+  return OUTCOME_TIER_COLOR[outcomeBadgeVariant(outcome)] ?? "var(--primary)";
+}
 
 /** Horizontal bar — top step is the widest, every subsequent step is a
  *  percentage of the prior. Used for the conversion funnel. Round 17 —
@@ -158,8 +173,11 @@ export function OutcomeBreakdown({
               title={`${b.outcome.replace(/_/g, " ")}: ${b.count} (${pct.toFixed(1)}%)`}
             >
               <div
-                className="bg-primary h-full"
-                style={{ width: `${Math.max(1, pct)}%` }}
+                className="h-full"
+                style={{
+                  width: `${Math.max(1, pct)}%`,
+                  background: outcomeBarColor(b.outcome),
+                }}
               />
             </div>
           </li>
