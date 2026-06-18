@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { ensureNumberImportedToElevenLabs } from "@/lib/twilio/place-call";
 
 import {
   type AvailableNumber,
@@ -306,6 +307,23 @@ export async function syncFromTwilio(): Promise<{
 
   revalidatePath(NUMBERS_PATH);
   return { added, refreshed, error: null };
+}
+
+/** Register a single number with ElevenLabs for OUTBOUND dialing, caching its
+ *  phone_number_id on the row. This is the visible repair path when the
+ *  on-attach auto-register failed, or for numbers attached before that existed.
+ *  Admin-only. Idempotent — a no-op (success) if already connected. */
+export async function connectNumberToElevenLabs(
+  id: string,
+): Promise<ActionResult> {
+  const { supabase, error: adminError } = await requireAdmin();
+  if (adminError) return { error: adminError };
+
+  const result = await ensureNumberImportedToElevenLabs(supabase, id);
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath(NUMBERS_PATH);
+  return { error: null };
 }
 
 /** Expose the webhook URLs the page expects so the UI can render
