@@ -39,6 +39,63 @@ function phoneHeaderFrom(mapping: Record<string, string>): string {
 }
 
 /**
+ * Count how many of this batch's rows are duplicates, so the import PREVIEW can
+ * warn before committing (the actual dedup still happens in `importLeads`).
+ * Mirrors that dedup exactly: a row is a duplicate when its E.164 number either
+ * repeats an earlier row in the file (`duplicateInFile`) or already belongs to a
+ * live lead this owner has (`duplicateExisting`). Soft-deleted matches are NOT
+ * counted — the import REVIVES those, so they aren't "already in your leads".
+ * Rows with no parseable phone, or dropped by line type, never count.
+ */
+async function countImportDuplicates(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ownerId: string,
+  e164s: (string | null)[],
+  rowLineTypes: LineType[],
+): Promise<{ duplicateExisting: number; duplicateInFile: number }> {
+  // Numbers that would actually attempt to import: parseable, and not being
+  // dropped as mobile/invalid. Kept in row order so first-occurrence wins.
+  const candidates: string[] = [];
+  e164s.forEach((phone, i) => {
+    const lt = rowLineTypes[i];
+    if (phone && lt !== "mobile" && lt !== "invalid") candidates.push(phone);
+  });
+  if (candidates.length === 0) {
+    return { duplicateExisting: 0, duplicateInFile: 0 };
+  }
+
+  // Live leads this owner already has for any of these numbers. `.in(...)` keeps
+  // us under PostgREST's 1000-row cap (same reason the import pre-fetch does).
+  const uniquePhones = [...new Set(candidates)];
+  const existing = new Set<string>();
+  const { data } = await supabase
+    .from("leads")
+    .select("business_phone")
+    .eq("owner_id", ownerId)
+    .is("deleted_at", null)
+    .not("business_phone", "is", null)
+    .in("business_phone", uniquePhones);
+  for (const lead of data ?? []) {
+    if (lead.business_phone) {
+      existing.add(toE164UsCa(lead.business_phone) ?? lead.business_phone);
+    }
+  }
+
+  const seen = new Set<string>();
+  let duplicateExisting = 0;
+  let duplicateInFile = 0;
+  for (const phone of candidates) {
+    if (seen.has(phone)) {
+      duplicateInFile++;
+      continue;
+    }
+    seen.add(phone);
+    if (existing.has(phone)) duplicateExisting++;
+  }
+  return { duplicateExisting, duplicateInFile };
+}
+
+/**
  * Run a Twilio Lookup on every row's business phone and report how many
  * leads will import versus be skipped (mobile numbers for TCPA compliance,
  * or invalid/disconnected numbers). Shown to the user before they commit.
@@ -60,6 +117,8 @@ export async function analyzeImport(input: {
     importable: 0,
     mobile: 0,
     invalid: 0,
+    duplicateExisting: 0,
+    duplicateInFile: 0,
     estCost: 0,
     rowLineTypes: [],
     skipped: [],
@@ -72,34 +131,45 @@ export async function analyzeImport(input: {
   } = await supabase.auth.getUser();
   if (!user) return { ...empty, error: "You are not signed in." };
 
-  // Fast path: user opted out of Twilio verification — every row goes
-  // through as importable with an "unknown" line type and zero cost.
+  // Normalize each row's phone to E.164 up front — both the Twilio lookups and
+  // duplicate detection (run on every path) need it. CSV phones are often
+  // "(205) 259-8928" with no country code, which Twilio Lookup can't take; a
+  // null means there's nothing to look up (import as-is, line type unknown).
+  const phoneHeader = phoneHeaderFrom(input.mapping);
+  const e164s = input.rows.map((row) => {
+    const raw = phoneHeader ? (row[phoneHeader] ?? "").trim() : "";
+    return toE164UsCa(raw);
+  });
+
+  // Fast path: user opted out of Twilio verification — every row goes through as
+  // importable with an "unknown" line type and zero cost. We still run duplicate
+  // detection so the preview can warn about numbers already on file.
   if (input.skipLookup) {
+    const unknownTypes = input.rows.map(() => "unknown" as LineType);
+    const dups = await countImportDuplicates(
+      supabase,
+      user.id,
+      e164s,
+      unknownTypes,
+    );
     return {
       total: input.rows.length,
       importable: input.rows.length,
       mobile: 0,
       invalid: 0,
+      duplicateExisting: dups.duplicateExisting,
+      duplicateInFile: dups.duplicateInFile,
       estCost: 0,
-      rowLineTypes: input.rows.map(() => "unknown" as LineType),
+      rowLineTypes: unknownTypes,
       skipped: [],
       error: null,
     };
   }
 
-  const phoneHeader = phoneHeaderFrom(input.mapping);
   const skipped: { phone: string; reason: string }[] = [];
   let importable = 0;
   let mobile = 0;
   let invalid = 0;
-
-  // Normalize each row's phone to E.164 first — CSV phones are often
-  // "(205) 259-8928" with no country code, which Twilio Lookup can't take.
-  // A null means there's nothing to look up (import as-is, line type unknown).
-  const e164s = input.rows.map((row) => {
-    const raw = phoneHeader ? (row[phoneHeader] ?? "").trim() : "";
-    return toE164UsCa(raw);
-  });
 
   // Run the Twilio lookups CONCURRENTLY with a bounded pool. Sequential
   // lookups (one await per row) made large imports time the function out; a
@@ -152,11 +222,20 @@ export async function analyzeImport(input: {
     });
   }
 
+  const dups = await countImportDuplicates(
+    supabase,
+    user.id,
+    e164s,
+    rowLineTypes,
+  );
+
   return {
     total: input.rows.length,
     importable,
     mobile,
     invalid,
+    duplicateExisting: dups.duplicateExisting,
+    duplicateInFile: dups.duplicateInFile,
     estCost,
     rowLineTypes,
     skipped,
