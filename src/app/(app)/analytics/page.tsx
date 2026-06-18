@@ -1,11 +1,10 @@
 import { Info } from "lucide-react";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
   bookingsByDay,
-  buildFunnel,
   buildInsights,
+  buildLeadFunnel,
   callsByDay,
   computeKpis,
   fetchCallsForRange,
@@ -14,6 +13,7 @@ import {
   previousPeriod,
   rankCampaigns,
   resolveDatePreset,
+  type FunnelStep,
   type Slicers,
 } from "@/lib/analytics/stats";
 import { createClient } from "@/lib/supabase/server";
@@ -22,10 +22,10 @@ import { ActivityOverTime } from "./activity-over-time";
 import { AnalyticsDatePills } from "./analytics-date-pills";
 import { AnalyticsEmpty } from "./analytics-empty";
 import { AnalyticsFilters } from "./analytics-filters";
+import { AnalyticsFunnel } from "./analytics-funnel";
 import { AnalyticsInsight } from "./analytics-insight";
 import { BestTimeHeatmap } from "./best-time-heatmap";
-import { CampaignLeaderboard, FunnelChart, OutcomeBreakdown } from "./charts";
-import { HeroKpi } from "./hero-kpi";
+import { CampaignLeaderboard, OutcomeBreakdown } from "./charts";
 import { KpiTile } from "./kpi-tile";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -149,7 +149,27 @@ export default async function AnalyticsPage({
   const dailyActivity = callsByDay(rows, slicers);
   const dailyCalls = dailyActivity.map((b) => b.count);
   const dailySpend = dailyActivity.map((b) => b.spend);
-  const funnel = buildFunnel(rows);
+  const leadFunnel = buildLeadFunnel(rows);
+  const priorLeadFunnel = compare ? buildLeadFunnel(priorRows) : null;
+  // Step-over-step conversion rates derived from the per-business funnel.
+  const stepRate = (f: FunnelStep[], i: number): number => {
+    const denom = f[i - 1]?.count ?? 0;
+    return denom === 0 ? 0 : (f[i]?.count ?? 0) / denom;
+  };
+  const rates = {
+    connect: stepRate(leadFunnel, 1),
+    conversation: stepRate(leadFunnel, 2),
+    dm: stepRate(leadFunnel, 3),
+    goal: stepRate(leadFunnel, 4),
+  };
+  const priorRates = priorLeadFunnel
+    ? {
+        connect: stepRate(priorLeadFunnel, 1),
+        conversation: stepRate(priorLeadFunnel, 2),
+        dm: stepRate(priorLeadFunnel, 3),
+        goal: stepRate(priorLeadFunnel, 4),
+      }
+    : null;
   const outcomeBuckets = outcomeDistribution(rows);
   const campaignNames = new Map(
     (campaigns ?? []).map((c) => [c.id, c.name] as const),
@@ -157,28 +177,8 @@ export default async function AnalyticsPage({
   const ranking = rankCampaigns(rows, campaignNames);
   // Deterministic "AI read" of the period — one plain-English sentence
   // on the appointments trend + biggest funnel leak. No LLM call.
-  const insight = buildInsights({ kpis, prior, funnel, ranking });
+  const insight = buildInsights({ kpis, prior, funnel: leadFunnel, ranking });
   const hasData = kpis.totalCalls > 0;
-
-  // Build cross-page drill-down URLs that preserve the slicer state.
-  const drillQs = new URLSearchParams();
-  if (from) drillQs.set("from", from);
-  if (to) drillQs.set("to", to);
-  if (campaignId) drillQs.set("campaign", campaignId);
-  if (listId) drillQs.set("list", listId);
-  if (ownerId) drillQs.set("user", ownerId);
-  const goalMetCallsHref = `/calls?${new URLSearchParams({
-    ...Object.fromEntries(drillQs),
-    outcome: "goal_met",
-  }).toString()}`;
-  const costsHref = `/costs?${new URLSearchParams({
-    ...Object.fromEntries(drillQs),
-    view: "per_campaign",
-    preset: "custom",
-  }).toString()}`;
-  const conversationsHref = `/calls?${new URLSearchParams({
-    ...Object.fromEntries(drillQs),
-  }).toString()}`;
 
   const mockMode = isMockMode();
   const rangeLabel = fmtRangeLabel(from, to);
@@ -249,88 +249,47 @@ export default async function AnalyticsPage({
            *  raw tiles. */}
           <AnalyticsInsight insight={insight} />
 
-          {/* Layer 1 — Executive summary: NSM hero + 3 supporting KPIs in a
-           *  unified strip so the eye reads them as one band. */}
-          <section className="flex flex-col gap-3">
-            <Link href={goalMetCallsHref} className="block">
-              <HeroKpi
-                label="Goals Met"
-                value={kpis.goalMet.toLocaleString()}
-                priorValue={prior?.goalMet ?? null}
-                deltaPct={
-                  prior ? pctDelta(kpis.goalMet, prior.goalMet) : undefined
-                }
-                sparkline={dailyBookings}
-                helper="Calls where the AI hit the campaign's goal (booking, survey, etc.)"
-                cta="View calls"
-              />
-            </Link>
+          {/* Conversion funnel hero — the per-business funnel, with the
+           *  step-over-step conversion rates pulled out beneath it. */}
+          <AnalyticsFunnel steps={leadFunnel} />
 
-            {/* Supporting KPIs read left→right as the funnel: how many we
-             *  dialed, how often we connected, who we actually talked to,
-             *  how often that booked, and what each booking cost. */}
-            <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-2 gap-3 delay-100 duration-500 md:grid-cols-3 xl:grid-cols-5">
-              <Link href={conversationsHref} className="block">
-                <KpiTile
-                  label="Calls Placed"
-                  value={kpis.totalCalls.toLocaleString()}
-                  hint="Dials the AI made"
-                  pctDelta={
-                    prior
-                      ? pctDelta(kpis.totalCalls, prior.totalCalls)
-                      : undefined
-                  }
-                  cta="View"
-                />
-              </Link>
-              <KpiTile
-                label="Connect Rate"
-                value={fmtPct(kpis.connectRate)}
-                hint="Of dials that reached someone"
-                pctDelta={
-                  prior
-                    ? pctDelta(kpis.connectRate, prior.connectRate)
-                    : undefined
-                }
-              />
-              <Link href={conversationsHref} className="block">
-                <KpiTile
-                  label="Conversations"
-                  value={kpis.conversations.toLocaleString()}
-                  hint="Calls where we reached someone"
-                  pctDelta={
-                    prior
-                      ? pctDelta(kpis.conversations, prior.conversations)
-                      : undefined
-                  }
-                  cta="View"
-                />
-              </Link>
-              <KpiTile
-                label="Goal Met Rate"
-                value={fmtPct(kpis.goalMetRate)}
-                hint="Of conversations that hit the goal"
-                pctDelta={
-                  prior
-                    ? pctDelta(kpis.goalMetRate, prior.goalMetRate)
-                    : undefined
-                }
-              />
-              <Link href={costsHref} className="block">
-                <KpiTile
-                  label="Cost per Goal"
-                  value={kpis.goalMet === 0 ? "—" : fmtUsd(kpis.costPerGoalMet)}
-                  hint="All-in: Twilio + 11Labs + OpenAI"
-                  pctDelta={
-                    prior && kpis.goalMet > 0 && prior.goalMet > 0
-                      ? pctDelta(kpis.costPerGoalMet, prior.costPerGoalMet)
-                      : undefined
-                  }
-                  badge={mockMode ? { label: "Mock data", tone: "warn" } : null}
-                  cta="View costs"
-                />
-              </Link>
-            </div>
+          <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <KpiTile
+              label="Connect rate"
+              value={fmtPct(rates.connect)}
+              hint="Businesses we reached"
+              pctDelta={
+                priorRates
+                  ? pctDelta(rates.connect, priorRates.connect)
+                  : undefined
+              }
+            />
+            <KpiTile
+              label="Conversation rate"
+              value={fmtPct(rates.conversation)}
+              hint="Of connected, talked > 1 min"
+              pctDelta={
+                priorRates
+                  ? pctDelta(rates.conversation, priorRates.conversation)
+                  : undefined
+              }
+            />
+            <KpiTile
+              label="DM-reach rate"
+              value={fmtPct(rates.dm)}
+              hint="Of conversations, reached the DM"
+              pctDelta={
+                priorRates ? pctDelta(rates.dm, priorRates.dm) : undefined
+              }
+            />
+            <KpiTile
+              label="Goal rate"
+              value={fmtPct(rates.goal)}
+              hint="Of DMs reached, goal met"
+              pctDelta={
+                priorRates ? pctDelta(rates.goal, priorRates.goal) : undefined
+              }
+            />
           </section>
 
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both delay-150 duration-500">
@@ -362,18 +321,9 @@ export default async function AnalyticsPage({
             />
           </div>
 
-          {/* Layer 2 — Clarification */}
+          {/* Layer 2 — Clarification: top campaigns + outcome mix side by side
+           *  (the funnel moved up to the hero). */}
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-1 gap-4 delay-200 duration-500 lg:grid-cols-2">
-            <section className="border-border bg-card rounded-xl border p-5">
-              <h2 className="text-foreground text-sm font-semibold">
-                Conversion funnel
-              </h2>
-              <p className="text-muted-foreground mt-1 mb-3 text-xs">
-                Dialed → Connected → Conversation → DMs reached → Goal Met
-              </p>
-              <FunnelChart steps={funnel} />
-            </section>
-
             <section className="border-border bg-card rounded-xl border p-5">
               <h2 className="text-foreground text-sm font-semibold">
                 Top campaigns
@@ -384,7 +334,7 @@ export default async function AnalyticsPage({
               <CampaignLeaderboard rows={ranking} />
             </section>
 
-            <section className="border-border bg-card col-span-1 rounded-xl border p-5 lg:col-span-2">
+            <section className="border-border bg-card rounded-xl border p-5">
               <h2 className="text-foreground text-sm font-semibold">
                 Outcome distribution
               </h2>
@@ -412,7 +362,7 @@ export default async function AnalyticsPage({
             <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
               Also in this period:
             </p>
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
               <InventoryTile
                 label="Callbacks scheduled"
                 value={kpis.callbacksScheduled.toLocaleString()}
@@ -424,6 +374,10 @@ export default async function AnalyticsPage({
               <InventoryTile
                 label="Avg call"
                 value={fmtSeconds(kpis.avgDurationSeconds)}
+              />
+              <InventoryTile
+                label="Cost per goal"
+                value={kpis.goalMet === 0 ? "—" : fmtUsd(kpis.costPerGoalMet)}
               />
               <InventoryTile
                 label="Avg cost / call"
