@@ -19,6 +19,7 @@ import {
   applyRetryForCall,
   finalizeFailedCall,
 } from "@/lib/dialer/retry-engine";
+import { priceTwilioCall, elevenLabsUsdPerCredit } from "@/lib/costs/rates";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
@@ -42,12 +43,9 @@ const DISPOSITION_TO_OUTCOME: Record<string, CallOutcome> = {
   voicemail: "voicemail",
 };
 
-/** ElevenLabs Conversational AI is billed in credits; the post-call payload
- *  reports the total as a number in metadata.cost. Convert to USD. Default is
- *  the Pro plan rate (~$0.000198/credit); override with ELEVENLABS_USD_PER_CREDIT
- *  if the workspace plan differs. */
-const ELEVENLABS_USD_PER_CREDIT =
-  Number(process.env.ELEVENLABS_USD_PER_CREDIT) || 0.000198;
+// ElevenLabs Conversational AI is billed in credits; the post-call payload
+// reports the total as a number in metadata.cost. The per-credit USD rate lives
+// in the central rates module (env ELEVENLABS_USD_PER_CREDIT).
 
 /** Normalize the post-call cost into USD. Real ElevenLabs sends a credit count
  *  (number); our legacy tests send a pre-split { elevenlabs, openai } object. */
@@ -55,7 +53,7 @@ function elevenLabsCostUsd(
   cost: number | { elevenlabs?: number; openai?: number } | undefined,
 ): number {
   if (typeof cost === "number") {
-    return Number((cost * ELEVENLABS_USD_PER_CREDIT).toFixed(4));
+    return Number((cost * elevenLabsUsdPerCredit()).toFixed(4));
   }
   if (cost && typeof cost === "object") {
     return (cost.elevenlabs ?? 0) + (cost.openai ?? 0);
@@ -810,12 +808,22 @@ async function processTranscription(
   // into one credit figure, so it all lands under `elevenlabs`.
   const prevCost = (call.cost_breakdown ?? {}) as Record<string, number>;
   const elevenLabsCost = elevenLabsCostUsd(payload.metadata?.cost);
+  // Twilio bills the call leg even though ElevenLabs places the call. If a prior
+  // path (e.g. a human-call recording webhook) already wrote a Twilio cost, keep
+  // it; otherwise price this call's duration. ElevenLabs's credit figure bundles
+  // LLM+TTS+telephony and lands under `elevenlabs`.
+  const twilioCost =
+    prevCost.twilio && prevCost.twilio > 0
+      ? prevCost.twilio
+      : priceTwilioCall(callDurationSecs);
   const mergedCost = {
-    twilio: prevCost.twilio ?? 0,
+    twilio: twilioCost,
     elevenlabs: elevenLabsCost,
     openai: 0,
     lookup: prevCost.lookup ?? 0,
-    total: (prevCost.twilio ?? 0) + elevenLabsCost + (prevCost.lookup ?? 0),
+    total: Number(
+      (twilioCost + elevenLabsCost + (prevCost.lookup ?? 0)).toFixed(4),
+    ),
   };
 
   // The real per-call summary ElevenLabs sends is `transcript_summary`;
