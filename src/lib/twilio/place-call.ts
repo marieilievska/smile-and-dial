@@ -4,6 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 
+import { pointNumberWebhooks } from "./numbers";
+
 /** Place outbound calls via ElevenLabs' NATIVE Twilio integration.
  *
  *  Why not a home-grown bridge? We previously dialed Twilio directly and
@@ -102,7 +104,7 @@ export async function ensureNumberImportedToElevenLabs(
   const { data: num } = await supabase
     .from("twilio_numbers")
     .select(
-      "phone_number, friendly_name, released_at, elevenlabs_phone_number_id",
+      "phone_number, friendly_name, released_at, elevenlabs_phone_number_id, twilio_sid",
     )
     .eq("id", twilioNumberId)
     .maybeSingle();
@@ -130,6 +132,27 @@ export async function ensureNumberImportedToElevenLabs(
     .from("twilio_numbers")
     .update({ elevenlabs_phone_number_id: imported.phoneNumberId })
     .eq("id", twilioNumberId);
+
+  // Importing a number into ElevenLabs HIJACKS its Twilio voice webhook:
+  // ElevenLabs repoints VoiceUrl at api.elevenlabs.io/twilio/inbound_call. That
+  // silently breaks our app-bridged INBOUND — incoming calls would hit
+  // ElevenLabs (which has no agent assigned to the number) and never reach the
+  // app to create the lead, log the call, or bridge to the campaign's agent.
+  // Re-point the webhook back at the app so inbound keeps working. Outbound is
+  // unaffected: ElevenLabs places outbound through its API, not this webhook.
+  // Best-effort — a failure here must not undo the (successful) import.
+  if (num.twilio_sid) {
+    const pointed = await pointNumberWebhooks(num.twilio_sid);
+    if (!pointed.error && pointed.voiceUrl) {
+      await supabase
+        .from("twilio_numbers")
+        .update({
+          voice_webhook_url: pointed.voiceUrl,
+          status_webhook_url: pointed.statusCallback,
+        })
+        .eq("id", twilioNumberId);
+    }
+  }
   return imported;
 }
 
