@@ -14,6 +14,7 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 import {
   toElevenLabsDataCollection,
+  toElevenLabsDataCollectionObject,
   toElevenLabsEvaluation,
   type ExtraDataCollectionField,
   type ExtraEvaluationCriterion,
@@ -511,6 +512,7 @@ async function postCallWebhookBlock(): Promise<
 export async function applyConnectedAgentIntegration(
   agentId: string,
   toolsEnabled: ToolsEnabled | undefined,
+  extraDataCollection: ExtraDataCollectionField[] = [],
 ): Promise<{ error: string | null }> {
   if (!isLive()) return { error: null };
   const apiKey = fetchApiKey();
@@ -623,10 +625,12 @@ export async function applyConnectedAgentIntegration(
     platform_settings: {
       ...ps,
       // Merge our standard capture fields (disposition + owner/manager/employee
-      // names + business_email + callback) INTO the agent's existing data
-      // collection — its own custom fields are preserved, ours are added — so
-      // even an externally-built agent reports the outcome and contact details
-      // our post-call webhook reads.
+      // names + business_email + callback) AND this agent's own custom
+      // data-collection fields INTO the agent's existing data collection — its
+      // ElevenLabs-built fields are preserved, ours + the agent's are added — so
+      // even an externally-built agent reports the outcome, contact details, and
+      // any research fields our post-call webhook reads. (Custom fields are
+      // additive here too: the prompt/voice are never touched.)
       data_collection: {
         ...(ps.data_collection &&
         typeof ps.data_collection === "object" &&
@@ -634,6 +638,7 @@ export async function applyConnectedAgentIntegration(
           ? (ps.data_collection as Record<string, unknown>)
           : {}),
         ...standardDataCollectionObject(),
+        ...toElevenLabsDataCollectionObject(extraDataCollection),
       },
       // Merge our quality criteria into the agent's evaluation so every call
       // gets graded (the post-call webhook averages them into a 0–10 score).

@@ -122,6 +122,26 @@ export function toElevenLabsDataCollection(
   };
 }
 
+/** Shape normalized custom fields into ElevenLabs' OBJECT data-collection form
+ *  (keyed by id), matching the base fields' shape. The connected-agent overlay
+ *  merges these alongside the base set so a connected agent's custom fields
+ *  reach ElevenLabs without touching its prompt/voice. */
+export function toElevenLabsDataCollectionObject(
+  fields: ExtraDataCollectionField[],
+): Record<string, { type: string; description: string; enum?: string[] }> {
+  const out: Record<
+    string,
+    { type: string; description: string; enum?: string[] }
+  > = {};
+  for (const f of fields) {
+    out[f.id] = { type: f.type, description: f.description };
+    if (f.type === "string" && f.enumValues.length > 0) {
+      out[f.id].enum = f.enumValues;
+    }
+  }
+  return out;
+}
+
 /** Shape a normalized criterion into the ElevenLabs evaluation entry. */
 export function toElevenLabsEvaluation(
   c: ExtraEvaluationCriterion,
