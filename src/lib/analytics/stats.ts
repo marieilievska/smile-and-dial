@@ -214,6 +214,34 @@ export function buildFunnel(rows: CallRow[]): FunnelStep[] {
   ];
 }
 
+/** Per-BUSINESS conversion funnel — counts DISTINCT leads at each stage so the
+ *  funnel narrows cleanly into a true subset chain (unlike the per-call version,
+ *  where sticky lead flags like DM-reached/goal-met can make a later stage
+ *  exceed an earlier one). A lead enters a stage when ANY of its calls in range
+ *  qualifies. "Conversations" means a real talk: talk time passed one minute. */
+export function buildLeadFunnel(rows: CallRow[]): FunnelStep[] {
+  const called = new Set<string>();
+  const connected = new Set<string>();
+  const conversations = new Set<string>();
+  const dmsReached = new Set<string>();
+  const goalsMet = new Set<string>();
+  for (const r of rows) {
+    called.add(r.lead_id);
+    if (r.outcome && CONNECTED_OUTCOMES.has(r.outcome))
+      connected.add(r.lead_id);
+    if ((r.talk_time_seconds ?? 0) >= 60) conversations.add(r.lead_id);
+    if (rowReachedDm(r)) dmsReached.add(r.lead_id);
+    if (r.goal_met) goalsMet.add(r.lead_id);
+  }
+  return [
+    { label: "Called", count: called.size },
+    { label: "Connected", count: connected.size },
+    { label: "Conversations", count: conversations.size },
+    { label: "DMs reached", count: dmsReached.size },
+    { label: "Goals met", count: goalsMet.size },
+  ];
+}
+
 /** Daily count of `goal_met=true` calls — the trend series for the
  *  Appointments Booked hero chart and sparkline. Same date-pre-seeding
  *  trick as callsByDay so the chart never has gaps. */
