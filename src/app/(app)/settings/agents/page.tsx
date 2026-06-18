@@ -18,6 +18,7 @@ import { formatCreatedAt } from "../format-created";
 import { ConnectAgentDialog } from "./connect-agent-dialog";
 import { DeleteAgentDialog } from "./delete-agent-dialog";
 import { ResyncAgentsButton } from "./resync-agents-button";
+import { SyncAgentButton } from "./sync-agent-button";
 
 export default async function AgentsPage() {
   const supabase = await createClient();
@@ -139,6 +140,7 @@ export default async function AgentsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          <SyncAgentButton id={agent.id} name={agent.name} />
                           <Button
                             variant="ghost"
                             size="sm"

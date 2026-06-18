@@ -18,6 +18,7 @@ import { BuyNumberDialog } from "./buy-number-dialog";
 import { DeleteNumberDialog } from "./delete-number-dialog";
 import { ReleaseNumberDialog } from "./release-number-dialog";
 import { RenameNumberDialog } from "./rename-number-dialog";
+import { ConnectElevenLabsButton } from "./connect-elevenlabs-button";
 import { RepointWebhooksButton } from "./repoint-button";
 import { TwilioNumbersStatusTabs } from "./status-tabs";
 import { TwilioSyncButton } from "./sync-button";
@@ -52,7 +53,7 @@ export default async function TwilioNumbersPage({
   const { data: rawNumbers } = await supabase
     .from("twilio_numbers")
     .select(
-      "id, phone_number, friendly_name, country, monthly_cost, released_at, purchased_at, voice_webhook_url, status_webhook_url",
+      "id, phone_number, friendly_name, country, monthly_cost, released_at, purchased_at, voice_webhook_url, status_webhook_url, elevenlabs_phone_number_id",
     )
     .order("purchased_at", { ascending: false });
   const numbers = rawNumbers ?? [];
@@ -152,15 +153,21 @@ export default async function TwilioNumbersPage({
                         ~${Number(number.monthly_cost).toFixed(2)}/mo
                       </TableCell>
                       <TableCell>
-                        {number.released_at ? (
-                          <Badge variant="ghost" dot>
-                            Released
-                          </Badge>
-                        ) : (
-                          <Badge variant="success" dot>
-                            In pool
-                          </Badge>
-                        )}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {number.released_at ? (
+                            <Badge variant="ghost" dot>
+                              Released
+                            </Badge>
+                          ) : (
+                            <Badge variant="success" dot>
+                              In pool
+                            </Badge>
+                          )}
+                          {!number.released_at &&
+                          number.elevenlabs_phone_number_id ? (
+                            <Badge variant="secondary">EL ✓</Badge>
+                          ) : null}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <WebhookStatus
@@ -194,6 +201,9 @@ export default async function TwilioNumbersPage({
                             />
                           ) : (
                             <>
+                              {!number.elevenlabs_phone_number_id ? (
+                                <ConnectElevenLabsButton id={number.id} />
+                              ) : null}
                               <RepointWebhooksButton id={number.id} />
                               <ReleaseNumberDialog
                                 number={{
