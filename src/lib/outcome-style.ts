@@ -33,12 +33,16 @@ export type StatusBadgeVariant =
   | "warning"
   | "coral";
 
-// ── Call outcome (sentiment) ────────────────────────────────────────
-// Outcomes are colored by sentiment so the call log reads at a glance:
-// green = good, red = bad, grey = neutral / nothing happened.
+// ── Call outcome ────────────────────────────────────────────────────
+// Outcomes are colored into four meaningful tiers so the call log reads
+// at a glance — color carries the category, the label carries the detail
+// (not a unique color per value):
+//   green  (success)     = a win / forward progress
+//   amber  (warning)     = didn't connect to a person, worth another try
+//   red    (destructive) = failed / a hard no
+//   grey   (secondary)   = truly neutral / unknown only
 
-/** POSITIVE (green) — a win or genuine forward progress: the goal was
- *  met, we reached the decision maker, they agreed to a callback, or we
+/** WIN (green) — the goal was met, they agreed to a callback, or we
  *  handed off to a human. */
 const POSITIVE_OUTCOMES = new Set([
   "goal_met",
@@ -46,24 +50,44 @@ const POSITIVE_OUTCOMES = new Set([
   "callback",
 ]);
 
-/** NEGATIVE (red) — a clear no, a block, or an error: not interested,
- *  do-not-call, AI error. */
-const NEGATIVE_OUTCOMES = new Set(["not_interested", "dnc", "ai_error"]);
+/** FAILED / HARD NO (red) — a clear no, an unusable number, or an error:
+ *  the call failed to connect, the number was invalid, they're not
+ *  interested, do-not-call, or the AI errored. */
+const NEGATIVE_OUTCOMES = new Set([
+  "failed",
+  "invalid_number",
+  "not_interested",
+  "dnc",
+  "ai_error",
+]);
 
-// NEUTRAL (grey) is the fallback: no useful conversation happened —
-// voicemail, no_answer, busy, failed, invalid_number,
-// hung_up_immediately, call_back_later, gatekeeper, language_barrier,
-// ai_receptionist, and any unknown outcome.
+/** DIDN'T CONNECT — RETRY (amber) — we reached a machine, a screener, or
+ *  nobody, so there's no result yet but it's worth another attempt:
+ *  voicemail, no answer, busy, an immediate hang-up, a gatekeeper, a
+ *  "call back later", a language barrier, or an AI receptionist. */
+const RETRY_OUTCOMES = new Set([
+  "voicemail",
+  "no_answer",
+  "busy",
+  "hung_up_immediately",
+  "gatekeeper",
+  "call_back_later",
+  "language_barrier",
+  "ai_receptionist",
+]);
 
-/** Badge variant for a call OUTCOME, colored by sentiment.
- *  green (success) = positive, red (destructive) = negative,
- *  grey (secondary) = neutral / unknown. */
+// NEUTRAL (grey) is the fallback for any unknown / unmapped outcome only.
+
+/** Badge variant for a call OUTCOME, colored into four tiers:
+ *  green (success) = win, amber (warning) = didn't connect / retry,
+ *  red (destructive) = failed / hard no, grey (secondary) = unknown. */
 export function outcomeBadgeVariant(
   outcome: string,
-): "success" | "destructive" | "secondary" {
+): "success" | "warning" | "destructive" | "secondary" {
   if (POSITIVE_OUTCOMES.has(outcome)) return "success"; // green
   if (NEGATIVE_OUTCOMES.has(outcome)) return "destructive"; // red
-  // Neutral bucket + any unknown outcome read grey.
+  if (RETRY_OUTCOMES.has(outcome)) return "warning"; // amber
+  // Any unknown / unmapped outcome reads grey.
   return "secondary";
 }
 

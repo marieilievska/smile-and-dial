@@ -274,7 +274,18 @@ export function CallDetailModal() {
         )
       : null;
 
-  const showStatus = call && call.status && call.status !== "completed";
+  // The lifecycle status pill shows only while the call is LIVE, or as a
+  // fallback when there's no outcome yet (e.g. a call that failed to place).
+  // Once a call is terminal AND has an outcome, the outcome pill says it all —
+  // so a failed call shows a single red "Failed", not a grey+red pair.
+  const isLiveStatus =
+    call != null &&
+    ["queued", "dialing", "ringing", "in_progress"].includes(call.status);
+  const showStatus = Boolean(
+    call &&
+    call.status &&
+    (isLiveStatus || (!call.outcome && call.status !== "completed")),
+  );
 
   return (
     <Sheet
