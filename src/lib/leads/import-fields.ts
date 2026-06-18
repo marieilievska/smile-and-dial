@@ -1,3 +1,5 @@
+import { twilioLookupUsd } from "@/lib/costs/rates";
+
 /** Lead fields a CSV column can be mapped to during import. */
 export const IMPORTABLE_FIELDS = [
   { key: "company", label: "Company" },
@@ -19,8 +21,9 @@ export const IMPORTABLE_FIELDS = [
 /** Twilio Lookup line-type classification for a phone number. */
 export type LineType = "landline" | "mobile" | "voip" | "invalid" | "unknown";
 
-/** Cost charged by Twilio for one Line Type Intelligence lookup, in USD. */
-export const COST_PER_LOOKUP = 0.005;
+/** Cost charged by Twilio for one Line Type Intelligence lookup, in USD.
+ *  Sourced from the central rates module (env-overridable). */
+export const COST_PER_LOOKUP = twilioLookupUsd();
 
 export type ImportResult = {
   imported: number;
