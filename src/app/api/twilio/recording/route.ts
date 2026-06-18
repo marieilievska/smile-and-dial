@@ -4,6 +4,11 @@ import { appBaseUrl } from "@/lib/app-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidTwilioSignature } from "@/lib/twilio/status-webhook";
 import {
+  priceTwilioCall,
+  priceWhisper,
+  priceOpenAiTokens,
+} from "@/lib/costs/rates";
+import {
   transcribeAudioUrl,
   summarizeTranscript,
 } from "@/lib/openai/transcribe";
@@ -72,17 +77,31 @@ export async function POST(request: NextRequest) {
   if (!call) return new Response("", { status: 204 });
 
   const transcript = await transcribeAudioUrl(recordingUrl);
-  const aiSummary = transcript ? await summarizeTranscript(transcript) : null;
+  const summaryResult = transcript
+    ? await summarizeTranscript(transcript)
+    : null;
+  const aiSummary = summaryResult?.text ?? null;
 
-  const minutes = Math.max(0, recordingDuration) / 60;
-  const cost = Number((minutes * 0.027).toFixed(4));
-
+  // Twilio bills the recorded human call leg; OpenAI bills Whisper per minute of
+  // audio plus the gpt-4o-mini summary by its actual tokens. All rates central.
+  const twilioCost = priceTwilioCall(recordingDuration);
+  const openaiCost = Number(
+    (
+      priceWhisper(recordingDuration) +
+      (summaryResult
+        ? priceOpenAiTokens(
+            summaryResult.promptTokens,
+            summaryResult.completionTokens,
+          )
+        : 0)
+    ).toFixed(4),
+  );
   const costBreakdown = {
-    twilio: Number((minutes * 0.0185).toFixed(4)),
+    twilio: twilioCost,
     elevenlabs: 0,
-    openai: Number((minutes * 0.006 + 0.001).toFixed(4)),
+    openai: openaiCost,
     lookup: 0,
-    total: cost,
+    total: Number((twilioCost + openaiCost).toFixed(4)),
   };
 
   // Merge the summary: never clobber a human's disposition note. If the user
