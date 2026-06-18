@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import type { ToolsEnabled } from "@/lib/agents/prompt";
+import { sanitizeAudienceSearch } from "@/lib/campaigns/audience-filter";
 import { applyConnectedAgentIntegration } from "@/lib/elevenlabs/agents";
 import { createClient } from "@/lib/supabase/server";
 
@@ -87,6 +88,10 @@ export type CampaignInput = {
   /** Email template (email_templates.id) the send_email tool sends. Empty =
    *  no template, the tool only records intent. */
   emailTemplateId?: string;
+  /** Optional company-name "contains" filter. When set, the campaign also
+   *  targets every lead (same owner) whose company name contains this text,
+   *  regardless of list. Empty = list-only targeting. */
+  audienceSearch?: string;
 };
 
 function parseNumber(value: string): number | null {
@@ -124,6 +129,7 @@ function buildUpdate(input: CampaignInput) {
     smart_scheduling: input.smartSchedulingEnabled ?? false,
     calendly_event_id: input.calendlyEventId?.trim() || null,
     email_template_id: input.emailTemplateId?.trim() || null,
+    audience_search: sanitizeAudienceSearch(input.audienceSearch ?? "") || null,
   };
 }
 
