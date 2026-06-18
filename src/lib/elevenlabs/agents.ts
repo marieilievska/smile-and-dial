@@ -146,12 +146,6 @@ const DATA_COLLECTION_FIELDS = [
       "time or timeframe was given (e.g. call_back_later).",
     type: "string",
   },
-  {
-    id: "objection_summary",
-    description:
-      "Brief summary of the lead's reason for declining, if outcome is not_interested.",
-    type: "string",
-  },
 ];
 
 /** Our standard data-collection fields in ElevenLabs' canonical OBJECT shape

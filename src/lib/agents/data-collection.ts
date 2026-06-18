@@ -3,7 +3,7 @@
  *
  * These are ADDITIVE to the system base set the sync layer always sends.
  * The base data-collection fields (disposition, business_email, owner_name,
- * manager_name, employee_name, callback_datetime, objection_summary) and the
+ * manager_name, employee_name, callback_datetime) and the
  * base "goal met" evaluation criterion are load-bearing — the post-call
  * webhook reads them to map outcomes, autofill lead fields, and schedule
  * callbacks. User-defined fields/criteria are merged on top and can never
@@ -40,7 +40,6 @@ export const BASE_DATA_COLLECTION_IDS = new Set([
   "manager_name",
   "employee_name",
   "callback_datetime",
-  "objection_summary",
 ]);
 
 /** The base evaluation criterion id ("goal met") that always ships. */
