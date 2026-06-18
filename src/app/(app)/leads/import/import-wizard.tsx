@@ -221,6 +221,8 @@ export function ImportWizard({
         importable: 0,
         mobile: 0,
         invalid: 0,
+        duplicateExisting: 0,
+        duplicateInFile: 0,
         estCost: 0,
         rowLineTypes: [],
         skipped: [],
@@ -257,6 +259,8 @@ export function ImportWizard({
         merged.importable += res.importable;
         merged.mobile += res.mobile;
         merged.invalid += res.invalid;
+        merged.duplicateExisting += res.duplicateExisting;
+        merged.duplicateInFile += res.duplicateInFile;
         merged.estCost += res.estCost;
         merged.rowLineTypes.push(...res.rowLineTypes);
         merged.skipped.push(...res.skipped);
@@ -387,6 +391,7 @@ export function ImportWizard({
           analysis={analysis}
           fileName={fileName}
           skippedLookup={skipLookup}
+          dedup={dedup}
           pending={pending}
           progress={progress}
           onBack={() => setStep("map")}
@@ -781,6 +786,7 @@ function ReviewStep({
   analysis,
   fileName,
   skippedLookup,
+  dedup,
   pending,
   progress,
   onBack,
@@ -790,13 +796,28 @@ function ReviewStep({
   analysis: ImportAnalysis;
   fileName: string;
   skippedLookup: boolean;
+  dedup: "skip" | "update";
   pending: boolean;
   progress: { done: number; total: number } | null;
   onBack: () => void;
   onImport: () => void;
   onDownloadErrors: () => void;
 }) {
+  const dupExisting = analysis.duplicateExisting;
+  const dupInFile = analysis.duplicateInFile;
+  // Net-new = rows that pass the line-type check and aren't duplicates. This is
+  // what actually gets created, so it's the honest headline number (the old
+  // "importable" counted duplicates too, which made a re-import of leads you
+  // already have read as "everything will import").
+  const newCount = Math.max(0, analysis.importable - dupExisting - dupInFile);
+  const hasDuplicates = dupExisting > 0 || dupInFile > 0;
+  // No row passed the line-type gate at all — usually a missing phone mapping.
   const noImportable = analysis.importable === 0;
+  // In Update mode, existing duplicates aren't dead weight — they refresh the
+  // leads in place, so there's still work to do even with zero net-new.
+  const willUpdateExisting = dedup === "update" && dupExisting > 0;
+  const nothingToDo = newCount === 0 && !willUpdateExisting;
+
   return (
     <section className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
@@ -804,9 +825,9 @@ function ReviewStep({
           From {fileName}
         </p>
         <p className="text-foreground text-4xl font-semibold tabular-nums">
-          {analysis.importable.toLocaleString()}{" "}
+          {newCount.toLocaleString()}{" "}
           <span className="text-muted-foreground text-base font-normal">
-            {analysis.importable === 1 ? "lead" : "leads"} ready to import
+            new {newCount === 1 ? "lead" : "leads"} ready to import
           </span>
         </p>
       </div>
@@ -818,9 +839,8 @@ function ReviewStep({
         >
           <Info className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
           <p className="text-muted-foreground">
-            Twilio number verification was skipped. Every row will be imported
-            as-is. Skipping the lookup means mobile numbers won&apos;t be
-            detected or filtered — they may be imported and dialed. Run the
+            Twilio number verification was skipped, so mobile numbers won&apos;t
+            be detected or filtered — they may be imported and dialed. Run the
             lookup if you want mobiles flagged.
           </p>
         </div>
@@ -829,8 +849,8 @@ function ReviewStep({
           <ReviewStat
             icon={<CheckCircle2 className="size-3.5" />}
             tone="success"
-            label="Will import"
-            value={analysis.importable}
+            label="New leads"
+            value={newCount}
           />
           <ReviewStat
             icon={<Smartphone className="size-3.5" />}
@@ -848,6 +868,46 @@ function ReviewStep({
           />
         </div>
       )}
+
+      {/* Duplicate callout — the whole point of the preview fix: tell the user
+          up front how many rows they already have, before they commit. */}
+      {hasDuplicates ? (
+        <div
+          className="flex items-start gap-2 rounded-lg border px-3 py-2 text-xs"
+          role="status"
+          style={{
+            borderColor: "color-mix(in oklab, var(--primary) 30%, transparent)",
+            backgroundColor:
+              "color-mix(in oklab, var(--primary) 6%, transparent)",
+          }}
+        >
+          <Info
+            className="mt-0.5 size-3.5 shrink-0"
+            style={{ color: "var(--primary)" }}
+          />
+          <div className="text-foreground/80 flex flex-col gap-0.5">
+            {dupExisting > 0 ? (
+              <p>
+                <span className="text-foreground font-medium">
+                  {plural(dupExisting, "number")}
+                </span>{" "}
+                already in your leads —{" "}
+                {dedup === "update"
+                  ? "these will be updated in place, not duplicated."
+                  : "these will be skipped, not duplicated."}
+              </p>
+            ) : null}
+            {dupInFile > 0 ? (
+              <p>
+                <span className="text-foreground font-medium">
+                  {plural(dupInFile, "row")}
+                </span>{" "}
+                repeated within this file — only the first of each is imported.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-muted-foreground inline-flex items-center gap-1 text-xs">
@@ -876,18 +936,36 @@ function ReviewStep({
             verified.
           </p>
         </div>
+      ) : nothingToDo ? (
+        <div
+          role="alert"
+          className="border-border bg-muted/30 text-foreground/80 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm"
+        >
+          <Info className="mt-0.5 size-4 shrink-0" />
+          <p>
+            Nothing new to add — every number here is already in your leads. Set
+            the duplicate option to <span className="font-medium">Update</span>{" "}
+            on the first step if you want to refresh them with this file&apos;s
+            data instead.
+          </p>
+        </div>
       ) : null}
 
       <div className="flex justify-between gap-2 pt-2">
         <Button variant="ghost" onClick={onBack}>
           Back
         </Button>
-        <Button onClick={onImport} disabled={pending || noImportable}>
+        <Button
+          onClick={onImport}
+          disabled={pending || noImportable || nothingToDo}
+        >
           {pending
             ? progress
               ? `Importing ${progress.done.toLocaleString()} / ${progress.total.toLocaleString()}…`
               : "Importing…"
-            : `Import ${plural(analysis.importable, "lead")}`}
+            : willUpdateExisting && newCount === 0
+              ? `Update ${plural(dupExisting, "lead")}`
+              : `Import ${plural(newCount, "lead")}`}
         </Button>
       </div>
     </section>

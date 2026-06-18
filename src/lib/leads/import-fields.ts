@@ -46,6 +46,13 @@ export type ImportAnalysis = {
   importable: number;
   mobile: number;
   invalid: number;
+  /** Rows whose number already belongs to a live (non-deleted) lead you own —
+   *  these won't create a new lead. On commit they're skipped (Skip mode) or
+   *  refreshed in place (Update mode), never duplicated. */
+  duplicateExisting: number;
+  /** Rows whose number repeats an earlier row in the same file — only the first
+   *  occurrence imports; the rest collapse into it. */
+  duplicateInFile: number;
   estCost: number;
   /** Line type per row, aligned to the rows array by index. */
   rowLineTypes: LineType[];
