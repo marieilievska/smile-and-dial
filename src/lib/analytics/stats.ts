@@ -221,24 +221,41 @@ export function buildFunnel(rows: CallRow[]): FunnelStep[] {
  *  qualifies. "Conversations" means a real talk: talk time passed one minute. */
 export function buildLeadFunnel(rows: CallRow[]): FunnelStep[] {
   const called = new Set<string>();
-  const connected = new Set<string>();
-  const conversations = new Set<string>();
-  const dmsReached = new Set<string>();
-  const goalsMet = new Set<string>();
+  const connectedRaw = new Set<string>();
+  const conversationRaw = new Set<string>();
+  const dmRaw = new Set<string>();
+  const goalRaw = new Set<string>();
   for (const r of rows) {
     called.add(r.lead_id);
-    if (r.outcome && CONNECTED_OUTCOMES.has(r.outcome))
-      connected.add(r.lead_id);
-    if ((r.talk_time_seconds ?? 0) >= 60) conversations.add(r.lead_id);
-    if (rowReachedDm(r)) dmsReached.add(r.lead_id);
-    if (r.goal_met) goalsMet.add(r.lead_id);
+    const isConnected = !!r.outcome && CONNECTED_OUTCOMES.has(r.outcome);
+    if (isConnected) connectedRaw.add(r.lead_id);
+    // A real conversation = we reached a person AND talked more than a minute.
+    // ElevenLabs never populates talk_time_seconds (it sends call_duration_secs,
+    // which the webhook stores in duration_seconds), so the old talk-time check
+    // was ALWAYS 0 — the "Conversations: 0" bug. Prefer talk time when present,
+    // else fall back to the connected call's duration.
+    const talkSecs = r.talk_time_seconds ?? r.duration_seconds ?? 0;
+    if (isConnected && talkSecs >= 60) conversationRaw.add(r.lead_id);
+    if (rowReachedDm(r)) dmRaw.add(r.lead_id);
+    if (r.goal_met) goalRaw.add(r.lead_id);
   }
+  // Enforce a TRUE funnel: a lead in a deeper stage implies every shallower one
+  // (you can't meet the goal without reaching the DM, having a real
+  // conversation, and connecting). The old code counted each stage
+  // independently, so sticky lead flags the agent doesn't set in lockstep let a
+  // later stage exceed an earlier one — e.g. goals(14) > DMs(12), which rendered
+  // as a nonsensical "117% of DMs reached". Folding deeper stages upward makes
+  // the chain narrow monotonically and every step rate land at ≤ 100%.
+  const goals = goalRaw;
+  const dms = new Set([...dmRaw, ...goals]);
+  const conversations = new Set([...conversationRaw, ...dms]);
+  const connected = new Set([...connectedRaw, ...conversations]);
   return [
     { label: "Called", count: called.size },
     { label: "Connected", count: connected.size },
     { label: "Conversations", count: conversations.size },
-    { label: "DMs reached", count: dmsReached.size },
-    { label: "Goals met", count: goalsMet.size },
+    { label: "DMs reached", count: dms.size },
+    { label: "Goals met", count: goals.size },
   ];
 }
 
