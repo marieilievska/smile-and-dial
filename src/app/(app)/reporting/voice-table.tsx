@@ -7,19 +7,11 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { saveCallAnnotation } from "@/lib/agent-analytics/actions";
+import type { VoiceRow } from "@/lib/agent-analytics/report-data";
 
 import { ExportCsvButton } from "./export-csv-button";
 
-export type VoiceRow = {
-  id: string;
-  day: string;
-  company: string;
-  list: string;
-  interest: "yes" | "no" | "maybe";
-  reason: string;
-  theme: string;
-  suggestedAction: string;
-};
+export type { VoiceRow };
 
 type InterestFilter = "all" | "yes" | "maybe" | "no";
 
@@ -38,8 +30,15 @@ const INTEREST_BADGE: Record<VoiceRow["interest"], string> = {
 
 /** Voice of Customer: every call that has an interest answer, with the owner's
  *  verbatim reason and two operator-editable annotation fields (theme +
- *  suggested action) that save inline to the call. Admin-only. */
-export function VoiceTable({ rows }: { rows: VoiceRow[] }) {
+ *  suggested action) that save inline to the call. `readOnly` renders the
+ *  annotation cells as plain text (public share view). */
+export function VoiceTable({
+  rows,
+  readOnly = false,
+}: {
+  rows: VoiceRow[];
+  readOnly?: boolean;
+}) {
   const [interest, setInterest] = useState<InterestFilter>("all");
   const [q, setQ] = useState("");
 
@@ -103,10 +102,21 @@ export function VoiceTable({ rows }: { rows: VoiceRow[] }) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-muted-foreground text-sm">
-        Every Market Research call with an interest answer. Edit the{" "}
-        <span className="text-foreground font-medium">Theme</span> and{" "}
-        <span className="text-foreground font-medium">Suggested action</span>{" "}
-        cells — they save automatically when you click away.
+        Every Market Research call with an interest answer, with the owner’s own
+        words.
+        {!readOnly ? (
+          <>
+            {" "}
+            Edit the <span className="text-foreground font-medium">
+              Theme
+            </span>{" "}
+            and{" "}
+            <span className="text-foreground font-medium">
+              Suggested action
+            </span>{" "}
+            cells — they save automatically when you click away.
+          </>
+        ) : null}
       </p>
 
       {/* Toolbar */}
@@ -221,36 +231,48 @@ export function VoiceTable({ rows }: { rows: VoiceRow[] }) {
                     {r.reason || "—"}
                   </td>
                   <td className="px-3 py-2">
-                    <Textarea
-                      value={draft[`${r.id}:theme`] ?? ""}
-                      onChange={(e) =>
-                        setDraft((d) => ({
-                          ...d,
-                          [`${r.id}:theme`]: e.target.value,
-                        }))
-                      }
-                      onBlur={() => commit(r.id, "theme")}
-                      placeholder="Add a theme…"
-                      rows={2}
-                      disabled={savingKey === `${r.id}:theme`}
-                      className="min-h-0 min-w-[10rem] resize-y text-sm"
-                    />
+                    {readOnly ? (
+                      <span className="block min-w-[10rem]">
+                        {draft[`${r.id}:theme`] || "—"}
+                      </span>
+                    ) : (
+                      <Textarea
+                        value={draft[`${r.id}:theme`] ?? ""}
+                        onChange={(e) =>
+                          setDraft((d) => ({
+                            ...d,
+                            [`${r.id}:theme`]: e.target.value,
+                          }))
+                        }
+                        onBlur={() => commit(r.id, "theme")}
+                        placeholder="Add a theme…"
+                        rows={2}
+                        disabled={savingKey === `${r.id}:theme`}
+                        className="min-h-0 min-w-[10rem] resize-y text-sm"
+                      />
+                    )}
                   </td>
                   <td className="px-3 py-2">
-                    <Textarea
-                      value={draft[`${r.id}:suggested_action`] ?? ""}
-                      onChange={(e) =>
-                        setDraft((d) => ({
-                          ...d,
-                          [`${r.id}:suggested_action`]: e.target.value,
-                        }))
-                      }
-                      onBlur={() => commit(r.id, "suggested_action")}
-                      placeholder="Add a suggested action…"
-                      rows={2}
-                      disabled={savingKey === `${r.id}:suggested_action`}
-                      className="min-h-0 min-w-[12rem] resize-y text-sm"
-                    />
+                    {readOnly ? (
+                      <span className="block min-w-[12rem]">
+                        {draft[`${r.id}:suggested_action`] || "—"}
+                      </span>
+                    ) : (
+                      <Textarea
+                        value={draft[`${r.id}:suggested_action`] ?? ""}
+                        onChange={(e) =>
+                          setDraft((d) => ({
+                            ...d,
+                            [`${r.id}:suggested_action`]: e.target.value,
+                          }))
+                        }
+                        onBlur={() => commit(r.id, "suggested_action")}
+                        placeholder="Add a suggested action…"
+                        rows={2}
+                        disabled={savingKey === `${r.id}:suggested_action`}
+                        className="min-h-0 min-w-[12rem] resize-y text-sm"
+                      />
+                    )}
                   </td>
                 </tr>
               ))

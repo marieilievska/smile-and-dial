@@ -12,20 +12,11 @@ import {
   deleteChangelogEntry,
   updateChangelogField,
 } from "@/lib/agent-analytics/actions";
+import type { ChangelogRow } from "@/lib/agent-analytics/report-data";
 
 import { ExportCsvButton } from "./export-csv-button";
 
-export type ChangelogRow = {
-  id: string;
-  changeDate: string;
-  area: string;
-  changeType: string;
-  summary: string;
-  details: string;
-  status: string;
-  owner: string;
-  ticketLink: string;
-};
+export type { ChangelogRow };
 
 type Field =
   | "change_date"
@@ -48,8 +39,15 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 /** App Changelog — a manual log of changes to the platform. Add a row, edit
- *  any cell inline (saves on blur / change), delete a row. Admin-only. */
-export function ChangelogTable({ rows }: { rows: ChangelogRow[] }) {
+ *  any cell inline (saves on blur / change), delete a row. `readOnly` renders a
+ *  plain table with no add/edit/delete (public share view). */
+export function ChangelogTable({
+  rows,
+  readOnly = false,
+}: {
+  rows: ChangelogRow[];
+  readOnly?: boolean;
+}) {
   const initial = useMemo(() => {
     const m: Record<string, string> = {};
     for (const r of rows) {
@@ -118,10 +116,17 @@ export function ChangelogTable({ rows }: { rows: ChangelogRow[] }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" size="sm" onClick={addEntry} disabled={isPending}>
-          <Plus className="size-4" />
-          Add entry
-        </Button>
+        {!readOnly ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={addEntry}
+            disabled={isPending}
+          >
+            <Plus className="size-4" />
+            Add entry
+          </Button>
+        ) : null}
         <span className="text-muted-foreground text-sm">
           {rows.length.toLocaleString()}{" "}
           {rows.length === 1 ? "entry" : "entries"}
@@ -157,7 +162,7 @@ export function ChangelogTable({ rows }: { rows: ChangelogRow[] }) {
                 "Status",
                 "Owner",
                 "Ticket",
-                "",
+                ...(readOnly ? [] : [""]),
               ].map((h, i) => (
                 <th
                   key={h || `c${i}`}
@@ -172,10 +177,12 @@ export function ChangelogTable({ rows }: { rows: ChangelogRow[] }) {
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={readOnly ? 8 : 9}
                   className="text-muted-foreground px-3 py-8 text-center"
                 >
-                  No entries yet. Click “Add entry” to start the log.
+                  {readOnly
+                    ? "No entries yet."
+                    : "No entries yet. Click “Add entry” to start the log."}
                 </td>
               </tr>
             ) : (
@@ -187,126 +194,196 @@ export function ChangelogTable({ rows }: { rows: ChangelogRow[] }) {
                     key={r.id}
                     className="border-border/60 hover:bg-muted/20 border-b align-top"
                   >
-                    <td className="px-3 py-2">
-                      <Input
-                        type="date"
-                        value={get(r.id, "change_date")}
-                        onChange={(e) =>
-                          set(r.id, "change_date", e.target.value)
-                        }
-                        onBlur={() =>
-                          commit(r.id, "change_date", get(r.id, "change_date"))
-                        }
-                        className="h-8 w-[9rem]"
-                      />
+                    <td className="px-3 py-2 whitespace-nowrap tabular-nums">
+                      {readOnly ? (
+                        get(r.id, "change_date") || "—"
+                      ) : (
+                        <Input
+                          type="date"
+                          value={get(r.id, "change_date")}
+                          onChange={(e) =>
+                            set(r.id, "change_date", e.target.value)
+                          }
+                          onBlur={() =>
+                            commit(
+                              r.id,
+                              "change_date",
+                              get(r.id, "change_date"),
+                            )
+                          }
+                          className="h-8 w-[9rem]"
+                        />
+                      )}
                     </td>
                     <td className="px-3 py-2">
-                      <Input
-                        value={get(r.id, "area")}
-                        onChange={(e) => set(r.id, "area", e.target.value)}
-                        onBlur={() => commit(r.id, "area", get(r.id, "area"))}
-                        placeholder="—"
-                        className="h-8 min-w-[7rem]"
-                      />
+                      {readOnly ? (
+                        <span className="block min-w-[6rem]">
+                          {get(r.id, "area") || "—"}
+                        </span>
+                      ) : (
+                        <Input
+                          value={get(r.id, "area")}
+                          onChange={(e) => set(r.id, "area", e.target.value)}
+                          onBlur={() => commit(r.id, "area", get(r.id, "area"))}
+                          placeholder="—"
+                          className="h-8 min-w-[7rem]"
+                        />
+                      )}
                     </td>
                     <td className="px-3 py-2">
-                      <select
-                        value={type}
-                        onChange={(e) => {
-                          set(r.id, "change_type", e.target.value);
-                          commit(r.id, "change_type", e.target.value);
-                        }}
-                        className="border-input bg-background h-8 rounded-md border px-2 text-sm"
-                      >
-                        <option value="">—</option>
-                        {type && !TYPES.includes(type) ? (
-                          <option value={type}>{type}</option>
-                        ) : null}
-                        {TYPES.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
+                      {readOnly ? (
+                        get(r.id, "change_type") || "—"
+                      ) : (
+                        <select
+                          value={type}
+                          onChange={(e) => {
+                            set(r.id, "change_type", e.target.value);
+                            commit(r.id, "change_type", e.target.value);
+                          }}
+                          className="border-input bg-background h-8 rounded-md border px-2 text-sm"
+                        >
+                          <option value="">—</option>
+                          {type && !TYPES.includes(type) ? (
+                            <option value={type}>{type}</option>
+                          ) : null}
+                          {TYPES.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </td>
                     <td className="px-3 py-2">
-                      <Input
-                        value={get(r.id, "summary")}
-                        onChange={(e) => set(r.id, "summary", e.target.value)}
-                        onBlur={() =>
-                          commit(r.id, "summary", get(r.id, "summary"))
-                        }
-                        placeholder="What changed"
-                        className="h-8 min-w-[12rem]"
-                      />
+                      {readOnly ? (
+                        <span className="block min-w-[12rem] font-medium">
+                          {get(r.id, "summary") || "—"}
+                        </span>
+                      ) : (
+                        <Input
+                          value={get(r.id, "summary")}
+                          onChange={(e) => set(r.id, "summary", e.target.value)}
+                          onBlur={() =>
+                            commit(r.id, "summary", get(r.id, "summary"))
+                          }
+                          placeholder="What changed"
+                          className="h-8 min-w-[12rem]"
+                        />
+                      )}
+                    </td>
+                    <td className="text-muted-foreground px-3 py-2">
+                      {readOnly ? (
+                        <span className="block min-w-[12rem]">
+                          {get(r.id, "details") || "—"}
+                        </span>
+                      ) : (
+                        <Textarea
+                          value={get(r.id, "details")}
+                          onChange={(e) => set(r.id, "details", e.target.value)}
+                          onBlur={() =>
+                            commit(r.id, "details", get(r.id, "details"))
+                          }
+                          placeholder="Details…"
+                          rows={2}
+                          className="min-h-0 min-w-[12rem] resize-y text-sm"
+                        />
+                      )}
                     </td>
                     <td className="px-3 py-2">
-                      <Textarea
-                        value={get(r.id, "details")}
-                        onChange={(e) => set(r.id, "details", e.target.value)}
-                        onBlur={() =>
-                          commit(r.id, "details", get(r.id, "details"))
-                        }
-                        placeholder="Details…"
-                        rows={2}
-                        className="min-h-0 min-w-[12rem] resize-y text-sm"
-                      />
+                      {readOnly ? (
+                        <span
+                          className={
+                            "inline-block rounded-full px-2 py-1 text-xs font-medium " +
+                            (STATUS_BADGE[status] ?? "bg-muted text-foreground")
+                          }
+                        >
+                          {status}
+                        </span>
+                      ) : (
+                        <select
+                          value={status}
+                          onChange={(e) => {
+                            set(r.id, "status", e.target.value);
+                            commit(r.id, "status", e.target.value);
+                          }}
+                          disabled={savingKey === `${r.id}:status`}
+                          className={
+                            "rounded-full border-0 px-2 py-1 text-xs font-medium " +
+                            (STATUS_BADGE[status] ?? "bg-muted text-foreground")
+                          }
+                        >
+                          {STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </td>
                     <td className="px-3 py-2">
-                      <select
-                        value={status}
-                        onChange={(e) => {
-                          set(r.id, "status", e.target.value);
-                          commit(r.id, "status", e.target.value);
-                        }}
-                        disabled={savingKey === `${r.id}:status`}
-                        className={
-                          "rounded-full border-0 px-2 py-1 text-xs font-medium " +
-                          (STATUS_BADGE[status] ?? "bg-muted text-foreground")
-                        }
-                      >
-                        {STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
+                      {readOnly ? (
+                        <span className="block min-w-[6rem]">
+                          {get(r.id, "owner") || "—"}
+                        </span>
+                      ) : (
+                        <Input
+                          value={get(r.id, "owner")}
+                          onChange={(e) => set(r.id, "owner", e.target.value)}
+                          onBlur={() =>
+                            commit(r.id, "owner", get(r.id, "owner"))
+                          }
+                          placeholder="—"
+                          className="h-8 min-w-[6rem]"
+                        />
+                      )}
                     </td>
                     <td className="px-3 py-2">
-                      <Input
-                        value={get(r.id, "owner")}
-                        onChange={(e) => set(r.id, "owner", e.target.value)}
-                        onBlur={() => commit(r.id, "owner", get(r.id, "owner"))}
-                        placeholder="—"
-                        className="h-8 min-w-[6rem]"
-                      />
+                      {readOnly ? (
+                        get(r.id, "ticket_link") ? (
+                          <a
+                            href={get(r.id, "ticket_link")}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[color:var(--primary)] underline"
+                          >
+                            link
+                          </a>
+                        ) : (
+                          "—"
+                        )
+                      ) : (
+                        <Input
+                          value={get(r.id, "ticket_link")}
+                          onChange={(e) =>
+                            set(r.id, "ticket_link", e.target.value)
+                          }
+                          onBlur={() =>
+                            commit(
+                              r.id,
+                              "ticket_link",
+                              get(r.id, "ticket_link"),
+                            )
+                          }
+                          placeholder="URL"
+                          className="h-8 min-w-[8rem]"
+                        />
+                      )}
                     </td>
-                    <td className="px-3 py-2">
-                      <Input
-                        value={get(r.id, "ticket_link")}
-                        onChange={(e) =>
-                          set(r.id, "ticket_link", e.target.value)
-                        }
-                        onBlur={() =>
-                          commit(r.id, "ticket_link", get(r.id, "ticket_link"))
-                        }
-                        placeholder="URL"
-                        className="h-8 min-w-[8rem]"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => remove(r.id)}
-                        disabled={isPending}
-                        aria-label="Delete entry"
-                        className="text-muted-foreground hover:text-destructive size-8"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </td>
+                    {!readOnly ? (
+                      <td className="px-3 py-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => remove(r.id)}
+                          disabled={isPending}
+                          aria-label="Delete entry"
+                          className="text-muted-foreground hover:text-destructive size-8"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })
