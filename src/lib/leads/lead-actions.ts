@@ -117,6 +117,7 @@ export async function updateLeadCustomValue(input: {
   }
 
   revalidatePath("/leads");
+  revalidatePath(`/leads/${input.leadId}`);
   return { error: null };
 }
 
