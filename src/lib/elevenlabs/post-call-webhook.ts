@@ -630,7 +630,7 @@ async function resolveCall(
       .select(cols)
       .eq("id", echoedCallId)
       .maybeSingle();
-    call = data ?? null;
+    call = (data ?? null) as typeof call;
   }
   if (!call) {
     const { data } = await supabase
@@ -638,7 +638,7 @@ async function resolveCall(
       .select(cols)
       .eq("elevenlabs_conversation_id", conversationId)
       .maybeSingle();
-    call = data ?? null;
+    call = (data ?? null) as typeof call;
   }
   if (call && !call.elevenlabs_conversation_id) {
     await supabase

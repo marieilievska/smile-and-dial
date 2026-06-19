@@ -14,6 +14,39 @@ export type Database = {
   };
   public: {
     Tables: {
+      agent_prompt_log: {
+        Row: {
+          changed: string;
+          created_at: string;
+          full_prompt: string | null;
+          id: string;
+          log_date: string;
+          version: string | null;
+          what_changed: string | null;
+          why: string | null;
+        };
+        Insert: {
+          changed?: string;
+          created_at?: string;
+          full_prompt?: string | null;
+          id?: string;
+          log_date?: string;
+          version?: string | null;
+          what_changed?: string | null;
+          why?: string | null;
+        };
+        Update: {
+          changed?: string;
+          created_at?: string;
+          full_prompt?: string | null;
+          id?: string;
+          log_date?: string;
+          version?: string | null;
+          what_changed?: string | null;
+          why?: string | null;
+        };
+        Relationships: [];
+      };
       agents: {
         Row: {
           ai_model: string | null;
@@ -196,8 +229,48 @@ export type Database = {
           },
         ];
       };
+      app_changelog: {
+        Row: {
+          area: string | null;
+          change_date: string;
+          change_type: string | null;
+          created_at: string;
+          details: string | null;
+          id: string;
+          owner: string | null;
+          status: string;
+          summary: string | null;
+          ticket_link: string | null;
+        };
+        Insert: {
+          area?: string | null;
+          change_date?: string;
+          change_type?: string | null;
+          created_at?: string;
+          details?: string | null;
+          id?: string;
+          owner?: string | null;
+          status?: string;
+          summary?: string | null;
+          ticket_link?: string | null;
+        };
+        Update: {
+          area?: string | null;
+          change_date?: string;
+          change_type?: string | null;
+          created_at?: string;
+          details?: string | null;
+          id?: string;
+          owner?: string | null;
+          status?: string;
+          summary?: string | null;
+          ticket_link?: string | null;
+        };
+        Relationships: [];
+      };
       app_settings: {
         Row: {
+          agent_analytics_share_token: string | null;
           best_time_heatmap: Json | null;
           best_time_heatmap_at: string | null;
           calendly_access_token: string | null;
@@ -227,6 +300,7 @@ export type Database = {
           updated_at: string;
         };
         Insert: {
+          agent_analytics_share_token?: string | null;
           best_time_heatmap?: Json | null;
           best_time_heatmap_at?: string | null;
           calendly_access_token?: string | null;
@@ -256,6 +330,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          agent_analytics_share_token?: string | null;
           best_time_heatmap?: Json | null;
           best_time_heatmap_at?: string | null;
           calendly_access_token?: string | null;
@@ -408,7 +483,7 @@ export type Database = {
       };
       callbacks: {
         Row: {
-          campaign_id: string;
+          campaign_id: string | null;
           created_at: string;
           created_by: string | null;
           id: string;
@@ -420,7 +495,7 @@ export type Database = {
           voicemail_attempts: number;
         };
         Insert: {
-          campaign_id: string;
+          campaign_id?: string | null;
           created_at?: string;
           created_by?: string | null;
           id?: string;
@@ -432,7 +507,7 @@ export type Database = {
           voicemail_attempts?: number;
         };
         Update: {
-          campaign_id?: string;
+          campaign_id?: string | null;
           created_at?: string;
           created_by?: string | null;
           id?: string;
@@ -493,9 +568,10 @@ export type Database = {
           agent_id: string | null;
           answered_at: string | null;
           call_mode: string;
-          campaign_id: string;
+          campaign_id: string | null;
           cost_breakdown: Json | null;
           created_at: string;
+          dialed_target: string | null;
           direction: string;
           duration_seconds: number | null;
           elevenlabs_conversation_id: string | null;
@@ -512,9 +588,10 @@ export type Database = {
           score: number | null;
           started_at: string | null;
           status: string;
+          suggested_action: string | null;
           summary: string | null;
           talk_time_seconds: number | null;
-          dialed_target: string | null;
+          theme: string | null;
           transcript_json: Json | null;
           twilio_call_sid: string | null;
           twilio_number_id: string | null;
@@ -523,9 +600,10 @@ export type Database = {
           agent_id?: string | null;
           answered_at?: string | null;
           call_mode?: string;
-          campaign_id: string;
+          campaign_id?: string | null;
           cost_breakdown?: Json | null;
           created_at?: string;
+          dialed_target?: string | null;
           direction: string;
           duration_seconds?: number | null;
           elevenlabs_conversation_id?: string | null;
@@ -542,9 +620,10 @@ export type Database = {
           score?: number | null;
           started_at?: string | null;
           status?: string;
+          suggested_action?: string | null;
           summary?: string | null;
           talk_time_seconds?: number | null;
-          dialed_target?: string | null;
+          theme?: string | null;
           transcript_json?: Json | null;
           twilio_call_sid?: string | null;
           twilio_number_id?: string | null;
@@ -553,9 +632,10 @@ export type Database = {
           agent_id?: string | null;
           answered_at?: string | null;
           call_mode?: string;
-          campaign_id?: string;
+          campaign_id?: string | null;
           cost_breakdown?: Json | null;
           created_at?: string;
+          dialed_target?: string | null;
           direction?: string;
           duration_seconds?: number | null;
           elevenlabs_conversation_id?: string | null;
@@ -572,9 +652,10 @@ export type Database = {
           score?: number | null;
           started_at?: string | null;
           status?: string;
+          suggested_action?: string | null;
           summary?: string | null;
           talk_time_seconds?: number | null;
-          dialed_target?: string | null;
+          theme?: string | null;
           transcript_json?: Json | null;
           twilio_call_sid?: string | null;
           twilio_number_id?: string | null;
@@ -1027,6 +1108,79 @@ export type Database = {
           owner_id?: string;
         };
         Relationships: [];
+      };
+      hot_leads: {
+        Row: {
+          call_id: string;
+          call_length_seconds: number | null;
+          contact_name: string | null;
+          created_at: string;
+          current_ai_tool: string | null;
+          date_contacted: string | null;
+          id: string;
+          interest: string | null;
+          lead_id: string | null;
+          next_step: string | null;
+          owner: string | null;
+          session_date: string | null;
+          status: string;
+          why_hot: string | null;
+        };
+        Insert: {
+          call_id: string;
+          call_length_seconds?: number | null;
+          contact_name?: string | null;
+          created_at?: string;
+          current_ai_tool?: string | null;
+          date_contacted?: string | null;
+          id?: string;
+          interest?: string | null;
+          lead_id?: string | null;
+          next_step?: string | null;
+          owner?: string | null;
+          session_date?: string | null;
+          status?: string;
+          why_hot?: string | null;
+        };
+        Update: {
+          call_id?: string;
+          call_length_seconds?: number | null;
+          contact_name?: string | null;
+          created_at?: string;
+          current_ai_tool?: string | null;
+          date_contacted?: string | null;
+          id?: string;
+          interest?: string | null;
+          lead_id?: string | null;
+          next_step?: string | null;
+          owner?: string | null;
+          session_date?: string | null;
+          status?: string;
+          why_hot?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "hot_leads_call_id_fkey";
+            columns: ["call_id"];
+            isOneToOne: true;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "hot_leads_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "hot_leads_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       knowledge_base_sources: {
         Row: {
