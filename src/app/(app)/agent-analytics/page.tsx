@@ -11,8 +11,10 @@ import {
   type AgentCallRow,
 } from "@/lib/agent-analytics/stats";
 
+import { ChangelogTable, type ChangelogRow } from "./changelog-table";
 import { DashboardView } from "./dashboard-view";
 import { HotLeadsTable, type HotLeadRow } from "./hot-leads-table";
+import { PromptLogTable, type PromptLogRow } from "./prompt-log-table";
 import { VoiceTable, type VoiceRow } from "./voice-table";
 
 function str(v: string | string[] | undefined): string {
@@ -104,9 +106,11 @@ export default async function AgentAnalyticsPage({
         <VoiceTab agentId={agent.id} />
       ) : tab === "hot-leads" ? (
         <HotLeadsTab />
-      ) : (
-        <Placeholder label={TABS.find((t) => t.key === tab)?.label ?? ""} />
-      )}
+      ) : tab === "changelog" ? (
+        <ChangelogTab />
+      ) : tab === "prompt-log" ? (
+        <PromptLogTab />
+      ) : null}
     </div>
   );
 }
@@ -257,11 +261,63 @@ async function HotLeadsTab() {
   return <HotLeadsTable rows={rows} />;
 }
 
-function Placeholder({ label }: { label: string }) {
-  return (
-    <div className="border-border bg-muted/20 text-muted-foreground rounded-lg border border-dashed p-10 text-center text-sm">
-      <p className="text-foreground font-medium">{label}</p>
-      <p className="mt-1">This tab is coming in the next update.</p>
-    </div>
-  );
+async function ChangelogTab() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("app_changelog")
+    .select(
+      "id, change_date, area, change_type, summary, details, status, owner, ticket_link",
+    )
+    .order("change_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(2000);
+
+  const rows: ChangelogRow[] = (data ?? []).map((r) => ({
+    id: r.id,
+    changeDate: r.change_date ?? "",
+    area: r.area ?? "",
+    changeType: r.change_type ?? "",
+    summary: r.summary ?? "",
+    details: r.details ?? "",
+    status: r.status ?? "Open",
+    owner: r.owner ?? "",
+    ticketLink: r.ticket_link ?? "",
+  }));
+
+  return <ChangelogTable key={rows.map((r) => r.id).join(",")} rows={rows} />;
+}
+
+async function PromptLogTab() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("agent_prompt_log")
+    .select("id, log_date, version, changed, what_changed, why, full_prompt")
+    .order("log_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(2000);
+
+  const raw = data ?? [];
+  const rows: PromptLogRow[] = raw.map((r, i) => {
+    // The diff baseline is the next-older entry that actually has a prompt.
+    let prevPrompt = "";
+    for (let j = i + 1; j < raw.length; j++) {
+      const fp = raw[j].full_prompt;
+      if (fp && fp.trim()) {
+        prevPrompt = fp;
+        break;
+      }
+    }
+    return {
+      id: r.id,
+      logDate: r.log_date ?? "",
+      version: r.version ?? "",
+      changed: r.changed ?? "No change",
+      whatChanged: r.what_changed ?? "",
+      why: r.why ?? "",
+      fullPrompt: r.full_prompt ?? "",
+      prevPrompt,
+    };
+  });
+
+  return <PromptLogTable key={rows.map((r) => r.id).join(",")} rows={rows} />;
 }
