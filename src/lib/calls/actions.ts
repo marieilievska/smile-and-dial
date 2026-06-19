@@ -290,18 +290,20 @@ export async function overrideCallOutcome(input: {
   }
 
   // Keep the lead's decision_maker_reached flag consistent with its (now
-  // corrected) call outcomes — overriding to e.g. not_interested means a person
-  // was reached, so the lead should read "DM reached". Re-derive from ALL the
-  // lead's calls (callReachedDm) instead of leaving the stored flag stale.
+  // corrected) call outcomes. DM-reached is STICKY: only ever set it TRUE — a
+  // correction that didn't reach the decision maker must never un-mark a lead
+  // we already reached. (The only way to clear it is the manual toggle.)
   if (existing.lead_id) {
     const { data: leadCalls } = await supabase
       .from("calls")
       .select("outcome, extracted_data")
       .eq("lead_id", existing.lead_id);
-    await supabase
-      .from("leads")
-      .update({ decision_maker_reached: anyCallReachedDm(leadCalls ?? []) })
-      .eq("id", existing.lead_id);
+    if (anyCallReachedDm(leadCalls ?? [])) {
+      await supabase
+        .from("leads")
+        .update({ decision_maker_reached: true })
+        .eq("id", existing.lead_id);
+    }
   }
 
   revalidatePath("/calls");
