@@ -7,22 +7,11 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { saveHotLeadField } from "@/lib/agent-analytics/actions";
+import type { HotLeadRow } from "@/lib/agent-analytics/report-data";
 
 import { ExportCsvButton } from "./export-csv-button";
 
-export type HotLeadRow = {
-  id: string;
-  sessionDate: string;
-  company: string;
-  contactName: string;
-  whyHot: string;
-  callLength: string;
-  currentAiTool: string;
-  status: string;
-  owner: string;
-  nextStep: string;
-  dateContacted: string;
-};
+export type { HotLeadRow };
 
 type EditField = "status" | "owner" | "next_step" | "date_contacted";
 
@@ -45,8 +34,15 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 /** Hot Leads sell list: auto-seeded yes-interest calls, worked by the team.
- *  Status / owner / next step / date contacted save inline. Admin-only. */
-export function HotLeadsTable({ rows }: { rows: HotLeadRow[] }) {
+ *  Status / owner / next step / date contacted save inline. `readOnly` renders
+ *  those cells as plain text (public share view). */
+export function HotLeadsTable({
+  rows,
+  readOnly = false,
+}: {
+  rows: HotLeadRow[];
+  readOnly?: boolean;
+}) {
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [q, setQ] = useState("");
 
@@ -124,13 +120,20 @@ export function HotLeadsTable({ rows }: { rows: HotLeadRow[] }) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-muted-foreground text-sm">
-        Auto-built from every “yes” call. Set the{" "}
-        <span className="text-foreground font-medium">
-          Status, Owner, Next step
-        </span>{" "}
-        and <span className="text-foreground font-medium">Date contacted</span>{" "}
-        — edits save automatically and are never overwritten by the calling
-        agent.
+        Auto-built from every “yes” call.
+        {!readOnly ? (
+          <>
+            {" "}
+            Set the{" "}
+            <span className="text-foreground font-medium">
+              Status, Owner, Next step
+            </span>{" "}
+            and{" "}
+            <span className="text-foreground font-medium">Date contacted</span>{" "}
+            — edits save automatically and are never overwritten by the calling
+            agent.
+          </>
+        ) : null}
       </p>
 
       {/* Toolbar */}
@@ -251,77 +254,106 @@ export function HotLeadsTable({ rows }: { rows: HotLeadRow[] }) {
                       {r.currentAiTool || "—"}
                     </td>
                     <td className="px-3 py-2">
-                      <select
-                        value={status}
-                        onChange={(e) => {
-                          setField(r.id, "status", e.target.value);
-                          commit(r.id, "status", e.target.value);
-                        }}
-                        disabled={savingKey === `${r.id}:status`}
-                        className={
-                          "rounded-full border-0 px-2 py-1 text-xs font-medium " +
-                          (STATUS_BADGE[status] ?? "bg-muted text-foreground")
-                        }
-                      >
-                        {(STATUSES as readonly string[]).includes(
-                          status,
-                        ) ? null : (
-                          <option value={status}>{status}</option>
-                        )}
-                        {STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
+                      {readOnly ? (
+                        <span
+                          className={
+                            "inline-block rounded-full px-2 py-1 text-xs font-medium " +
+                            (STATUS_BADGE[status] ?? "bg-muted text-foreground")
+                          }
+                        >
+                          {status}
+                        </span>
+                      ) : (
+                        <select
+                          value={status}
+                          onChange={(e) => {
+                            setField(r.id, "status", e.target.value);
+                            commit(r.id, "status", e.target.value);
+                          }}
+                          disabled={savingKey === `${r.id}:status`}
+                          className={
+                            "rounded-full border-0 px-2 py-1 text-xs font-medium " +
+                            (STATUS_BADGE[status] ?? "bg-muted text-foreground")
+                          }
+                        >
+                          {(STATUSES as readonly string[]).includes(
+                            status,
+                          ) ? null : (
+                            <option value={status}>{status}</option>
+                          )}
+                          {STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </td>
                     <td className="px-3 py-2">
-                      <Input
-                        value={draft[`${r.id}:owner`] ?? ""}
-                        onChange={(e) =>
-                          setField(r.id, "owner", e.target.value)
-                        }
-                        onBlur={() =>
-                          commit(r.id, "owner", draft[`${r.id}:owner`] ?? "")
-                        }
-                        placeholder="—"
-                        className="h-8 min-w-[7rem]"
-                      />
+                      {readOnly ? (
+                        <span className="block min-w-[6rem]">
+                          {draft[`${r.id}:owner`] || "—"}
+                        </span>
+                      ) : (
+                        <Input
+                          value={draft[`${r.id}:owner`] ?? ""}
+                          onChange={(e) =>
+                            setField(r.id, "owner", e.target.value)
+                          }
+                          onBlur={() =>
+                            commit(r.id, "owner", draft[`${r.id}:owner`] ?? "")
+                          }
+                          placeholder="—"
+                          className="h-8 min-w-[7rem]"
+                        />
+                      )}
                     </td>
                     <td className="px-3 py-2">
-                      <Textarea
-                        value={draft[`${r.id}:next_step`] ?? ""}
-                        onChange={(e) =>
-                          setField(r.id, "next_step", e.target.value)
-                        }
-                        onBlur={() =>
-                          commit(
-                            r.id,
-                            "next_step",
-                            draft[`${r.id}:next_step`] ?? "",
-                          )
-                        }
-                        placeholder="Add a next step…"
-                        rows={2}
-                        className="min-h-0 min-w-[10rem] resize-y text-sm"
-                      />
+                      {readOnly ? (
+                        <span className="block min-w-[10rem]">
+                          {draft[`${r.id}:next_step`] || "—"}
+                        </span>
+                      ) : (
+                        <Textarea
+                          value={draft[`${r.id}:next_step`] ?? ""}
+                          onChange={(e) =>
+                            setField(r.id, "next_step", e.target.value)
+                          }
+                          onBlur={() =>
+                            commit(
+                              r.id,
+                              "next_step",
+                              draft[`${r.id}:next_step`] ?? "",
+                            )
+                          }
+                          placeholder="Add a next step…"
+                          rows={2}
+                          className="min-h-0 min-w-[10rem] resize-y text-sm"
+                        />
+                      )}
                     </td>
-                    <td className="px-3 py-2">
-                      <Input
-                        type="date"
-                        value={draft[`${r.id}:date_contacted`] ?? ""}
-                        onChange={(e) =>
-                          setField(r.id, "date_contacted", e.target.value)
-                        }
-                        onBlur={() =>
-                          commit(
-                            r.id,
-                            "date_contacted",
-                            draft[`${r.id}:date_contacted`] ?? "",
-                          )
-                        }
-                        className="h-8 w-[9rem]"
-                      />
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {readOnly ? (
+                        <span className="tabular-nums">
+                          {draft[`${r.id}:date_contacted`] || "—"}
+                        </span>
+                      ) : (
+                        <Input
+                          type="date"
+                          value={draft[`${r.id}:date_contacted`] ?? ""}
+                          onChange={(e) =>
+                            setField(r.id, "date_contacted", e.target.value)
+                          }
+                          onBlur={() =>
+                            commit(
+                              r.id,
+                              "date_contacted",
+                              draft[`${r.id}:date_contacted`] ?? "",
+                            )
+                          }
+                          className="h-8 w-[9rem]"
+                        />
+                      )}
                     </td>
                   </tr>
                 );
