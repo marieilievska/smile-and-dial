@@ -1,5 +1,6 @@
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 import type { createClient } from "@/lib/supabase/server";
+import { endOfEtDayUtcIso, etDayRangeUtc } from "@/lib/time/eastern";
 
 import { LEAD_COLUMNS } from "./columns";
 import type { SearchParams } from "./leads-url";
@@ -128,8 +129,10 @@ export function applyLeadFilters<
   for (const [fromKey, toKey, column] of dateFilters) {
     const from = str(params[fromKey]);
     const to = str(params[toKey]);
-    if (DATE_RE.test(from)) query = query.gte(column, from);
-    if (DATE_RE.test(to)) query = query.lte(column, `${to}T23:59:59`);
+    // Date filters bound by Eastern calendar day (timestamptz columns).
+    if (DATE_RE.test(from))
+      query = query.gte(column, etDayRangeUtc(from).startUtc);
+    if (DATE_RE.test(to)) query = query.lte(column, endOfEtDayUtcIso(to));
   }
 
   return query;

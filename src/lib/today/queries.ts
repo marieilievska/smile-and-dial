@@ -2,6 +2,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { pickBreakdown } from "@/lib/analytics/costs";
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
+import {
+  endOfEtDayUtcIso,
+  etDateDaysAgo,
+  etDayRangeUtc,
+  etHour,
+  startOfTodayEtIso,
+} from "@/lib/time/eastern";
 
 /** Today-page data: three hero counts + an action queue of items that
  *  need the user's attention right now. Pure read-only — no mutations. */
@@ -34,22 +41,15 @@ export type ActionItem = {
   at: string;
 };
 
-// "Today" boundaries in UTC, matching the Costs page and the (UTC) server, so
-// every dashboard agrees on which calls are "today" rather than drifting by the
-// server's local offset.
+// "Today" boundaries in Eastern time — a call placed at 9pm ET belongs to that
+// ET day, not the next UTC day. Every dashboard agrees on the ET calendar day.
 function todayStart(): Date {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  return d;
+  return new Date(startOfTodayEtIso());
 }
 
 function yesterdayWindow(): { from: string; to: string } {
-  const start = todayStart();
-  const yEnd = new Date(start);
-  yEnd.setUTCMilliseconds(-1);
-  const yStart = new Date(start);
-  yStart.setUTCDate(yStart.getUTCDate() - 1);
-  return { from: yStart.toISOString(), to: yEnd.toISOString() };
+  const y = etDateDaysAgo(1);
+  return { from: etDayRangeUtc(y).startUtc, to: endOfEtDayUtcIso(y) };
 }
 
 export async function fetchHeroCounts(
@@ -267,41 +267,38 @@ export async function fetchAppointmentPace(
   supabase: SupabaseClient,
 ): Promise<AppointmentPace> {
   const now = new Date();
-  const todayStartDate = new Date(now);
-  todayStartDate.setHours(0, 0, 0, 0);
-  const yesterdayStartDate = new Date(todayStartDate);
-  yesterdayStartDate.setDate(yesterdayStartDate.getDate() - 1);
-  const yesterdayEndDate = new Date(todayStartDate);
-  yesterdayEndDate.setMilliseconds(-1);
-
-  // "By now yesterday" = wall-clock from yesterday's midnight up to the
-  // same hour:minute as right now.
-  const yesterdaySameTime = new Date(yesterdayStartDate);
-  yesterdaySameTime.setHours(now.getHours(), now.getMinutes(), 0, 0);
+  const todayStartIso = startOfTodayEtIso(now);
+  const yEt = etDateDaysAgo(1, now);
+  const yStartIso = etDayRangeUtc(yEt).startUtc;
+  const yEndIso = endOfEtDayUtcIso(yEt);
+  // "By now yesterday" ≈ the instant 24h ago — tz-safe and good enough for a
+  // pace comparison.
+  const yesterdaySameInstant = now.getTime() - 24 * 60 * 60 * 1000;
 
   const [{ data: todayApps }, { data: yestApps }] = await Promise.all([
     supabase
       .from("calls")
       .select("created_at")
       .eq("goal_met", true)
-      .gte("created_at", todayStartDate.toISOString()),
+      .gte("created_at", todayStartIso),
     supabase
       .from("calls")
       .select("created_at")
       .eq("goal_met", true)
-      .gte("created_at", yesterdayStartDate.toISOString())
-      .lte("created_at", yesterdayEndDate.toISOString()),
+      .gte("created_at", yStartIso)
+      .lte("created_at", yEndIso),
   ]);
 
+  // Bucket today's appointments by their Eastern hour (0..23).
   const hourly = new Array<number>(24).fill(0);
   for (const r of todayApps ?? []) {
-    const h = new Date(r.created_at).getHours();
+    const h = etHour(new Date(r.created_at));
     if (h >= 0 && h < 24) hourly[h] += 1;
   }
 
   const yesterdayRows = yestApps ?? [];
   const yesterdayByNow = yesterdayRows.filter(
-    (r) => new Date(r.created_at).getTime() <= yesterdaySameTime.getTime(),
+    (r) => new Date(r.created_at).getTime() <= yesterdaySameInstant,
   ).length;
 
   return {

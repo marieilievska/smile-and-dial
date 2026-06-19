@@ -1,5 +1,6 @@
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 import type { createClient } from "@/lib/supabase/server";
+import { startOfTodayEtIso } from "@/lib/time/eastern";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -33,15 +34,15 @@ const ACTIVE_STATUSES = [
 export async function fetchCallStats(
   supabase: SupabaseServerClient,
 ): Promise<CallStats> {
-  // UTC day start — consistent with the Today/Costs pages and the UTC server.
-  const startOfToday = new Date();
-  startOfToday.setUTCHours(0, 0, 0, 0);
+  // Eastern day start — "today" matches the Today/Costs pages and the ET
+  // calendar, so a 9pm-ET call still counts as today (not tomorrow).
+  const startOfToday = startOfTodayEtIso();
 
   const [{ data, error }, { count: inProgressCount }] = await Promise.all([
     supabase
       .from("calls")
       .select("outcome, goal_met")
-      .gte("started_at", startOfToday.toISOString())
+      .gte("started_at", startOfToday)
       .limit(5000),
     // Live count is status-driven, not date-bound: a call queued
     // yesterday that's still ringing should count. `head: true` makes

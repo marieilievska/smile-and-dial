@@ -6,6 +6,12 @@ import {
   CONNECTED_OUTCOMES,
   CONVERSATION_OUTCOMES,
 } from "@/lib/calls/outcomes";
+import {
+  endOfEtDayUtcIso,
+  etDateDaysAgo,
+  etDayRangeUtc,
+  etDayString,
+} from "@/lib/time/eastern";
 
 export type CallRow = {
   id: string;
@@ -88,11 +94,13 @@ function pickCostTotal(value: unknown): number {
   return componentSum > 0 ? componentSum : n("total");
 }
 
+// Day bounds in Eastern time, so a range like "Jun 1–Jun 1" captures the full
+// ET calendar day (incl. evening calls), not the UTC day.
 function startOfDay(day: string): string {
-  return `${day}T00:00:00.000Z`;
+  return etDayRangeUtc(day).startUtc;
 }
 function endOfDay(day: string): string {
-  return `${day}T23:59:59.999Z`;
+  return endOfEtDayUtcIso(day);
 }
 
 /** Pull every call row that matches the slicers — single round-trip. The page
@@ -271,7 +279,7 @@ export function bookingsByDay(rows: CallRow[], slicers: Slicers): number[] {
   }
   for (const r of rows) {
     if (!r.goal_met) continue;
-    const day = r.created_at.slice(0, 10);
+    const day = etDayString(new Date(r.created_at));
     buckets.set(day, (buckets.get(day) ?? 0) + 1);
   }
   return [...buckets.entries()]
@@ -288,7 +296,7 @@ export function callsByDay(rows: CallRow[], slicers: Slicers): TimeBucket[] {
     buckets.set(d.toISOString().slice(0, 10), { count: 0, spend: 0 });
   }
   for (const r of rows) {
-    const day = r.created_at.slice(0, 10);
+    const day = etDayString(new Date(r.created_at));
     const b = buckets.get(day) ?? { count: 0, spend: 0 };
     b.count += 1;
     b.spend += pickCostTotal(r.cost_breakdown);
@@ -351,13 +359,8 @@ export function resolveDatePreset(
   preset: string,
   custom: { from?: string; to?: string },
 ): { from: string; to: string } {
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  const daysAgo = (n: number) => {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() - n);
-    return d.toISOString().slice(0, 10);
-  };
+  const todayStr = etDayString();
+  const daysAgo = (n: number) => etDateDaysAgo(n);
   switch (preset) {
     case "today":
       return { from: todayStr, to: todayStr };
