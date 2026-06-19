@@ -843,7 +843,11 @@ async function processTranscription(
       payload.transcript === undefined
         ? null
         : (payload.transcript as Database["public"]["Tables"]["calls"]["Update"]["transcript_json"]),
-    summary: callSummary,
+    // Only keep a summary when a real human conversation happened. A voicemail
+    // greeting, no-answer, or instant hang-up has nothing worth summarizing —
+    // and the analysis LLM otherwise "summarizes" the agent's own scripted
+    // monologue, which then pollutes the lead's rolling ai_summary.
+    summary: reachedHuman ? callSummary : null,
     // AI call-quality score (0–10), averaged from the ElevenLabs quality
     // criteria — only for real conversations. Voicemails / no-answers /
     // immediate hang-ups get no score (the criteria can't fairly judge them).
@@ -979,8 +983,13 @@ async function processTranscription(
   // which real ElevenLabs payloads never send (that left leads.ai_summary blank
   // and follow-up calls running with no memory). Only merge a real, non-empty
   // summary string.
+  // Same gate as the call's summary above: never roll a non-connected call's
+  // "summary" into the lead's rolling ai_summary (a voicemail / no-answer /
+  // hang-up has no real content, only the agent's own words).
   const latestSummary =
-    typeof callSummary === "string" && callSummary.trim() ? callSummary : null;
+    reachedHuman && typeof callSummary === "string" && callSummary.trim()
+      ? callSummary
+      : null;
   if (latestSummary) {
     const { cost } = await mergeLeadSummary({
       leadId: call.lead_id,
