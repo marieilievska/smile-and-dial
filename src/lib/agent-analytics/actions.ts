@@ -1,9 +1,13 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
+
+const AGENT_ANALYTICS_PATH = "/agent-analytics";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient<Database>>;
 
@@ -69,4 +73,116 @@ export async function saveHotLeadField(input: {
     .update(patch)
     .eq("id", input.id);
   return { error: error ? "Could not save." : null };
+}
+
+// ---------------------------------------------------------------------------
+// App Changelog (manual log: add / edit-inline / delete)
+// ---------------------------------------------------------------------------
+
+type ChangelogField =
+  | "change_date"
+  | "area"
+  | "change_type"
+  | "summary"
+  | "details"
+  | "status"
+  | "owner"
+  | "ticket_link";
+
+/** Add a blank changelog row (DB defaults: today's date, status "Open"). */
+export async function createChangelogEntry(): Promise<{
+  error: string | null;
+}> {
+  if (!(await isCallerAdmin())) return { error: "Admins only." };
+  const { error } = await adminClient().from("app_changelog").insert({});
+  if (error) return { error: "Could not add entry." };
+  revalidatePath(AGENT_ANALYTICS_PATH);
+  return { error: null };
+}
+
+export async function updateChangelogField(input: {
+  id: string;
+  field: ChangelogField;
+  value: string;
+}): Promise<{ error: string | null }> {
+  if (!(await isCallerAdmin())) return { error: "Admins only." };
+  const value = input.value.trim() || null;
+  // change_date + status are NOT NULL — never write null into them.
+  if (input.field === "change_date" && !value) return { error: null };
+  const patch: Database["public"]["Tables"]["app_changelog"]["Update"] = {
+    [input.field]: input.field === "status" ? (value ?? "Open") : value,
+  };
+  const { error } = await adminClient()
+    .from("app_changelog")
+    .update(patch)
+    .eq("id", input.id);
+  return { error: error ? "Could not save." : null };
+}
+
+export async function deleteChangelogEntry(input: {
+  id: string;
+}): Promise<{ error: string | null }> {
+  if (!(await isCallerAdmin())) return { error: "Admins only." };
+  const { error } = await adminClient()
+    .from("app_changelog")
+    .delete()
+    .eq("id", input.id);
+  if (error) return { error: "Could not delete." };
+  revalidatePath(AGENT_ANALYTICS_PATH);
+  return { error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Agent Prompt Log (manual log: add / edit-inline / delete)
+// ---------------------------------------------------------------------------
+
+type PromptLogField =
+  | "log_date"
+  | "version"
+  | "changed"
+  | "what_changed"
+  | "why"
+  | "full_prompt";
+
+/** Add a blank prompt-log row (DB defaults: today's date, "No change"). */
+export async function createPromptLogEntry(): Promise<{
+  error: string | null;
+}> {
+  if (!(await isCallerAdmin())) return { error: "Admins only." };
+  const { error } = await adminClient().from("agent_prompt_log").insert({});
+  if (error) return { error: "Could not add entry." };
+  revalidatePath(AGENT_ANALYTICS_PATH);
+  return { error: null };
+}
+
+export async function updatePromptLogField(input: {
+  id: string;
+  field: PromptLogField;
+  value: string;
+}): Promise<{ error: string | null }> {
+  if (!(await isCallerAdmin())) return { error: "Admins only." };
+  const value = input.value.trim() || null;
+  // log_date + changed are NOT NULL — never write null into them.
+  if (input.field === "log_date" && !value) return { error: null };
+  const patch: Database["public"]["Tables"]["agent_prompt_log"]["Update"] = {
+    [input.field]: input.field === "changed" ? (value ?? "No change") : value,
+  };
+  const { error } = await adminClient()
+    .from("agent_prompt_log")
+    .update(patch)
+    .eq("id", input.id);
+  return { error: error ? "Could not save." : null };
+}
+
+export async function deletePromptLogEntry(input: {
+  id: string;
+}): Promise<{ error: string | null }> {
+  if (!(await isCallerAdmin())) return { error: "Admins only." };
+  const { error } = await adminClient()
+    .from("agent_prompt_log")
+    .delete()
+    .eq("id", input.id);
+  if (error) return { error: "Could not delete." };
+  revalidatePath(AGENT_ANALYTICS_PATH);
+  return { error: null };
 }
