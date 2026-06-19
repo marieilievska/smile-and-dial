@@ -28,7 +28,12 @@ import { LeadRow } from "./lead-row";
 import { LeadRowActions } from "./lead-row-actions";
 import { LeadsFilters } from "./leads-filters";
 import { LeadsStatStrip } from "./leads-stat-strip";
-import { buildLeadsQuery, parseSort, str } from "./leads-query";
+import {
+  buildLeadsQuery,
+  parseSort,
+  resolveConnectedLeadIds,
+  str,
+} from "./leads-query";
 import { type SearchParams } from "./leads-url";
 import { SelectAllBanner } from "./select-all-banner";
 import { SmartPagination } from "./smart-pagination";
@@ -59,6 +64,9 @@ export default async function LeadsPage({
   if (!user) redirect("/login");
 
   const offset = (page - 1) * pageSize;
+  // Resolve the "Connected" filter's matching lead ids first (a plain array),
+  // then pass them into the synchronous query builder.
+  const restrictLeadIds = await resolveConnectedLeadIds(supabase, params);
   // Run the table query + the stat strip + lookups in parallel — none
   // of them depend on each other.
   const [
@@ -67,7 +75,7 @@ export default async function LeadsPage({
     { data: lists },
     { data: me },
   ] = await Promise.all([
-    buildLeadsQuery(supabase, params)
+    buildLeadsQuery(supabase, params, restrictLeadIds)
       .order(sort, { ascending: dir === "asc" })
       .order("id", { ascending: true })
       .range(offset, offset + pageSize - 1),
@@ -155,6 +163,7 @@ export default async function LeadsPage({
     "list",
     "status",
     "outcome",
+    "connected",
     "created_from",
     "created_to",
     "lastcall_from",
@@ -206,7 +215,8 @@ export default async function LeadsPage({
       str(params.q) ||
       str(params.status) ||
       str(params.outcome) ||
-      str(params.list),
+      str(params.list) ||
+      str(params.connected),
     ) ||
     Boolean(
       str(params.created_from) ||

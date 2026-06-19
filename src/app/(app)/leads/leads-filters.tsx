@@ -40,6 +40,7 @@ const FILTER_KEYS = [
   "list",
   "status",
   "timezone",
+  "connected",
   "created_from",
   "created_to",
   "lastcall_from",
@@ -61,6 +62,7 @@ export function LeadsFilters({
   const [list, setList] = useState(get("list") || "any");
   const [status, setStatus] = useState(get("status") || "any");
   const [timezone, setTimezone] = useState(get("timezone") || "any");
+  const [connected, setConnected] = useState(get("connected") || "any");
   const [createdFrom, setCreatedFrom] = useState(get("created_from"));
   const [createdTo, setCreatedTo] = useState(get("created_to"));
   const [lastFrom, setLastFrom] = useState(get("lastcall_from"));
@@ -82,6 +84,7 @@ export function LeadsFilters({
     setList(get("list") || "any");
     setStatus(get("status") || "any");
     setTimezone(get("timezone") || "any");
+    setConnected(get("connected") || "any");
     setCreatedFrom(get("created_from"));
     setCreatedTo(get("created_to"));
     setLastFrom(get("lastcall_from"));
@@ -101,6 +104,7 @@ export function LeadsFilters({
     set("list", list);
     set("status", status);
     set("timezone", timezone);
+    set("connected", connected);
     set("created_from", createdFrom);
     set("created_to", createdTo);
     set("lastcall_from", lastFrom);
@@ -118,6 +122,7 @@ export function LeadsFilters({
     setList("any");
     setStatus("any");
     setTimezone("any");
+    setConnected("any");
     setCreatedFrom("");
     setCreatedTo("");
     setLastFrom("");
@@ -186,6 +191,18 @@ export function LeadsFilters({
                     {tz.label}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="filter-connected">Connection</Label>
+            <Select value={connected} onValueChange={setConnected}>
+              <SelectTrigger id="filter-connected">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any</SelectItem>
+                <SelectItem value="yes">Connected (reached someone)</SelectItem>
               </SelectContent>
             </Select>
           </div>

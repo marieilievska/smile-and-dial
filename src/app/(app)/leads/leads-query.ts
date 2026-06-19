@@ -1,3 +1,4 @@
+import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 import type { createClient } from "@/lib/supabase/server";
 
 import { LEAD_COLUMNS } from "./columns";
@@ -39,6 +40,49 @@ export function parseSort(params: SearchParams): {
   return { sort, dir };
 }
 
+/** List form of the connected-outcome set for PostgREST `in` filters. */
+const CONNECTED_LIST = [...CONNECTED_OUTCOMES];
+
+/** True when the Leads view is filtered to "has a connected call". */
+export function connectedFilterActive(params: SearchParams): boolean {
+  return str(params.connected) === "yes";
+}
+
+/** PostgREST returns ≤1000 rows/request; keyset-page to collect every match. */
+const CONNECTED_PAGE = 1000;
+
+/**
+ * Resolve the lead ids that have at least one CONNECTED call, for the
+ * "Connected" Leads filter. Returns null when the filter isn't active (don't
+ * constrain), else the distinct lead ids (keyset-paged on the calls' id past
+ * the 1000-row cap). The caller feeds this into applyLeadFilters, which
+ * constrains the leads query by id — keeping the leads SELECT a literal (so
+ * Supabase still infers the row type) rather than an inner-join in the select.
+ */
+export async function resolveConnectedLeadIds(
+  supabase: SupabaseServerClient,
+  params: SearchParams,
+): Promise<string[] | null> {
+  if (!connectedFilterActive(params)) return null;
+  const ids = new Set<string>();
+  let lastId: string | null = null;
+  for (;;) {
+    let q = supabase
+      .from("calls")
+      .select("id, lead_id")
+      .in("outcome", CONNECTED_LIST)
+      .order("id", { ascending: true })
+      .limit(CONNECTED_PAGE);
+    if (lastId !== null) q = q.gt("id", lastId);
+    const { data } = await q;
+    const page = (data ?? []) as { id: string; lead_id: string | null }[];
+    for (const r of page) if (r.lead_id) ids.add(r.lead_id);
+    if (page.length < CONNECTED_PAGE) break;
+    lastId = page[page.length - 1].id;
+  }
+  return [...ids];
+}
+
 /** Apply the Leads page search + filters to any leads query builder,
  *  whatever its `.select(...)` is. Generic over the builder type so it works
  *  for the full-row table query and the id-only sibling query alike, keeping
@@ -49,8 +93,14 @@ export function applyLeadFilters<
     eq(column: string, value: string): Q;
     gte(column: string, value: string): Q;
     lte(column: string, value: string): Q;
+    in(column: string, values: readonly string[]): Q;
   },
->(query: Q, params: SearchParams): Q {
+>(query: Q, params: SearchParams, restrictLeadIds: string[] | null = null): Q {
+  // Id-set restriction (the "Connected" filter): the caller resolves the
+  // matching lead ids (resolveConnectedLeadIds) and passes them in. null = no
+  // restriction; [] = a restriction that matched nothing → zero rows.
+  if (restrictLeadIds !== null) query = query.in("id", restrictLeadIds);
+
   // Search across company, phone, and email.
   const search = str(params.q);
   if (search) {
@@ -93,12 +143,13 @@ export function applyLeadFilters<
 export function buildLeadsQuery(
   supabase: SupabaseServerClient,
   params: SearchParams,
+  restrictLeadIds: string[] | null = null,
 ) {
   const query = supabase
     .from("leads")
     .select(LEADS_SELECT, { count: "exact" })
     .is("deleted_at", null);
-  return applyLeadFilters(query, params);
+  return applyLeadFilters(query, params, restrictLeadIds);
 }
 
 /** Most leads we'll scan to locate a lead's neighbours for prev/next on the
@@ -131,8 +182,9 @@ export async function fetchLeadSiblings(
   currentId: string,
 ): Promise<LeadSiblings> {
   const { sort, dir } = parseSort(params);
+  const restrictLeadIds = await resolveConnectedLeadIds(supabase, params);
   const base = supabase.from("leads").select("id").is("deleted_at", null);
-  const { data } = await applyLeadFilters(base, params)
+  const { data } = await applyLeadFilters(base, params, restrictLeadIds)
     .order(sort, { ascending: dir === "asc" })
     .order("id", { ascending: true })
     .limit(SIBLING_SCAN_LIMIT);

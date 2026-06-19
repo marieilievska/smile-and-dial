@@ -39,6 +39,9 @@ export function ActiveFilterChips({
       label: `Time zone: ${timezoneLabel(timezone)}`,
     });
 
+  if (searchParams.get("connected") === "yes")
+    chips.push({ key: "connected", label: "Connected calls" });
+
   const pairs: [string, string, string][] = [
     ["created_from", "created_to", "Created"],
     ["lastcall_from", "lastcall_to", "Last call"],
@@ -78,6 +81,7 @@ export function ActiveFilterChips({
       "status",
       "list",
       "timezone",
+      "connected",
       "created_from",
       "created_to",
       "lastcall_from",
