@@ -1,17 +1,14 @@
 import { type NextRequest } from "next/server";
 
+import { chunk } from "@/lib/leads/chunk";
 import {
   fetchAllMatchingLeadIds,
   fetchLeadRowsByIds,
 } from "@/lib/leads/fetch-all-ids";
 import { createClient } from "@/lib/supabase/server";
 
-import {
-  DEFAULT_COLUMN_KEYS,
-  LEAD_COLUMNS,
-  type DisplayLead,
-} from "../columns";
-import { parseSort, str } from "../leads-query";
+import { LEAD_COLUMNS, type DisplayLead } from "../columns";
+import { parseSort } from "../leads-query";
 import type { SearchParams } from "../leads-url";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -56,11 +53,12 @@ function toDisplayLead(
   };
 }
 
-/** Build the CSV body from raw leads rows and the requested visible columns. */
+/** Build the CSV body. Exports the FULL record — every standard column (not
+ *  just the table's visible ones), the rolling AI summary, and every custom
+ *  data-collection field. */
 async function buildCsv(
   supabase: SupabaseServerClient,
   rawLeads: RawLead[],
-  params: SearchParams,
 ): Promise<Response> {
   // Owner names.
   const ownerIds = [...new Set(rawLeads.map((l) => l.owner_id))];
@@ -75,18 +73,66 @@ async function buildCsv(
     }
   }
 
-  const leads = rawLeads.map((l) => toDisplayLead(l, ownerName));
+  // Every standard column, in table order — the export is the full record, not
+  // the current view's column selection.
+  const columns = LEAD_COLUMNS;
 
-  // Visible columns, in table order.
-  const colsParam = str(params.cols);
-  const visibleKeys = colsParam
-    ? new Set(colsParam.split(","))
-    : new Set(DEFAULT_COLUMN_KEYS);
-  const columns = LEAD_COLUMNS.filter((c) => visibleKeys.has(c.key));
+  // Custom data-collection fields: one column per defined field, value per lead.
+  const { data: defs } = await supabase
+    .from("custom_field_defs")
+    .select("id, name")
+    .order("sort_order");
+  const customDefs = (defs ?? []) as { id: string; name: string }[];
+  const valueByLead = new Map<string, Map<string, string>>();
+  if (customDefs.length > 0) {
+    for (const idChunk of chunk(
+      rawLeads.map((l) => l.id),
+      500,
+    )) {
+      const { data } = await supabase
+        .from("lead_custom_values")
+        .select("lead_id, custom_field_id, value")
+        .in("lead_id", idChunk);
+      for (const r of (data ?? []) as {
+        lead_id: string;
+        custom_field_id: string;
+        value: unknown;
+      }[]) {
+        let m = valueByLead.get(r.lead_id);
+        if (!m) {
+          m = new Map<string, string>();
+          valueByLead.set(r.lead_id, m);
+        }
+        m.set(
+          r.custom_field_id,
+          typeof r.value === "string"
+            ? r.value
+            : r.value == null
+              ? ""
+              : JSON.stringify(r.value),
+        );
+      }
+    }
+  }
 
+  const header = [
+    ...columns.map((c) => c.label),
+    "AI summary",
+    ...customDefs.map((d) => d.name),
+  ];
   const rows = [
-    columns.map((c) => c.label),
-    ...leads.map((lead) => columns.map((c) => c.text(lead))),
+    header,
+    ...rawLeads.map((raw) => {
+      const display = toDisplayLead(raw, ownerName);
+      const custom = valueByLead.get(raw.id);
+      const aiSummary =
+        typeof raw.ai_summary === "string" ? raw.ai_summary : "";
+      return [
+        ...columns.map((c) => c.text(display)),
+        aiSummary,
+        ...customDefs.map((d) => custom?.get(d.id) ?? ""),
+      ];
+    }),
   ];
   const csv =
     BOM + rows.map((cells) => cells.map(csvField).join(",")).join("\r\n");
@@ -148,7 +194,7 @@ export async function GET(request: NextRequest) {
   }
 
   const sorted = sortRows(rows as RawLead[], params);
-  return buildCsv(supabase, sorted, params);
+  return buildCsv(supabase, sorted);
 }
 
 /**
@@ -187,5 +233,5 @@ export async function POST(request: NextRequest) {
   if (error) return new Response("Could not export leads.", { status: 500 });
 
   const sorted = sortRows(rows as RawLead[], params);
-  return buildCsv(supabase, sorted, params);
+  return buildCsv(supabase, sorted);
 }
