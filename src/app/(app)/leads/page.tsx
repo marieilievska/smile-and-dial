@@ -111,16 +111,25 @@ export default async function LeadsPage({
     }
     if (set.size < 50) set.add(r.value);
   }
+  // A field is treated as "enum-like" (gets a value dropdown) when it has a
+  // small, bounded set of collected values — e.g. AI interest (yes/no/maybe).
+  // Free-text fields with many distinct values (call reason, current tools) get
+  // a "has a value" presence filter instead.
+  const ENUM_MAX_OPTIONS = 12;
   const customFields = (
     (customFieldDefs ?? []) as { id: string; name: string; slug: string }[]
-  ).map((d) => ({
-    id: d.id,
-    name: d.name,
-    slug: d.slug,
-    options: [...(valueOptionsByField.get(d.id) ?? [])].sort((a, b) =>
+  ).map((d) => {
+    const options = [...(valueOptionsByField.get(d.id) ?? [])].sort((a, b) =>
       a.localeCompare(b),
-    ),
-  }));
+    );
+    return {
+      id: d.id,
+      name: d.name,
+      slug: d.slug,
+      options,
+      isEnum: options.length > 0 && options.length <= ENUM_MAX_OPTIONS,
+    };
+  });
 
   const rawLeads = leadsData ?? [];
   const total = leadsCount ?? 0;
@@ -216,7 +225,7 @@ export default async function LeadsPage({
   // context so prev/next walks the same filtered view.
   for (const [key, value] of Object.entries(params)) {
     if (
-      (key.startsWith("cf_") || key.startsWith("cfc_")) &&
+      (key.startsWith("cf_") || key.startsWith("cfp_")) &&
       typeof value === "string" &&
       value
     ) {
@@ -274,7 +283,7 @@ export default async function LeadsPage({
       str(params.nextcall_to),
     ) ||
     Object.keys(params).some(
-      (k) => k.startsWith("cf_") || k.startsWith("cfc_"),
+      (k) => k.startsWith("cf_") || k.startsWith("cfp_"),
     );
 
   return (

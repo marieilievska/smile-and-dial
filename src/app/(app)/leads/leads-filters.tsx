@@ -53,37 +53,35 @@ export type CustomField = {
   name: string;
   slug: string;
   options: string[];
+  /** Enum-like field (few collected values) → value dropdown. Otherwise the
+   *  filter is presence-only ("lead has a value for this field"). */
+  isEnum: boolean;
 };
 
-/** One editable custom-field filter row. `value` is a single collected value
- *  (ANY_VALUE = no value picked); rows with the same field OR together. */
-type CustomRow = { key: number; slug: string; value: string; contains: string };
+/** One editable custom-field filter row. `value` is a single collected value,
+ *  or ANY_VALUE = "any value (just present)". Rows with the same field OR. */
+type CustomRow = { key: number; slug: string; value: string };
 
 /** Radix <Select> can't use an empty string as a value, so these sentinels
  *  stand in for "no field picked" / "any value". */
 const PICK_FIELD = "__pick__";
 const ANY_VALUE = "__any__";
 
-/** Seed editable rows from the cf_/cfc_ URL params. */
+/** Seed editable rows from the cf_/cfp_ URL params. */
 function seedCustomRows(searchParams: URLSearchParams): CustomRow[] {
   const rows: CustomRow[] = [];
   let key = 0;
   for (const [k, v] of searchParams.entries()) {
     if (!v) continue;
-    if (k.startsWith("cfc_")) {
-      rows.push({
-        key: key++,
-        slug: k.slice(4),
-        value: ANY_VALUE,
-        contains: v,
-      });
+    if (k.startsWith("cfp_")) {
+      rows.push({ key: key++, slug: k.slice(4), value: ANY_VALUE });
     } else if (k.startsWith("cf_")) {
       const slug = k.slice(3);
       for (const val of v
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean)) {
-        rows.push({ key: key++, slug, value: val, contains: "" });
+        rows.push({ key: key++, slug, value: val });
       }
     }
   }
@@ -100,6 +98,8 @@ export function LeadsFilters({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
+
+  const fieldBySlug = new Map(customFields.map((f) => [f.slug, f]));
 
   const get = (key: string) => searchParams.get(key) ?? "";
   const [list, setList] = useState(get("list") || "any");
@@ -138,7 +138,7 @@ export function LeadsFilters({
   // Active count = base filters present + distinct custom fields filtered.
   const customSlugs = new Set<string>();
   for (const k of searchParams.keys()) {
-    if (k.startsWith("cfc_")) customSlugs.add(k.slice(4));
+    if (k.startsWith("cfp_")) customSlugs.add(k.slice(4));
     else if (k.startsWith("cf_")) customSlugs.add(k.slice(3));
   }
   const activeCount =
@@ -156,7 +156,7 @@ export function LeadsFilters({
   function addRow() {
     setCustomRows((rows) => [
       ...rows,
-      { key: rowKeySeq, slug: "", value: ANY_VALUE, contains: "" },
+      { key: rowKeySeq, slug: "", value: ANY_VALUE },
     ]);
     setRowKeySeq((n) => n + 1);
   }
@@ -177,28 +177,33 @@ export function LeadsFilters({
     set("nextcall_from", nextFrom);
     set("nextcall_to", nextTo);
 
-    // Re-encode custom-field filters: wipe any existing cf_/cfc_, then rebuild
-    // from the rows. Rows with the same field collapse into one cf_<slug> (its
-    // values comma-joined = OR) plus an optional cfc_<slug> contains.
+    // Re-encode custom-field filters from the rows. An enum field with a
+    // specific value → cf_<slug> (values comma-joined = OR). Any other case
+    // (a free-text field, or an enum field left on "Any value") → cfp_<slug>=1,
+    // i.e. "the lead has a value for this field".
     for (const k of [...params.keys()]) {
-      if (k.startsWith("cf_") || k.startsWith("cfc_")) params.delete(k);
+      if (k.startsWith("cf_") || k.startsWith("cfp_")) params.delete(k);
     }
     const valsBySlug = new Map<string, string[]>();
-    const containsBySlug = new Map<string, string>();
+    const presentSlugs = new Set<string>();
     for (const r of customRows) {
       if (!r.slug) continue;
-      if (r.value && r.value !== ANY_VALUE) {
+      const field = fieldBySlug.get(r.slug);
+      if (field?.isEnum && r.value && r.value !== ANY_VALUE) {
         const arr = valsBySlug.get(r.slug) ?? [];
         if (!arr.includes(r.value)) arr.push(r.value);
         valsBySlug.set(r.slug, arr);
+      } else {
+        presentSlugs.add(r.slug);
       }
-      const c = r.contains.trim();
-      if (c) containsBySlug.set(r.slug, c);
     }
     for (const [slug, vals] of valsBySlug) {
       if (vals.length) params.set(`cf_${slug}`, vals.join(","));
     }
-    for (const [slug, text] of containsBySlug) params.set(`cfc_${slug}`, text);
+    for (const slug of presentSlugs) {
+      // A specific value already implies presence; don't also emit cfp_.
+      if (!valsBySlug.has(slug)) params.set(`cfp_${slug}`, "1");
+    }
 
     params.delete("page");
     router.push(`/leads?${params.toString()}`);
@@ -209,7 +214,7 @@ export function LeadsFilters({
     const params = new URLSearchParams(searchParams.toString());
     for (const key of [...FILTER_KEYS, "page"]) params.delete(key);
     for (const k of [...params.keys()]) {
-      if (k.startsWith("cf_") || k.startsWith("cfc_")) params.delete(k);
+      if (k.startsWith("cf_") || k.startsWith("cfp_")) params.delete(k);
     }
     setList("any");
     setStatus("any");
@@ -315,7 +320,7 @@ export function LeadsFilters({
             <div className="flex flex-col gap-1.5">
               <Label>Custom fields</Label>
               {customRows.map((row) => {
-                const field = customFields.find((f) => f.slug === row.slug);
+                const field = fieldBySlug.get(row.slug);
                 return (
                   <div
                     key={row.key}
@@ -353,35 +358,29 @@ export function LeadsFilters({
                         <X className="size-3.5" />
                       </Button>
                     </div>
-                    {row.slug ? (
-                      <div className="flex items-center gap-1.5">
-                        <Select
-                          value={row.value}
-                          onValueChange={(v) =>
-                            updateRow(row.key, { value: v })
-                          }
-                        >
-                          <SelectTrigger className="h-8 flex-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={ANY_VALUE}>Any value</SelectItem>
-                            {(field?.options ?? []).map((o) => (
-                              <SelectItem key={o} value={o}>
-                                {o}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Input
-                          className="h-8 flex-1"
-                          placeholder="contains…"
-                          value={row.contains}
-                          onChange={(e) =>
-                            updateRow(row.key, { contains: e.target.value })
-                          }
-                        />
-                      </div>
+                    {row.slug && field?.isEnum ? (
+                      <Select
+                        value={row.value}
+                        onValueChange={(v) => updateRow(row.key, { value: v })}
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={ANY_VALUE}>
+                            Any value (just present)
+                          </SelectItem>
+                          {(field?.options ?? []).map((o) => (
+                            <SelectItem key={o} value={o}>
+                              {o}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : row.slug ? (
+                      <p className="text-muted-foreground px-0.5 text-xs">
+                        Leads that have a value for this field.
+                      </p>
                     ) : null}
                   </div>
                 );

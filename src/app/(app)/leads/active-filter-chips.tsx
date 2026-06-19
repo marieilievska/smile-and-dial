@@ -61,14 +61,14 @@ export function ActiveFilterChips({
     }
   }
 
-  // Custom-field filters: cf_<slug>=v1,v2 (matches any of) and
-  // cfc_<slug>=text (contains). Labelled with the field's display name.
+  // Custom-field filters: cf_<slug>=v1,v2 (matches any of) and cfp_<slug>=1
+  // (lead has a value for this field). Labelled with the field's display name.
   for (const [key, value] of searchParams.entries()) {
     if (!value) continue;
-    if (key.startsWith("cfc_")) {
+    if (key.startsWith("cfp_")) {
       const slug = key.slice(4);
       const name = fieldNameBySlug.get(slug) ?? slug;
-      chips.push({ key, label: `${name} contains “${value}”` });
+      chips.push({ key, label: `${name}: has a value` });
     } else if (key.startsWith("cf_")) {
       const slug = key.slice(3);
       const name = fieldNameBySlug.get(slug) ?? slug;
@@ -109,7 +109,7 @@ export function ActiveFilterChips({
       params.delete(key);
     }
     for (const key of [...params.keys()]) {
-      if (key.startsWith("cf_") || key.startsWith("cfc_")) params.delete(key);
+      if (key.startsWith("cf_") || key.startsWith("cfp_")) params.delete(key);
     }
     const qs = params.toString();
     router.replace(qs ? `/leads?${qs}` : "/leads");

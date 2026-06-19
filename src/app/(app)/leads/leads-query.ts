@@ -91,19 +91,21 @@ export function applyLeadFilters<
 }
 
 /** One parsed custom-field filter. Within a field the picked `values` OR each
- *  other and OR a `contains` substring; across fields the filters AND. */
-export type CustomFilter = { slug: string; values: string[]; contains: string };
+ *  other (and OR `present`); across fields the filters AND. `present` = "the
+ *  lead has any value collected for this field" (used for free-text fields like
+ *  the call reason / current tools, where matching exact text isn't useful). */
+export type CustomFilter = { slug: string; values: string[]; present: boolean };
 
 /** Parse the Leads URL's custom-field filter params: `cf_<slug>=v1,v2` (match
- *  any of these collected values) and `cfc_<slug>=text` (value contains text).
- *  Grouped by field slug. `cfc_` is checked first so it isn't mistaken for the
- *  `cf_` prefix. */
+ *  any of these collected values — used for enum-like fields) and `cfp_<slug>=1`
+ *  (the lead has any value for this field). Grouped by field slug. `cfp_` does
+ *  not start with `cf_` (3rd char differs), so the prefix checks don't collide. */
 export function parseCustomFilters(params: SearchParams): CustomFilter[] {
   const bySlug = new Map<string, CustomFilter>();
   const ensure = (slug: string): CustomFilter => {
     let f = bySlug.get(slug);
     if (!f) {
-      f = { slug, values: [], contains: "" };
+      f = { slug, values: [], present: false };
       bySlug.set(slug, f);
     }
     return f;
@@ -111,9 +113,9 @@ export function parseCustomFilters(params: SearchParams): CustomFilter[] {
   for (const [key, raw] of Object.entries(params)) {
     const value = str(raw).trim();
     if (!value) continue;
-    if (key.startsWith("cfc_")) {
+    if (key.startsWith("cfp_")) {
       const slug = key.slice(4);
-      if (slug) ensure(slug).contains = value;
+      if (slug) ensure(slug).present = true;
     } else if (key.startsWith("cf_")) {
       const slug = key.slice(3);
       if (slug) {
@@ -125,9 +127,7 @@ export function parseCustomFilters(params: SearchParams): CustomFilter[] {
       }
     }
   }
-  return [...bySlug.values()].filter(
-    (f) => f.values.length > 0 || f.contains.length > 0,
-  );
+  return [...bySlug.values()].filter((f) => f.values.length > 0 || f.present);
 }
 
 /** Per-field id-fetch cap. PostgREST returns at most 1,000 rows per request
@@ -179,18 +179,15 @@ export async function resolveCustomFieldLeadIds(
         if (r.lead_id) matched.add(r.lead_id);
       }
     }
-    if (f.contains) {
-      const safe = f.contains.replace(/[%,()\\*]/g, "").trim();
-      if (safe) {
-        const { data } = await supabase
-          .from("lead_custom_values")
-          .select("lead_id")
-          .eq("custom_field_id", fieldId)
-          .ilike("value", `%${safe}%`)
-          .limit(CUSTOM_FILTER_CAP);
-        for (const r of (data ?? []) as { lead_id: string | null }[]) {
-          if (r.lead_id) matched.add(r.lead_id);
-        }
+    if (f.present) {
+      const { data } = await supabase
+        .from("lead_custom_values")
+        .select("lead_id")
+        .eq("custom_field_id", fieldId)
+        .not("value", "is", null)
+        .limit(CUSTOM_FILTER_CAP);
+      for (const r of (data ?? []) as { lead_id: string | null }[]) {
+        if (r.lead_id) matched.add(r.lead_id);
       }
     }
     if (acc === null) {
