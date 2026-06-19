@@ -237,9 +237,31 @@ export function AutosaveField({
     });
   }
 
+  // Explicit clear — empties the value, which removes it from the lead (and so
+  // from exports). Works regardless of field type.
+  function clear() {
+    if (saved.current === "" && value === "") return;
+    setValue("");
+    onSave("").then((result) => {
+      if (result.error) setValue(saved.current);
+      else saved.current = "";
+    });
+  }
+
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id}>{label}</Label>
+      <div className="flex items-center justify-between">
+        <Label htmlFor={id}>{label}</Label>
+        {value ? (
+          <button
+            type="button"
+            onClick={clear}
+            className="text-muted-foreground hover:text-destructive text-xs"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
       <Input
         id={id}
         type={type}
@@ -412,9 +434,30 @@ function SelectField({
 }) {
   const [value, setValue] = useState(initial);
 
+  // Clear empties the selection, removing the value from the lead (a Select has
+  // no blank option, so without this a chosen value could never be unset).
+  function clear() {
+    const prev = value;
+    setValue("");
+    onSave("").then((result) => {
+      if (result.error) setValue(prev);
+    });
+  }
+
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id}>{label}</Label>
+      <div className="flex items-center justify-between">
+        <Label htmlFor={id}>{label}</Label>
+        {value ? (
+          <button
+            type="button"
+            onClick={clear}
+            className="text-muted-foreground hover:text-destructive text-xs"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
       <Select
         value={value}
         onValueChange={(next) => {
