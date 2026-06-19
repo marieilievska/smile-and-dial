@@ -1,5 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  endOfEtDayUtcIso,
+  etDateDaysAgo,
+  etDayRangeUtc,
+  etDayString,
+} from "@/lib/time/eastern";
+
 /** Cost rollups derived from the same `calls.cost_breakdown` JSON Phase 5
  *  populated. Six views, all backed by one fetch. */
 
@@ -68,11 +75,12 @@ function addInto(acc: Breakdown, b: Breakdown) {
   acc.total += b.total;
 }
 
+// Day bounds in Eastern time so evening calls land on the right ET day.
 function startOfDay(day: string): string {
-  return `${day}T00:00:00.000Z`;
+  return etDayRangeUtc(day).startUtc;
 }
 function endOfDay(day: string): string {
-  return `${day}T23:59:59.999Z`;
+  return endOfEtDayUtcIso(day);
 }
 
 export async function fetchCostRows(
@@ -281,7 +289,7 @@ export function rollupByTime(rows: CostsRow[], slicers: Slicers): PerTime[] {
     buckets.set(d.toISOString().slice(0, 10), { spend: 0, calls: 0 });
   }
   for (const r of rows) {
-    const day = r.created_at.slice(0, 10);
+    const day = etDayString(new Date(r.created_at));
     const cur = buckets.get(day) ?? { spend: 0, calls: 0 };
     cur.spend += pickBreakdown(r.cost_breakdown).total;
     cur.calls += 1;
@@ -302,13 +310,8 @@ export function resolveDatePreset(
   preset: string,
   custom: { from?: string; to?: string },
 ): { from: string; to: string } {
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  const daysAgo = (n: number) => {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() - n);
-    return d.toISOString().slice(0, 10);
-  };
+  const todayStr = etDayString();
+  const daysAgo = (n: number) => etDateDaysAgo(n);
   switch (preset) {
     case "today":
       return { from: todayStr, to: todayStr };

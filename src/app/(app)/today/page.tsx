@@ -21,6 +21,7 @@ import {
   type ActionItem,
 } from "@/lib/today/queries";
 import { createClient } from "@/lib/supabase/server";
+import { etHour } from "@/lib/time/eastern";
 
 import { ActionCard } from "./action-card";
 import { AutopilotStrip } from "./autopilot-strip";
@@ -124,16 +125,17 @@ export default async function TodayPage() {
     fetchAutopilotStatus(supabase),
   ]);
 
-  // Greeting — time-of-day adjusted, first name only.
-  const hour = new Date().getHours();
+  // Greeting — time-of-day adjusted (Eastern), first name only.
+  const hour = etHour();
   const tod =
     hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const firstName = (profile?.full_name ?? "").split(/\s+/)[0] || "";
   const greeting = firstName ? `${tod}, ${firstName}` : tod;
-  const dateStr = new Date().toLocaleDateString(undefined, {
+  const dateStr = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
+    timeZone: "America/New_York",
   });
   const mockMode = isMockMode();
 
