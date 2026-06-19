@@ -44,9 +44,19 @@ export async function updateSession(request: NextRequest) {
   // /api/* routes return JSON error responses on auth failure; they should
   // not be redirected to /login (which produces a 405 on POST).
   const isApiRoute = pathname.startsWith("/api/");
+  // /share/* are intentionally public, read-only views (e.g. the shareable
+  // Market Research dashboard) — no login required. Aggregate data only.
+  const isPublicShareRoute = pathname.startsWith("/share/");
 
-  // Unauthenticated users may only reach /login and the /auth/* flow.
-  if (!user && !isLoginRoute && !isAuthFlowRoute && !isApiRoute) {
+  // Unauthenticated users may only reach /login, the /auth/* flow, and the
+  // public /share/* views.
+  if (
+    !user &&
+    !isLoginRoute &&
+    !isAuthFlowRoute &&
+    !isApiRoute &&
+    !isPublicShareRoute
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
