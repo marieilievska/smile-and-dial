@@ -307,6 +307,7 @@ export default async function CallbacksPage({
                       params={params}
                       className="w-[220px]"
                     />
+                    <TableHead className="w-[150px]">Set</TableHead>
                     <TableHead className="w-[180px]">Campaign</TableHead>
                     <SortableHeader
                       label="Status"
@@ -326,12 +327,13 @@ export default async function CallbacksPage({
                 </TableHeader>
                 <TableBody>
                   {callbacks.map((cb) => {
+                    const isPending = cb.status === "pending";
                     const when = formatScheduledWhen(
                       cb.scheduled_at,
                       now,
                       cb.lead?.timezone ?? undefined,
+                      !isPending, // resolved callbacks are never "overdue"
                     );
-                    const isPending = cb.status === "pending";
                     // Two-tone urgency rail: overdue reads as an alarm
                     // (destructive red), urgent (≤1h out) reads as
                     // "about to happen" (coral). Everything else stays
@@ -458,6 +460,18 @@ export default async function CallbacksPage({
                               </span>
                             ) : null}
                           </div>
+                        </TableCell>
+
+                        {/* When this callback was set (created), in Eastern. */}
+                        <TableCell className="text-muted-foreground w-[150px] text-xs">
+                          {new Date(cb.created_at).toLocaleString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                            timeZone: "America/New_York",
+                            timeZoneName: "short",
+                          })}
                         </TableCell>
 
                         <TableCell className="text-muted-foreground w-[180px] truncate">

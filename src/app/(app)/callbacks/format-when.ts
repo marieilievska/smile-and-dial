@@ -22,8 +22,14 @@ export function formatScheduledWhen(
    *  the lead's local time — not the server's (UTC on Vercel), which rendered a
    *  2:40pm-local callback as "7:40". Falls back to the runtime default tz. */
   timeZone?: string,
+  /** A resolved callback (completed/cancelled/missed) is never "overdue" — its
+   *  scheduled time is just history, so show the absolute date/time, no urgency. */
+  resolved = false,
 ): { primary: string; urgency: ScheduledUrgency } {
   const scheduled = new Date(scheduledAtIso);
+  if (resolved) {
+    return { primary: formatAbsolute(scheduled, timeZone), urgency: "normal" };
+  }
   const deltaMs = scheduled.getTime() - now.getTime();
   const absMin = Math.floor(Math.abs(deltaMs) / 60_000);
 
@@ -85,6 +91,17 @@ function tzDayDelta(now: Date, scheduled: Date, timeZone?: string): number {
   const a = new Date(`${ymd(now)}T00:00:00Z`).getTime();
   const b = new Date(`${ymd(scheduled)}T00:00:00Z`).getTime();
   return Math.round((b - a) / 86_400_000);
+}
+
+/** Absolute "M/D at h:mm AM TZ" — used for resolved callbacks (no relative
+ *  "overdue"/"in Xh" framing). */
+function formatAbsolute(d: Date, timeZone?: string): string {
+  const date = d.toLocaleDateString(undefined, {
+    month: "numeric",
+    day: "numeric",
+    timeZone,
+  });
+  return `${date} at ${formatTime(d, timeZone)}`;
 }
 
 function humanizeMinutes(min: number): string {
