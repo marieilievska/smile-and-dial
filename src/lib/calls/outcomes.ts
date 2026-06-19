@@ -42,10 +42,12 @@ export function outcomeLabel(value: string): string {
  * re-declare locally.
  */
 
-/** A live human (or human screener) actually answered — the "connect" in
- *  connect rate. EXCLUDES machine / no-pickup outcomes: voicemail, no_answer,
- *  busy, failed, invalid_number, ai_error, and ai_receptionist (a bot answered,
- *  not a person). hung_up_immediately counts — a person did pick up. */
+/** A live human actually answered — the "connect" in connect rate. INCLUDES
+ *  dnc (a person answered to ask not to be called) and ai_error (the call did
+ *  connect to a line; the agent errored mid-call). EXCLUDES no-pickup / machine
+ *  outcomes: voicemail, no_answer, busy, failed, invalid_number, and
+ *  ai_receptionist (a bot answered, not a person). hung_up_immediately counts —
+ *  a person did pick up. */
 export const CONNECTED_OUTCOMES = new Set<string>([
   "goal_met",
   "callback",
@@ -55,6 +57,8 @@ export const CONNECTED_OUTCOMES = new Set<string>([
   "transferred_to_human",
   "language_barrier",
   "hung_up_immediately",
+  "ai_error",
+  "dnc",
 ]);
 
 /** Reached a real, qualifying two-way conversation. Excludes the brush-off
