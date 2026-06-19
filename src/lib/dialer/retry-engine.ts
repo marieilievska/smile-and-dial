@@ -177,7 +177,7 @@ export async function applyRetryForCall(
     supabase
       .from("campaigns")
       .select("smart_scheduling, calling_hours_start, calling_hours_end")
-      .eq("id", call.campaign_id)
+      .eq("id", call.campaign_id ?? "")
       .maybeSingle(),
   ]);
 

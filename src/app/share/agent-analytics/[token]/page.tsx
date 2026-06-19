@@ -1,3 +1,5 @@
+import { notFound } from "next/navigation";
+
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 import { DashboardView } from "@/app/(app)/agent-analytics/dashboard-view";
@@ -9,8 +11,9 @@ import {
 } from "@/lib/agent-analytics/stats";
 import type { Database } from "@/lib/supabase/database.types";
 
-// Public, read-only share of the Market Research KPI dashboard — no login.
-// Aggregate counts only (no customer names/phones/reasons). Never indexed.
+// Public, read-only share of the Market Research KPI dashboard, gated by an
+// unguessable token in the URL (validated against app_settings, so it's
+// revocable). No login. Aggregate counts only — no PII. Never indexed.
 export const metadata = {
   title: "Market Research — Call Results",
   robots: { index: false, follow: false },
@@ -36,23 +39,31 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default async function PublicMarketResearchDashboard() {
+export default async function PublicMarketResearchDashboard({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}) {
+  const { token } = await params;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  if (!url || !key) {
-    return (
-      <Shell>
-        <p className="text-muted-foreground text-sm">
-          This dashboard is temporarily unavailable.
-        </p>
-      </Shell>
-    );
-  }
-  // Service-role client: this page has no logged-in user. The key stays
-  // server-side; only aggregate KPI counts are rendered to the page.
+  if (!url || !key) notFound();
+
+  // Service-role client: no logged-in user here. The key stays server-side and
+  // only aggregate KPI counts ever render.
   const supabase = createServiceClient<Database>(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+
+  // Validate the share token. A wrong/blank token 404s (revoke by clearing the
+  // column). Empty stored token = link disabled.
+  const { data: settings } = await supabase
+    .from("app_settings")
+    .select("agent_analytics_share_token")
+    .eq("id", 1)
+    .maybeSingle();
+  const expected = settings?.agent_analytics_share_token ?? "";
+  if (!expected || token !== expected) notFound();
 
   const { data: agent } = await supabase
     .from("agents")
