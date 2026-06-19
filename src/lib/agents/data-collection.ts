@@ -108,6 +108,16 @@ export function normalizeEvaluation(raw: unknown): ExtraEvaluationCriterion[] {
   return out;
 }
 
+/** Appended to every user-defined field's description sent to ElevenLabs so the
+ *  analysis LLM extracts the answer from the CUSTOMER's own words only — never
+ *  from the agent's questions, examples, or script. Without this the extractor
+ *  was crediting the lead with things the agent said (e.g. tools the agent named
+ *  as examples, or "interest" inferred from the agent's pitch). */
+export const CUSTOMER_ONLY_CLAUSE =
+  " Base this ONLY on what the person we called actually said. Never extract it " +
+  "from the AI agent's own words, questions, examples, or suggestions — if the " +
+  "customer never said it, leave it blank.";
+
 /** Shape a normalized field into the ElevenLabs Data Collection entry. */
 export function toElevenLabsDataCollection(
   f: ExtraDataCollectionField,
@@ -115,7 +125,7 @@ export function toElevenLabsDataCollection(
   return {
     id: f.id,
     type: f.type,
-    description: f.description,
+    description: f.description + CUSTOMER_ONLY_CLAUSE,
     ...(f.type === "string" && f.enumValues.length > 0
       ? { enum: f.enumValues }
       : {}),
@@ -134,7 +144,10 @@ export function toElevenLabsDataCollectionObject(
     { type: string; description: string; enum?: string[] }
   > = {};
   for (const f of fields) {
-    out[f.id] = { type: f.type, description: f.description };
+    out[f.id] = {
+      type: f.type,
+      description: f.description + CUSTOMER_ONLY_CLAUSE,
+    };
     if (f.type === "string" && f.enumValues.length > 0) {
       out[f.id].enum = f.enumValues;
     }
