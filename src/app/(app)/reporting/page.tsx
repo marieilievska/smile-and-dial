@@ -65,11 +65,11 @@ export default async function AgentAnalyticsPage({
     <div className="flex flex-col gap-5 p-6">
       <div>
         <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          Agent Analytics
+          Reporting
         </h1>
         <p className="text-muted-foreground mt-0.5 text-sm">
-          Market Research agent · daily call results, voice of customer, and hot
-          leads.
+          For upper-management reporting — agent performance, call results, and
+          app changes. Currently covering the Market Research agent.
         </p>
       </div>
 
@@ -80,7 +80,7 @@ export default async function AgentAnalyticsPage({
           return (
             <Link
               key={t.key}
-              href={`/agent-analytics?tab=${t.key}`}
+              href={`/reporting?tab=${t.key}`}
               aria-current={active ? "page" : undefined}
               className={
                 "border-b-2 px-3 py-2 text-sm font-medium transition-colors " +
