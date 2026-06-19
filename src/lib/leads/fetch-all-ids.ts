@@ -3,7 +3,7 @@ import type { createClient } from "@/lib/supabase/server";
 import {
   applyLeadFilters,
   LEADS_SELECT,
-  resolveCustomFieldLeadIds,
+  resolveConnectedLeadIds,
 } from "@/app/(app)/leads/leads-query";
 import type { SearchParams } from "@/app/(app)/leads/leads-url";
 
@@ -50,14 +50,14 @@ export async function fetchAllMatchingLeadIds(
   const ids: string[] = [];
   let lastId: string | null = null;
 
-  // Resolve custom-field filters once up front (not per keyset page).
-  const customLeadIds = await resolveCustomFieldLeadIds(supabase, params);
+  // Resolve the "Connected" filter's matching lead ids once, before paging.
+  const restrictLeadIds = await resolveConnectedLeadIds(supabase, params);
 
   for (;;) {
     let query = applyLeadFilters(
       supabase.from("leads").select("id").is("deleted_at", null),
       params,
-      customLeadIds,
+      restrictLeadIds,
     ).order("id", { ascending: true });
     if (lastId !== null) query = query.gt("id", lastId);
 

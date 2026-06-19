@@ -31,7 +31,7 @@ import { LeadsStatStrip } from "./leads-stat-strip";
 import {
   buildLeadsQuery,
   parseSort,
-  resolveCustomFieldLeadIds,
+  resolveConnectedLeadIds,
   str,
 } from "./leads-query";
 import { type SearchParams } from "./leads-url";
@@ -64,9 +64,9 @@ export default async function LeadsPage({
   if (!user) redirect("/login");
 
   const offset = (page - 1) * pageSize;
-  // Resolve custom-field filters to matching lead ids first (a plain array, not
-  // a query builder), then pass them into the synchronous query builder.
-  const customLeadIds = await resolveCustomFieldLeadIds(supabase, params);
+  // Resolve the "Connected" filter's matching lead ids first (a plain array),
+  // then pass them into the synchronous query builder.
+  const restrictLeadIds = await resolveConnectedLeadIds(supabase, params);
   // Run the table query + the stat strip + lookups in parallel — none
   // of them depend on each other.
   const [
@@ -74,62 +74,15 @@ export default async function LeadsPage({
     stats,
     { data: lists },
     { data: me },
-    { data: customFieldDefs },
-    { data: customValues },
   ] = await Promise.all([
-    buildLeadsQuery(supabase, params, customLeadIds)
+    buildLeadsQuery(supabase, params, restrictLeadIds)
       .order(sort, { ascending: dir === "asc" })
       .order("id", { ascending: true })
       .range(offset, offset + pageSize - 1),
     fetchLeadStats(supabase),
     supabase.from("lists").select("id, name").order("name"),
     supabase.from("profiles").select("role").eq("id", user.id).single(),
-    supabase
-      .from("custom_field_defs")
-      .select("id, name, slug")
-      .order("sort_order"),
-    // Collected values per custom field, to populate each field's value
-    // dropdown. Bounded; only connected calls populate these, so it's small.
-    supabase
-      .from("lead_custom_values")
-      .select("custom_field_id, value")
-      .limit(6000),
   ]);
-
-  // Build the custom-field options the filter popover + chips need: each field
-  // with the distinct values actually collected for it (capped per field).
-  const valueOptionsByField = new Map<string, Set<string>>();
-  for (const r of (customValues ?? []) as {
-    custom_field_id: string;
-    value: string | null;
-  }[]) {
-    if (!r.value) continue;
-    let set = valueOptionsByField.get(r.custom_field_id);
-    if (!set) {
-      set = new Set<string>();
-      valueOptionsByField.set(r.custom_field_id, set);
-    }
-    if (set.size < 50) set.add(r.value);
-  }
-  // A field is treated as "enum-like" (gets a value dropdown) when it has a
-  // small, bounded set of collected values — e.g. AI interest (yes/no/maybe).
-  // Free-text fields with many distinct values (call reason, current tools) get
-  // a "has a value" presence filter instead.
-  const ENUM_MAX_OPTIONS = 12;
-  const customFields = (
-    (customFieldDefs ?? []) as { id: string; name: string; slug: string }[]
-  ).map((d) => {
-    const options = [...(valueOptionsByField.get(d.id) ?? [])].sort((a, b) =>
-      a.localeCompare(b),
-    );
-    return {
-      id: d.id,
-      name: d.name,
-      slug: d.slug,
-      options,
-      isEnum: options.length > 0 && options.length <= ENUM_MAX_OPTIONS,
-    };
-  });
 
   const rawLeads = leadsData ?? [];
   const total = leadsCount ?? 0;
@@ -210,6 +163,7 @@ export default async function LeadsPage({
     "list",
     "status",
     "outcome",
+    "connected",
     "created_from",
     "created_to",
     "lastcall_from",
@@ -220,17 +174,6 @@ export default async function LeadsPage({
   ]) {
     const v = str(params[key]);
     if (v) ctx.set(key, v);
-  }
-  // Carry custom-field filters (cf_<slug> / cfc_<slug>) into the detail-page
-  // context so prev/next walks the same filtered view.
-  for (const [key, value] of Object.entries(params)) {
-    if (
-      (key.startsWith("cf_") || key.startsWith("cfp_")) &&
-      typeof value === "string" &&
-      value
-    ) {
-      ctx.set(key, value);
-    }
   }
   ctx.set("sort", sort);
   ctx.set("dir", dir);
@@ -272,7 +215,8 @@ export default async function LeadsPage({
       str(params.q) ||
       str(params.status) ||
       str(params.outcome) ||
-      str(params.list),
+      str(params.list) ||
+      str(params.connected),
     ) ||
     Boolean(
       str(params.created_from) ||
@@ -281,9 +225,6 @@ export default async function LeadsPage({
       str(params.lastcall_to) ||
       str(params.nextcall_from) ||
       str(params.nextcall_to),
-    ) ||
-    Object.keys(params).some(
-      (k) => k.startsWith("cf_") || k.startsWith("cfp_"),
     );
 
   return (
@@ -312,7 +253,7 @@ export default async function LeadsPage({
       <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-3 delay-150 duration-500">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <LeadsFilters lists={lists ?? []} customFields={customFields} />
+            <LeadsFilters lists={lists ?? []} />
             <ColumnPicker />
             <SaveCurrentViewButton />
           </div>
@@ -336,7 +277,7 @@ export default async function LeadsPage({
             </Button>
           </div>
         </div>
-        <ActiveFilterChips lists={lists ?? []} customFields={customFields} />
+        <ActiveFilterChips lists={lists ?? []} />
       </div>
 
       <SelectionProvider allIds={leads.map((l) => l.id)}>

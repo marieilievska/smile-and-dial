@@ -6,23 +6,18 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { leadStatusLabel } from "@/lib/labels";
 import { timezoneLabel } from "@/lib/leads/timezone";
 
-import type { CustomField } from "./leads-filters";
-
 /** Inline chips for each active filter on /leads. Click the × on a chip
  *  to remove just that filter (route.replace, no history pollution).
  *  Renders nothing when no filters are active. */
 export function ActiveFilterChips({
   lists,
-  customFields,
 }: {
   lists: { id: string; name: string }[];
-  customFields: CustomField[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const listMap = new Map(lists.map((l) => [l.id, l.name]));
-  const fieldNameBySlug = new Map(customFields.map((f) => [f.slug, f.name]));
 
   const chips: { key: string; label: string }[] = [];
 
@@ -44,6 +39,9 @@ export function ActiveFilterChips({
       label: `Time zone: ${timezoneLabel(timezone)}`,
     });
 
+  if (searchParams.get("connected") === "yes")
+    chips.push({ key: "connected", label: "Connected calls" });
+
   const pairs: [string, string, string][] = [
     ["created_from", "created_to", "Created"],
     ["lastcall_from", "lastcall_to", "Last call"],
@@ -58,21 +56,6 @@ export function ActiveFilterChips({
         key: `__range:${fromKey}:${toKey}`,
         label: `${label}: ${value}`,
       });
-    }
-  }
-
-  // Custom-field filters: cf_<slug>=v1,v2 (matches any of) and cfp_<slug>=1
-  // (lead has a value for this field). Labelled with the field's display name.
-  for (const [key, value] of searchParams.entries()) {
-    if (!value) continue;
-    if (key.startsWith("cfp_")) {
-      const slug = key.slice(4);
-      const name = fieldNameBySlug.get(slug) ?? slug;
-      chips.push({ key, label: `${name}: has a value` });
-    } else if (key.startsWith("cf_")) {
-      const slug = key.slice(3);
-      const name = fieldNameBySlug.get(slug) ?? slug;
-      chips.push({ key, label: `${name}: ${value.split(",").join(", ")}` });
     }
   }
 
@@ -98,6 +81,7 @@ export function ActiveFilterChips({
       "status",
       "list",
       "timezone",
+      "connected",
       "created_from",
       "created_to",
       "lastcall_from",
@@ -107,9 +91,6 @@ export function ActiveFilterChips({
       "page",
     ]) {
       params.delete(key);
-    }
-    for (const key of [...params.keys()]) {
-      if (key.startsWith("cf_") || key.startsWith("cfp_")) params.delete(key);
     }
     const qs = params.toString();
     router.replace(qs ? `/leads?${qs}` : "/leads");
