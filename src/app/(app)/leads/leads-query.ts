@@ -49,13 +49,8 @@ export function applyLeadFilters<
     eq(column: string, value: string): Q;
     gte(column: string, value: string): Q;
     lte(column: string, value: string): Q;
-    in(column: string, values: readonly string[]): Q;
   },
->(query: Q, params: SearchParams, customLeadIds: string[] | null = null): Q {
-  // Custom-field filters are resolved to a set of matching lead ids upstream
-  // (resolveCustomFieldLeadIds). null = no custom-field filter applied; an empty
-  // array = a custom filter that matched nothing, which must yield zero rows.
-  if (customLeadIds !== null) query = query.in("id", customLeadIds);
+>(query: Q, params: SearchParams): Q {
   // Search across company, phone, and email.
   const search = str(params.q);
   if (search) {
@@ -90,142 +85,20 @@ export function applyLeadFilters<
   return query;
 }
 
-/** One parsed custom-field filter. Within a field the picked `values` OR each
- *  other (and OR `present`); across fields the filters AND. `present` = "the
- *  lead has any value collected for this field" (used for free-text fields like
- *  the call reason / current tools, where matching exact text isn't useful). */
-export type CustomFilter = { slug: string; values: string[]; present: boolean };
-
-/** Parse the Leads URL's custom-field filter params: `cf_<slug>=v1,v2` (match
- *  any of these collected values — used for enum-like fields) and `cfp_<slug>=1`
- *  (the lead has any value for this field). Grouped by field slug. `cfp_` does
- *  not start with `cf_` (3rd char differs), so the prefix checks don't collide. */
-export function parseCustomFilters(params: SearchParams): CustomFilter[] {
-  const bySlug = new Map<string, CustomFilter>();
-  const ensure = (slug: string): CustomFilter => {
-    let f = bySlug.get(slug);
-    if (!f) {
-      f = { slug, values: [], present: false };
-      bySlug.set(slug, f);
-    }
-    return f;
-  };
-  for (const [key, raw] of Object.entries(params)) {
-    const value = str(raw).trim();
-    if (!value) continue;
-    if (key.startsWith("cfp_")) {
-      const slug = key.slice(4);
-      if (slug) ensure(slug).present = true;
-    } else if (key.startsWith("cf_")) {
-      const slug = key.slice(3);
-      if (slug) {
-        const vals = value
-          .split(",")
-          .map((v) => v.trim())
-          .filter(Boolean);
-        if (vals.length > 0) ensure(slug).values.push(...vals);
-      }
-    }
-  }
-  return [...bySlug.values()].filter((f) => f.values.length > 0 || f.present);
-}
-
-/** Per-field id-fetch cap. PostgREST returns at most 1,000 rows per request
- *  anyway; custom-field filters are selective (you filter to find a segment),
- *  so a value matching more leads than this is "everyone", not a real filter. */
-const CUSTOM_FILTER_CAP = 1000;
-
-/**
- * Resolve the Leads-page custom-field filters to the set of matching lead ids,
- * so the table / export / nav can constrain by `id`. Returns:
- *   - null  → no custom-field filter is applied (don't constrain at all)
- *   - []    → a filter is applied but nothing matched (show zero leads)
- *   - [ids] → the matching lead ids (intersection across fields)
- *
- * Within a field, the picked values and the `contains` substring are OR'd
- * (union); across different fields the matches are AND'd (intersection).
- */
-export async function resolveCustomFieldLeadIds(
-  supabase: SupabaseServerClient,
-  params: SearchParams,
-): Promise<string[] | null> {
-  const filters = parseCustomFilters(params);
-  if (filters.length === 0) return null;
-
-  const { data: defs } = await supabase
-    .from("custom_field_defs")
-    .select("id, slug")
-    .in(
-      "slug",
-      filters.map((f) => f.slug),
-    );
-  const idBySlug = new Map<string, string>(
-    (defs ?? []).map((d) => [d.slug as string, d.id as string]),
-  );
-
-  let acc: Set<string> | null = null;
-  for (const f of filters) {
-    const fieldId = idBySlug.get(f.slug);
-    if (!fieldId) return []; // unknown field → nothing matches
-    const matched = new Set<string>();
-    if (f.values.length > 0) {
-      const { data } = await supabase
-        .from("lead_custom_values")
-        .select("lead_id")
-        .eq("custom_field_id", fieldId)
-        .in("value", f.values)
-        .limit(CUSTOM_FILTER_CAP);
-      for (const r of (data ?? []) as { lead_id: string | null }[]) {
-        if (r.lead_id) matched.add(r.lead_id);
-      }
-    }
-    if (f.present) {
-      const { data } = await supabase
-        .from("lead_custom_values")
-        .select("lead_id")
-        .eq("custom_field_id", fieldId)
-        .not("value", "is", null)
-        .limit(CUSTOM_FILTER_CAP);
-      for (const r of (data ?? []) as { lead_id: string | null }[]) {
-        if (r.lead_id) matched.add(r.lead_id);
-      }
-    }
-    if (acc === null) {
-      acc = matched;
-    } else {
-      // Intersect (AND across fields): keep only ids in both sets.
-      const intersection = new Set<string>();
-      for (const id of acc) {
-        if (matched.has(id)) intersection.add(id);
-      }
-      acc = intersection;
-    }
-    if (acc.size === 0) return [];
-  }
-  return acc === null ? null : [...acc];
-}
-
 /**
  * Build a Supabase leads query with the Leads page search and filters
  * applied. Shared by the Leads table and the CSV export so the two always
  * agree on what "the current view" means.
- *
- * Stays SYNCHRONOUS and returns the chainable query builder — the caller
- * resolves `customLeadIds` (via resolveCustomFieldLeadIds) first and passes it
- * in. We can't make this async: a Supabase builder is itself thenable, so
- * returning one from an async function would auto-execute the query instead of
- * handing back the builder to chain `.order()/.range()` on.
  */
 export function buildLeadsQuery(
   supabase: SupabaseServerClient,
   params: SearchParams,
-  customLeadIds: string[] | null = null,
 ) {
   const query = supabase
     .from("leads")
     .select(LEADS_SELECT, { count: "exact" })
     .is("deleted_at", null);
-  return applyLeadFilters(query, params, customLeadIds);
+  return applyLeadFilters(query, params);
 }
 
 /** Most leads we'll scan to locate a lead's neighbours for prev/next on the
@@ -258,9 +131,8 @@ export async function fetchLeadSiblings(
   currentId: string,
 ): Promise<LeadSiblings> {
   const { sort, dir } = parseSort(params);
-  const customLeadIds = await resolveCustomFieldLeadIds(supabase, params);
   const base = supabase.from("leads").select("id").is("deleted_at", null);
-  const { data } = await applyLeadFilters(base, params, customLeadIds)
+  const { data } = await applyLeadFilters(base, params)
     .order(sort, { ascending: dir === "asc" })
     .order("id", { ascending: true })
     .limit(SIBLING_SCAN_LIMIT);
