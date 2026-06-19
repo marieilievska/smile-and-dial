@@ -78,8 +78,8 @@ export const navItems: NavItem[] = [
     section: "operations",
   },
   {
-    label: "Agent Analytics",
-    href: "/agent-analytics",
+    label: "Reporting",
+    href: "/reporting",
     icon: Bot,
     section: "operations",
     adminOnly: true,

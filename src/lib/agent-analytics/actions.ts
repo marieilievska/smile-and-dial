@@ -7,7 +7,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
-const AGENT_ANALYTICS_PATH = "/agent-analytics";
+const AGENT_ANALYTICS_PATH = "/reporting";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient<Database>>;
 
