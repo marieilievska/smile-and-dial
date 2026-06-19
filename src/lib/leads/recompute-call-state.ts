@@ -52,7 +52,9 @@ export async function recomputeLeadCallState(
         last_call_at: null,
         call_attempts: 0,
         conversations: 0,
-        decision_maker_reached: false,
+        // decision_maker_reached is sticky — never auto-cleared. Once we've
+        // reached a decision maker it stays Yes (only the manual toggle clears
+        // it), so it's intentionally omitted from this reset.
       })
       .eq("id", leadId);
   } else {
@@ -98,18 +100,18 @@ export async function recomputeLeadCallState(
       }
     }
 
-    await admin
-      .from("leads")
-      .update({
-        ...base,
-        status,
-        last_call_at: lastCallAt,
-        call_attempts: remaining.length,
-        conversations,
-        decision_maker_reached: dmReached,
-        ai_summary: aiSummary,
-      })
-      .eq("id", leadId);
+    const leadUpdate: LeadUpdate = {
+      ...base,
+      status,
+      last_call_at: lastCallAt,
+      call_attempts: remaining.length,
+      conversations,
+      ai_summary: aiSummary,
+    };
+    // decision_maker_reached is sticky — only ever set it TRUE, never un-mark a
+    // lead we already reached just because the remaining calls didn't.
+    if (dmReached) leadUpdate.decision_maker_reached = true;
+    await admin.from("leads").update(leadUpdate).eq("id", leadId);
   }
 
   // A callback from a call we did NOT delete keeps the lead in 'callback' and
