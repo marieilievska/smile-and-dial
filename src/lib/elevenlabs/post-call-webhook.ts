@@ -5,6 +5,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 import { QUALITY_CRITERIA_IDS } from "@/lib/elevenlabs/agents";
+import { seedHotLeadFromCall } from "@/lib/agent-analytics/hot-leads";
 import {
   resolveDueCallbacksForLead,
   syncLeadNextCallToEarliestCallback,
@@ -620,9 +621,10 @@ async function resolveCall(
   campaign_id: string;
   cost_breakdown: unknown;
   elevenlabs_conversation_id: string | null;
+  started_at: string | null;
 } | null> {
   const cols =
-    "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id";
+    "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id, started_at";
   let call = null as Awaited<ReturnType<typeof resolveCall>>;
   if (echoedCallId) {
     const { data } = await supabase
@@ -833,6 +835,13 @@ async function processTranscription(
   const callSummary =
     payload.analysis?.transcript_summary ?? payload.analysis?.summary ?? null;
 
+  // The sanitized extraction (judgment/research fields dropped when no human
+  // was reached). Hoisted so it feeds both the call row and the hot-lead seed.
+  const cleanedExtraction = sanitizeExtraction(
+    extractedDataOf(payload.analysis) ?? {},
+    reachedHuman,
+  );
+
   const callUpdate: Database["public"]["Tables"]["calls"]["Update"] = {
     // ElevenLabs places & owns the call now, so Twilio status callbacks don't
     // hit us — the post-call webhook is our completion signal. Mark the call
@@ -852,16 +861,9 @@ async function processTranscription(
     // criteria — only for real conversations. Voicemails / no-answers /
     // immediate hang-ups get no score (the criteria can't fairly judge them).
     score: reachedHuman ? scoreFromEvaluation(payload.analysis) : null,
-    extracted_data:
-      ((): Database["public"]["Tables"]["calls"]["Update"]["extracted_data"] => {
-        const clean = sanitizeExtraction(
-          extractedDataOf(payload.analysis) ?? {},
-          reachedHuman,
-        );
-        return (
-          Object.keys(clean).length > 0 ? clean : null
-        ) as Database["public"]["Tables"]["calls"]["Update"]["extracted_data"];
-      })(),
+    extracted_data: (Object.keys(cleanedExtraction).length > 0
+      ? cleanedExtraction
+      : null) as Database["public"]["Tables"]["calls"]["Update"]["extracted_data"],
     cost_breakdown:
       mergedCost as unknown as Database["public"]["Tables"]["calls"]["Update"]["cost_breakdown"],
   };
@@ -908,6 +910,19 @@ async function processTranscription(
   // autoFillLeadFromExtraction only writes non-blank values into empty lead
   // fields, so it's safe to run on every call.
   await autoFillLeadFromExtraction(supabase, call.lead_id, payload);
+
+  // Auto-seed the Hot Leads sell list when this call's owner said "yes". Keyed
+  // on the unique call_id, so it's inserted once and never clobbers team edits.
+  await seedHotLeadFromCall(
+    supabase,
+    {
+      id: call.id,
+      lead_id: call.lead_id,
+      started_at: call.started_at,
+      duration_seconds: callDurationSecs ?? null,
+    },
+    cleanedExtraction,
+  );
 
   // The judgment fields + research answers (decision maker, sentiment, …) only
   // mean something when a human actually talked with us, so mirror those onto

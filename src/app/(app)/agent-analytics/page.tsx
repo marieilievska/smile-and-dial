@@ -12,6 +12,7 @@ import {
 } from "@/lib/agent-analytics/stats";
 
 import { DashboardView } from "./dashboard-view";
+import { HotLeadsTable, type HotLeadRow } from "./hot-leads-table";
 import { VoiceTable, type VoiceRow } from "./voice-table";
 
 function str(v: string | string[] | undefined): string {
@@ -101,6 +102,8 @@ export default async function AgentAnalyticsPage({
         <DashboardTab agentId={agent.id} selectedDay={str(params.day)} />
       ) : tab === "voice" ? (
         <VoiceTab agentId={agent.id} />
+      ) : tab === "hot-leads" ? (
+        <HotLeadsTab />
       ) : (
         <Placeholder label={TABS.find((t) => t.key === tab)?.label ?? ""} />
       )}
@@ -201,6 +204,57 @@ async function VoiceTab({ agentId }: { agentId: string }) {
     .filter((r): r is VoiceRow => r !== null);
 
   return <VoiceTable rows={rows} />;
+}
+
+type HotLeadRawRow = {
+  id: string;
+  session_date: string | null;
+  contact_name: string | null;
+  why_hot: string | null;
+  call_length_seconds: number | null;
+  current_ai_tool: string | null;
+  status: string | null;
+  owner: string | null;
+  next_step: string | null;
+  date_contacted: string | null;
+  lead: unknown;
+};
+
+function fmtLen(s: number | null): string {
+  if (!s || s <= 0) return "";
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+async function HotLeadsTab() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("hot_leads")
+    .select(
+      "id, session_date, contact_name, why_hot, call_length_seconds, current_ai_tool, status, owner, next_step, date_contacted, lead:leads(company)",
+    )
+    .order("session_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(2000);
+
+  const rows: HotLeadRow[] = ((data ?? []) as unknown as HotLeadRawRow[]).map(
+    (r) => ({
+      id: r.id,
+      sessionDate: r.session_date ?? "",
+      company: leadInfo(r.lead).company,
+      contactName: r.contact_name ?? "",
+      whyHot: r.why_hot ?? "",
+      callLength: fmtLen(r.call_length_seconds),
+      currentAiTool: r.current_ai_tool ?? "",
+      status: r.status ?? "New",
+      owner: r.owner ?? "",
+      nextStep: r.next_step ?? "",
+      dateContacted: r.date_contacted ?? "",
+    }),
+  );
+
+  return <HotLeadsTable rows={rows} />;
 }
 
 function Placeholder({ label }: { label: string }) {

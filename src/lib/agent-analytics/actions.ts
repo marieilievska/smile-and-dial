@@ -48,3 +48,25 @@ export async function saveCallAnnotation(input: {
     .eq("id", input.callId);
   return { error: error ? "Could not save." : null };
 }
+
+/** Save a team edit on a hot lead (status / owner / next step / date
+ *  contacted). Status falls back to "New" rather than null (it's NOT NULL).
+ *  Empty string clears the other fields. */
+export async function saveHotLeadField(input: {
+  id: string;
+  field: "status" | "owner" | "next_step" | "date_contacted";
+  value: string;
+}): Promise<{ error: string | null }> {
+  if (!(await isCallerAdmin())) return { error: "Admins only." };
+  const value = input.value.trim() || null;
+  const patch: Database["public"]["Tables"]["hot_leads"]["Update"] = {};
+  if (input.field === "status") patch.status = value ?? "New";
+  else if (input.field === "owner") patch.owner = value;
+  else if (input.field === "next_step") patch.next_step = value;
+  else if (input.field === "date_contacted") patch.date_contacted = value;
+  const { error } = await adminClient()
+    .from("hot_leads")
+    .update(patch)
+    .eq("id", input.id);
+  return { error: error ? "Could not save." : null };
+}
