@@ -4,12 +4,15 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   computeDailyKpis,
+  etDay,
+  interestOf,
   sinceDaysAgoIso,
   yesterdayEt,
   type AgentCallRow,
 } from "@/lib/agent-analytics/stats";
 
 import { DashboardView } from "./dashboard-view";
+import { VoiceTable, type VoiceRow } from "./voice-table";
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
@@ -24,6 +27,7 @@ const TABS = [
 ] as const;
 
 const HISTORY_DAYS = 30;
+const VOICE_DAYS = 30;
 
 export default async function AgentAnalyticsPage({
   searchParams,
@@ -95,6 +99,8 @@ export default async function AgentAnalyticsPage({
         </div>
       ) : tab === "dashboard" ? (
         <DashboardTab agentId={agent.id} selectedDay={str(params.day)} />
+      ) : tab === "voice" ? (
+        <VoiceTab agentId={agent.id} />
       ) : (
         <Placeholder label={TABS.find((t) => t.key === tab)?.label ?? ""} />
       )}
@@ -125,6 +131,76 @@ async function DashboardTab({
     ? selectedDay
     : yesterdayEt();
   return <DashboardView kpis={kpis} day={day} historyDays={HISTORY_DAYS} />;
+}
+
+type VoiceRawRow = {
+  id: string;
+  started_at: string | null;
+  extracted_data: unknown;
+  theme: string | null;
+  suggested_action: string | null;
+  lead: unknown;
+};
+
+function leadInfo(lead: unknown): { company: string; list: string } {
+  const l = Array.isArray(lead) ? lead[0] : lead;
+  const obj = l && typeof l === "object" ? (l as Record<string, unknown>) : {};
+  const company = typeof obj.company === "string" ? obj.company : "";
+  const listRaw = Array.isArray(obj.list) ? obj.list[0] : obj.list;
+  const listObj =
+    listRaw && typeof listRaw === "object"
+      ? (listRaw as Record<string, unknown>)
+      : {};
+  const list = typeof listObj.name === "string" ? listObj.name : "";
+  return { company, list };
+}
+
+async function VoiceTab({ agentId }: { agentId: string }) {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("calls")
+    .select(
+      "id, started_at, extracted_data, theme, suggested_action, lead:leads(company, list:lists(name))",
+    )
+    .eq("agent_id", agentId)
+    .eq("direction", "outbound")
+    .gte("started_at", sinceDaysAgoIso(VOICE_DAYS))
+    .not("extracted_data->>ai_call_answering_interest", "is", null)
+    .order("started_at", { ascending: false })
+    .limit(2000);
+
+  const rows: VoiceRow[] = ((data ?? []) as unknown as VoiceRawRow[])
+    .map((r): VoiceRow | null => {
+      const interest = interestOf({
+        started_at: r.started_at,
+        outcome: null,
+        duration_seconds: null,
+        extracted_data: r.extracted_data,
+      });
+      if (!interest) return null; // belt-and-suspenders vs the DB JSON filter
+      const ed =
+        r.extracted_data && typeof r.extracted_data === "object"
+          ? (r.extracted_data as Record<string, unknown>)
+          : {};
+      const reason =
+        typeof ed.ai_call_answering_reason === "string"
+          ? ed.ai_call_answering_reason
+          : "";
+      const { company, list } = leadInfo(r.lead);
+      return {
+        id: r.id,
+        day: r.started_at ? etDay(r.started_at) : "",
+        company,
+        list,
+        interest,
+        reason,
+        theme: r.theme ?? "",
+        suggestedAction: r.suggested_action ?? "",
+      };
+    })
+    .filter((r): r is VoiceRow => r !== null);
+
+  return <VoiceTable rows={rows} />;
 }
 
 function Placeholder({ label }: { label: string }) {
