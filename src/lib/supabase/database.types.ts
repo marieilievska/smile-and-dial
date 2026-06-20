@@ -1626,6 +1626,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      smart_lists: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          filter: Json;
+          id: string;
+          name: string;
+          owner_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          filter?: Json;
+          id?: string;
+          name: string;
+          owner_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          filter?: Json;
+          id?: string;
+          name?: string;
+          owner_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       system_events: {
         Row: {
           actor_user_id: string | null;
@@ -1849,6 +1879,23 @@ export type Database = {
       };
     };
     Functions: {
+      _smart_list_custom_sql: {
+        Args: { op: string; slug: string; val: Json };
+        Returns: string;
+      };
+      _smart_list_date_sql: {
+        Args: { col: string; op: string; val: Json };
+        Returns: string;
+      };
+      _smart_list_node_sql: { Args: { node: Json }; Returns: string };
+      _smart_list_num_sql: {
+        Args: { col: string; op: string; val: Json };
+        Returns: string;
+      };
+      _smart_list_text_sql: {
+        Args: { col: string; op: string; val: Json };
+        Returns: string;
+      };
       bump_api_rate_limit: {
         Args: { in_api_key_id: string; in_window_seconds: number };
         Returns: number;
@@ -1865,6 +1912,7 @@ export type Database = {
         Args: { hours_end: string; hours_start: string; lead_timezone: string };
         Returns: boolean;
       };
+      leads_matching_filter: { Args: { in_recipe: Json }; Returns: string[] };
       merge_inbound_lead: {
         Args: {
           in_actor: string;
