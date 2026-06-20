@@ -104,7 +104,7 @@ export function BulkActionBar({
   return (
     <div
       data-testid="bulk-action-bar"
-      className="animate-in slide-in-from-bottom-2 bg-card fixed inset-x-0 bottom-4 z-40 mx-auto flex w-fit max-w-[95vw] flex-wrap items-center gap-2 rounded-xl border px-3 py-2 shadow-lg duration-200"
+      className="animate-in slide-in-from-bottom-2 bg-card fixed inset-x-0 bottom-4 z-40 mx-auto flex w-fit max-w-[95vw] flex-wrap items-center gap-2 rounded-2xl border px-3 py-2 shadow-lg duration-200"
       style={{
         borderColor: "color-mix(in oklab, var(--primary) 40%, transparent)",
         boxShadow:
