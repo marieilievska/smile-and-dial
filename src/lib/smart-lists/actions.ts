@@ -6,6 +6,7 @@ import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
 import { validateRecipe, type RecipeNode } from "./recipe";
+import { runFilterRpc } from "./resolve";
 
 async function requireAdmin() {
   const supabase = await createClient();
@@ -21,32 +22,15 @@ async function requireAdmin() {
   return { supabase, ok: me?.role === "admin", userId: user.id };
 }
 
-const RPC_PAGE = 1000;
-
-/** Evaluate a recipe to matching lead ids via the Postgres function. Pages the
- *  RPC (PostgREST caps each response at 1000) to return the full set. A broken
- *  recipe matches nothing (not everything). */
+/** Evaluate a recipe to matching lead ids (admin-gated). A broken recipe
+ *  matches nothing (not everything). */
 export async function matchingLeadIds(
   recipe: RecipeNode,
 ): Promise<{ ids: string[]; error: string | null }> {
   const { supabase, ok } = await requireAdmin();
   if (!ok) return { ids: [], error: "Admins only." };
   if (validateRecipe(recipe)) return { ids: [], error: "Invalid filter." };
-
-  const all: string[] = [];
-  let from = 0;
-  for (;;) {
-    const { data, error } = await supabase
-      .rpc("leads_matching_filter", { in_recipe: recipe as unknown as Json })
-      .range(from, from + RPC_PAGE - 1);
-    if (error) return { ids: [], error: "Could not run the filter." };
-    const batch = (data ?? []) as unknown as string[];
-    all.push(...batch);
-    if (batch.length < RPC_PAGE) break;
-    from += RPC_PAGE;
-    if (from > 100_000) break; // safety backstop
-  }
-  return { ids: all, error: null };
+  return runFilterRpc(supabase, recipe);
 }
 
 export async function saveSmartList(input: {

@@ -31,9 +31,15 @@ import { LeadsStatStrip } from "./leads-stat-strip";
 import {
   buildLeadsQuery,
   parseSort,
-  resolveConnectedLeadIds,
+  resolveRestrictLeadIds,
   str,
 } from "./leads-query";
+import { FilterBuilder } from "./filter-builder";
+import { SmartListPicker } from "./smart-list-picker";
+import { STATUSES } from "./leads-filters";
+import { leadStatusLabel } from "@/lib/labels";
+import { parseRecipeParam } from "@/lib/smart-lists/resolve";
+import { EMPTY_RECIPE, type Group } from "@/lib/smart-lists/recipe";
 import { type SearchParams } from "./leads-url";
 import { SelectAllBanner } from "./select-all-banner";
 import { SmartPagination } from "./smart-pagination";
@@ -64,9 +70,9 @@ export default async function LeadsPage({
   if (!user) redirect("/login");
 
   const offset = (page - 1) * pageSize;
-  // Resolve the "Connected" filter's matching lead ids first (a plain array),
-  // then pass them into the synchronous query builder.
-  const restrictLeadIds = await resolveConnectedLeadIds(supabase, params);
+  // Resolve the combined id restriction (Connected filter + advanced recipe)
+  // first (a plain array), then pass it into the synchronous query builder.
+  const restrictLeadIds = await resolveRestrictLeadIds(supabase, params);
   // Run the table query + the stat strip + lookups in parallel — none
   // of them depend on each other.
   const [
@@ -74,6 +80,7 @@ export default async function LeadsPage({
     stats,
     { data: lists },
     { data: me },
+    { data: cfDefs },
   ] = await Promise.all([
     buildLeadsQuery(supabase, params, restrictLeadIds)
       .order(sort, { ascending: dir === "asc" })
@@ -82,6 +89,10 @@ export default async function LeadsPage({
     fetchLeadStats(supabase),
     supabase.from("lists").select("id, name").order("name"),
     supabase.from("profiles").select("role").eq("id", user.id).single(),
+    supabase
+      .from("custom_field_defs")
+      .select("slug, name, type, options")
+      .order("sort_order"),
   ]);
 
   const rawLeads = leadsData ?? [];
@@ -196,6 +207,29 @@ export default async function LeadsPage({
     }));
   }
 
+  // Advanced-filter (Smart Lists) inputs — an admin-only surface.
+  const statusOptions = STATUSES.map((s) => ({
+    value: s,
+    label: leadStatusLabel(s),
+  }));
+  const ownerOptions = bulkOwners.map((o) => ({ value: o.id, label: o.name }));
+  const customFieldOptions = (cfDefs ?? []).map((d) => ({
+    slug: d.slug,
+    name: d.name,
+    type: d.type,
+    options: Array.isArray(d.options) ? (d.options as string[]) : [],
+  }));
+  const initialRecipe =
+    (parseRecipeParam(str(params.recipe)) as Group | null) ?? EMPTY_RECIPE;
+  let smartLists: { id: string; name: string; filter: unknown }[] = [];
+  if (isAdmin) {
+    const { data: sl } = await supabase
+      .from("smart_lists")
+      .select("id, name, filter")
+      .order("created_at", { ascending: false });
+    smartLists = sl ?? [];
+  }
+
   // Export carries every filter except pagination — it exports all matches.
   const exportQs = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -279,6 +313,22 @@ export default async function LeadsPage({
         </div>
         <ActiveFilterChips lists={lists ?? []} />
       </div>
+
+      {/* Advanced filter / Smart Lists — admin-only. */}
+      {isAdmin ? (
+        <div className="flex flex-col gap-2">
+          <SmartListPicker
+            lists={smartLists}
+            activeRecipeJson={str(params.recipe)}
+          />
+          <FilterBuilder
+            initialRecipe={initialRecipe}
+            statusOptions={statusOptions}
+            ownerOptions={ownerOptions}
+            customFields={customFieldOptions}
+          />
+        </div>
+      ) : null}
 
       <SelectionProvider allIds={leads.map((l) => l.id)}>
         <LeadsJKNavigation

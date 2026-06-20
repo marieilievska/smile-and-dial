@@ -3,7 +3,7 @@ import type { createClient } from "@/lib/supabase/server";
 import {
   applyLeadFilters,
   LEADS_SELECT,
-  resolveConnectedLeadIds,
+  resolveRestrictLeadIds,
 } from "@/app/(app)/leads/leads-query";
 import type { SearchParams } from "@/app/(app)/leads/leads-url";
 
@@ -50,8 +50,9 @@ export async function fetchAllMatchingLeadIds(
   const ids: string[] = [];
   let lastId: string | null = null;
 
-  // Resolve the "Connected" filter's matching lead ids once, before paging.
-  const restrictLeadIds = await resolveConnectedLeadIds(supabase, params);
+  // Resolve the combined id restriction (Connected filter + advanced recipe)
+  // once, before paging.
+  const restrictLeadIds = await resolveRestrictLeadIds(supabase, params);
 
   for (;;) {
     let query = applyLeadFilters(
