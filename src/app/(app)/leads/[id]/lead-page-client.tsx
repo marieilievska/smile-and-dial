@@ -189,27 +189,61 @@ export function LeadPageClient({
           action cluster (Mark DNC, Delete, Call now) on the right.
           The destructive actions sit before Call now so the primary
           coral button retains the visual anchor at the trailing edge. */}
-      <header className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-3 delay-75 duration-500 md:flex-row md:items-start md:justify-between">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-          <EditableCompanyName
-            initial={leadCompany}
-            onSave={saveField("company")}
-          />
-          <Badge variant={statusVariant(meta.status)} dot>
-            {leadStatusLabel(meta.status)}
-          </Badge>
-          {meta.onCall ? <OnCallChip startedAt={meta.onCallStartedAt} /> : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <LeadHeroActions leadId={leadId} leadName={leadCompany} />
-          <ManualCallPanel leadId={leadId} userId={userId} />
-          <CallNowDialog
-            leadId={leadId}
-            availableCampaigns={availableCampaigns}
-            initialCampaignId={activeCampaignId}
-            open={callDialogOpen}
-            onOpenChange={setCallDialogOpen}
-          />
+      <header className="border-border bg-card animate-in fade-in slide-in-from-bottom-1 fill-mode-both relative overflow-hidden rounded-2xl border p-5 shadow-sm delay-75 duration-500 md:p-6">
+        {/* Soft ambient wash so the lead card opens warm. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage:
+              "radial-gradient(50% 130% at 100% 0%, color-mix(in oklab, var(--primary) 9%, transparent), transparent 60%)",
+          }}
+        />
+        <div className="relative flex flex-col gap-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+              <EditableCompanyName
+                initial={leadCompany}
+                onSave={saveField("company")}
+              />
+              <Badge variant={statusVariant(meta.status)} dot>
+                {leadStatusLabel(meta.status)}
+              </Badge>
+              {meta.onCall ? (
+                <OnCallChip startedAt={meta.onCallStartedAt} />
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <LeadHeroActions leadId={leadId} leadName={leadCompany} />
+              <ManualCallPanel leadId={leadId} userId={userId} />
+              <CallNowDialog
+                leadId={leadId}
+                availableCampaigns={availableCampaigns}
+                initialCampaignId={activeCampaignId}
+                open={callDialogOpen}
+                onOpenChange={setCallDialogOpen}
+              />
+            </div>
+          </div>
+          {/* Quick-stats — the at-a-glance "where does this lead stand" row. */}
+          <div className="border-border/60 flex flex-wrap gap-x-6 gap-y-2 border-t pt-3">
+            <HeroStat label="List" value={meta.listName} />
+            <HeroStat label="Attempts" value={meta.attempts.toLocaleString()} />
+            <HeroStat
+              label="Conversations"
+              value={meta.conversations.toLocaleString()}
+            />
+            <HeroStat
+              label="Last call"
+              value={meta.lastCallAt ? relativeTime(meta.lastCallAt) : "—"}
+            />
+            {meta.timezone ? (
+              <HeroStat
+                label="Local time"
+                value={<LeadLocalTime timeZone={meta.timezone} />}
+              />
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -373,7 +407,7 @@ export function LeadPageClient({
               kept current by the AI. */}
           <section
             data-testid="ai-summary-block"
-            className="relative overflow-hidden rounded-xl border p-5"
+            className="relative overflow-hidden rounded-2xl border p-5 shadow-sm"
             style={{
               borderColor:
                 "color-mix(in oklab, var(--primary) 25%, var(--border))",
@@ -412,7 +446,7 @@ export function LeadPageClient({
 
           <section
             data-testid="lead-activity-column"
-            className="border-border bg-card flex flex-col gap-3 rounded-lg border p-4"
+            className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-4 shadow-sm"
           >
             <h2 className="text-foreground text-sm font-semibold">Activity</h2>
             <SinceLastViewed leadId={leadId} items={feedItemsForChip} />
@@ -536,6 +570,18 @@ function LeadLocalTime({ timeZone }: { timeZone: string }) {
 /** Compact label/value pair for the Pipeline block. An optional `title`
  *  surfaces the exact timestamp on hover for the relative-time rows
  *  (Next call / Resting until). */
+/** A compact label/value stat in the hero command card's quick-stats row. */
+function HeroStat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-muted-foreground text-[10px] font-medium tracking-[0.12em] uppercase">
+        {label}
+      </span>
+      <span className="text-foreground text-sm font-medium">{value}</span>
+    </div>
+  );
+}
+
 function PipelineRow({
   label,
   value,

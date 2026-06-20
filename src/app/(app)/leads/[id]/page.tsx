@@ -187,6 +187,8 @@ export default async function LeadDetailPage({
     nextCallAt: lead.next_call_at,
     lastCallAt: lead.last_call_at ?? null,
     businessPhone: lead.business_phone ?? null,
+    attempts: lead.call_attempts ?? 0,
+    conversations: lead.conversations ?? 0,
     city: lead.city ?? null,
     state: lead.state ?? null,
     timezone: lead.timezone ?? null,

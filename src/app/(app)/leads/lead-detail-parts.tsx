@@ -85,6 +85,9 @@ export type LeadMeta = {
   /** Surfaced in the hero so the operator can read/copy the phone
    *  without scrolling into the Contact section. */
   businessPhone: string | null;
+  /** Call-attempt + qualifying-conversation counts, shown as hero quick-stats. */
+  attempts: number;
+  conversations: number;
   city: string | null;
   state: string | null;
   /** IANA timezone (e.g. "America/Chicago"), derived from the lead's state
@@ -160,13 +163,13 @@ export function CollapsibleSection({
     <details
       open={defaultOpen}
       data-testid={`lead-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
-      className="border-border group rounded-lg border"
+      className="border-border bg-card group overflow-hidden rounded-2xl border shadow-sm"
     >
-      <summary className="hover:bg-muted/50 flex cursor-pointer list-none items-center justify-between rounded-lg px-3 py-2 transition-colors">
+      <summary className="hover:bg-muted/50 flex cursor-pointer list-none items-center justify-between px-4 py-3 transition-colors">
         <span className="text-foreground text-sm font-semibold">{title}</span>
         <ChevronDown className="text-muted-foreground size-4 transition-transform group-open:rotate-180" />
       </summary>
-      <div className="px-3 pt-3 pb-4">{children}</div>
+      <div className="px-4 pt-3 pb-4">{children}</div>
     </details>
   );
 }
