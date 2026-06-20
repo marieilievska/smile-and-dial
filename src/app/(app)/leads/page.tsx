@@ -36,7 +36,7 @@ import {
 } from "./leads-query";
 import { FilterBuilder } from "./filter-builder";
 import { SmartListPicker } from "./smart-list-picker";
-import { STATUSES } from "./leads-filters";
+import { STATUSES } from "./leads-statuses";
 import { leadStatusLabel } from "@/lib/labels";
 import { parseRecipeParam } from "@/lib/smart-lists/resolve";
 import { EMPTY_RECIPE, type Group } from "@/lib/smart-lists/recipe";
