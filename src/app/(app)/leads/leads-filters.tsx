@@ -23,18 +23,7 @@ import {
 import { leadStatusLabel } from "@/lib/labels";
 import { LEAD_TIMEZONES } from "@/lib/leads/timezone";
 
-export const STATUSES = [
-  "ready_to_call",
-  "callback",
-  "resting",
-  "goal_met",
-  "attended",
-  "no_show",
-  "closed",
-  "sale",
-  "dnc",
-  "email_replied",
-];
+import { STATUSES } from "./leads-statuses";
 
 const FILTER_KEYS = [
   "list",
