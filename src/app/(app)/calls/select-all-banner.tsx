@@ -54,7 +54,7 @@ export function CallsSelectAllBanner({ total }: { total: number }) {
   return (
     <div
       data-testid="calls-select-all-banner"
-      className="bg-muted/30 border-border flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-sm"
+      className="bg-muted/30 border-border flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2 text-sm"
     >
       {matchAll ? (
         <>

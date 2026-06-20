@@ -51,7 +51,7 @@ export function CallsBulkBar() {
 
   return (
     <div className="pointer-events-none sticky bottom-4 z-20 flex justify-center">
-      <div className="border-border bg-card pointer-events-auto flex items-center gap-3 rounded-full border px-4 py-2 shadow-lg">
+      <div className="border-border bg-card pointer-events-auto flex items-center gap-3 rounded-2xl border px-4 py-2 shadow-lg">
         <span className="text-foreground text-sm font-medium tabular-nums">
           {count} selected
         </span>
