@@ -118,7 +118,7 @@ export function PipelineBoard({
               }
             }}
             onDrop={(event) => onDrop(event, status)}
-            className={`animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex min-h-[160px] flex-col gap-2 rounded-xl border p-3 transition-colors duration-500 ${
+            className={`animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex min-h-[160px] flex-col gap-2 rounded-2xl border p-3 shadow-sm transition-colors duration-500 ${
               isOver
                 ? "bg-primary/5 border-[color:var(--primary)]"
                 : "border-border bg-card"

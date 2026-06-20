@@ -80,7 +80,7 @@ function StatusTabs({
     <div
       role="tablist"
       aria-label="Pipeline status"
-      className="border-border bg-background inline-flex items-center gap-0.5 rounded-lg border p-1"
+      className="border-border bg-background inline-flex items-center gap-0.5 rounded-xl border p-1"
     >
       {STATUS_TABS.map((tab) => {
         const active = current === tab.value;
@@ -130,7 +130,7 @@ function ViewToggle({ current }: { current: "table" | "board" }) {
     <div
       role="tablist"
       aria-label="Pipeline view"
-      className="border-border bg-background inline-flex items-center gap-0.5 rounded-lg border p-1"
+      className="border-border bg-background inline-flex items-center gap-0.5 rounded-xl border p-1"
     >
       <ViewLink
         href={hrefFor("board")}
