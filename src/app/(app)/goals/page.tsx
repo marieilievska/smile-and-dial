@@ -250,7 +250,7 @@ export default async function GoalsPage({
 function EmptyState({ filtered }: { filtered: boolean }) {
   if (filtered) {
     return (
-      <div className="border-border flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+      <div className="border-border flex flex-col items-center gap-3 rounded-2xl border border-dashed py-16 text-center">
         <Target className="text-muted-foreground size-8" />
         <p className="text-foreground text-sm font-medium">
           No leads match your filters
@@ -265,7 +265,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
     );
   }
   return (
-    <div className="border-border flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+    <div className="border-border flex flex-col items-center gap-3 rounded-2xl border border-dashed py-16 text-center">
       <div className="bg-primary/10 flex size-12 items-center justify-center rounded-full">
         <Target className="text-primary size-6" />
       </div>

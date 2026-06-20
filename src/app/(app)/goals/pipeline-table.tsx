@@ -35,7 +35,7 @@ export function PipelineTable({ leads }: { leads: PipelineLead[] }) {
   }
 
   return (
-    <div className="border-border overflow-x-auto rounded-lg border">
+    <div className="border-border overflow-x-auto rounded-2xl border shadow-sm">
       <Table className="table-fixed">
         <TableHeader>
           <TableRow>
