@@ -388,16 +388,18 @@ export function CallDetailModal() {
                   not the raw storage path. */}
               {call.recordingUrl ? (
                 <Section title="Recording">
-                  <audio
-                    ref={audioRef}
-                    controls
-                    preload="metadata"
-                    className="w-full"
-                    src={call.recordingUrl}
-                  />
+                  <div className="border-border bg-muted/30 rounded-xl border p-3">
+                    <audio
+                      ref={audioRef}
+                      controls
+                      preload="metadata"
+                      className="w-full"
+                      src={call.recordingUrl}
+                    />
+                  </div>
                 </Section>
               ) : (
-                <div className="border-border bg-muted/30 flex items-start gap-3 rounded-lg border p-3">
+                <div className="border-border bg-muted/30 flex items-start gap-3 rounded-xl border p-3">
                   <Mic className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                   <p className="text-muted-foreground text-sm">
                     {noRecordingReason(call.outcome)}
@@ -410,7 +412,7 @@ export function CallDetailModal() {
               {call.summary ? (
                 <section
                   data-testid="call-ai-summary-block"
-                  className="bg-card flex flex-col gap-3 rounded-xl border p-5"
+                  className="bg-card flex flex-col gap-3 rounded-2xl border p-5 shadow-sm"
                   style={{
                     borderColor:
                       "color-mix(in oklab, var(--primary) 25%, var(--border))",
@@ -521,7 +523,7 @@ export function CallDetailModal() {
               {call.extractedData &&
               Object.keys(call.extractedData).length > 0 ? (
                 <Section title="Extracted data">
-                  <dl className="border-border grid grid-cols-1 gap-x-4 gap-y-2 rounded-lg border p-3 text-sm sm:grid-cols-[max-content_1fr]">
+                  <dl className="border-border grid grid-cols-1 gap-x-4 gap-y-2 rounded-xl border p-3 text-sm sm:grid-cols-[max-content_1fr]">
                     {Object.entries(call.extractedData).map(([key, value]) => (
                       <div key={key} className="contents text-sm">
                         <dt className="text-muted-foreground font-medium">
@@ -542,7 +544,7 @@ export function CallDetailModal() {
 
               {/* M5 — Outcome override demoted below the primary actions.
                   Admin correction tool, not the main thing you're here for. */}
-              <details className="border-border bg-muted/30 group rounded-lg border p-3 text-sm">
+              <details className="border-border bg-muted/30 group rounded-xl border p-3 text-sm">
                 <summary className="text-foreground flex cursor-pointer items-center justify-between font-medium">
                   <span>Override outcome</span>
                   <span className="text-muted-foreground text-xs group-open:hidden">
@@ -611,7 +613,10 @@ function CallDetailSkeleton() {
       <div className="flex flex-col gap-6">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex flex-col gap-1.5">
+            <div
+              key={i}
+              className="border-border bg-muted/30 flex flex-col gap-1.5 rounded-xl border px-3 py-2.5"
+            >
               <Skeleton className="h-2.5 w-12" />
               <Skeleton className="h-5 w-16" />
             </div>
@@ -651,7 +656,7 @@ function HeroMetric({
   valueClassName?: string;
 }) {
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="border-border bg-muted/30 flex flex-col gap-0.5 rounded-xl border px-3 py-2.5">
       <span className="text-muted-foreground text-[10px] font-medium tracking-[0.1em] uppercase">
         {label}
       </span>

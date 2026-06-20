@@ -15,7 +15,7 @@ export function CallsStatStrip({ stats }: { stats: CallStats }) {
   return (
     <section
       data-testid="calls-stat-strip"
-      className="border-border bg-card grid grid-cols-1 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-3"
+      className="border-border bg-card grid grid-cols-1 gap-x-4 gap-y-3 rounded-2xl border px-5 py-4 shadow-sm sm:grid-cols-3"
     >
       <StatLink
         icon={<PhoneCall className="size-3.5" />}

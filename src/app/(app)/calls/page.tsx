@@ -276,7 +276,7 @@ export default async function CallsPage({
         <CallsSelectionProvider allIds={calls.map((c) => c.id)}>
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-5 delay-200 duration-500">
             {isAdmin ? <CallsSelectAllBanner total={total} /> : null}
-            <div className="border-border overflow-x-auto rounded-lg border">
+            <div className="border-border overflow-x-auto rounded-2xl border shadow-sm">
               <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
