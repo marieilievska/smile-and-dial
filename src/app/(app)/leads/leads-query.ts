@@ -1,4 +1,5 @@
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
+import { resolveRecipeIds } from "@/lib/smart-lists/resolve";
 import type { createClient } from "@/lib/supabase/server";
 import { endOfEtDayUtcIso, etDayRangeUtc } from "@/lib/time/eastern";
 
@@ -82,6 +83,27 @@ export async function resolveConnectedLeadIds(
     lastId = page[page.length - 1].id;
   }
   return [...ids];
+}
+
+/**
+ * The combined id restriction for the Leads view: the "Connected" filter AND
+ * the advanced-filter recipe (if either is active). Returns null when neither
+ * restricts; an empty array when an active restriction matched nothing (→ zero
+ * rows). Shared by the table query and the CSV export so both agree.
+ */
+export async function resolveRestrictLeadIds(
+  supabase: SupabaseServerClient,
+  params: SearchParams,
+): Promise<string[] | null> {
+  const [connected, recipe] = await Promise.all([
+    resolveConnectedLeadIds(supabase, params),
+    resolveRecipeIds(supabase, str(params.recipe)),
+  ]);
+  if (connected !== null && recipe !== null) {
+    const set = new Set(recipe);
+    return connected.filter((id) => set.has(id));
+  }
+  return recipe ?? connected;
 }
 
 /** Apply the Leads page search + filters to any leads query builder,

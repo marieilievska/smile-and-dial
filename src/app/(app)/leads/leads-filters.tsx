@@ -23,7 +23,7 @@ import {
 import { leadStatusLabel } from "@/lib/labels";
 import { LEAD_TIMEZONES } from "@/lib/leads/timezone";
 
-const STATUSES = [
+export const STATUSES = [
   "ready_to_call",
   "callback",
   "resting",
