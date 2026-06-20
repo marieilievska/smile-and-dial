@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { useActionState } from "react";
 
@@ -21,10 +21,10 @@ export function LoginForm() {
       {/* Heading — drops the Card wrapper, lets the form be the form */}
       <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-2 duration-500">
         <h2 className="text-foreground text-2xl font-semibold tracking-tight">
-          Sign in to continue
+          Welcome back
         </h2>
         <p className="text-muted-foreground text-sm">
-          Use the email your admin invited you with.
+          Sign in with the email your admin invited you with.
         </p>
       </div>
 
@@ -72,16 +72,23 @@ export function LoginForm() {
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <p className="text-muted-foreground text-xs">
+        <div className="flex flex-col gap-3 pt-1">
+          <Button type="submit" disabled={pending} className="h-11 w-full">
+            {pending ? (
+              "Signing in…"
+            ) : (
+              <>
+                Sign in
+                <ArrowRight className="size-4" />
+              </>
+            )}
+          </Button>
+          <p className="text-muted-foreground text-center text-xs">
             <kbd className="bg-muted text-foreground border-border rounded border px-1 py-0.5 font-mono text-[10px]">
               ↵
             </kbd>{" "}
-            Enter to sign in
+            press Enter to sign in
           </p>
-          <Button type="submit" disabled={pending}>
-            {pending ? "Signing in…" : "Sign in"}
-          </Button>
         </div>
       </form>
     </div>

@@ -1,20 +1,11 @@
 import { BrandMark } from "./brand-mark";
+import { AuthWaveform } from "./auth-waveform";
 
-/** Right-side brand panel for the split-screen auth layout.
- *
- *  2026 refresh — the Round 26 rewrite stripped this down to a flat
- *  navy rectangle with three text blocks, which read as "2018 B2B
- *  login template." This version keeps the calm, enterprise tone but
- *  gives the empty space *atmosphere* rather than leaving it blank:
- *    - a soft drifting gradient mesh + faint dot grid behind the navy,
- *    - a low-contrast "breathing" waveline that signals voice AI
- *      without faking a live-call widget,
- *    - a logo mark beside the wordmark,
- *    - a quietly pulsing "all systems operational" status chip,
- *    - a 1px gradient seam so the light/dark split feels composed.
- *
- *  All of it is decorative (aria-hidden on the whole aside) and the
- *  global prefers-reduced-motion rule settles the motion flat. */
+/** Left-side brand panel for the immersive auth canvas — a quiet
+ *  "command center for AI calling." It sits transparently over the shared
+ *  AuthAurora backdrop: eyebrow, wordmark, the breathing hero waveform,
+ *  the page headline, and a non-sensitive status line. Entirely decorative
+ *  (aria-hidden) and hidden under md, where the form takes the full screen. */
 export function AuthBrandPanel({
   headline,
   subcopy,
@@ -25,43 +16,42 @@ export function AuthBrandPanel({
   return (
     <aside
       aria-hidden
-      className="bg-sidebar text-sidebar-foreground relative hidden w-1/2 flex-col justify-between overflow-hidden p-12 md:flex lg:p-16"
+      className="relative z-10 hidden w-1/2 flex-col justify-between p-12 md:flex lg:p-16"
     >
-      {/* Ambient layers — pure decoration, sit behind the content. */}
-      <BrandPanelBackdrop />
-
-      {/* Top — logo mark + wordmark + eyebrow. */}
-      <div className="relative flex flex-col gap-3">
-        <p className="text-sidebar-foreground/60 font-mono text-[10px] tracking-[0.2em] uppercase">
+      {/* Top — eyebrow + wordmark. */}
+      <div className="flex flex-col gap-3">
+        <p className="font-mono text-[10px] tracking-[0.25em] text-white/45 uppercase">
           Internal platform
         </p>
         <div className="flex items-center gap-2.5">
-          <BrandMark className="text-sidebar-primary size-6 lg:size-7" />
-          <p className="text-sidebar-primary-foreground text-2xl font-semibold tracking-tight lg:text-3xl">
-            Smile &amp; Dial
+          <BrandMark className="size-6 text-[color:var(--primary)] lg:size-7" />
+          <p className="text-2xl font-semibold tracking-tight text-white lg:text-3xl">
+            Smile <span className="text-[color:var(--primary)]">&amp;</span>{" "}
+            Dial
           </p>
         </div>
       </div>
 
-      {/* Middle — tagline + the breathing waveline. */}
-      <div className="relative flex flex-col gap-6">
-        <AuthWaveline />
+      {/* Middle — the alive waveform + the page headline. */}
+      <div className="flex flex-col gap-8">
+        <AuthWaveform />
         <div className="flex flex-col gap-3">
-          <p className="text-sidebar-primary-foreground text-xl leading-snug font-medium lg:text-2xl">
+          <p className="max-w-md text-2xl leading-snug font-medium text-white lg:text-[28px]">
             {headline}
           </p>
           {subcopy ? (
-            <p className="text-sidebar-foreground/70 text-sm leading-relaxed">
+            <p className="max-w-md text-sm leading-relaxed text-white/55">
               {subcopy}
             </p>
           ) : null}
         </div>
       </div>
 
-      {/* Bottom — live status chip + product line. */}
-      <div className="relative flex flex-col gap-4">
+      {/* Bottom — non-sensitive status + product line (no real metrics on a
+          logged-out page). */}
+      <div className="flex flex-col gap-4">
         <StatusChip />
-        <p className="text-sidebar-foreground/50 text-xs tracking-wide">
+        <p className="text-xs tracking-wide text-white/40">
           A Referrizer SDR product.
         </p>
       </div>
@@ -69,74 +59,12 @@ export function AuthBrandPanel({
   );
 }
 
-/** Layered ambient backdrop: a drifting gradient mesh, a faint dot
- *  grid, and a 1px gradient seam on the left edge that softens the
- *  hard split between the form and brand columns. */
-function BrandPanelBackdrop() {
-  return (
-    <>
-      {/* Gradient mesh — two soft primary-blue blooms. */}
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage:
-            "radial-gradient(60% 50% at 85% 15%, color-mix(in oklab, var(--sidebar-primary) 24%, transparent), transparent 70%), radial-gradient(55% 45% at 10% 95%, color-mix(in oklab, var(--sidebar-primary) 16%, transparent), transparent 70%)",
-        }}
-      />
-      {/* Faint dot grid, masked so it fades toward the edges. */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-60"
-        style={{
-          backgroundImage:
-            "radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)",
-          backgroundSize: "22px 22px",
-          maskImage:
-            "radial-gradient(80% 80% at 50% 40%, black, transparent 100%)",
-          WebkitMaskImage:
-            "radial-gradient(80% 80% at 50% 40%, black, transparent 100%)",
-        }}
-      />
-      {/* Seam — a thin vertical gradient on the left edge. */}
-      <div
-        className="pointer-events-none absolute inset-y-0 left-0 w-px"
-        style={{
-          backgroundImage:
-            "linear-gradient(to bottom, transparent, color-mix(in oklab, var(--sidebar-primary) 50%, transparent), transparent)",
-        }}
-      />
-    </>
-  );
-}
-
-/** A low-contrast row of bars that slowly undulate — an ambient nod to
- *  voice/audio, not a real visualization. Staggered animation delays
- *  make it read as a travelling wave. */
-function AuthWaveline() {
-  // Symmetric-ish heights so the resting shape already looks wave-like.
-  const bars = [40, 64, 88, 72, 100, 60, 84, 48, 76, 92, 56, 68, 44, 80, 52];
-  return (
-    <div className="flex h-12 items-center gap-1.5" aria-hidden>
-      {bars.map((h, i) => (
-        <span
-          key={i}
-          className="bg-sidebar-primary/30 w-1 flex-1 rounded-full"
-          style={{
-            height: `${h}%`,
-            transformOrigin: "center",
-            animation: "auth-wave 3.2s ease-in-out infinite",
-            animationDelay: `${(i % 7) * 0.16}s`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-/** "All systems operational" with a pulsing dot — a small but potent
- *  "this is real software running right now" signal. */
+/** "All systems operational" with a pulsing dot — a small "this is real
+ *  software running right now" signal. Deliberately carries no business
+ *  data (no call/agent counts) since the page is pre-auth. */
 function StatusChip() {
   return (
-    <span className="border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground/80 inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-xs">
+    <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/70 backdrop-blur-sm">
       <span className="relative flex size-2">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70" />
         <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />

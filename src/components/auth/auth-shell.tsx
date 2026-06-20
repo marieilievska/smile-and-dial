@@ -1,20 +1,18 @@
 import Link from "next/link";
 
+import { AuthAurora } from "./auth-aurora";
 import { AuthBrandPanel } from "./auth-brand-panel";
 import { BrandMark } from "./brand-mark";
 
-/** Barely-there radial warmth behind the form column so the flat
- *  canvas reads as composed depth rather than empty gray. */
-const FORM_COLUMN_TINT =
-  "radial-gradient(70% 60% at 0% 0%, color-mix(in oklab, var(--primary) 5%, transparent), transparent 60%)";
-
-/** Two-column layout for /login, /auth/set-password, /auth/forgot-password.
- *  Form on the left, branded gradient panel on the right with a calm
- *  live-calls visual that telegraphs "this is an AI calling platform."
+/** Immersive split layout for /login, /auth/set-password, /auth/forgot-password.
  *
- *  Under md the brand panel hides and the form gets the full screen —
- *  but a compact wordmark + one-line tagline sits above the form so the
- *  brand still lands on mobile. */
+ *  The whole surface is a single dark "command center" canvas (the `dark`
+ *  class scopes the dark theme + token set to this subtree, independent of the
+ *  app's theme): a drifting aurora backdrop, a brand panel on the left with the
+ *  live hero waveform, and the form floating in a glass card on the right.
+ *
+ *  Under md the brand panel hides and the form gets the full screen, with a
+ *  compact wordmark + tagline above so the brand still lands on mobile. */
 export function AuthShell({
   panelHeadline,
   panelSubcopy,
@@ -22,51 +20,49 @@ export function AuthShell({
   mobileTagline = "Internal AI calling platform for Referrizer's SDR team.",
   children,
 }: {
-  /** Tagline shown on the brand panel under the wordmark. */
   panelHeadline: string;
   panelSubcopy?: string;
-  /** Optional per-page footer node. Defaults to the standard help line. */
   footer?: React.ReactNode;
-  /** Optional tagline shown only on mobile, under the wordmark. */
   mobileTagline?: string;
-  /** The form (or whatever interactive content the page hosts). */
   children: React.ReactNode;
 }) {
   return (
-    <main className="bg-background flex min-h-screen w-full">
-      {/* FORM COLUMN */}
-      <div
-        className="relative flex w-full flex-col justify-between p-8 md:w-1/2 md:p-12 lg:p-16"
-        style={{ backgroundImage: FORM_COLUMN_TINT }}
-      >
-        {/* Header — logo mark + wordmark on every viewport, mobile gets a
-            tagline too. The wordmark is the document's h1 (the brand
-            panel is aria-hidden so it doesn't reach the a11y tree). */}
-        <div className="animate-in fade-in slide-in-from-top-1 flex flex-col gap-1.5 duration-500">
-          <div className="flex items-center gap-2">
-            <BrandMark className="text-primary size-5" />
-            <h1 className="text-foreground text-base font-bold tracking-tight">
-              Smile <span className="text-primary">&amp;</span> Dial
-            </h1>
-          </div>
-          {mobileTagline ? (
-            <p className="text-muted-foreground text-xs md:hidden">
-              {mobileTagline}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="mx-auto flex w-full max-w-md flex-col py-12">
-          {children}
-        </div>
-
-        <div className="text-muted-foreground text-xs">
-          {footer ?? <DefaultFooter />}
-        </div>
-      </div>
+    <main className="dark text-foreground relative isolate flex min-h-screen w-full overflow-hidden">
+      <AuthAurora />
 
       {/* BRAND COLUMN — hidden on mobile */}
       <AuthBrandPanel headline={panelHeadline} subcopy={panelSubcopy} />
+
+      {/* FORM COLUMN */}
+      <div className="relative z-10 flex w-full flex-col justify-between p-6 sm:p-10 md:w-1/2 md:p-12 lg:p-16">
+        {/* Mobile-only brand header (the brand panel is desktop-only). */}
+        <div className="animate-in fade-in slide-in-from-top-1 flex flex-col gap-1.5 duration-500 md:hidden">
+          <div className="flex items-center gap-2">
+            <BrandMark className="size-5 text-[color:var(--primary)]" />
+            <p className="text-base font-bold tracking-tight text-white">
+              Smile <span className="text-[color:var(--primary)]">&amp;</span>{" "}
+              Dial
+            </p>
+          </div>
+          {mobileTagline ? (
+            <p className="text-xs text-white/50">{mobileTagline}</p>
+          ) : null}
+        </div>
+
+        {/* The glass auth card. */}
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-8">
+          <div
+            className="animate-in fade-in zoom-in-95 rounded-2xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur-2xl duration-500 sm:p-9"
+            style={{ boxShadow: "0 24px 70px -30px rgba(0,0,0,0.65)" }}
+          >
+            {children}
+          </div>
+        </div>
+
+        <div className="text-xs text-white/45">
+          {footer ?? <DefaultFooter />}
+        </div>
+      </div>
     </main>
   );
 }
@@ -77,7 +73,7 @@ function DefaultFooter() {
       Internal platform · Need help?{" "}
       <Link
         href="mailto:marketing@referrizer.com"
-        className="text-foreground underline-offset-2 hover:underline"
+        className="text-white/80 underline-offset-2 hover:text-white hover:underline"
       >
         marketing@referrizer.com
       </Link>
@@ -85,18 +81,19 @@ function DefaultFooter() {
   );
 }
 
-/** Single-column variant used by /auth/auth-error. Centered, calmer
- *  background, no split-screen. */
+/** Single-column variant used by /auth/auth-error. Same immersive dark canvas,
+ *  centered glass card, no split. */
 export function AuthSingleColumn({ children }: { children: React.ReactNode }) {
   return (
-    <main className="bg-background flex min-h-screen w-full flex-col">
-      <div className="flex items-center gap-2 p-8 md:p-12">
-        <BrandMark className="text-primary size-5" />
-        <h1 className="text-foreground text-base font-bold tracking-tight">
-          Smile <span className="text-primary">&amp;</span> Dial
-        </h1>
+    <main className="dark text-foreground relative isolate flex min-h-screen w-full flex-col overflow-hidden">
+      <AuthAurora />
+      <div className="relative z-10 flex items-center gap-2 p-8 md:p-12">
+        <BrandMark className="size-5 text-[color:var(--primary)]" />
+        <p className="text-base font-bold tracking-tight text-white">
+          Smile <span className="text-[color:var(--primary)]">&amp;</span> Dial
+        </p>
       </div>
-      <div className="flex flex-1 items-center justify-center px-8 pb-16">
+      <div className="relative z-10 flex flex-1 items-center justify-center px-6 pb-16">
         <div className="w-full max-w-md">{children}</div>
       </div>
     </main>

@@ -7,15 +7,18 @@ import { Button } from "@/components/ui/button";
 export default function AuthErrorPage() {
   return (
     <AuthSingleColumn>
-      <div className="border-border bg-card flex flex-col items-center gap-6 rounded-2xl border p-10 text-center">
-        <div className="flex size-14 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+      <div
+        className="animate-in fade-in zoom-in-95 flex flex-col items-center gap-6 rounded-2xl border border-white/10 bg-white/[0.04] p-10 text-center backdrop-blur-2xl duration-500"
+        style={{ boxShadow: "0 24px 70px -30px rgba(0,0,0,0.65)" }}
+      >
+        <div className="flex size-14 items-center justify-center rounded-full bg-amber-500/15 text-amber-300">
           <MailX className="size-7" />
         </div>
         <div className="flex flex-col gap-2">
-          <h1 className="text-foreground text-2xl font-semibold tracking-tight">
+          <h1 className="text-2xl font-semibold tracking-tight text-white">
             That link has expired.
           </h1>
-          <p className="text-muted-foreground text-sm leading-relaxed">
+          <p className="text-sm leading-relaxed text-white/60">
             Invitation and password-reset links are one-shot and time out after
             a while. Ask your admin for a fresh invite — no harm done.
           </p>

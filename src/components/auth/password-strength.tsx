@@ -1,9 +1,9 @@
 "use client";
 
-/** A 4-bar live strength indicator. Drop it under a password input.
- *  Heuristic-only — counts length tiers and character-class variety
- *  (lowercase, uppercase, digit, symbol). Doesn't enforce, just
- *  reassures: most users want to see "strong" not "rejected."
+/** A live strength indicator shaped like a tiny waveform — ties the password
+ *  step into the product's voice-AI motif. As the password gets stronger, more
+ *  of the wave "lights up" in the strength color. Heuristic-only (length tiers
+ *  + character-class variety); it reassures, it doesn't reject.
  *
  *  Scoring (max 4):
  *  - length >=  8  → +1
@@ -15,29 +15,36 @@ export function PasswordStrength({ value }: { value: string }) {
   const label = LABELS[score];
   const colorClass = COLORS[score];
 
+  const BARS = 16;
+  const lit = value.length === 0 ? 0 : Math.round((score / 4) * BARS);
+  // A gentle wave shape so the resting bars already look like audio.
+  const heights = Array.from({ length: BARS }, (_, i) =>
+    Math.round((0.4 + 0.6 * Math.abs(Math.sin(i * 0.6))) * 100),
+  );
+
   return (
     <div
       data-testid="password-strength"
       className="flex flex-col gap-1.5"
       aria-live="polite"
     >
-      <div className="flex items-center gap-1">
-        {[0, 1, 2, 3].map((i) => (
+      <div className="flex h-5 items-center gap-[3px]">
+        {heights.map((h, i) => (
           <span
             key={i}
-            className={`h-1 flex-1 rounded-full transition-colors ${
-              i < score ? colorClass : "bg-muted"
+            className={`flex-1 rounded-full transition-colors duration-300 ${
+              i < lit ? colorClass : "bg-white/12"
             }`}
+            style={{ height: `${h}%`, minWidth: "2px" }}
           />
         ))}
       </div>
-      <p className="text-muted-foreground text-xs">
+      <p className="text-xs text-white/55">
         {value.length === 0 ? (
           <>Pick a password — anything from 8 characters works.</>
         ) : (
           <>
-            Strength:{" "}
-            <span className="text-foreground font-medium">{label}</span>
+            Strength: <span className="font-medium text-white">{label}</span>
           </>
         )}
       </p>

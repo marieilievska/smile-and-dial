@@ -236,6 +236,42 @@
   }
 }
 
+/* Auth command-center canvas — slow drifting aurora blooms behind the
+   immersive dark sign-in. Two layers move on different paths so the light
+   never repeats; settled flat by the reduced-motion block below. */
+@keyframes auth-aurora {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -5%, 0) scale(1.15);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+@keyframes auth-aurora-alt {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1.08);
+  }
+  50% {
+    transform: translate3d(4%, 4%, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.08);
+  }
+}
+/* Soft opacity breathing for the glow under the hero waveform. */
+@keyframes auth-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
 /* Round 27 — respect the OS-level reduced motion preference. Kills
    the animate-in cascade and any custom transitions for users who've
    asked the system not to animate. Doesn't disable functionality —

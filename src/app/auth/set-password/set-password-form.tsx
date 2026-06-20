@@ -71,7 +71,7 @@ export function SetPasswordForm() {
           </div>
         ) : null}
 
-        <Button type="submit" disabled={pending} className="w-full">
+        <Button type="submit" disabled={pending} className="h-11 w-full">
           {pending ? "Saving…" : "Set password and continue"}
         </Button>
       </form>
