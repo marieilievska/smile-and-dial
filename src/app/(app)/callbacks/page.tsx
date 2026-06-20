@@ -282,7 +282,7 @@ export default async function CallbacksPage({
       {callbacks.length > 0 ? (
         <CallbacksSelectionProvider allIds={callbacks.map((cb) => cb.id)}>
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-5 delay-200 duration-500">
-            <div className="border-border overflow-x-auto rounded-lg border">
+            <div className="border-border overflow-x-auto rounded-2xl border shadow-sm">
               <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
@@ -551,7 +551,7 @@ export default async function CallbacksPage({
  *  offer a one-click clear. */
 function FilteredEmptyState({ clearHref }: { clearHref: string }) {
   return (
-    <div className="border-border flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+    <div className="border-border flex flex-col items-center gap-3 rounded-2xl border border-dashed py-16 text-center">
       <CalendarClock className="text-muted-foreground size-8" />
       <p className="text-foreground text-sm font-medium">
         No callbacks match your filters
@@ -576,7 +576,7 @@ function NoCallbacksEmptyState({ statusFilter }: { statusFilter: string }) {
   // showing a neutral "nothing here" state.
   if (statusFilter === "pending") {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-emerald-500/30 bg-emerald-500/[0.04] py-16 text-center">
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-emerald-500/30 bg-emerald-500/[0.04] py-16 text-center">
         <div className="flex size-12 items-center justify-center rounded-full bg-emerald-500/10">
           <CheckCircle2 className="size-6 text-emerald-600 dark:text-emerald-400" />
         </div>
@@ -599,7 +599,7 @@ function NoCallbacksEmptyState({ statusFilter }: { statusFilter: string }) {
       ? "No callbacks yet"
       : `No ${statusFilter} callbacks`;
   return (
-    <div className="border-border flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+    <div className="border-border flex flex-col items-center gap-3 rounded-2xl border border-dashed py-16 text-center">
       <CalendarClock className="text-muted-foreground size-8" />
       <p className="text-foreground text-sm font-medium">{headline}</p>
       <p className="text-muted-foreground max-w-md text-sm">
