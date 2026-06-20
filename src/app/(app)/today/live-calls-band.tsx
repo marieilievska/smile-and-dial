@@ -45,7 +45,7 @@ export function LiveCallsBand({
       <section
         data-testid="live-calls-band"
         data-state="idle"
-        className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex items-center justify-between gap-3 rounded-xl border px-4 py-3 delay-75 duration-500"
+        className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-sm delay-75 duration-500"
       >
         <div className="flex items-center gap-2.5">
           <span

@@ -34,7 +34,7 @@ export function HeroPace({
   return (
     <section
       data-testid="hero-pace"
-      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both relative rounded-xl border p-6 delay-100 duration-500"
+      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both relative rounded-2xl border p-6 shadow-sm delay-100 duration-500"
     >
       {/* Round 29 — small "See analytics" affordance in the corner so
        *  the Today operational view and the Analytics retrospective

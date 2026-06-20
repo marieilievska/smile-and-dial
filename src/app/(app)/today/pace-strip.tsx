@@ -9,7 +9,7 @@ export function PaceStrip({ items }: { items: PaceItem[] }) {
   return (
     <section
       data-testid="pace-strip"
-      className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-5 rounded-xl border px-6 py-5 sm:grid-cols-4"
+      className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-5 rounded-2xl border px-6 py-5 shadow-sm sm:grid-cols-4"
     >
       {items.map((item, i) => (
         <PaceEntry key={item.label} item={item} divider={i > 0} />

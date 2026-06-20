@@ -24,10 +24,10 @@ import { createClient } from "@/lib/supabase/server";
 import { etHour } from "@/lib/time/eastern";
 
 import { ActionCard } from "./action-card";
-import { AutopilotStrip } from "./autopilot-strip";
 import { HeroPace } from "./hero-pace";
 import { LiveCallsBand } from "./live-calls-band";
 import { PaceStrip, type PaceItem } from "./pace-strip";
+import { TodayHero } from "./today-hero";
 
 function fmtPct(value: number): string {
   if (!Number.isFinite(value)) return "—";
@@ -207,54 +207,17 @@ export default async function TodayPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-8">
-      {/* Greeting + AI-aware subtitle + date. The greeting carries a
-       *  whisper of brand tint (a soft gradient on the name) so the page
-       *  opens warm without shouting, and an "AI" chip sits beside the
-       *  subtitle to reinforce that this is an autonomous product. */}
-      <header
-        data-testid="today-greeting"
-        className="animate-in fade-in slide-in-from-bottom-1 flex flex-col gap-1 duration-500"
-      >
-        <h1 className="text-2xl font-bold tracking-tight">
-          <span
-            className="bg-clip-text text-transparent"
-            style={{
-              backgroundImage:
-                "linear-gradient(100deg, var(--foreground), color-mix(in oklab, var(--primary) 65%, var(--foreground)))",
-            }}
-          >
-            {greeting}
-          </span>
-        </h1>
-        <div className="flex items-center gap-2">
-          <span
-            className="text-primary inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
-            style={{
-              backgroundColor:
-                "color-mix(in oklab, var(--primary) 12%, transparent)",
-            }}
-          >
-            <Sparkles className="size-3" />
-            AI
-          </span>
-          <p
-            data-testid="today-subtitle"
-            className="text-muted-foreground text-sm"
-          >
-            {subtitle}
-          </p>
-        </div>
-        <p className="text-muted-foreground/70 mt-1 text-[10px] tracking-wider uppercase">
-          {dateStr}
-        </p>
-      </header>
-
-      {/* Autopilot status strip — the persistent "is the AI working?" bar */}
-      <AutopilotStrip
+      {/* Command bar — greeting, AI-aware subtitle, date, the live waveform,
+       *  and autopilot status, all in one elevated ambient header. */}
+      <TodayHero
+        greeting={greeting}
+        subtitle={subtitle}
+        dateStr={dateStr}
         running={autopilotRunning}
         activeCampaigns={autopilot.activeCampaigns}
         pausedCampaigns={autopilot.pausedCampaigns}
         pacePerHour={pacePerHour}
+        liveCount={activeCalls.total}
         mockMode={mockMode}
       />
 
