@@ -106,7 +106,7 @@ export function SmartPagination({
           same rounded-md shape so they read as related controls. */}
       <nav
         aria-label="Pagination"
-        className="border-border bg-background flex items-center gap-0.5 rounded-lg border p-1"
+        className="border-border bg-background flex items-center gap-0.5 rounded-xl border p-1"
       >
         <PageButton
           href={prevDisabled ? null : hrefForPage(page - 1)}

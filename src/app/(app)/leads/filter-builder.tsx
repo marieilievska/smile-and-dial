@@ -86,7 +86,7 @@ export function FilterBuilder({
   const active = recipe.children.length > 0;
 
   return (
-    <div className="border-border bg-card flex flex-col gap-3 rounded-xl border p-4">
+    <div className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-4 shadow-sm">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold">Advanced filter</span>
         <div className="flex items-center gap-2">

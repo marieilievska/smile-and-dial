@@ -342,7 +342,7 @@ export default async function LeadsPage({
         />
         <SelectAllBanner total={total} />
         {leads.length > 0 ? (
-          <div className="border-border animate-in fade-in slide-in-from-bottom-2 fill-mode-both overflow-x-auto rounded-lg border delay-200 duration-500">
+          <div className="border-border animate-in fade-in slide-in-from-bottom-2 fill-mode-both overflow-x-auto rounded-2xl border shadow-sm delay-200 duration-500">
             <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
