@@ -226,7 +226,7 @@ export default async function AnalyticsPage({
       {mockMode ? (
         <div
           data-testid="mock-data-banner"
-          className="border-border bg-muted/40 flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm"
+          className="border-border bg-muted/40 flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm"
         >
           <Info className="text-muted-foreground mt-0.5 size-4 shrink-0" />
           <div className="flex flex-col gap-0.5">
@@ -324,7 +324,7 @@ export default async function AnalyticsPage({
           {/* Layer 2 — Clarification: top campaigns + outcome mix side by side
            *  (the funnel moved up to the hero). */}
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-1 gap-4 delay-200 duration-500 lg:grid-cols-2">
-            <section className="border-border bg-card rounded-xl border p-5">
+            <section className="border-border bg-card rounded-2xl border p-5 shadow-sm">
               <h2 className="text-foreground text-sm font-semibold">
                 Top campaigns
               </h2>
@@ -334,7 +334,7 @@ export default async function AnalyticsPage({
               <CampaignLeaderboard rows={ranking} />
             </section>
 
-            <section className="border-border bg-card rounded-xl border p-5">
+            <section className="border-border bg-card rounded-2xl border p-5 shadow-sm">
               <h2 className="text-foreground text-sm font-semibold">
                 Outcome distribution
               </h2>
@@ -399,7 +399,7 @@ export default async function AnalyticsPage({
 
 function InventoryTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-border bg-card flex flex-col gap-0.5 rounded-lg border p-3">
+    <div className="border-border bg-card flex flex-col gap-0.5 rounded-xl border p-3 shadow-sm">
       <p className="text-muted-foreground text-[10px] font-medium tracking-wide uppercase">
         {label}
       </p>

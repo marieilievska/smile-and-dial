@@ -67,7 +67,7 @@ export function AnalyticsDatePills({
       <div
         role="tablist"
         aria-label="Date range"
-        className="border-border bg-background inline-flex flex-wrap items-center gap-0.5 rounded-lg border p-1"
+        className="border-border bg-background inline-flex flex-wrap items-center gap-0.5 rounded-xl border p-1"
       >
         {PRESETS.map((p) => {
           const active = current === p.value;

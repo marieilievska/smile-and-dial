@@ -67,7 +67,7 @@ export function ActivityOverTime({
   return (
     <div
       data-testid="bookings-over-time"
-      className="border-border bg-card relative rounded-xl border p-5"
+      className="border-border bg-card relative rounded-2xl border p-5 shadow-sm"
     >
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex items-center gap-3">

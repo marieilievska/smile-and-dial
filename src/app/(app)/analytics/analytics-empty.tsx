@@ -9,7 +9,7 @@ export function AnalyticsEmpty() {
   return (
     <section
       data-testid="analytics-empty"
-      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center duration-500"
+      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col items-center gap-3 rounded-2xl border border-dashed px-6 py-16 text-center duration-500"
     >
       <span className="bg-primary/10 text-primary inline-flex size-12 items-center justify-center rounded-full">
         <BarChart3 className="size-6" />

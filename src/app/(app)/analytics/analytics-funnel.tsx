@@ -12,7 +12,7 @@ export function AnalyticsFunnel({ steps }: { steps: FunnelStep[] }) {
   return (
     <section
       data-testid="analytics-funnel"
-      className="border-border bg-card rounded-2xl border p-6"
+      className="border-border bg-card rounded-2xl border p-6 shadow-sm"
     >
       <div className="mb-5 flex items-baseline justify-between gap-2">
         <h2 className="text-foreground text-base font-medium">
