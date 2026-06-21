@@ -308,7 +308,7 @@ function SetupBanner({
       <section
         data-testid="settings-setup-banner"
         data-complete="true"
-        className="border-success/30 bg-success/5 flex flex-col gap-3 rounded-xl border px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+        className="border-success/30 bg-success/5 flex flex-col gap-3 rounded-2xl border px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
       >
         <div className="flex items-center gap-3">
           <span
@@ -345,7 +345,7 @@ function SetupBanner({
     <section
       data-testid="settings-setup-banner"
       data-complete="false"
-      className="border-border bg-card flex flex-col gap-3 rounded-xl border px-5 py-4"
+      className="border-border bg-card flex flex-col gap-3 rounded-2xl border px-5 py-4 shadow-sm"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -433,7 +433,7 @@ function SectionCardLink({
       data-configured={card.configured ? "true" : "false"}
       data-next={isNext ? "true" : "false"}
       className={cn(
-        "group relative flex flex-col gap-2 rounded-xl border p-4 transition-colors focus-visible:ring-2 focus-visible:outline-none",
+        "group relative flex flex-col gap-2 rounded-2xl border p-4 shadow-sm transition-colors focus-visible:ring-2 focus-visible:outline-none",
         "focus-visible:ring-ring/60",
         isNext
           ? "border-primary/60 bg-primary/[0.03] ring-primary/15 hover:bg-primary/[0.06] ring-1"

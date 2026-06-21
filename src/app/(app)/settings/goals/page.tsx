@@ -66,7 +66,7 @@ export default async function SettingsGoalsPage() {
       {/* G1 — small at-a-glance strip matching the rest of the app. */}
       <section
         data-testid="goals-stat-strip"
-        className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-3"
+        className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-2xl border px-5 py-4 shadow-sm sm:grid-cols-3"
       >
         <StatTile
           icon={<Target className="size-3.5" />}
@@ -89,7 +89,7 @@ export default async function SettingsGoalsPage() {
       </section>
 
       {goals && goals.length > 0 ? (
-        <div className="border-border overflow-hidden rounded-lg border">
+        <div className="border-border overflow-hidden rounded-2xl border shadow-sm">
           <Table>
             <TableHeader>
               <TableRow>
@@ -152,7 +152,7 @@ export default async function SettingsGoalsPage() {
           </Table>
         </div>
       ) : (
-        <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+        <div className="border-border flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center">
           <Target className="text-muted-foreground size-8" />
           <p className="text-foreground text-sm font-medium">No goals yet</p>
           <p className="text-muted-foreground text-sm">
