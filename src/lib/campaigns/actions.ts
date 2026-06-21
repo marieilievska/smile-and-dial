@@ -93,6 +93,9 @@ export type CampaignInput = {
    *  targets every lead (same owner) whose company name contains this text,
    *  regardless of list. Empty = list-only targeting. */
   audienceSearch?: string;
+  /** Optional attached smart list id (smart_lists.id). When set, the campaign
+   *  also dials every member of that smart list. Empty = no smart list. */
+  smartListId?: string;
 };
 
 function parseNumber(value: string): number | null {
@@ -131,7 +134,23 @@ function buildUpdate(input: CampaignInput) {
     calendly_event_id: input.calendlyEventId?.trim() || null,
     email_template_id: input.emailTemplateId?.trim() || null,
     audience_search: sanitizeAudienceSearch(input.audienceSearch ?? "") || null,
+    smart_list_id: input.smartListId?.trim() || null,
   };
+}
+
+/** Rebuild a smart list's member cache immediately so a freshly attached list
+ *  is callable within seconds, not at the next cron tick. Best-effort: the cron
+ *  is the backstop, so a hiccup never blocks the save. */
+async function refreshAttachedSmartList(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  smartListId: string | null | undefined,
+): Promise<void> {
+  if (!smartListId) return;
+  try {
+    await supabase.rpc("refresh_smart_list", { in_id: smartListId });
+  } catch {
+    // best-effort — the 3-min cron will reconcile
+  }
 }
 
 /**
@@ -193,6 +212,7 @@ export async function createCampaign(
   // Connecting an agent to a campaign puts it into service — make sure its
   // ElevenLabs webhooks are current so completed calls report back to us.
   await reapplyAgentIntegration(supabase, payload.agent_id);
+  await refreshAttachedSmartList(supabase, payload.smart_list_id);
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: created.id };
 }
@@ -231,6 +251,7 @@ export async function updateCampaign(
   // The agent may have changed (or been wired before its webhook was set) —
   // refresh its ElevenLabs integration so calls report back to us.
   await reapplyAgentIntegration(supabase, payload.agent_id);
+  await refreshAttachedSmartList(supabase, payload.smart_list_id);
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: id };
 }

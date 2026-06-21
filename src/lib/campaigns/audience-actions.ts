@@ -1,6 +1,8 @@
 "use server";
 
 import { sanitizeAudienceSearch } from "@/lib/campaigns/audience-filter";
+import type { RecipeNode } from "@/lib/smart-lists/recipe";
+import { runFilterRpc } from "@/lib/smart-lists/resolve";
 import { createClient } from "@/lib/supabase/server";
 
 export type AudienceCountResult = {
@@ -49,4 +51,34 @@ export async function countAudienceMatches(input: {
     .ilike("company", `%${term}%`);
   if (error) return { count: null, error: "Could not count matches." };
   return { count: count ?? 0, error: null };
+}
+
+/**
+ * Count how many leads a smart list's saved filter currently matches. Powers
+ * the live "matches N leads" preview when a smart list is picked in campaign
+ * settings. Uses the same R1 evaluator (leads_matching_filter) as the Leads
+ * page so the preview equals what the dialer will see once members refresh.
+ */
+export async function countSmartListMatches(input: {
+  smartListId: string;
+}): Promise<AudienceCountResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { count: null, error: "You are not signed in." };
+
+  const { data: sl } = await supabase
+    .from("smart_lists")
+    .select("filter")
+    .eq("id", input.smartListId)
+    .maybeSingle();
+  if (!sl) return { count: null, error: "Smart list not found." };
+
+  const { ids, error } = await runFilterRpc(
+    supabase,
+    sl.filter as unknown as RecipeNode,
+  );
+  if (error) return { count: null, error };
+  return { count: ids.length, error: null };
 }

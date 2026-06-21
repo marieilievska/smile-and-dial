@@ -22,6 +22,7 @@ export function CampaignNameTrigger({
   kbsByAgent,
   eligibleLists,
   currentListIds,
+  smartLists,
   calendlyEvents,
   emailTemplates,
 }: {
@@ -33,6 +34,7 @@ export function CampaignNameTrigger({
   kbsByAgent: Record<string, Option[]>;
   eligibleLists: Option[];
   currentListIds: string[];
+  smartLists: Option[];
   calendlyEvents: Option[];
   emailTemplates: Option[];
 }) {
@@ -46,6 +48,7 @@ export function CampaignNameTrigger({
       kbsByAgent={kbsByAgent}
       eligibleLists={eligibleLists}
       currentListIds={currentListIds}
+      smartLists={smartLists}
       calendlyEvents={calendlyEvents}
       emailTemplates={emailTemplates}
       trigger={
