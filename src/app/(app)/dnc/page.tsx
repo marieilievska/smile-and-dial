@@ -2,7 +2,6 @@ import { Ban, SearchX, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -36,25 +35,16 @@ const REASON_LABELS: Record<string, string> = {
 
 const REASON_OPTIONS = Object.keys(REASON_LABELS);
 
-/** Tone palette for the reason badge column. Caller-requested is the
- *  most "active" signal (someone explicitly asked) — coral. Invalid
- *  number is a system fact, no judgement needed — muted. Imported is
- *  bulk provenance — info/secondary blue tone. Manual and language
- *  barrier are everyday secondary. */
-function reasonBadgeVariant(
-  reason: string,
-): "warning" | "secondary" | "outline" | "ghost" {
-  switch (reason) {
-    case "dnc_requested":
-      return "warning";
-    case "imported":
-      return "outline";
-    case "invalid_number":
-      return "ghost";
-    default:
-      return "secondary";
-  }
-}
+/** Tone per reason. Caller-requested is the most "active" signal (someone
+ *  explicitly asked) — amber. Imported is bulk provenance — blue. Everything
+ *  else is a neutral system fact — muted. */
+const REASON_BADGE: Record<string, string> = {
+  dnc_requested: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  imported: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
+  invalid_number: "bg-muted text-muted-foreground",
+  language_barrier: "bg-muted text-muted-foreground",
+  manual: "bg-muted text-muted-foreground",
+};
 
 const ALLOWED_PAGE_SIZES = new Set([25, 50, 100]);
 const DEFAULT_PAGE_SIZE = 25;
@@ -252,7 +242,7 @@ export default async function DncPage({
 
         {entries.length > 0 ? (
           <>
-            <div className="border-border overflow-hidden rounded-lg border">
+            <div className="border-border overflow-hidden rounded-2xl border shadow-sm">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -292,9 +282,15 @@ export default async function DncPage({
                         {entry.company_snapshot || "—"}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={reasonBadgeVariant(entry.reason)}>
+                        <span
+                          className={
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium " +
+                            (REASON_BADGE[entry.reason] ??
+                              "bg-muted text-muted-foreground")
+                          }
+                        >
                           {REASON_LABELS[entry.reason] ?? entry.reason}
-                        </Badge>
+                        </span>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {entry.added_by_user_id
@@ -336,7 +332,7 @@ export default async function DncPage({
         ) : filtersActive ? (
           <div
             data-testid="dnc-empty-filtered"
-            className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center"
+            className="border-border flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center"
           >
             <SearchX className="text-muted-foreground size-8" />
             <p className="text-foreground text-sm font-medium">
@@ -352,7 +348,7 @@ export default async function DncPage({
         ) : (
           <div
             data-testid="dnc-empty-initial"
-            className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center"
+            className="border-border flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center"
           >
             <Ban className="text-muted-foreground size-8" />
             <p className="text-foreground text-sm font-medium">
