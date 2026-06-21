@@ -56,7 +56,7 @@ export function TopBar({
   mobileNav?: React.ReactNode;
 }) {
   return (
-    <header className="border-border bg-card flex h-16 shrink-0 items-center gap-3 border-b px-4 sm:px-6">
+    <header className="border-border/60 bg-card flex h-16 shrink-0 items-center gap-3 border-b px-4 shadow-sm sm:px-6">
       {mobileNav}
       <div className="flex-1">
         <GlobalSearch />
