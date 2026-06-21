@@ -33,6 +33,26 @@ const STATUS_BADGE: Record<string, string> = {
   Lost: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
 };
 
+/** Label text color per status — used by the pipeline stat strip. */
+const STATUS_TEXT: Record<string, string> = {
+  New: "text-sky-600 dark:text-sky-400",
+  Contacted: "text-violet-600 dark:text-violet-400",
+  Working: "text-amber-700 dark:text-amber-400",
+  Qualified: "text-emerald-600 dark:text-emerald-400",
+  Won: "text-emerald-700 dark:text-emerald-300",
+  Lost: "text-rose-600 dark:text-rose-400",
+};
+
+/** Left-rail color per status — a subtle per-row cue in the table. */
+const STATUS_RAIL: Record<string, string> = {
+  New: "border-l-sky-500",
+  Contacted: "border-l-violet-500",
+  Working: "border-l-amber-500",
+  Qualified: "border-l-emerald-500",
+  Won: "border-l-emerald-600",
+  Lost: "border-l-rose-500",
+};
+
 /** Hot Leads sell list: auto-seeded yes-interest calls, worked by the team.
  *  Status / owner / next step / date contacted save inline. `readOnly` renders
  *  those cells as plain text (public share view). */
@@ -67,6 +87,16 @@ export function HotLeadsTable({
     for (const r of rows) if (r.status) set.add(r.status);
     return ["All", ...set];
   }, [rows]);
+
+  // Live pipeline counts per canonical status (reflects unsaved status edits).
+  const statusCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of rows) {
+      const s = draft[`${r.id}:status`] ?? r.status ?? "New";
+      m[s] = (m[s] ?? 0) + 1;
+    }
+    return m;
+  }, [rows, draft]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -136,6 +166,18 @@ export function HotLeadsTable({
         ) : null}
       </p>
 
+      {/* Pipeline stat strip */}
+      <section className="border-border bg-card grid grid-cols-3 gap-x-4 gap-y-3 rounded-2xl border px-5 py-4 shadow-sm sm:grid-cols-6">
+        {STATUSES.map((s) => (
+          <HotStat
+            key={s}
+            label={s}
+            value={statusCounts[s] ?? 0}
+            tone={STATUS_TEXT[s]}
+          />
+        ))}
+      </section>
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="bg-muted/40 flex flex-wrap gap-0.5 rounded-lg p-0.5">
@@ -195,7 +237,7 @@ export function HotLeadsTable({
       </div>
 
       {/* Table */}
-      <div className="border-border bg-card overflow-x-auto rounded-xl border">
+      <div className="border-border bg-card overflow-x-auto rounded-2xl border shadow-sm">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-muted-foreground border-border bg-muted/30 border-b text-left text-xs">
@@ -235,7 +277,11 @@ export function HotLeadsTable({
                     key={r.id}
                     className="border-border/60 hover:bg-muted/20 border-b align-top"
                   >
-                    <td className="px-3 py-2 whitespace-nowrap tabular-nums">
+                    <td
+                      className={`border-l-2 px-3 py-2 whitespace-nowrap tabular-nums ${
+                        STATUS_RAIL[status] ?? "border-l-transparent"
+                      }`}
+                    >
                       {r.sessionDate || "—"}
                     </td>
                     <td className="px-3 py-2 font-medium">
@@ -244,8 +290,10 @@ export function HotLeadsTable({
                     <td className="px-3 py-2 whitespace-nowrap">
                       {r.contactName || "—"}
                     </td>
-                    <td className="text-muted-foreground min-w-[16rem] px-3 py-2">
-                      {r.whyHot || "—"}
+                    <td className="text-foreground min-w-[16rem] px-3 py-2 leading-relaxed">
+                      {r.whyHot || (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap tabular-nums">
                       {r.callLength || "—"}
@@ -362,6 +410,29 @@ export function HotLeadsTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function HotStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span
+        className={`text-[10px] font-medium tracking-[0.12em] uppercase ${tone}`}
+      >
+        {label}
+      </span>
+      <span className="text-foreground text-2xl font-medium tabular-nums">
+        {value.toLocaleString()}
+      </span>
     </div>
   );
 }
