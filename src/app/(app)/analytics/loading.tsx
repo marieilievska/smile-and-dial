@@ -21,7 +21,7 @@ export default function AnalyticsLoading() {
         {[0, 1, 2, 3].map((i) => (
           <div
             key={i}
-            className="border-border bg-card flex flex-col gap-2 rounded-xl border p-4"
+            className="border-border bg-card flex flex-col gap-2 rounded-2xl border p-4 shadow-sm"
           >
             <Skeleton className="h-3 w-24" />
             <Skeleton className="h-8 w-20" />
@@ -35,7 +35,7 @@ export default function AnalyticsLoading() {
         {[0, 1].map((i) => (
           <div
             key={i}
-            className="border-border bg-card flex flex-col gap-3 rounded-xl border p-5"
+            className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-5 shadow-sm"
           >
             <div className="flex items-baseline justify-between">
               <Skeleton className="h-4 w-40" />

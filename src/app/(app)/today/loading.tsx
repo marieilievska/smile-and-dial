@@ -15,7 +15,7 @@ export default function TodayLoading() {
       </div>
 
       {/* Live calls band */}
-      <div className="border-border bg-card flex items-center justify-between gap-4 rounded-xl border p-5">
+      <div className="border-border bg-card flex items-center justify-between gap-4 rounded-2xl border p-5 shadow-sm">
         <div className="flex items-center gap-3">
           <Skeleton className="size-10 rounded-full" />
           <div className="flex flex-col gap-1.5">
@@ -27,7 +27,7 @@ export default function TodayLoading() {
       </div>
 
       {/* Hero pace */}
-      <div className="border-border bg-card flex flex-col gap-4 rounded-xl border p-6 md:flex-row md:items-end md:justify-between">
+      <div className="border-border bg-card flex flex-col gap-4 rounded-2xl border p-6 shadow-sm md:flex-row md:items-end md:justify-between">
         <div className="flex flex-col gap-2">
           <Skeleton className="h-3 w-32" />
           <Skeleton className="h-10 w-20" />
@@ -37,7 +37,7 @@ export default function TodayLoading() {
       </div>
 
       {/* Pace strip — 3 tiles */}
-      <div className="border-border bg-card grid grid-cols-1 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-3">
+      <div className="border-border bg-card grid grid-cols-1 gap-x-4 gap-y-3 rounded-2xl border px-5 py-4 shadow-sm sm:grid-cols-3">
         {[0, 1, 2].map((i) => (
           <div key={i} className="flex flex-col gap-1.5 py-1">
             <Skeleton className="h-3 w-20" />
@@ -52,7 +52,7 @@ export default function TodayLoading() {
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
-            className="border-border bg-card flex items-center gap-4 rounded-xl border p-4"
+            className="border-border bg-card flex items-center gap-4 rounded-2xl border p-4 shadow-sm"
           >
             <Skeleton className="size-9 rounded-lg" />
             <div className="flex flex-1 flex-col gap-1.5">

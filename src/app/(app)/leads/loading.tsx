@@ -18,7 +18,7 @@ export default function LeadsLoading() {
       </div>
 
       {/* 3-tile stat strip */}
-      <div className="border-border bg-card grid grid-cols-1 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-3">
+      <div className="border-border bg-card grid grid-cols-1 gap-x-4 gap-y-3 rounded-2xl border px-5 py-4 shadow-sm sm:grid-cols-3">
         {[0, 1, 2].map((i) => (
           <div key={i} className="flex flex-col gap-1.5 py-1">
             <Skeleton className="h-3 w-20" />
@@ -35,7 +35,7 @@ export default function LeadsLoading() {
       </div>
 
       {/* Table — 10 placeholder rows. */}
-      <div className="border-border overflow-hidden rounded-xl border">
+      <div className="border-border overflow-hidden rounded-2xl border shadow-sm">
         <div className="bg-muted/40 flex items-center gap-4 px-4 py-2.5">
           <Skeleton className="h-3 w-32" />
           <Skeleton className="h-3 w-20" />
