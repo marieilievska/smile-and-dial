@@ -30,7 +30,7 @@ function PageHeaderSkeleton({ action = true }: { action?: boolean }) {
 
 function StatStripSkeleton({ tiles = 4 }: { tiles?: number }) {
   return (
-    <div className="border-border bg-card grid grid-cols-2 gap-4 rounded-xl border px-5 py-4 sm:grid-cols-4">
+    <div className="border-border bg-card grid grid-cols-2 gap-4 rounded-2xl border px-5 py-4 shadow-sm sm:grid-cols-4">
       {Array.from({ length: tiles }).map((_, i) => (
         <div key={i} className="flex flex-col gap-2">
           <Skeleton className="h-3 w-20" />
@@ -43,7 +43,7 @@ function StatStripSkeleton({ tiles = 4 }: { tiles?: number }) {
 
 function TableSkeleton({ rows = 8 }: { rows?: number }) {
   return (
-    <div className="border-border overflow-hidden rounded-lg border">
+    <div className="border-border overflow-hidden rounded-2xl border shadow-sm">
       <div className="border-border bg-muted/40 flex items-center gap-4 border-b px-4 py-3">
         <Skeleton className="h-3.5 w-32" />
         <Skeleton className="h-3.5 w-24" />
@@ -97,12 +97,12 @@ export function DashboardSkeleton({ tiles = 5 }: { tiles?: number }) {
     <div className="flex flex-col gap-5 p-6">
       <LoadingStatus />
       <PageHeaderSkeleton />
-      <Skeleton className="h-28 w-full rounded-xl" />
+      <Skeleton className="h-28 w-full rounded-2xl" />
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         {Array.from({ length: tiles }).map((_, i) => (
           <div
             key={i}
-            className="border-border bg-card flex flex-col gap-2 rounded-xl border px-5 py-4"
+            className="border-border bg-card flex flex-col gap-2 rounded-2xl border px-5 py-4 shadow-sm"
           >
             <Skeleton className="h-3 w-20" />
             <Skeleton className="h-7 w-16" />
@@ -110,7 +110,7 @@ export function DashboardSkeleton({ tiles = 5 }: { tiles?: number }) {
           </div>
         ))}
       </div>
-      <Skeleton className="h-64 w-full rounded-xl" />
+      <Skeleton className="h-64 w-full rounded-2xl" />
     </div>
   );
 }
