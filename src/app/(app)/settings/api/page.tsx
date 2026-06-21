@@ -55,7 +55,7 @@ export default async function ApiPage() {
         </p>
       </div>
 
-      <Card className="delay-75">
+      <Card className="rounded-2xl delay-75">
         <CardHeader>
           <CardTitle>Create a new key</CardTitle>
           <CardDescription>
@@ -68,7 +68,7 @@ export default async function ApiPage() {
         </CardContent>
       </Card>
 
-      <Card className="delay-150">
+      <Card className="rounded-2xl delay-150">
         <CardHeader>
           <CardTitle>Active keys</CardTitle>
         </CardHeader>
@@ -131,7 +131,7 @@ export default async function ApiPage() {
         </CardContent>
       </Card>
 
-      <Card className="delay-200">
+      <Card className="rounded-2xl delay-200">
         <CardHeader>
           <CardTitle>Documentation</CardTitle>
           <CardDescription>POST a lead to your workspace.</CardDescription>

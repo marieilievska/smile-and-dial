@@ -117,7 +117,7 @@ export default async function TwilioNumbersPage({
           />
 
           {visible.length > 0 ? (
-            <div className="border-border overflow-hidden rounded-lg border">
+            <div className="border-border overflow-hidden rounded-2xl border shadow-sm">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -221,7 +221,7 @@ export default async function TwilioNumbersPage({
               </Table>
             </div>
           ) : (
-            <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+            <div className="border-border flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center">
               <Phone className="text-muted-foreground size-8" />
               <p className="text-foreground text-sm font-medium">
                 No numbers in this view
@@ -233,7 +233,7 @@ export default async function TwilioNumbersPage({
           )}
         </>
       ) : (
-        <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+        <div className="border-border flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center">
           <Phone className="text-muted-foreground size-8" />
           <p className="text-foreground text-sm font-medium">No numbers yet</p>
           <p className="text-muted-foreground text-sm">
