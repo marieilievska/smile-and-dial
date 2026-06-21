@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
@@ -7,6 +6,10 @@ import { ChangelogTable } from "@/app/(app)/reporting/changelog-table";
 import { DashboardView } from "@/app/(app)/reporting/dashboard-view";
 import { HotLeadsTable } from "@/app/(app)/reporting/hot-leads-table";
 import { PromptLogTable } from "@/app/(app)/reporting/prompt-log-table";
+import {
+  REPORTING_TABS,
+  ReportingTabs,
+} from "@/app/(app)/reporting/reporting-tabs";
 import { VoiceTable } from "@/app/(app)/reporting/voice-table";
 import {
   DASHBOARD_DAYS,
@@ -27,14 +30,6 @@ export const metadata = {
   title: "Market Research — Reporting",
   robots: { index: false, follow: false },
 };
-
-const TABS = [
-  { key: "dashboard", label: "Dashboard" },
-  { key: "voice", label: "Voice of Customer" },
-  { key: "hot-leads", label: "Hot Leads" },
-  { key: "changelog", label: "App Changelog" },
-  { key: "prompt-log", label: "Agent Prompt Log" },
-] as const;
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
@@ -68,7 +63,7 @@ export default async function PublicReporting({
   const expected = settings?.agent_analytics_share_token ?? "";
   if (!expected || token !== expected) notFound();
 
-  const tab = TABS.some((t) => t.key === str(sp.tab))
+  const tab = REPORTING_TABS.some((t) => t.key === str(sp.tab))
     ? str(sp.tab)
     : "dashboard";
 
@@ -90,27 +85,10 @@ export default async function PublicReporting({
           </p>
         </div>
 
-        {/* Tab bar */}
-        <div className="border-border flex flex-wrap gap-1 border-b">
-          {TABS.map((t) => {
-            const active = t.key === tab;
-            return (
-              <Link
-                key={t.key}
-                href={`/share/reporting/${token}?tab=${t.key}`}
-                aria-current={active ? "page" : undefined}
-                className={
-                  "border-b-2 px-3 py-2 text-sm font-medium transition-colors " +
-                  (active
-                    ? "text-foreground border-[color:var(--primary)]"
-                    : "text-muted-foreground hover:text-foreground border-transparent")
-                }
-              >
-                {t.label}
-              </Link>
-            );
-          })}
-        </div>
+        <ReportingTabs
+          active={tab}
+          hrefFor={(k) => `/share/reporting/${token}?tab=${k}`}
+        />
 
         {!agent ? (
           <p className="text-muted-foreground text-sm">No data yet.</p>
