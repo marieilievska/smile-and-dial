@@ -82,7 +82,7 @@ export default async function AgentsPage() {
            *  the per-row signal; a workspace summary row up top was
            *  chrome tax. */}
 
-          <div className="border-border overflow-hidden rounded-lg border">
+          <div className="border-border overflow-hidden rounded-2xl border shadow-sm">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -165,7 +165,7 @@ export default async function AgentsPage() {
           </div>
         </>
       ) : (
-        <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+        <div className="border-border flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center">
           <Bot className="text-muted-foreground size-8" />
           <p className="text-foreground text-sm font-medium">No agents yet</p>
           <p className="text-muted-foreground text-sm">
