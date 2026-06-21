@@ -145,7 +145,7 @@ function IntegrationCard({
 }) {
   return (
     <Card
-      className="duration-500"
+      className="rounded-2xl duration-500"
       style={{ animationDelay: `${delay}ms` }}
       data-testid="integration-card"
       data-integration={title}

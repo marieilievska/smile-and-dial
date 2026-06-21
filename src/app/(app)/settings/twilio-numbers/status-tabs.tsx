@@ -30,7 +30,7 @@ export function TwilioNumbersStatusTabs({
     <nav
       aria-label="Filter numbers by status"
       data-testid="twilio-numbers-status-tabs"
-      className="border-border bg-background inline-flex flex-wrap items-center gap-0.5 self-start rounded-lg border p-1"
+      className="border-border bg-background inline-flex flex-wrap items-center gap-0.5 self-start rounded-xl border p-1"
     >
       {TABS.map((t) => {
         const active = current === t.value;
