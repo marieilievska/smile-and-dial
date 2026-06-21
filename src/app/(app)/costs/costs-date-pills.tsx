@@ -60,7 +60,7 @@ export function CostsDatePills({
       <div
         role="tablist"
         aria-label="Date range"
-        className="border-border bg-background inline-flex flex-wrap items-center gap-0.5 rounded-lg border p-1"
+        className="border-border bg-background inline-flex flex-wrap items-center gap-0.5 rounded-xl border p-1"
       >
         {PRESETS.map((p) => {
           const active = current === p.value;
@@ -85,7 +85,7 @@ export function CostsDatePills({
       {current === "custom" ? (
         <div
           data-testid="costs-custom-date-inputs"
-          className="border-border bg-background animate-in fade-in slide-in-from-left-1 fill-mode-both flex flex-wrap items-end gap-2 rounded-lg border p-2 duration-300"
+          className="border-border bg-background animate-in fade-in slide-in-from-left-1 fill-mode-both flex flex-wrap items-end gap-2 rounded-xl border p-2 duration-300"
         >
           <div className="flex flex-col gap-1">
             <Label

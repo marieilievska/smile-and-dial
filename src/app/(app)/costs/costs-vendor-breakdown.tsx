@@ -57,7 +57,7 @@ export function CostsVendorBreakdown({
 
   return (
     <section
-      className="border-border bg-card flex flex-col gap-4 rounded-xl border p-5"
+      className="border-border bg-card flex flex-col gap-4 rounded-2xl border p-5 shadow-sm"
       data-testid="per-vendor-chart"
     >
       <div className="flex items-baseline justify-between gap-2">

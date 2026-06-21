@@ -324,7 +324,7 @@ export default async function CostsPage({
       {mockMode ? (
         <div
           data-testid="mock-data-banner"
-          className="border-border bg-muted/40 flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm"
+          className="border-border bg-muted/40 flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm"
         >
           <Info className="text-muted-foreground mt-0.5 size-4 shrink-0" />
           <div className="flex flex-col gap-0.5">
@@ -360,7 +360,7 @@ export default async function CostsPage({
       {capAlert ? (
         <div
           data-testid="costs-cap-alert"
-          className={`flex items-center gap-2.5 rounded-lg border px-4 py-2.5 text-sm ${
+          className={`flex items-center gap-2.5 rounded-xl border px-4 py-2.5 text-sm ${
             capAlert.pct >= 90
               ? "border-destructive/30 bg-destructive/5 text-destructive"
               : "text-primary border-primary/30 bg-primary/5"
@@ -431,7 +431,7 @@ export default async function CostsPage({
 
 function EmptyState({ headline, hint }: { headline: string; hint: string }) {
   return (
-    <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+    <div className="border-border flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center">
       <p className="text-foreground text-sm font-medium">{headline}</p>
       <p className="text-muted-foreground max-w-xs text-sm">{hint}</p>
     </div>
@@ -463,7 +463,7 @@ function PerCampaignView({
   const totalGoalMet = data.reduce((a, b) => a + b.goalMet, 0);
   return (
     <div
-      className="border-border overflow-hidden rounded-lg border"
+      className="border-border overflow-hidden rounded-2xl border shadow-sm"
       data-testid="per-campaign-table"
     >
       <Table>
@@ -582,7 +582,7 @@ function PerGoalView({
   const totalSpend = data.reduce((a, b) => a + b.spend, 0);
   return (
     <div
-      className="border-border overflow-hidden rounded-lg border"
+      className="border-border overflow-hidden rounded-2xl border shadow-sm"
       data-testid="per-goal-table"
     >
       <Table>
@@ -677,7 +677,7 @@ async function PerUserView({
   const totalSpend = data.reduce((a, b) => a + b.spend, 0);
   return (
     <div
-      className="border-border overflow-hidden rounded-lg border"
+      className="border-border overflow-hidden rounded-2xl border shadow-sm"
       data-testid="per-user-table"
     >
       <Table>
@@ -770,7 +770,7 @@ async function PerListView({
   const totalGoalMet = data.reduce((a, b) => a + b.goalMet, 0);
   return (
     <div
-      className="border-border overflow-hidden rounded-lg border"
+      className="border-border overflow-hidden rounded-2xl border shadow-sm"
       data-testid="per-list-table"
     >
       <Table>
