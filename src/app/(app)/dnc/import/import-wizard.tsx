@@ -301,7 +301,7 @@ export function DncImportWizard() {
             {tally ? (
               <div
                 data-testid="dnc-import-preflight"
-                className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border"
+                className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border"
               >
                 <PreflightTile
                   label="Ready to add"
@@ -324,7 +324,7 @@ export function DncImportWizard() {
             {/* Preview of the chosen phone column so the operator can
              *  spot a wrong mapping before the import runs. */}
             {phoneHeader && preview.length > 0 ? (
-              <div className="border-border bg-muted/30 flex flex-col gap-2 rounded-lg border p-3">
+              <div className="border-border bg-muted/30 flex flex-col gap-2 rounded-xl border p-3">
                 <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
                   Preview · {phoneHeader}
                 </p>
@@ -426,7 +426,7 @@ export function DncImportWizard() {
             </ul>
 
             {invalidExport ? (
-              <div className="border-border bg-muted/30 flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+              <div className="border-border bg-muted/30 flex items-center justify-between gap-3 rounded-xl border px-3 py-2">
                 <p className="text-muted-foreground text-xs">
                   Need to fix the invalid rows? Download the rejection list with
                   each row&apos;s original phone string.
