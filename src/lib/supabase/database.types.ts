@@ -735,6 +735,7 @@ export type Database = {
           owner_id: string;
           paused_at: string | null;
           paused_reason: string | null;
+          smart_list_id: string | null;
           smart_scheduling: boolean;
           status: string;
           transfer_destination_phone: string | null;
@@ -762,6 +763,7 @@ export type Database = {
           owner_id: string;
           paused_at?: string | null;
           paused_reason?: string | null;
+          smart_list_id?: string | null;
           smart_scheduling?: boolean;
           status?: string;
           transfer_destination_phone?: string | null;
@@ -789,6 +791,7 @@ export type Database = {
           owner_id?: string;
           paused_at?: string | null;
           paused_reason?: string | null;
+          smart_list_id?: string | null;
           smart_scheduling?: boolean;
           status?: string;
           transfer_destination_phone?: string | null;
@@ -807,6 +810,13 @@ export type Database = {
             columns: ["goal_id"];
             isOneToOne: false;
             referencedRelation: "goals";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "campaigns_smart_list_id_fkey";
+            columns: ["smart_list_id"];
+            isOneToOne: false;
+            referencedRelation: "smart_lists";
             referencedColumns: ["id"];
           },
           {
@@ -1626,6 +1636,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      smart_list_members: {
+        Row: {
+          lead_id: string;
+          smart_list_id: string;
+        };
+        Insert: {
+          lead_id: string;
+          smart_list_id: string;
+        };
+        Update: {
+          lead_id?: string;
+          smart_list_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "smart_list_members_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "smart_list_members_smart_list_id_fkey";
+            columns: ["smart_list_id"];
+            isOneToOne: false;
+            referencedRelation: "smart_lists";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       smart_lists: {
         Row: {
           created_at: string;
@@ -1928,6 +1968,7 @@ export type Database = {
         Args: { in_campaign_id: string; in_lead_id: string };
         Returns: string;
       };
+      refresh_smart_list: { Args: { in_id: string }; Returns: number };
     };
     Enums: {
       [_ in never]: never;
