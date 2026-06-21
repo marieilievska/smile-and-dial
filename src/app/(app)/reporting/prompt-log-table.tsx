@@ -133,7 +133,7 @@ export function PromptLogTable({
       </div>
 
       {rows.length === 0 ? (
-        <div className="border-border bg-card text-muted-foreground rounded-xl border px-3 py-8 text-center text-sm">
+        <div className="border-border bg-card text-muted-foreground rounded-2xl border px-3 py-12 text-center text-sm shadow-sm">
           {readOnly
             ? "No entries yet."
             : "No entries yet. Click “Add entry” to log a prompt version."}
@@ -148,7 +148,7 @@ export function PromptLogTable({
             return (
               <div
                 key={r.id}
-                className="border-border bg-card flex flex-col gap-3 rounded-xl border p-4"
+                className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-4 shadow-sm"
               >
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="flex flex-col gap-1 text-xs">
@@ -273,7 +273,7 @@ export function PromptLogTable({
                     Full prompt
                   </summary>
                   {readOnly ? (
-                    <pre className="border-border mt-2 max-h-96 overflow-auto rounded-md border p-2 font-mono text-xs whitespace-pre-wrap">
+                    <pre className="border-border bg-muted/30 mt-2 max-h-96 overflow-auto rounded-lg border p-3 font-mono text-xs whitespace-pre-wrap">
                       {fullPrompt || "—"}
                     </pre>
                   ) : (
@@ -295,7 +295,7 @@ export function PromptLogTable({
                     <summary className="text-muted-foreground hover:text-foreground cursor-pointer text-xs font-medium">
                       Diff vs previous version
                     </summary>
-                    <pre className="border-border mt-2 max-h-80 overflow-auto rounded-md border p-2 font-mono text-xs leading-relaxed">
+                    <pre className="border-border bg-muted/30 mt-2 max-h-80 overflow-auto rounded-lg border p-3 font-mono text-xs leading-relaxed">
                       {lineDiff(r.prevPrompt, fullPrompt).map((l, idx) => (
                         <div
                           key={idx}
