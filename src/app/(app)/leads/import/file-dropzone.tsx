@@ -105,7 +105,7 @@ export function FileDropzone({
           setDragOver(false);
           handleFiles(e.dataTransfer.files);
         }}
-        className={`focus-within:ring-ring/50 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-8 text-center transition-colors focus-within:ring-2 focus-within:outline-none ${
+        className={`focus-within:ring-ring/50 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed py-8 text-center transition-colors focus-within:ring-2 focus-within:outline-none ${
           dragOver
             ? "bg-muted/40"
             : "border-border bg-muted/10 hover:bg-muted/30"

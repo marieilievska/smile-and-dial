@@ -25,16 +25,21 @@ export default async function ArchivedPage() {
   }
 
   return (
-    <div className="flex min-h-[70vh] flex-col items-center justify-center px-6 text-center">
-      <div className="bg-muted text-muted-foreground flex size-16 items-center justify-center rounded-full">
-        <Lock className="size-7" aria-hidden />
+    <div className="flex min-h-[70vh] items-center justify-center p-6">
+      <div className="border-border bg-card flex max-w-md flex-col items-center gap-4 rounded-2xl border p-8 text-center shadow-sm">
+        <span className="bg-primary/10 text-primary flex size-12 items-center justify-center rounded-2xl">
+          <Lock className="size-6" aria-hidden />
+        </span>
+        <div className="flex flex-col gap-1.5">
+          <h1 className="text-foreground text-lg font-semibold tracking-tight">
+            Archived storage
+          </h1>
+          <p className="text-muted-foreground text-sm">
+            Nothing archived yet — this space is reserved for storage
+            that&apos;s been moved out of the active workspace.
+          </p>
+        </div>
       </div>
-      <h1 className="text-foreground mt-6 text-2xl font-semibold tracking-tight">
-        Archived storage
-      </h1>
-      <p className="text-muted-foreground mt-2 max-w-md text-sm">
-        You don&apos;t have access to archived storage.
-      </p>
     </div>
   );
 }

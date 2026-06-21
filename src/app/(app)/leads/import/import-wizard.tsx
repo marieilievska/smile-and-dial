@@ -513,7 +513,7 @@ export function ImportWizard({
               </SelectContent>
             </Select>
           ) : (
-            <div className="border-border bg-muted/20 flex items-center justify-between gap-3 rounded-lg border border-dashed px-3 py-3 text-sm">
+            <div className="border-border bg-muted/20 flex items-center justify-between gap-3 rounded-xl border border-dashed px-3 py-3 text-sm">
               <div className="flex flex-col gap-0.5">
                 <p className="text-foreground font-medium">No lists yet</p>
                 <p className="text-muted-foreground text-xs">
@@ -562,7 +562,7 @@ export function ImportWizard({
             mobile numbers won't be detected or filtered — they may be
             imported and dialed. This is the only place mobiles are
             caught, so only skip when you already trust the data. */}
-        <div className="border-border bg-muted/20 flex items-start gap-3 rounded-lg border px-4 py-3">
+        <div className="border-border bg-muted/20 flex items-start gap-3 rounded-xl border px-4 py-3">
           <Checkbox
             id="skip-lookup"
             checked={skipLookup}
@@ -674,7 +674,7 @@ function MapStep({
           return (
             <li
               key={header}
-              className="border-border bg-card flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-start"
+              className="border-border bg-card flex flex-col gap-3 rounded-xl border p-3 shadow-sm sm:flex-row sm:items-start"
             >
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <div className="flex items-center gap-2">
