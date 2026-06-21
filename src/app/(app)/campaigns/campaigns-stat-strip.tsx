@@ -10,7 +10,7 @@ export function CampaignsStatStrip({ stats }: { stats: CampaignStats }) {
   return (
     <section
       data-testid="campaigns-stat-strip"
-      className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl border px-5 py-4 sm:grid-cols-4"
+      className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-3 rounded-2xl border px-5 py-4 shadow-sm sm:grid-cols-4"
     >
       <StatLink
         icon={<Megaphone className="size-3.5" />}

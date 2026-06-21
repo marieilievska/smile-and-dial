@@ -80,7 +80,7 @@ export function CampaignBoard({
           <div
             key={c.data.id}
             style={{ animationDelay: `${index * 50}ms` }}
-            className={`animate-in fade-in slide-in-from-bottom-2 fill-mode-both bg-card border-border flex flex-col gap-3 rounded-xl border border-l-[3px] p-4 transition-shadow duration-500 hover:shadow-sm ${rail}`}
+            className={`animate-in fade-in slide-in-from-bottom-2 fill-mode-both bg-card border-border flex flex-col gap-3 rounded-2xl border border-l-[3px] p-4 shadow-sm transition-shadow duration-500 hover:shadow-md ${rail}`}
           >
             {/* Top: status + live signal */}
             <div className="flex items-center justify-between gap-2">

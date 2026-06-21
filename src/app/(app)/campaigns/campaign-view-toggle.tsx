@@ -24,7 +24,7 @@ export function CampaignViewToggle({
     <div
       role="tablist"
       aria-label="Campaign view"
-      className="border-border bg-background inline-flex items-center gap-0.5 rounded-lg border p-1"
+      className="border-border bg-background inline-flex items-center gap-0.5 rounded-xl border p-1"
     >
       <ViewLink
         href={hrefFor("board")}

@@ -26,14 +26,16 @@ import {
 } from "./campaign-cells";
 import { CampaignNameTrigger } from "./campaign-name-trigger";
 import { CampaignRowActions } from "./campaign-row-actions";
-import { type CampaignData } from "./campaign-settings-dialog";
+import {
+  CampaignSettingsDialog,
+  type CampaignData,
+} from "./campaign-settings-dialog";
 import { CampaignViewToggle } from "./campaign-view-toggle";
 import {
   CampaignsStatusTabs,
   type CampaignCounts,
 } from "./campaigns-status-tabs";
 import { CampaignsStatStrip } from "./campaigns-stat-strip";
-import { CreateCampaignDialog } from "./create-campaign-dialog";
 import { DeleteCampaignDialog } from "./delete-campaign-dialog";
 import { isCampaignInsideHours } from "./format-hours";
 import { fetchCampaignStats, fetchPerCampaignSpend } from "./stats-query";
@@ -342,10 +344,16 @@ export default async function CampaignsPage({
             calling caps. Pause anytime; ended is permanent.
           </p>
         </div>
-        <CreateCampaignDialog
+        <CampaignSettingsDialog
+          mode="create"
           agents={agentOptions}
           goals={goalOptions}
+          twilioNumbers={numbersForCampaign(null)}
+          kbsByAgent={kbsByAgent}
           eligibleLists={eligibleListsFor(null)}
+          currentListIds={[]}
+          calendlyEvents={calendlyEventOptions}
+          emailTemplates={emailTemplateOptions}
         />
       </div>
 
@@ -372,7 +380,7 @@ export default async function CampaignsPage({
             emailTemplates={emailTemplateOptions}
           />
         ) : (
-          <div className="border-border overflow-x-auto rounded-lg border">
+          <div className="border-border overflow-x-auto rounded-2xl border shadow-sm">
             <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
@@ -524,7 +532,7 @@ export default async function CampaignsPage({
 function EmptyState({ filtered }: { filtered: boolean }) {
   if (filtered) {
     return (
-      <div className="border-border flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+      <div className="border-border flex flex-col items-center gap-3 rounded-2xl border border-dashed py-16 text-center">
         <Megaphone className="text-muted-foreground size-8" />
         <p className="text-foreground text-sm font-medium">
           No campaigns match this status
@@ -542,7 +550,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
   // (the header already has one); keeping a single instance per page
   // avoids strict-mode collisions in Playwright + cuts client bundle.
   return (
-    <div className="border-border flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
+    <div className="border-border flex flex-col items-center gap-3 rounded-2xl border border-dashed py-16 text-center">
       <div className="bg-primary/10 flex size-12 items-center justify-center rounded-full">
         <Megaphone className="text-primary size-6" />
       </div>
