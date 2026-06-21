@@ -70,6 +70,22 @@ export function VoiceTable({
     });
   }, [rows, interest, q]);
 
+  // Overall interest mix across ALL rows (stable summary, independent of the
+  // interest/search filters below).
+  const counts = useMemo(() => {
+    let yes = 0;
+    let maybe = 0;
+    let no = 0;
+    for (const r of rows) {
+      if (r.interest === "yes") yes++;
+      else if (r.interest === "maybe") maybe++;
+      else no++;
+    }
+    return { yes, maybe, no, total: rows.length };
+  }, [rows]);
+  const barPct = (n: number) =>
+    counts.total > 0 ? `${(n / counts.total) * 100}%` : "0%";
+
   function commit(id: string, field: "theme" | "suggested_action") {
     const key = `${id}:${field}`;
     const value = draft[key] ?? "";
@@ -118,6 +134,38 @@ export function VoiceTable({
           </>
         ) : null}
       </p>
+
+      {/* Interest mix summary */}
+      <section className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-5 shadow-sm">
+        <div className="flex flex-wrap gap-x-8 gap-y-2">
+          <VoiceStat
+            label="Yes"
+            value={counts.yes}
+            tone="text-emerald-600 dark:text-emerald-400"
+          />
+          <VoiceStat
+            label="Maybe"
+            value={counts.maybe}
+            tone="text-amber-700 dark:text-amber-400"
+          />
+          <VoiceStat
+            label="No"
+            value={counts.no}
+            tone="text-rose-600 dark:text-rose-400"
+          />
+        </div>
+        <div className="bg-muted flex h-2 overflow-hidden rounded-full">
+          <div
+            className="bg-emerald-500"
+            style={{ width: barPct(counts.yes) }}
+          />
+          <div
+            className="bg-amber-500"
+            style={{ width: barPct(counts.maybe) }}
+          />
+          <div className="bg-rose-500" style={{ width: barPct(counts.no) }} />
+        </div>
+      </section>
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
@@ -175,7 +223,7 @@ export function VoiceTable({
       </div>
 
       {/* Table */}
-      <div className="border-border bg-card overflow-x-auto rounded-xl border">
+      <div className="border-border bg-card overflow-x-auto rounded-2xl border shadow-sm">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-muted-foreground border-border bg-muted/30 border-b text-left text-xs">
@@ -227,8 +275,10 @@ export function VoiceTable({
                       {r.interest}
                     </span>
                   </td>
-                  <td className="text-muted-foreground min-w-[18rem] px-3 py-2">
-                    {r.reason || "—"}
+                  <td className="text-foreground min-w-[18rem] px-3 py-2 leading-relaxed">
+                    {r.reason || (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     {readOnly ? (
@@ -280,6 +330,29 @@ export function VoiceTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function VoiceStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span
+        className={`text-[10px] font-medium tracking-[0.14em] uppercase ${tone}`}
+      >
+        {label}
+      </span>
+      <span className="text-foreground text-2xl font-medium tabular-nums">
+        {value.toLocaleString()}
+      </span>
     </div>
   );
 }
