@@ -6,11 +6,9 @@ import {
   ChevronDown,
   Clock,
   Filter,
-  ListChecks,
   PhoneCall,
   PlayCircle,
   Sliders,
-  Target,
   User,
 } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
@@ -88,6 +86,20 @@ function timeForInput(value: string | null | undefined): string {
   return value.slice(0, 5);
 }
 
+/** "09:00" → "9:00 AM" for the collapsed-section summary line. */
+function prettyTime(value: string): string {
+  const [hStr, mStr] = value.split(":");
+  const h = Number(hStr);
+  if (Number.isNaN(h)) return value;
+  const period = h < 12 ? "AM" : "PM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${mStr ?? "00"} ${period}`;
+}
+
+/** The unified campaign builder (create) + editor (edit). One panel, two
+ *  modes: "create" opens blank with safe defaults; "edit" opens pre-filled
+ *  and adds a live Test-call section. The "New campaign" button and every
+ *  campaign-name click both open this same Sheet. */
 export function CampaignSettingsDialog({
   mode,
   campaign,
@@ -183,6 +195,22 @@ export function CampaignSettingsDialog({
   const eligibleNumbers = twilioNumbers;
 
   const agentKbs = kbsByAgent[agentId] ?? [];
+
+  // Collapsed-section summary lines, recomputed from live state so the header
+  // always reflects the current (unsaved) values at a glance.
+  const scheduleSummary = `${prettyTime(callingHoursStart)} – ${prettyTime(
+    callingHoursEnd,
+  )} · ${callsPerHourCap}/hr · ${callsPerDayCap}/day · Autopilot ${
+    autopilotEnabled ? "on" : "off"
+  }`;
+  const selectedNumber = eligibleNumbers.find((n) => n.id === twilioNumberId);
+  const numberSummary =
+    twilioNumberId === NO_NUMBER || !selectedNumber
+      ? "No number"
+      : selectedNumber.friendly_name || selectedNumber.phone_number;
+  const bookingSummary = `${
+    calendlyEventId === NO_EVENT ? "No meeting" : "Books meeting"
+  } · ${emailTemplateId === NO_TEMPLATE ? "No email" : "Sends email"}`;
 
   // Live "matches N leads" preview. Debounced so we don't fire a count on
   // every keystroke. All state writes happen inside the timeout callback (never
@@ -327,19 +355,18 @@ export function CampaignSettingsDialog({
             )}
           </SheetTitle>
           <SheetDescription>
-            A campaign ties leads to an agent, a goal, a Twilio number, and
-            calling caps. Each section can be expanded independently — only the
-            ones you change get saved.
+            {isEdit
+              ? "Update any section, then save. The collapsed sections show their current settings at a glance."
+              : "Fill the essentials — name, agent, and goal — to launch. Everything else has safe defaults you can tune now or later."}
           </SheetDescription>
         </SheetHeader>
 
-        {/* Scrollable middle — every section is a collapsible <details>
-            so the user can scan section headers and only open the one
-            they want to edit. General + Telephony default open since
-            they're the most-touched. */}
+        {/* Scrollable middle — collapsible sections grouped for both create
+            and edit. Basics, Agent & goal, and Audience open by default
+            (the launch essentials); the rest collapse with a live summary. */}
         <div className="animate-in fade-in flex flex-1 flex-col gap-3 overflow-y-auto px-6 py-5 duration-300">
           <CampaignSection
-            title="General"
+            title="Basics"
             icon={<Sliders className="size-4" />}
             defaultOpen
           >
@@ -349,6 +376,7 @@ export function CampaignSettingsDialog({
                 id="campaign-name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
+                placeholder="Q1 Outbound"
                 required
               />
             </div>
@@ -361,31 +389,13 @@ export function CampaignSettingsDialog({
                 rows={3}
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="campaign-daily">Daily spend cap ($)</Label>
-                <Input
-                  id="campaign-daily"
-                  type="number"
-                  value={dailySpendCap}
-                  onChange={(event) => setDailySpendCap(event.target.value)}
-                  placeholder="Optional"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="campaign-monthly">Monthly spend cap ($)</Label>
-                <Input
-                  id="campaign-monthly"
-                  type="number"
-                  value={monthlySpendCap}
-                  onChange={(event) => setMonthlySpendCap(event.target.value)}
-                  placeholder="Optional"
-                />
-              </div>
-            </div>
           </CampaignSection>
 
-          <CampaignSection title="Agent" icon={<User className="size-4" />}>
+          <CampaignSection
+            title="Agent & goal"
+            icon={<User className="size-4" />}
+            defaultOpen
+          >
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-agent">Agent</Label>
               {agents.length > 0 ? (
@@ -407,41 +417,99 @@ export function CampaignSettingsDialog({
                 </p>
               )}
             </div>
-          </CampaignSection>
-
-          <CampaignSection
-            title="Telephony"
-            icon={<PhoneCall className="size-4" />}
-            defaultOpen
-          >
             <div className="flex flex-col gap-2">
-              <Label htmlFor="campaign-twilio">Twilio number</Label>
-              {eligibleNumbers.length > 0 ? (
-                <Select
-                  value={twilioNumberId}
-                  onValueChange={setTwilioNumberId}
-                >
-                  <SelectTrigger id="campaign-twilio">
-                    <SelectValue placeholder="Choose a number" />
+              <Label htmlFor="campaign-goal">Goal</Label>
+              {goals.length > 0 ? (
+                <Select value={goalId} onValueChange={setGoalId}>
+                  <SelectTrigger id="campaign-goal">
+                    <SelectValue placeholder="Choose a goal" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NO_NUMBER}>
-                      No number attached
-                    </SelectItem>
-                    {eligibleNumbers.map((number) => (
-                      <SelectItem key={number.id} value={number.id}>
-                        {number.friendly_name || number.phone_number}
+                    {goals.map((goal) => (
+                      <SelectItem key={goal.id} value={goal.id}>
+                        {goal.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               ) : (
                 <p className="text-muted-foreground text-sm">
-                  No numbers available. An admin can buy or release one on
-                  Settings → Twilio numbers.
+                  No goals yet. Add one on the Goals page.
                 </p>
               )}
             </div>
+          </CampaignSection>
+
+          <CampaignSection
+            title="Audience"
+            icon={<Filter className="size-4" />}
+            defaultOpen
+          >
+            <div className="flex flex-col gap-2">
+              <div className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
+                Lists
+              </div>
+              <p className="text-muted-foreground text-sm">
+                Lists attached to this campaign get dialed when it runs. A list
+                can be attached to only one active campaign at a time.
+              </p>
+              {eligibleLists.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  {eligibleLists.map((list) => (
+                    <div key={list.id} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`campaign-list-${list.id}`}
+                        checked={selectedListIds.includes(list.id)}
+                        onCheckedChange={() => toggleList(list.id)}
+                      />
+                      <Label
+                        htmlFor={`campaign-list-${list.id}`}
+                        className="font-normal"
+                      >
+                        {list.name}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No unattached lists. Create one on Settings → Lists, or detach
+                  an existing attachment first.
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="campaign-audience">
+                …or company name contains
+              </Label>
+              <Input
+                id="campaign-audience"
+                value={audienceSearch}
+                onChange={(event) => setAudienceSearch(event.target.value)}
+                placeholder="e.g. F45"
+              />
+              <p className="text-muted-foreground text-xs">
+                Beyond the lists above, also call every lead whose company name
+                contains this text — no matter which list it was uploaded into.
+                Leave blank to target only the lists above.
+              </p>
+              {audienceSearch.trim() ? (
+                <p className="text-muted-foreground text-xs">
+                  {audienceCount === null
+                    ? "Counting matching leads…"
+                    : `Matches ${audienceCount.toLocaleString()} lead${
+                        audienceCount === 1 ? "" : "s"
+                      } across all lists.`}
+                </p>
+              ) : null}
+            </div>
+          </CampaignSection>
+
+          <CampaignSection
+            title="Schedule & caps"
+            icon={<Clock className="size-4" />}
+            summary={scheduleSummary}
+          >
             <div className="flex flex-col gap-2">
               <div className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase">
                 <Clock className="text-primary size-3.5" />
@@ -560,12 +628,63 @@ export function CampaignSettingsDialog({
                 />
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="campaign-daily">Daily spend cap ($)</Label>
+                <Input
+                  id="campaign-daily"
+                  type="number"
+                  value={dailySpendCap}
+                  onChange={(event) => setDailySpendCap(event.target.value)}
+                  placeholder="Optional"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="campaign-monthly">Monthly spend cap ($)</Label>
+                <Input
+                  id="campaign-monthly"
+                  type="number"
+                  value={monthlySpendCap}
+                  onChange={(event) => setMonthlySpendCap(event.target.value)}
+                  placeholder="Optional"
+                />
+              </div>
+            </div>
+          </CampaignSection>
 
-            {/* Transfer destination phone — moved here from the
-                retired Tools section. The transfer-to-human capability
-                itself lives on the agent; this is just the campaign-
-                specific number the agent should dial when the user
-                asks for a human. */}
+          <CampaignSection
+            title="Number & transfer"
+            icon={<PhoneCall className="size-4" />}
+            summary={numberSummary}
+          >
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="campaign-twilio">Twilio number</Label>
+              {eligibleNumbers.length > 0 ? (
+                <Select
+                  value={twilioNumberId}
+                  onValueChange={setTwilioNumberId}
+                >
+                  <SelectTrigger id="campaign-twilio">
+                    <SelectValue placeholder="Choose a number" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_NUMBER}>
+                      No number attached
+                    </SelectItem>
+                    {eligibleNumbers.map((number) => (
+                      <SelectItem key={number.id} value={number.id}>
+                        {number.friendly_name || number.phone_number}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No numbers available. An admin can buy or release one on
+                  Settings → Twilio numbers.
+                </p>
+              )}
+            </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-transfer">
                 Transfer destination phone
@@ -586,128 +705,10 @@ export function CampaignSettingsDialog({
             </div>
           </CampaignSection>
 
-          {/* Round 16 — "Tools" section retired. The agent owns its
-              tool capabilities (transfer-to-human, calendly book, etc).
-              The campaign only contributes the destination phone for
-              the transfer tool — that's a telephony detail, so we keep
-              it under Telephony above. Calendly / Close integration
-              config will live on the agent edit page when Phase 8
-              lands. */}
-
           <CampaignSection
-            title="Knowledge base"
-            icon={<BookOpen className="size-4" />}
-          >
-            <p className="text-muted-foreground text-sm">
-              Knowledge bases are configured on the agent. This campaign
-              inherits the selected agent&rsquo;s knowledge bases.
-            </p>
-            {agentKbs.length > 0 ? (
-              <ul className="flex flex-col gap-1 text-sm">
-                {agentKbs.map((kb) => (
-                  <li key={kb.id} className="text-foreground">
-                    • {kb.name}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-muted-foreground text-sm">
-                The selected agent has no knowledge bases attached.
-              </p>
-            )}
-          </CampaignSection>
-
-          <CampaignSection
-            title="Lists"
-            icon={<ListChecks className="size-4" />}
-          >
-            <p className="text-muted-foreground text-sm">
-              Lists attached to this campaign get dialed when it runs. A list
-              can be attached to only one active campaign at a time.
-            </p>
-            {eligibleLists.length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {eligibleLists.map((list) => (
-                  <div key={list.id} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`campaign-list-${list.id}`}
-                      checked={selectedListIds.includes(list.id)}
-                      onCheckedChange={() => toggleList(list.id)}
-                    />
-                    <Label
-                      htmlFor={`campaign-list-${list.id}`}
-                      className="font-normal"
-                    >
-                      {list.name}
-                    </Label>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-sm">
-                No unattached lists. Create one on Settings → Lists, or detach
-                an existing attachment first.
-              </p>
-            )}
-          </CampaignSection>
-
-          <CampaignSection
-            title="Audience"
-            icon={<Filter className="size-4" />}
-          >
-            <p className="text-muted-foreground text-sm">
-              Beyond attached lists, this campaign can also call every lead
-              whose company name contains the text below — no matter which list
-              the lead was uploaded into. Leave blank to target only the lists
-              above.
-            </p>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="campaign-audience">Company name contains</Label>
-              <Input
-                id="campaign-audience"
-                value={audienceSearch}
-                onChange={(event) => setAudienceSearch(event.target.value)}
-                placeholder="e.g. F45"
-              />
-              {audienceSearch.trim() ? (
-                <p className="text-muted-foreground text-xs">
-                  {audienceCount === null
-                    ? "Counting matching leads…"
-                    : `Matches ${audienceCount.toLocaleString()} lead${
-                        audienceCount === 1 ? "" : "s"
-                      } across all lists.`}
-                </p>
-              ) : null}
-            </div>
-          </CampaignSection>
-
-          <CampaignSection title="Goal" icon={<Target className="size-4" />}>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="campaign-goal">Goal</Label>
-              {goals.length > 0 ? (
-                <Select value={goalId} onValueChange={setGoalId}>
-                  <SelectTrigger id="campaign-goal">
-                    <SelectValue placeholder="Choose a goal" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {goals.map((goal) => (
-                      <SelectItem key={goal.id} value={goal.id}>
-                        {goal.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  No goals yet. Add one on the Goals page.
-                </p>
-              )}
-            </div>
-          </CampaignSection>
-
-          <CampaignSection
-            title="Booking"
+            title="Booking & email"
             icon={<CalendarClock className="size-4" />}
+            summary={bookingSummary}
           >
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-calendly">Calendly event</Label>
@@ -776,6 +777,29 @@ export function CampaignSettingsDialog({
             </div>
           </CampaignSection>
 
+          <CampaignSection
+            title="Knowledge base"
+            icon={<BookOpen className="size-4" />}
+          >
+            <p className="text-muted-foreground text-sm">
+              Knowledge bases are configured on the agent. This campaign
+              inherits the selected agent&rsquo;s knowledge bases.
+            </p>
+            {agentKbs.length > 0 ? (
+              <ul className="flex flex-col gap-1 text-sm">
+                {agentKbs.map((kb) => (
+                  <li key={kb.id} className="text-foreground">
+                    • {kb.name}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                The selected agent has no knowledge bases attached.
+              </p>
+            )}
+          </CampaignSection>
+
           {isEdit && campaign ? (
             <CampaignSection
               title="Test"
@@ -804,21 +828,20 @@ export function CampaignSettingsDialog({
   );
 }
 
-/** Collapsible section inside the campaign-settings drawer. Native
+/** Collapsible section inside the campaign builder/editor. Native
  *  <details>/<summary> — no library, no state to manage, full
- *  keyboard + screen-reader support.
- *
- *  Round 15 — added an `icon` slot so each section reads with a
- *  consistent coral glyph + uppercase letter-spaced title, matching
- *  the rest of the app's section header convention. */
+ *  keyboard + screen-reader support. Shows a live summary on the header
+ *  when collapsed so the operator can scan settings without expanding. */
 function CampaignSection({
   title,
   icon,
+  summary,
   defaultOpen,
   children,
 }: {
   title: string;
   icon?: React.ReactNode;
+  summary?: React.ReactNode;
   defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
@@ -826,14 +849,21 @@ function CampaignSection({
     <details
       open={defaultOpen}
       data-testid={`campaign-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
-      className="border-border group bg-card rounded-lg border"
+      className="border-border group bg-card rounded-2xl border shadow-sm"
     >
-      <summary className="hover:bg-muted/40 flex cursor-pointer list-none items-center justify-between rounded-lg px-4 py-3 transition-colors">
+      <summary className="hover:bg-muted/40 flex cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3 transition-colors">
         <span className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
           {icon ? <span className="text-primary">{icon}</span> : null}
           {title}
         </span>
-        <ChevronDown className="text-muted-foreground size-4 transition-transform group-open:rotate-180" />
+        <span className="flex min-w-0 items-center gap-2">
+          {summary ? (
+            <span className="text-muted-foreground hidden truncate text-xs group-open:hidden sm:inline">
+              {summary}
+            </span>
+          ) : null}
+          <ChevronDown className="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+        </span>
       </summary>
       <div className="border-border/60 flex flex-col gap-4 border-t px-4 pt-4 pb-4">
         {children}

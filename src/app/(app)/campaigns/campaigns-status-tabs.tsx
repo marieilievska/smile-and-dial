@@ -34,7 +34,7 @@ export function CampaignsStatusTabs({
     <div
       role="tablist"
       aria-label="Campaign status"
-      className="border-border bg-background inline-flex items-center gap-0.5 rounded-lg border p-1"
+      className="border-border bg-background inline-flex items-center gap-0.5 rounded-xl border p-1"
     >
       {TABS.map((tab) => {
         const active = current === tab.value;
