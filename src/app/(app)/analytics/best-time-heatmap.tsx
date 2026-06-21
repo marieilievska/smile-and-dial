@@ -58,7 +58,7 @@ export async function BestTimeHeatmap() {
 
   return (
     <section
-      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both col-span-1 rounded-xl border p-5 delay-250 duration-500 lg:col-span-2"
+      className="border-border bg-card animate-in fade-in slide-in-from-bottom-2 fill-mode-both col-span-1 rounded-2xl border p-5 shadow-sm delay-250 duration-500 lg:col-span-2"
       aria-label="Best time to call heatmap"
     >
       <h2 className="text-foreground text-sm font-semibold">

@@ -24,7 +24,7 @@ export function AnalyticsInsight({ insight }: { insight: Insight }) {
   return (
     <section
       data-testid="analytics-insight"
-      className={`bg-card border-border animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex items-start gap-3 rounded-xl border border-l-[3px] p-4 duration-500 ${rail}`}
+      className={`bg-card border-border animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex items-start gap-3 rounded-2xl border border-l-[3px] p-4 shadow-sm duration-500 ${rail}`}
     >
       <span className="bg-primary/10 text-primary mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full">
         <Sparkles className="size-4" />
