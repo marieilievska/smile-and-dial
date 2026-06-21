@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 
 import { createClient } from "@/lib/supabase/server";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
@@ -13,22 +12,16 @@ import {
 } from "@/lib/agent-analytics/report-data";
 
 import { ChangelogTable } from "./changelog-table";
+import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
 import { HotLeadsTable } from "./hot-leads-table";
 import { PromptLogTable } from "./prompt-log-table";
+import { REPORTING_TABS, ReportingTabs } from "./reporting-tabs";
 import { VoiceTable } from "./voice-table";
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
 }
-
-const TABS = [
-  { key: "dashboard", label: "Dashboard" },
-  { key: "voice", label: "Voice of Customer" },
-  { key: "hot-leads", label: "Hot Leads" },
-  { key: "changelog", label: "App Changelog" },
-  { key: "prompt-log", label: "Agent Prompt Log" },
-] as const;
 
 export default async function AgentAnalyticsPage({
   searchParams,
@@ -48,7 +41,7 @@ export default async function AgentAnalyticsPage({
     .single();
   if (me?.role !== "admin") redirect("/");
 
-  const tab = TABS.some((t) => t.key === str(params.tab))
+  const tab = REPORTING_TABS.some((t) => t.key === str(params.tab))
     ? str(params.tab)
     : "dashboard";
 
@@ -59,39 +52,32 @@ export default async function AgentAnalyticsPage({
     .ilike("name", "%market research%")
     .maybeSingle();
 
+  // Public read-only share token (revocable from settings). When set, admins
+  // get a "Copy share link" button; when blank, the link is disabled so we
+  // hide the button.
+  const { data: shareRow } = await supabase
+    .from("app_settings")
+    .select("agent_analytics_share_token")
+    .eq("id", 1)
+    .maybeSingle();
+  const shareToken = shareRow?.agent_analytics_share_token ?? "";
+
   return (
     <div className="flex flex-col gap-5 p-6">
-      <div>
-        <h1 className="text-foreground text-2xl font-bold tracking-tight">
-          Reporting
-        </h1>
-        <p className="text-muted-foreground mt-0.5 text-sm">
-          For upper-management reporting — agent performance, call results, and
-          app changes. Currently covering the Market Research agent.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-foreground text-2xl font-bold tracking-tight">
+            Reporting
+          </h1>
+          <p className="text-muted-foreground mt-0.5 text-sm">
+            For upper-management reporting — agent performance, call results,
+            and app changes. Currently covering the Market Research agent.
+          </p>
+        </div>
+        {shareToken ? <CopyShareLinkButton token={shareToken} /> : null}
       </div>
 
-      {/* Tab bar */}
-      <div className="border-border flex flex-wrap gap-1 border-b">
-        {TABS.map((t) => {
-          const active = t.key === tab;
-          return (
-            <Link
-              key={t.key}
-              href={`/reporting?tab=${t.key}`}
-              aria-current={active ? "page" : undefined}
-              className={
-                "border-b-2 px-3 py-2 text-sm font-medium transition-colors " +
-                (active
-                  ? "text-foreground border-[color:var(--primary)]"
-                  : "text-muted-foreground hover:text-foreground border-transparent")
-              }
-            >
-              {t.label}
-            </Link>
-          );
-        })}
-      </div>
+      <ReportingTabs active={tab} hrefFor={(k) => `/reporting?tab=${k}`} />
 
       {!agent ? (
         <div className="border-border bg-muted/20 rounded-lg border p-6 text-sm">
@@ -125,7 +111,14 @@ async function DashboardTab({
   const day = /^\d{4}-\d{2}-\d{2}$/.test(selectedDay)
     ? selectedDay
     : yesterdayEt();
-  return <DashboardView kpis={kpis} day={day} historyDays={DASHBOARD_DAYS} />;
+  return (
+    <DashboardView
+      kpis={kpis}
+      day={day}
+      historyDays={DASHBOARD_DAYS}
+      dayHrefFor={(d) => `/reporting?tab=dashboard&day=${d}`}
+    />
+  );
 }
 
 async function VoiceTab({ agentId }: { agentId: string }) {
