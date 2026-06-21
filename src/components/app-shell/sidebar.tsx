@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark, Plus, Trash2 } from "lucide-react";
+import { Bookmark, PhoneOutgoing, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -114,10 +114,13 @@ export function AppSidebar({
 
   return (
     <aside className="border-sidebar-border bg-sidebar flex w-60 shrink-0 flex-col border-r">
-      <div className="border-sidebar-border flex h-16 shrink-0 items-center border-b px-6">
-        {/* Round 25 — Referrizer-aligned shell. The whitespace ampersand
-         *  gets the sidebar's primary-foreground white so it reads as
-         *  one wordmark, not a coral accent on a dark surface. */}
+      <div className="border-sidebar-border flex h-16 shrink-0 items-center gap-2.5 border-b px-5">
+        {/* Round 25 — Referrizer-aligned shell. Round 38 — added a small
+         *  brand mark; the wordmark stays primary-foreground white so it
+         *  reads as one unit, not a coral accent on a dark surface. */}
+        <span className="bg-sidebar-primary text-sidebar-primary-foreground flex size-7 shrink-0 items-center justify-center rounded-lg shadow-sm">
+          <PhoneOutgoing className="size-4" />
+        </span>
         <span className="text-sidebar-primary-foreground text-lg font-bold tracking-tight">
           Smile &amp; Dial
         </span>
@@ -155,13 +158,24 @@ export function AppSidebar({
                       href={item.href}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                        "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                         active
-                          ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
                       )}
                     >
-                      <item.icon className="size-4 shrink-0" />
+                      {active ? (
+                        <span
+                          aria-hidden
+                          className="bg-sidebar-primary absolute top-1/2 left-0 h-5 w-1 -translate-y-1/2 rounded-r-full"
+                        />
+                      ) : null}
+                      <item.icon
+                        className={cn(
+                          "size-4 shrink-0",
+                          active && "text-sidebar-primary",
+                        )}
+                      />
                       <span className="flex-1">{item.label}</span>
                       {statusKey && statusValue > 0 ? (
                         <span

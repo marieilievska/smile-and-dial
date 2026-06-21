@@ -40,7 +40,9 @@ export function GlobalSearch() {
   const [highlight, setHighlight] = useState(0);
   const [pending, startTransition] = useTransition();
   const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isMac, setIsMac] = useState(false);
 
   // Mirror URL→input when the URL `q` changes externally.
   const [lastUrlQ, setLastUrlQ] = useState(urlQ);
@@ -66,6 +68,23 @@ export function GlobalSearch() {
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
+  }, []);
+
+  // ⌘K (Mac) / Ctrl+K (Win/Linux) focuses the search from anywhere. The
+  // shown hint matches the platform so it's truthful, not decorative.
+  useEffect(() => {
+    // One-time platform detect for the shortcut hint; safe to set once here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsMac(/mac/i.test(navigator.userAgent));
+    function onKey(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   function fetchAfterDebounce(next: string) {
@@ -144,6 +163,7 @@ export function GlobalSearch() {
     >
       <Search className="text-muted-foreground absolute top-1/2 left-3 z-10 size-4 -translate-y-1/2" />
       <Input
+        ref={inputRef}
         type="search"
         name="q"
         value={value}
@@ -157,11 +177,18 @@ export function GlobalSearch() {
         aria-autocomplete="list"
         aria-expanded={open}
         aria-controls="global-search-listbox"
-        className="h-9 pl-9"
+        className="bg-muted/40 h-9 rounded-xl pr-16 pl-9"
         autoComplete="off"
       />
       {pending ? (
         <Loader2 className="text-muted-foreground absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin" />
+      ) : !value ? (
+        <kbd
+          aria-hidden
+          className="border-border text-muted-foreground bg-background pointer-events-none absolute top-1/2 right-2.5 hidden -translate-y-1/2 rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-medium sm:inline-block"
+        >
+          {isMac ? "⌘K" : "Ctrl K"}
+        </kbd>
       ) : null}
 
       {open ? (
