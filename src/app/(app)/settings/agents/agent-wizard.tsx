@@ -357,7 +357,7 @@ export function AgentWizard({
         <StepIndicator current={step} />
       </div>
 
-      <Card className="max-w-3xl">
+      <Card className="max-w-3xl rounded-2xl shadow-sm">
         <CardHeader>
           <CardTitle>{current.title}</CardTitle>
           <CardDescription>{current.description}</CardDescription>
