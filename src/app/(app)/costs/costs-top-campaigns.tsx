@@ -19,7 +19,7 @@ export type TopCampaign = {
 export function CostsTopCampaigns({ items }: { items: TopCampaign[] }) {
   if (items.length === 0) {
     return (
-      <section className="border-border bg-card rounded-xl border p-5">
+      <section className="border-border bg-card rounded-2xl border p-5 shadow-sm">
         <h2 className="text-foreground text-sm font-semibold">
           Top campaigns by spend
         </h2>
@@ -33,7 +33,7 @@ export function CostsTopCampaigns({ items }: { items: TopCampaign[] }) {
   return (
     <section
       data-testid="costs-top-campaigns"
-      className="border-border bg-card flex flex-col gap-3 rounded-xl border p-5"
+      className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-5 shadow-sm"
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-foreground text-sm font-semibold">

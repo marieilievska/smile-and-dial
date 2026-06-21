@@ -62,7 +62,7 @@ export function PerCallTable({
 
   if (rows.length === 0) {
     return (
-      <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
+      <div className="border-border flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center">
         <p className="text-foreground text-sm font-medium">
           No calls in this range
         </p>
@@ -78,7 +78,7 @@ export function PerCallTable({
 
   return (
     <div
-      className="border-border overflow-hidden rounded-lg border"
+      className="border-border overflow-hidden rounded-2xl border shadow-sm"
       data-testid="per-call-table"
     >
       <Table>

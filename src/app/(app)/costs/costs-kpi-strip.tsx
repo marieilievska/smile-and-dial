@@ -58,7 +58,7 @@ function Kpi({
   sub: string;
 }) {
   return (
-    <div className="border-border bg-card flex flex-col gap-1 rounded-xl border p-5">
+    <div className="border-border bg-card flex flex-col gap-1 rounded-2xl border p-5 shadow-sm">
       <p className="text-muted-foreground inline-flex items-center gap-1.5 text-[10px] font-medium tracking-[0.16em] uppercase">
         <span className="text-primary">{icon}</span>
         {label}

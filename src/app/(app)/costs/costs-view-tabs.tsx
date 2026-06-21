@@ -39,7 +39,7 @@ export function CostsViewTabs({
     <nav
       aria-label="Cost view"
       data-testid="costs-view-tabs"
-      className="border-border bg-background inline-flex flex-wrap items-center gap-0.5 self-start rounded-lg border p-1"
+      className="border-border bg-background inline-flex flex-wrap items-center gap-0.5 self-start rounded-xl border p-1"
     >
       {VIEWS.map((v) => {
         const active = current === v.value;
