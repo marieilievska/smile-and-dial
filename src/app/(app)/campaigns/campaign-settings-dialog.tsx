@@ -38,7 +38,10 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { createCampaign, updateCampaign } from "@/lib/campaigns/actions";
-import { countAudienceMatches } from "@/lib/campaigns/audience-actions";
+import {
+  countAudienceMatches,
+  countSmartListMatches,
+} from "@/lib/campaigns/audience-actions";
 import { setCampaignLists } from "@/lib/campaigns/list-attachments-actions";
 
 import { TestCallTab } from "./test-call-tab";
@@ -71,6 +74,7 @@ export type CampaignData = {
   calendly_event_id: string | null;
   email_template_id: string | null;
   audience_search: string | null;
+  smart_list_id: string | null;
 };
 
 const NO_NUMBER = "__none__";
@@ -79,6 +83,8 @@ const NO_NUMBER = "__none__";
 const NO_EVENT = "__none__";
 /** Sentinel for "no email template" — the send_email tool only records intent. */
 const NO_TEMPLATE = "__none__";
+/** Sentinel for "no smart list attached". */
+const NO_SMART_LIST = "__none__";
 
 /** Trim a "09:00:00" Postgres time to "09:00" for the HTML time input. */
 function timeForInput(value: string | null | undefined): string {
@@ -109,6 +115,7 @@ export function CampaignSettingsDialog({
   kbsByAgent,
   eligibleLists,
   currentListIds,
+  smartLists,
   calendlyEvents,
   emailTemplates,
   trigger,
@@ -121,6 +128,8 @@ export function CampaignSettingsDialog({
   kbsByAgent: Record<string, Option[]>;
   eligibleLists: Option[];
   currentListIds: string[];
+  /** The admin's saved smart lists, selectable as a campaign audience. */
+  smartLists: Option[];
   /** The owner's synced Calendly event types; the booking tools check
    *  availability / book into the one selected here. */
   calendlyEvents: Option[];
@@ -189,6 +198,10 @@ export function CampaignSettingsDialog({
     campaign?.audience_search ?? "",
   );
   const [audienceCount, setAudienceCount] = useState<number | null>(null);
+  const [selectedSmartListId, setSelectedSmartListId] = useState(
+    campaign?.smart_list_id ?? NO_SMART_LIST,
+  );
+  const [smartListCount, setSmartListCount] = useState<number | null>(null);
 
   // Numbers eligible for THIS campaign: include this campaign's current
   // number even if it's flagged as attached.
@@ -241,6 +254,24 @@ export function CampaignSettingsDialog({
     };
   }, [audienceSearch, campaign?.id]);
 
+  // Live "matches N leads" preview for the picked smart list.
+  useEffect(() => {
+    if (selectedSmartListId === NO_SMART_LIST) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSmartListCount(null);
+      return;
+    }
+    let cancelled = false;
+    void countSmartListMatches({ smartListId: selectedSmartListId }).then(
+      (result) => {
+        if (!cancelled) setSmartListCount(result.count);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSmartListId]);
+
   function submit() {
     startTransition(async () => {
       const input = {
@@ -262,6 +293,8 @@ export function CampaignSettingsDialog({
         calendlyEventId: calendlyEventId === NO_EVENT ? "" : calendlyEventId,
         emailTemplateId: emailTemplateId === NO_TEMPLATE ? "" : emailTemplateId,
         audienceSearch,
+        smartListId:
+          selectedSmartListId === NO_SMART_LIST ? "" : selectedSmartListId,
       };
       const result =
         isEdit && campaign
@@ -301,6 +334,7 @@ export function CampaignSettingsDialog({
         setEmailTemplateId(NO_TEMPLATE);
         setSelectedListIds([]);
         setAudienceSearch("");
+        setSelectedSmartListId(NO_SMART_LIST);
       }
     });
   }
@@ -500,6 +534,46 @@ export function CampaignSettingsDialog({
                     : `Matches ${audienceCount.toLocaleString()} lead${
                         audienceCount === 1 ? "" : "s"
                       } across all lists.`}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="campaign-smart-list">…or a smart list</Label>
+              {smartLists.length > 0 ? (
+                <Select
+                  value={selectedSmartListId}
+                  onValueChange={setSelectedSmartListId}
+                >
+                  <SelectTrigger id="campaign-smart-list">
+                    <SelectValue placeholder="No smart list" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_SMART_LIST}>No smart list</SelectItem>
+                    {smartLists.map((sl) => (
+                      <SelectItem key={sl.id} value={sl.id}>
+                        {sl.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No smart lists yet. Build one on the Leads page (advanced
+                  filters → Save as smart list).
+                </p>
+              )}
+              <p className="text-muted-foreground text-xs">
+                A smart list is a saved filter that auto-includes any new lead
+                matching it. Attaching one dials its members; membership
+                refreshes every few minutes.
+              </p>
+              {selectedSmartListId !== NO_SMART_LIST ? (
+                <p className="text-muted-foreground text-xs">
+                  {smartListCount === null
+                    ? "Counting matching leads…"
+                    : `Matches ${smartListCount.toLocaleString()} lead${
+                        smartListCount === 1 ? "" : "s"
+                      } right now.`}
                 </p>
               ) : null}
             </div>

@@ -55,6 +55,7 @@ export function CampaignBoard({
   agents,
   goals,
   kbsByAgent,
+  smartLists,
   calendlyEvents,
   emailTemplates,
 }: {
@@ -62,6 +63,7 @@ export function CampaignBoard({
   agents: Option[];
   goals: Option[];
   kbsByAgent: Record<string, Option[]>;
+  smartLists: Option[];
   calendlyEvents: Option[];
   emailTemplates: Option[];
 }) {
@@ -107,6 +109,7 @@ export function CampaignBoard({
                 kbsByAgent={kbsByAgent}
                 eligibleLists={c.eligibleLists}
                 currentListIds={c.currentListIds}
+                smartLists={smartLists}
                 calendlyEvents={calendlyEvents}
                 emailTemplates={emailTemplates}
               />
