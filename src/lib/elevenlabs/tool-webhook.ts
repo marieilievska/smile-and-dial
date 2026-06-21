@@ -9,7 +9,10 @@ import {
   getAvailableTimes as calendlyGetAvailableTimes,
 } from "@/lib/calendly/api";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
-import { parseZonedDatetime } from "@/lib/dialer/local-schedule";
+import {
+  parseZonedDatetime,
+  rollIsoOffWeekend,
+} from "@/lib/dialer/local-schedule";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
@@ -470,7 +473,9 @@ async function scheduleCallback(
     };
   }
 
-  const scheduledAt = when.toISOString();
+  // We only call Mon–Fri, so roll a weekend-requested time forward to the same
+  // time Monday (the dialer's weekday gate would otherwise leave it undialed).
+  const scheduledAt = rollIsoOffWeekend(when, ctx.lead.timezone);
 
   // If this same call already booked a callback (the lead changed the time
   // mid-conversation), update that one in place instead of inserting a second.
