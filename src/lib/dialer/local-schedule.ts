@@ -81,6 +81,69 @@ export function parseZonedDatetime(
   return new Date(wallGuess - offset);
 }
 
+/**
+ * Roll an absolute instant forward off the weekend, PRESERVING its local
+ * wall-clock time in `timeZone`. A Saturday → the same time Monday (+2 days), a
+ * Sunday → the same time Monday (+1). Weekdays return unchanged.
+ *
+ * Unlike `localHourDaysAheadIso` (which normalizes to a fixed hour), this keeps
+ * the original time-of-day — used for callback retries, where the lead agreed to
+ * a specific time and we only want to skip the non-calling weekend days. Without
+ * it, a Friday callback's "next day, same time" retry landed on Saturday, where
+ * the weekday-only calling-hours gate blocked it and it sat overdue.
+ *
+ * DST-correct via the same Intl offset-correction trick the helpers above use.
+ */
+export function rollIsoOffWeekend(
+  instant: Date,
+  timeZone: string | null | undefined,
+): string {
+  const tz = timeZone || "America/New_York";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(instant);
+  const num = (t: string) => Number(parts.find((x) => x.type === t)?.value);
+  const y = num("year");
+  const mo = num("month");
+  const h = num("hour") % 24;
+  const mi = num("minute");
+  // Weekday of the local calendar date (getUTCDay on a midnight-UTC date built
+  // from the local Y/M/D gives that date's weekday regardless of tz).
+  let day = num("day");
+  const dow = new Date(Date.UTC(y, mo - 1, day)).getUTCDay();
+  if (dow === 6)
+    day += 2; // Saturday → Monday
+  else if (dow === 0) day += 1; // Sunday → Monday
+  // Rebuild the instant at the (possibly rolled) local wall-clock time.
+  const wallGuess = Date.UTC(y, mo - 1, day, h, mi, 0);
+  const rbParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date(wallGuess));
+  const rb = (t: string) => Number(rbParts.find((x) => x.type === t)?.value);
+  const readMs = Date.UTC(
+    rb("year"),
+    rb("month") - 1,
+    rb("day"),
+    rb("hour") % 24,
+    rb("minute"),
+    0,
+  );
+  const offset = readMs - wallGuess;
+  return new Date(wallGuess - offset).toISOString();
+}
+
 export function localHourDaysAheadIso(
   timeZone: string | null | undefined,
   daysAhead: number,
