@@ -4,7 +4,10 @@ import { createClient } from "@supabase/supabase-js";
 
 import { bestHourForDay, localDowHour } from "@/lib/dialer/best-time";
 import { loadCachedHeatmap } from "@/lib/dialer/best-time-cache";
-import { localHourDaysAheadIso } from "@/lib/dialer/local-schedule";
+import {
+  localHourDaysAheadIso,
+  rollIsoOffWeekend,
+} from "@/lib/dialer/local-schedule";
 import type { Database } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -199,6 +202,7 @@ export async function applyRetryForCall(
       supabase,
       call.lead_id,
       update,
+      lead?.timezone ?? null,
     );
     if (escalated) {
       const { error: leadError } = await supabase
@@ -397,6 +401,7 @@ async function escalateCallbackVoicemail(
   supabase: SupabaseAdmin,
   leadId: string,
   update: LeadUpdate,
+  timeZone: string | null,
 ): Promise<boolean> {
   const { data: callback } = await supabase
     .from("callbacks")
@@ -416,34 +421,40 @@ async function escalateCallbackVoicemail(
       .from("callbacks")
       .update({ status: "missed", voicemail_attempts: attempts })
       .eq("id", callback.id);
-    const restingUntil = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+    const restingUntil = rollIsoOffWeekend(
+      new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
+      timeZone,
+    );
     update.status = "resting";
-    update.resting_until = restingUntil.toISOString();
-    update.next_call_at = restingUntil.toISOString();
+    update.resting_until = restingUntil;
+    update.next_call_at = restingUntil;
     update.retry_counter = 0;
     update.retry_position = 0;
     return true;
   }
 
-  // 1st voicemail: +30 min. 2nd: next day same time.
-  const next =
+  // 1st voicemail: +30 min. 2nd: next day same time. Both rolled off the
+  // weekend (keeping the time-of-day) so a Friday callback's next attempt lands
+  // on Monday, not an undialed Saturday.
+  const nextRaw =
     attempts === 1
       ? new Date(Date.now() + 30 * 60 * 1000)
       : new Date(
           new Date(callback.scheduled_at).getTime() + 24 * 60 * 60 * 1000,
         );
+  const next = rollIsoOffWeekend(nextRaw, timeZone);
 
   await supabase
     .from("callbacks")
     .update({
       voicemail_attempts: attempts,
-      scheduled_at: next.toISOString(),
+      scheduled_at: next,
     })
     .eq("id", callback.id);
 
   // Lead stays in 'callback' status; just bump next_call_at to match.
   update.status = "callback";
-  update.next_call_at = next.toISOString();
+  update.next_call_at = next;
   update.resting_until = null;
   return true;
 }
