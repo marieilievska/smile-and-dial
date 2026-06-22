@@ -861,6 +861,27 @@ export type Database = {
         };
         Relationships: [];
       };
+      dashboard_notes: {
+        Row: {
+          day: string;
+          note: string;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          day: string;
+          note?: string;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          day?: string;
+          note?: string;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [];
+      };
       dnc_entries: {
         Row: {
           added_at: string;

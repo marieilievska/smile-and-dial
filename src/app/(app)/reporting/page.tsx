@@ -111,12 +111,19 @@ async function DashboardTab({
   const day = /^\d{4}-\d{2}-\d{2}$/.test(selectedDay)
     ? selectedDay
     : yesterdayEt();
+  // Per-day operator notes (admin-only; not passed to the public share).
+  const { data: noteRows } = await supabase
+    .from("dashboard_notes")
+    .select("day, note");
+  const notes: Record<string, string> = {};
+  for (const r of noteRows ?? []) notes[r.day] = r.note;
   return (
     <DashboardView
       kpis={kpis}
       day={day}
       historyDays={DASHBOARD_DAYS}
       dayHrefFor={(d) => `/reporting?tab=dashboard&day=${d}`}
+      notes={notes}
     />
   );
 }
