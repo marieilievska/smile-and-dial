@@ -29,6 +29,24 @@ const RETRY_OUTCOMES = new Set<CallOutcome>([
 ]);
 
 /**
+ * Non-connect outcomes that, on a lead with a PENDING callback, escalate that
+ * callback (the +30min → next-day → 'missed' ladder) instead of abandoning it to
+ * the generic cold-retry cycle. Previously only `voicemail` did this, so a
+ * callback that hit no-answer / busy / failed / immediate-hangup got flipped to
+ * `ready_to_call` while its callback stayed pending — orphaning it out of the
+ * dial queue (the "lots of overdue callbacks" bug). gatekeeper/ai_error are
+ * excluded: a gatekeeper reached someone (it consumes the callback), ai_error is
+ * an error path.
+ */
+const CALLBACK_NONCONNECT_OUTCOMES = new Set<CallOutcome>([
+  "voicemail",
+  "no_answer",
+  "busy",
+  "failed",
+  "hung_up_immediately",
+]);
+
+/**
  * The cycle's delay (in days) at each retry_position. The position cycles
  * 0 → 1 → 2 → 0 forever.
  */
@@ -186,18 +204,21 @@ export async function applyRetryForCall(
 
   const update: LeadUpdate = { updated_at: new Date().toISOString() };
 
-  // Callback voicemail special case (BUILD_PLAN §8): a voicemail on a lead with
+  // Callback NON-CONNECT special case (BUILD_PLAN §8): any non-connect outcome
+  // (voicemail / no_answer / busy / failed / hung_up_immediately) on a lead with
   // a PENDING callback escalates that callback (+30min → next day → 'missed')
-  // instead of the generic 2-day retry cycle.
+  // instead of the generic 2-day retry cycle. Previously only `voicemail`
+  // triggered this, so a callback that hit no-answer/busy/failed/hangup got
+  // flipped to ready_to_call while its callback stayed pending — orphaned out of
+  // the dial queue (the overdue-callbacks bug).
   //
   // Keyed on the callback's EXISTENCE, not lead.status. The status field can
   // transiently read non-"callback" (a racing webhook, a just-run cycle), and
-  // gating escalation on it let real callback voicemails fall silently into the
-  // cold-call cycle — voicemail_attempts stuck at 0 while retry_counter advanced
-  // (The Nest Yoga). escalateCallbackVoicemail returns false when there's no
-  // pending callback, so an ordinary cold-call voicemail still falls through to
-  // the standard cycle below.
-  if (call.outcome === "voicemail") {
+  // gating escalation on it let real callback non-connects fall silently into
+  // the cold-call cycle. escalateCallbackVoicemail returns false when there's no
+  // pending callback, so an ordinary cold-call non-connect still falls through
+  // to the standard cycle below.
+  if (call.outcome && CALLBACK_NONCONNECT_OUTCOMES.has(call.outcome)) {
     const escalated = await escalateCallbackVoicemail(
       supabase,
       call.lead_id,
