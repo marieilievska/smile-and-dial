@@ -4,6 +4,7 @@ import Link from "next/link";
 import { type DailyKpi } from "@/lib/agent-analytics/stats";
 
 import { KpiTile } from "../analytics/kpi-tile";
+import { DashboardNoteCell } from "./dashboard-note-cell";
 import { ExportCsvButton } from "./export-csv-button";
 
 function pct(v: number): string {
@@ -123,12 +124,18 @@ export function DashboardView({
   day,
   historyDays,
   dayHrefFor,
+  notes,
 }: {
   kpis: DailyKpi[];
   day: string;
   historyDays: number;
   dayHrefFor?: (day: string) => string;
+  /** Per-day operator notes (day → text), shown + editable in the history
+   *  table. Provided only on the authed admin page; omitted on the public share
+   *  so internal commentary never leaks. */
+  notes?: Record<string, string>;
 }) {
+  const showNotes = notes !== undefined;
   const sel = kpis.find((k) => k.day === day) ?? zeroDay(day);
   const chrono = [...kpis].sort((a, b) => a.day.localeCompare(b.day));
   const callsTotal = chrono.reduce((s, k) => s + k.callsMade, 0);
@@ -275,16 +282,23 @@ export function DashboardView({
                     {h}
                   </th>
                 ))}
-                <th className="rounded-r-md px-3 py-2 text-right font-medium whitespace-nowrap">
+                <th
+                  className={`px-3 py-2 text-right font-medium whitespace-nowrap ${showNotes ? "" : "rounded-r-md"}`}
+                >
                   Warm %
                 </th>
+                {showNotes ? (
+                  <th className="rounded-r-md px-3 py-2 text-left font-medium whitespace-nowrap">
+                    Notes
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
               {kpis.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={17}
+                    colSpan={17 + (showNotes ? 1 : 0)}
                     className="text-muted-foreground px-3 py-6 text-center"
                   >
                     No calls in the last {historyDays} days.
@@ -347,6 +361,14 @@ export function DashboardView({
                     <td className="px-3 py-2 text-right">
                       {warmChip(k.warmPct)}
                     </td>
+                    {showNotes ? (
+                      <td className="px-3 py-2">
+                        <DashboardNoteCell
+                          day={k.day}
+                          initial={notes?.[k.day] ?? ""}
+                        />
+                      </td>
+                    ) : null}
                   </tr>
                 ))
               )}

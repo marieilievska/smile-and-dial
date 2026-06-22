@@ -53,6 +53,27 @@ export async function saveCallAnnotation(input: {
   return { error: error ? "Could not save." : null };
 }
 
+/** Upsert the per-day dashboard note (an operator's explanation of why a KPI
+ *  moved that day). Empty clears it. Admin-only; one row per Eastern day. */
+export async function upsertDashboardNote(input: {
+  day: string;
+  note: string;
+}): Promise<{ error: string | null }> {
+  if (!(await isCallerAdmin())) return { error: "Admins only." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.day)) return { error: "Invalid day." };
+  const { error } = await adminClient().from("dashboard_notes").upsert(
+    {
+      day: input.day,
+      note: input.note.trim(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "day" },
+  );
+  if (error) return { error: "Could not save the note." };
+  revalidatePath(AGENT_ANALYTICS_PATH);
+  return { error: null };
+}
+
 /** Save a team edit on a hot lead (status / owner / next step / date
  *  contacted). Status falls back to "New" rather than null (it's NOT NULL).
  *  Empty string clears the other fields. */
