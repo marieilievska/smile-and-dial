@@ -13,6 +13,7 @@ import {
 import { callReachedDm } from "@/lib/calls/decision-maker";
 import { CONVERSATION_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
 import {
+  deferSameDayCallbackIso,
   localHourDaysAheadIso,
   parseZonedDatetime,
   rollIsoOffWeekend,
@@ -1257,7 +1258,7 @@ export async function applyOutcomeSideEffects(
   // theory) callback enrichment. One lookup either way.
   const { data: lead } = await supabase
     .from("leads")
-    .select("business_phone, company, owner_id")
+    .select("business_phone, company, owner_id, timezone")
     .eq("id", input.leadId)
     .single();
   if (!lead) return;
@@ -1337,12 +1338,29 @@ export async function applyOutcomeSideEffects(
   if (input.outcome !== "goal_met") {
     const { data: scheduledCallback } = await supabase
       .from("callbacks")
-      .select("id")
+      .select("id, scheduled_at")
       .eq("originating_call_id", input.callId)
       .eq("status", "pending")
       .limit(1)
       .maybeSingle();
     if (scheduledCallback) {
+      // A real `callback` outcome is an agreed appointment — honor its time
+      // as-is, same-day included. But a "call back" the agent booked off a
+      // NON-appointment disposition (gatekeeper, etc.) must never re-dial the
+      // same number the SAME day — defer it to the next calling day. This is
+      // what caused a gatekeeper at 3:40pm to be re-dialed at 5:45pm.
+      if (input.outcome !== "callback") {
+        const deferred = deferSameDayCallbackIso(
+          scheduledCallback.scheduled_at,
+          lead.timezone,
+        );
+        if (deferred !== scheduledCallback.scheduled_at) {
+          await supabase
+            .from("callbacks")
+            .update({ scheduled_at: deferred })
+            .eq("id", scheduledCallback.id);
+        }
+      }
       await supabase
         .from("leads")
         .update({ status: "callback" })

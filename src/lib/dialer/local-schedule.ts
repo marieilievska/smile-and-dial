@@ -144,6 +144,36 @@ export function rollIsoOffWeekend(
   return new Date(wallGuess - offset).toISOString();
 }
 
+/**
+ * Guard against same-day re-dials from NON-appointment dispositions. A real
+ * `callback` outcome (an agreed appointment) is honored as-is, but a "call back"
+ * the agent booked off a gatekeeper / brush-off should never re-dial the same
+ * number the SAME day. If `iso` falls today in the lead's tz (or earlier),
+ * return the NEXT calling day's standard morning slot (weekend-rolled); a
+ * genuinely future day is kept (just guaranteed to be a weekday).
+ */
+export function deferSameDayCallbackIso(
+  iso: string,
+  timeZone: string | null | undefined,
+): string {
+  const tz = timeZone || "America/New_York";
+  const ymd = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d); // YYYY-MM-DD — lexicographic compare == chronological
+  const target = new Date(iso);
+  if (Number.isNaN(target.getTime())) return iso;
+  if (ymd(target) > ymd(new Date())) {
+    // Already a future local day — keep the agreed day, just ensure a weekday.
+    return rollIsoOffWeekend(target, tz);
+  }
+  // Today (or earlier): bump to the next calling day's morning slot.
+  return localHourDaysAheadIso(tz, 1, 10);
+}
+
 export function localHourDaysAheadIso(
   timeZone: string | null | undefined,
   daysAhead: number,
