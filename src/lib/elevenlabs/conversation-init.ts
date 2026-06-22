@@ -53,7 +53,12 @@ export type ConversationInitResponse = {
     // (ElevenLabs dynamic variables are string-valued); numbers are
     // stringified, blank when we have no value.
     business_name: string;
+    // Contact names — kept current from the lead row, so a name an operator
+    // corrected (after ASR mangled it) is what the agent uses, not the stale
+    // name embedded in last_call_summary.
     owner_name: string;
+    manager_name: string;
+    employee_name: string;
     city: string;
     category: string;
     google_rating: string;
@@ -164,6 +169,8 @@ function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
     call_id: "",
     business_name: "",
     owner_name: "",
+    manager_name: "",
+    employee_name: "",
     city: "",
     category: "",
     google_rating: "",
@@ -196,7 +203,7 @@ async function buildVarsForCall(
       supabase
         .from("leads")
         .select(
-          "company, ai_summary, status, owner_name, city, category, google_rating, google_reviews, timezone, last_call_at",
+          "company, ai_summary, status, owner_name, manager_name, employee_name, city, category, google_rating, google_reviews, timezone, last_call_at",
         )
         .eq("id", call.lead_id)
         .maybeSingle(),
@@ -253,6 +260,8 @@ async function buildVarsForCall(
     call_id: call.id,
     business_name: lead?.company?.trim() ?? "",
     owner_name: lead?.owner_name?.trim() ?? "",
+    manager_name: lead?.manager_name?.trim() ?? "",
+    employee_name: lead?.employee_name?.trim() ?? "",
     city: lead?.city?.trim() ?? "",
     category: lead?.category?.trim() ?? "",
     google_rating: numStr(lead?.google_rating),
