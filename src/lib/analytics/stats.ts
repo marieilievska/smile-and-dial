@@ -103,43 +103,60 @@ function endOfDay(day: string): string {
   return endOfEtDayUtcIso(day);
 }
 
-/** Pull every call row that matches the slicers — single round-trip. The page
- *  filters and aggregates in JS so we can compute KPIs + charts + funnel +
- *  compare-period deltas from one fetch. */
+const PAGE = 1000;
+
+/** Pull every call row that matches the slicers, then filter/aggregate in JS so
+ *  we compute KPIs + charts + funnel + compare-period deltas from one dataset.
+ *
+ *  Paginated: PostgREST caps a single response at 1,000 rows, and an analytics
+ *  window can hold far more calls than that — a capped fetch silently
+ *  undercounts EVERY metric (calls made, funnel, time chart, …). We page through
+ *  in 1,000-row batches until exhausted. */
 export async function fetchCallsForRange(
   supabase: SupabaseClient,
   slicers: Slicers,
 ): Promise<CallRow[]> {
-  let query = supabase
-    .from("calls")
-    .select(
-      "id, campaign_id, lead_id, direction, outcome, goal_met, duration_seconds, " +
-        "talk_time_seconds, cost_breakdown, extracted_data, started_at, created_at",
-    )
-    .gte("created_at", startOfDay(slicers.from))
-    .lte("created_at", endOfDay(slicers.to))
-    .order("created_at", { ascending: true });
-  if (slicers.campaignId) query = query.eq("campaign_id", slicers.campaignId);
-
-  const { data } = await query;
-  let rows = (data ?? []) as unknown as CallRow[];
+  let rows: CallRow[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    let query = supabase
+      .from("calls")
+      .select(
+        "id, campaign_id, lead_id, direction, outcome, goal_met, duration_seconds, " +
+          "talk_time_seconds, cost_breakdown, extracted_data, started_at, created_at",
+      )
+      .gte("created_at", startOfDay(slicers.from))
+      .lte("created_at", endOfDay(slicers.to))
+      .order("created_at", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (slicers.campaignId) query = query.eq("campaign_id", slicers.campaignId);
+    const { data } = await query;
+    const batch = (data ?? []) as unknown as CallRow[];
+    rows.push(...batch);
+    if (batch.length < PAGE) break;
+    if (offset > 500_000) break; // safety backstop
+  }
   if (rows.length === 0) return [];
 
   // Join each call's LEAD-level decision_maker_reached flag (the operator-
   // correctable source of truth) so DM-reached metrics reflect manual Yes/No
   // corrections, not the call's frozen AI extraction. The same query also
   // applies the owner / list filters, which live on `leads`, not `calls`.
+  // Chunked so the lead lookup also clears the 1,000-row cap.
   const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
-  let leadQuery = supabase
-    .from("leads")
-    .select("id, decision_maker_reached")
-    .in("id", leadIds);
-  if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
-  if (slicers.ownerId) leadQuery = leadQuery.eq("owner_id", slicers.ownerId);
-  const { data: leads } = await leadQuery;
-  const dmByLead = new Map(
-    (leads ?? []).map((l) => [l.id, l.decision_maker_reached === true]),
-  );
+  const dmByLead = new Map<string, boolean>();
+  for (let i = 0; i < leadIds.length; i += PAGE) {
+    const chunk = leadIds.slice(i, i + PAGE);
+    let leadQuery = supabase
+      .from("leads")
+      .select("id, decision_maker_reached")
+      .in("id", chunk);
+    if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
+    if (slicers.ownerId) leadQuery = leadQuery.eq("owner_id", slicers.ownerId);
+    const { data: leads } = await leadQuery;
+    for (const l of leads ?? []) {
+      dmByLead.set(l.id, l.decision_maker_reached === true);
+    }
+  }
 
   // When an owner/list filter is set, drop calls whose lead fell outside it.
   if (slicers.ownerId || slicers.listId) {
