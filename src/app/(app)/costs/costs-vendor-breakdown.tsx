@@ -121,7 +121,7 @@ export function CostsVendorBreakdown({
         })}
       </div>
 
-      <ul className="grid grid-cols-1 gap-x-6 gap-y-2.5 sm:grid-cols-2">
+      <ul className="flex flex-col gap-2.5">
         {items.map((i) => {
           const share =
             vendorTotal > 0
@@ -130,27 +130,31 @@ export function CostsVendorBreakdown({
           return (
             <li
               key={i.key}
-              className="flex items-baseline justify-between gap-3 text-sm"
+              className="flex items-center justify-between gap-3 text-sm"
             >
-              <span className="text-muted-foreground inline-flex items-center gap-2">
+              <span className="flex min-w-0 items-center gap-2">
                 <span
                   aria-hidden
-                  className="inline-block size-2.5 shrink-0 rounded-[3px]"
+                  className="size-2.5 shrink-0 rounded-[3px]"
                   style={{ background: i.color }}
                 />
-                <span className="text-foreground font-medium">{i.label}</span>
-                <span className="text-muted-foreground hidden text-xs sm:inline">
+                <span className="text-foreground truncate font-medium">
+                  {i.label}
+                </span>
+                <span className="text-muted-foreground hidden shrink-0 text-xs md:inline">
                   {i.note}
                 </span>
               </span>
-              <span className="text-foreground tabular-nums">
-                {usd(i.value)}{" "}
+              <span className="text-foreground flex shrink-0 items-baseline gap-1.5 tabular-nums">
+                <span>{usd(i.value)}</span>
                 {typeof i.credits === "number" && i.credits > 0 ? (
-                  <span className="text-muted-foreground">
-                    · {Math.round(i.credits).toLocaleString()} cr
+                  <span className="text-muted-foreground hidden text-xs sm:inline">
+                    {Math.round(i.credits).toLocaleString()} cr
                   </span>
-                ) : null}{" "}
-                <span className="text-muted-foreground">· {share}</span>
+                ) : null}
+                <span className="text-muted-foreground w-9 text-right text-xs">
+                  {share}
+                </span>
               </span>
             </li>
           );
