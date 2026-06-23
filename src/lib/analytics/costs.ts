@@ -32,6 +32,13 @@ export type Slicers = {
 export type Breakdown = {
   twilio: number;
   elevenlabs: number;
+  // ElevenLabs LLM vs voice/telephony split (USD) — sub-components of
+  // `elevenlabs`, NOT counted again in `total`. Plus the raw credits for each.
+  elevenlabsLlm: number;
+  elevenlabsVoice: number;
+  elevenlabsCredits: number;
+  elevenlabsLlmCredits: number;
+  elevenlabsVoiceCredits: number;
   openai: number;
   lookup: number;
   total: number;
@@ -40,6 +47,11 @@ export type Breakdown = {
 const ZERO: Breakdown = {
   twilio: 0,
   elevenlabs: 0,
+  elevenlabsLlm: 0,
+  elevenlabsVoice: 0,
+  elevenlabsCredits: 0,
+  elevenlabsLlmCredits: 0,
+  elevenlabsVoiceCredits: 0,
   openai: 0,
   lookup: 0,
   total: 0,
@@ -61,15 +73,33 @@ export function pickBreakdown(value: unknown): Breakdown {
   // (e.g. a row where vendor costs were written but total wasn't recomputed).
   // Only fall back to the stored total for legacy rows that carry a total
   // with no itemization, so we never lose a real-but-unitemized cost.
+  // NOTE: the elevenlabs_* split keys are sub-parts of `elevenlabs` — they are
+  // deliberately NOT in componentSum, or EL would be double-counted.
   const componentSum = twilio + elevenlabs + openai + lookup;
   const storedTotal = n("total");
   const total = componentSum > 0 ? componentSum : storedTotal;
-  return { twilio, elevenlabs, openai, lookup, total };
+  return {
+    twilio,
+    elevenlabs,
+    elevenlabsLlm: n("elevenlabs_llm"),
+    elevenlabsVoice: n("elevenlabs_voice"),
+    elevenlabsCredits: n("elevenlabs_credits"),
+    elevenlabsLlmCredits: n("elevenlabs_llm_credits"),
+    elevenlabsVoiceCredits: n("elevenlabs_voice_credits"),
+    openai,
+    lookup,
+    total,
+  };
 }
 
 function addInto(acc: Breakdown, b: Breakdown) {
   acc.twilio += b.twilio;
   acc.elevenlabs += b.elevenlabs;
+  acc.elevenlabsLlm += b.elevenlabsLlm;
+  acc.elevenlabsVoice += b.elevenlabsVoice;
+  acc.elevenlabsCredits += b.elevenlabsCredits;
+  acc.elevenlabsLlmCredits += b.elevenlabsLlmCredits;
+  acc.elevenlabsVoiceCredits += b.elevenlabsVoiceCredits;
   acc.openai += b.openai;
   acc.lookup += b.lookup;
   acc.total += b.total;

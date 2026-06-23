@@ -459,6 +459,15 @@ export type ElevenLabsPostCallPayload = {
     // REAL ElevenLabs `cost` is a NUMBER (credits). Legacy tests post an object
     // of pre-split dollar costs. We handle both in elevenLabsCostUsd().
     cost?: number | { elevenlabs?: number; openai?: number };
+    // ElevenLabs splits the bundled credit figure into LLM vs the rest
+    // (TTS/ASR/telephony). `cost` = total credits, `llm_charge` = LLM credits,
+    // `call_charge` = voice + telephony credits. Captured so the Costs page can
+    // break ElevenLabs apart into LLM vs voice/telephony (in $ and credits).
+    charging?: {
+      cost?: number;
+      llm_charge?: number;
+      call_charge?: number;
+    };
   };
 };
 
@@ -812,6 +821,22 @@ async function processTranscription(
   // into one credit figure, so it all lands under `elevenlabs`.
   const prevCost = (call.cost_breakdown ?? {}) as Record<string, number>;
   const elevenLabsCost = elevenLabsCostUsd(payload.metadata?.cost);
+  // ElevenLabs splits its bundled credit total into LLM (the agent's model) vs
+  // call_charge (TTS + ASR + telephony). Capture both the credits and the USD
+  // split so the Costs page can show LLM vs voice/telephony. Absent on legacy
+  // payloads — then the split is 0 and only the bundled `elevenlabs` total shows.
+  const elRate = elevenLabsUsdPerCredit();
+  const charging = payload.metadata?.charging;
+  const elNum = (x: unknown) =>
+    typeof x === "number" && Number.isFinite(x) ? x : 0;
+  const elTotalCredits =
+    typeof payload.metadata?.cost === "number"
+      ? payload.metadata.cost
+      : elNum(charging?.cost);
+  const elLlmCredits = elNum(charging?.llm_charge);
+  const elVoiceCredits = elNum(charging?.call_charge);
+  const elLlmUsd = Number((elLlmCredits * elRate).toFixed(4));
+  const elVoiceUsd = Number((elVoiceCredits * elRate).toFixed(4));
   // Twilio bills the call leg even though ElevenLabs places the call. If a prior
   // path (e.g. a human-call recording webhook) already wrote a Twilio cost, keep
   // it; otherwise price this call's duration. ElevenLabs's credit figure bundles
@@ -823,6 +848,13 @@ async function processTranscription(
   const mergedCost = {
     twilio: twilioCost,
     elevenlabs: elevenLabsCost,
+    // ElevenLabs LLM vs voice/telephony split (sub-components of `elevenlabs`;
+    // NOT added into total again). Both USD and the raw credits.
+    elevenlabs_llm: elLlmUsd,
+    elevenlabs_voice: elVoiceUsd,
+    elevenlabs_credits: elTotalCredits,
+    elevenlabs_llm_credits: elLlmCredits,
+    elevenlabs_voice_credits: elVoiceCredits,
     openai: 0,
     lookup: prevCost.lookup ?? 0,
     total: Number(
