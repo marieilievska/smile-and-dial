@@ -124,6 +124,7 @@ async function DashboardTab({
       historyDays={DASHBOARD_DAYS}
       dayHrefFor={(d) => `/reporting?tab=dashboard&day=${d}`}
       notes={notes}
+      notesEditable
     />
   );
 }

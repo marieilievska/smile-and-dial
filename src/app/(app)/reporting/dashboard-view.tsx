@@ -125,15 +125,18 @@ export function DashboardView({
   historyDays,
   dayHrefFor,
   notes,
+  notesEditable = false,
 }: {
   kpis: DailyKpi[];
   day: string;
   historyDays: number;
   dayHrefFor?: (day: string) => string;
-  /** Per-day operator notes (day → text), shown + editable in the history
-   *  table. Provided only on the authed admin page; omitted on the public share
-   *  so internal commentary never leaks. */
+  /** Per-day operator notes (day → text), shown in the history table. Provided
+   *  on the authed page and the public share. */
   notes?: Record<string, string>;
+  /** When true the note cell is an inline editor (logged-in admin); otherwise
+   *  it renders read-only text (anonymous share viewers). */
+  notesEditable?: boolean;
 }) {
   const showNotes = notes !== undefined;
   const sel = kpis.find((k) => k.day === day) ?? zeroDay(day);
@@ -363,10 +366,16 @@ export function DashboardView({
                     </td>
                     {showNotes ? (
                       <td className="px-3 py-2">
-                        <DashboardNoteCell
-                          day={k.day}
-                          initial={notes?.[k.day] ?? ""}
-                        />
+                        {notesEditable ? (
+                          <DashboardNoteCell
+                            day={k.day}
+                            initial={notes?.[k.day] ?? ""}
+                          />
+                        ) : (
+                          <span className="text-muted-foreground text-xs">
+                            {notes?.[k.day] ?? ""}
+                          </span>
+                        )}
                       </td>
                     ) : null}
                   </tr>
