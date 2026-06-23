@@ -24,33 +24,71 @@ export function CostsVendorBreakdown({
   numberCount?: number;
 }) {
   const vendorTotal = summary.total + extraLookupCost;
+  // ElevenLabs bundles its credits into LLM (the agent's model) vs call_charge
+  // (TTS/ASR/telephony). Show them as two rows. Any EL spend without a split
+  // (legacy / pre-backfill rows) surfaces as an "unsplit" remainder so the EL
+  // total still reconciles.
+  const elUnsplit = Math.max(
+    0,
+    summary.elevenlabs - summary.elevenlabsLlm - summary.elevenlabsVoice,
+  );
+  const elUnsplitCredits = Math.max(
+    0,
+    summary.elevenlabsCredits -
+      summary.elevenlabsLlmCredits -
+      summary.elevenlabsVoiceCredits,
+  );
   const items = [
     {
-      label: "ElevenLabs",
-      note: "voice + LLM",
-      key: "elevenlabs" as const,
-      value: summary.elevenlabs,
+      label: "ElevenLabs · LLM",
+      note: "agent's model (gpt-5.4)",
+      key: "el_llm",
+      value: summary.elevenlabsLlm,
+      credits: summary.elevenlabsLlmCredits,
+      color: "#E8853F",
+    },
+    {
+      label: "ElevenLabs · voice & telephony",
+      note: "TTS, ASR & call",
+      key: "el_voice",
+      value: summary.elevenlabsVoice,
+      credits: summary.elevenlabsVoiceCredits,
       color: "#D85A30",
     },
+    ...(elUnsplit > 0.005
+      ? [
+          {
+            label: "ElevenLabs · unsplit",
+            note: "calls before the split was tracked",
+            key: "el_unsplit",
+            value: elUnsplit,
+            credits: elUnsplitCredits,
+            color: "#B8491F",
+          },
+        ]
+      : []),
     {
       label: "Twilio calls",
       note: "connection & talk time",
-      key: "twilio" as const,
+      key: "twilio",
       value: summary.twilio,
+      credits: undefined as number | undefined,
       color: "#378ADD",
     },
     {
       label: "Twilio lookup",
       note: "number checks",
-      key: "lookup" as const,
+      key: "lookup",
       value: summary.lookup + extraLookupCost,
+      credits: undefined as number | undefined,
       color: "#1D9E75",
     },
     {
       label: "OpenAI",
       note: "summaries & transcription",
-      key: "openai" as const,
+      key: "openai",
       value: summary.openai,
+      credits: undefined as number | undefined,
       color: "#7F77DD",
     },
   ].sort((a, b) => b.value - a.value);
@@ -107,6 +145,11 @@ export function CostsVendorBreakdown({
               </span>
               <span className="text-foreground tabular-nums">
                 {usd(i.value)}{" "}
+                {typeof i.credits === "number" && i.credits > 0 ? (
+                  <span className="text-muted-foreground">
+                    · {Math.round(i.credits).toLocaleString()} cr
+                  </span>
+                ) : null}{" "}
                 <span className="text-muted-foreground">· {share}</span>
               </span>
             </li>
@@ -129,6 +172,18 @@ export function CostsVendorBreakdown({
           <span className="text-muted-foreground">/mo</span>
         </span>
       </div>
+      {summary.elevenlabsCredits > 0 ? (
+        <p className="text-muted-foreground text-[11px]">
+          ElevenLabs used{" "}
+          <span className="text-foreground font-medium tabular-nums">
+            {Math.round(summary.elevenlabsCredits).toLocaleString()} credits
+          </span>{" "}
+          this range ·{" "}
+          {Math.round(summary.elevenlabsLlmCredits).toLocaleString()} LLM +{" "}
+          {Math.round(summary.elevenlabsVoiceCredits).toLocaleString()}{" "}
+          voice/telephony.
+        </p>
+      ) : null}
       <p className="text-muted-foreground text-[11px]">
         The vendor rows are per-call costs for the selected range. Phone numbers
         are a flat monthly rental, shown on their own line.
