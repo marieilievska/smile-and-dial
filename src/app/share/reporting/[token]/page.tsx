@@ -21,6 +21,7 @@ import {
 } from "@/lib/agent-analytics/report-data";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
 import type { Database } from "@/lib/supabase/database.types";
+import { createClient } from "@/lib/supabase/server";
 
 // Public, read-only share of the Market Research reporting page, gated by an
 // unguessable token in the URL (validated against app_settings, so it's
@@ -73,6 +74,35 @@ export default async function PublicReporting({
     .ilike("name", "%market research%")
     .maybeSingle();
 
+  // Per-day comments on the dashboard: visible read-only to anyone with the
+  // link, and editable when a logged-in admin is the one viewing the preview
+  // (the upsertDashboardNote action re-checks admin, so this is safe).
+  let dashNotes: Record<string, string> | undefined;
+  let viewerIsAdmin = false;
+  if (tab === "dashboard" && agent) {
+    const { data: noteRows } = await supabase
+      .from("dashboard_notes")
+      .select("day, note");
+    dashNotes = {};
+    for (const r of noteRows ?? []) dashNotes[r.day] = r.note;
+    try {
+      const userClient = await createClient();
+      const {
+        data: { user },
+      } = await userClient.auth.getUser();
+      if (user) {
+        const { data: me } = await userClient
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+        viewerIsAdmin = me?.role === "admin";
+      }
+    } catch {
+      // Anonymous viewer — notes stay read-only.
+    }
+  }
+
   return (
     <main className="bg-background text-foreground min-h-screen">
       <div className="mx-auto flex max-w-6xl flex-col gap-5 p-6">
@@ -97,6 +127,8 @@ export default async function PublicReporting({
             kpis={await fetchDashboardKpis(supabase, agent.id)}
             day={yesterdayEt()}
             historyDays={DASHBOARD_DAYS}
+            notes={dashNotes}
+            notesEditable={viewerIsAdmin}
           />
         ) : tab === "voice" ? (
           <VoiceTable
