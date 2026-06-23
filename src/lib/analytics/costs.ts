@@ -113,31 +113,48 @@ function endOfDay(day: string): string {
   return endOfEtDayUtcIso(day);
 }
 
+const COSTS_PAGE = 1000;
+
 export async function fetchCostRows(
   supabase: SupabaseClient,
   slicers: Slicers,
 ): Promise<CostsRow[]> {
-  let query = supabase
-    .from("calls")
-    .select(
-      "id, lead_id, campaign_id, goal_met, duration_seconds, cost_breakdown, started_at, created_at",
-    )
-    .gte("created_at", startOfDay(slicers.from))
-    .lte("created_at", endOfDay(slicers.to))
-    .order("created_at", { ascending: false });
-  if (slicers.campaignId) query = query.eq("campaign_id", slicers.campaignId);
-
-  const { data } = await query;
-  let rows = (data ?? []) as unknown as CostsRow[];
+  // Paginate past PostgREST's 1,000-row cap — a cost window can exceed 1,000
+  // calls, and an un-paginated fetch silently undercounts every spend rollup
+  // (vendor split, per-campaign, per-day, …).
+  let rows: CostsRow[] = [];
+  for (let offset = 0; ; offset += COSTS_PAGE) {
+    let query = supabase
+      .from("calls")
+      .select(
+        "id, lead_id, campaign_id, goal_met, duration_seconds, cost_breakdown, started_at, created_at",
+      )
+      .gte("created_at", startOfDay(slicers.from))
+      .lte("created_at", endOfDay(slicers.to))
+      .order("created_at", { ascending: false })
+      .range(offset, offset + COSTS_PAGE - 1);
+    if (slicers.campaignId) query = query.eq("campaign_id", slicers.campaignId);
+    const { data } = await query;
+    const batch = (data ?? []) as unknown as CostsRow[];
+    rows.push(...batch);
+    if (batch.length < COSTS_PAGE) break;
+    if (offset > 500_000) break; // safety backstop
+  }
 
   if (slicers.ownerId || slicers.listId) {
     const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
     if (leadIds.length === 0) return [];
-    let leadQuery = supabase.from("leads").select("id").in("id", leadIds);
-    if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
-    if (slicers.ownerId) leadQuery = leadQuery.eq("owner_id", slicers.ownerId);
-    const { data: leads } = await leadQuery;
-    const ok = new Set((leads ?? []).map((l) => l.id));
+    // Chunk so the lead lookup also clears the 1,000-row cap.
+    const ok = new Set<string>();
+    for (let i = 0; i < leadIds.length; i += COSTS_PAGE) {
+      const chunk = leadIds.slice(i, i + COSTS_PAGE);
+      let leadQuery = supabase.from("leads").select("id").in("id", chunk);
+      if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
+      if (slicers.ownerId)
+        leadQuery = leadQuery.eq("owner_id", slicers.ownerId);
+      const { data: leads } = await leadQuery;
+      for (const l of leads ?? []) ok.add((l as { id: string }).id);
+    }
     rows = rows.filter((r) => ok.has(r.lead_id));
   }
   return rows;

@@ -101,15 +101,27 @@ export async function fetchDashboardKpis(
   supabase: DB,
   agentId: string,
 ): Promise<DailyKpi[]> {
-  const { data } = await supabase
-    .from("calls")
-    .select("started_at, outcome, duration_seconds, extracted_data")
-    .eq("agent_id", agentId)
-    .eq("direction", "outbound")
-    .gte("started_at", sinceDaysAgoIso(DASHBOARD_DAYS))
-    .order("started_at", { ascending: false })
-    .limit(5000);
-  return computeDailyKpis((data ?? []) as AgentCallRow[]);
+  // Paginate: PostgREST hard-caps every response at 1,000 rows on this project
+  // (a bare `.limit(5000)` still returns only 1,000), so a busy window would
+  // silently undercount the daily call totals. Page through in 1,000-row batches.
+  const PAGE = 1000;
+  const since = sinceDaysAgoIso(DASHBOARD_DAYS);
+  const rows: AgentCallRow[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const { data } = await supabase
+      .from("calls")
+      .select("started_at, outcome, duration_seconds, extracted_data")
+      .eq("agent_id", agentId)
+      .eq("direction", "outbound")
+      .gte("started_at", since)
+      .order("started_at", { ascending: false })
+      .range(offset, offset + PAGE - 1);
+    const batch = (data ?? []) as AgentCallRow[];
+    rows.push(...batch);
+    if (batch.length < PAGE) break;
+    if (offset > 500_000) break; // safety backstop
+  }
+  return computeDailyKpis(rows);
 }
 
 type VoiceRawRow = {
