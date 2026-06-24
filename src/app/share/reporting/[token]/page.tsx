@@ -74,12 +74,21 @@ export default async function PublicReporting({
     .ilike("name", "%market research%")
     .maybeSingle();
 
+  // Resolve the Market Research campaign(s) by name too — the dashboard counts
+  // by campaign as well, so the numbers survive if the agent is ever deleted
+  // (calls keep campaign_id; agent_id goes null).
+  const { data: campaignRows } = await supabase
+    .from("campaigns")
+    .select("id")
+    .ilike("name", "%market research%");
+  const campaignIds = (campaignRows ?? []).map((c) => c.id);
+
   // Per-day comments on the dashboard: visible read-only to anyone with the
   // link, and editable when a logged-in admin is the one viewing the preview
   // (the upsertDashboardNote action re-checks admin, so this is safe).
   let dashNotes: Record<string, string> | undefined;
   let viewerIsAdmin = false;
-  if (tab === "dashboard" && agent) {
+  if (tab === "dashboard" && (agent || campaignIds.length > 0)) {
     const { data: noteRows } = await supabase
       .from("dashboard_notes")
       .select("day, note");
@@ -120,21 +129,31 @@ export default async function PublicReporting({
           hrefFor={(k) => `/share/reporting/${token}?tab=${k}`}
         />
 
-        {!agent ? (
+        {!agent && campaignIds.length === 0 ? (
           <p className="text-muted-foreground text-sm">No data yet.</p>
         ) : tab === "dashboard" ? (
           <DashboardView
-            kpis={await fetchDashboardKpis(supabase, agent.id)}
+            kpis={await fetchDashboardKpis(supabase, {
+              agentId: agent?.id ?? null,
+              campaignIds,
+            })}
             day={yesterdayEt()}
             historyDays={DASHBOARD_DAYS}
             notes={dashNotes}
             notesEditable={viewerIsAdmin}
           />
         ) : tab === "voice" ? (
-          <VoiceTable
-            rows={await fetchVoiceRows(supabase, agent.id)}
-            readOnly
-          />
+          agent ? (
+            <VoiceTable
+              rows={await fetchVoiceRows(supabase, agent.id)}
+              readOnly
+            />
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              Per-call detail isn’t available (the agent was removed). The
+              dashboard still covers this campaign.
+            </p>
+          )
         ) : tab === "hot-leads" ? (
           <HotLeadsTable rows={await fetchHotLeadRows(supabase)} readOnly />
         ) : tab === "changelog" ? (

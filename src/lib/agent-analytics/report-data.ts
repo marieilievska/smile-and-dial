@@ -99,8 +99,18 @@ function fmtLen(s: number | null): string {
 
 export async function fetchDashboardKpis(
   supabase: DB,
-  agentId: string,
+  scope: { agentId?: string | null; campaignIds?: string[] },
 ): Promise<DailyKpi[]> {
+  // Count by the agent AND/OR the campaign(s). `calls.agent_id` goes NULL if the
+  // agent is deleted, but `calls.campaign_id` is durable — so matching on either
+  // keeps the dashboard accurate even after an agent is removed.
+  const conds: string[] = [];
+  if (scope.agentId) conds.push(`agent_id.eq.${scope.agentId}`);
+  if (scope.campaignIds && scope.campaignIds.length > 0) {
+    conds.push(`campaign_id.in.(${scope.campaignIds.join(",")})`);
+  }
+  if (conds.length === 0) return [];
+
   // Paginate: PostgREST hard-caps every response at 1,000 rows on this project
   // (a bare `.limit(5000)` still returns only 1,000), so a busy window would
   // silently undercount the daily call totals. Page through in 1,000-row batches.
@@ -111,7 +121,7 @@ export async function fetchDashboardKpis(
     const { data } = await supabase
       .from("calls")
       .select("started_at, outcome, duration_seconds, extracted_data")
-      .eq("agent_id", agentId)
+      .or(conds.join(","))
       .eq("direction", "outbound")
       .gte("started_at", since)
       .order("started_at", { ascending: false })

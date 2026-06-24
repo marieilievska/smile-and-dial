@@ -52,6 +52,15 @@ export default async function AgentAnalyticsPage({
     .ilike("name", "%market research%")
     .maybeSingle();
 
+  // Also resolve the Market Research campaign(s) by name. The dashboard counts
+  // by campaign as well, so the numbers survive even if the agent is later
+  // deleted (calls keep their campaign_id; only agent_id goes null).
+  const { data: campaignRows } = await supabase
+    .from("campaigns")
+    .select("id")
+    .ilike("name", "%market research%");
+  const campaignIds = (campaignRows ?? []).map((c) => c.id);
+
   // Public read-only share token (revocable from settings). When set, admins
   // get a "Copy share link" button; when blank, the link is disabled so we
   // hide the button.
@@ -79,15 +88,27 @@ export default async function AgentAnalyticsPage({
 
       <ReportingTabs active={tab} hrefFor={(k) => `/reporting?tab=${k}`} />
 
-      {!agent ? (
+      {!agent && campaignIds.length === 0 ? (
         <div className="border-border bg-muted/20 rounded-lg border p-6 text-sm">
-          No agent named “Market Research” was found, so there’s nothing to
-          report yet.
+          No agent or campaign named “Market Research” was found, so there’s
+          nothing to report yet.
         </div>
       ) : tab === "dashboard" ? (
-        <DashboardTab agentId={agent.id} selectedDay={str(params.day)} />
+        <DashboardTab
+          agentId={agent?.id ?? null}
+          campaignIds={campaignIds}
+          selectedDay={str(params.day)}
+        />
       ) : tab === "voice" ? (
-        <VoiceTab agentId={agent.id} />
+        agent ? (
+          <VoiceTab agentId={agent.id} />
+        ) : (
+          <div className="border-border bg-muted/20 rounded-lg border p-6 text-sm">
+            The Market Research agent was removed, so per-call detail isn’t
+            available here. The dashboard counts (by campaign) and Costs /
+            Analytics still cover this campaign.
+          </div>
+        )
       ) : tab === "hot-leads" ? (
         <HotLeadsTab />
       ) : tab === "changelog" ? (
@@ -101,13 +122,15 @@ export default async function AgentAnalyticsPage({
 
 async function DashboardTab({
   agentId,
+  campaignIds,
   selectedDay,
 }: {
-  agentId: string;
+  agentId: string | null;
+  campaignIds: string[];
   selectedDay: string;
 }) {
   const supabase = await createClient();
-  const kpis = await fetchDashboardKpis(supabase, agentId);
+  const kpis = await fetchDashboardKpis(supabase, { agentId, campaignIds });
   const day = /^\d{4}-\d{2}-\d{2}$/.test(selectedDay)
     ? selectedDay
     : yesterdayEt();
