@@ -468,6 +468,18 @@ export type ElevenLabsPostCallPayload = {
       llm_charge?: number;
       call_charge?: number;
     };
+    // ElevenLabs-NATIVE inbound: when EL answers an inbound call (the agent is
+    // assigned to the number inside EL), the post-call payload carries the
+    // call's phone details here. There's no echoed call_id, so we use this to
+    // CREATE the inbound `calls` row + lead — otherwise inbound calls never get
+    // logged in the app.
+    phone_call?: {
+      direction?: string;
+      agent_number?: string;
+      external_number?: string;
+      call_sid?: string;
+      phone_number_id?: string;
+    };
   };
 };
 
@@ -663,6 +675,98 @@ async function resolveCall(
 }
 
 /**
+ * EL-native inbound has no echoed call_id, so {@link resolveCall} misses and the
+ * call would be dropped as `unknown_conversation` — invisible in the app. When
+ * the payload says it's an inbound phone call, create the `calls` row + lead
+ * (our number → campaign, caller → the owner's matching lead or a new one in the
+ * Inbound list) so it's logged, then let processTranscription fill it like any
+ * other call. Returns null when it isn't an attributable inbound call.
+ *
+ * Idempotent: the unique `twilio_call_sid` means a re-delivered event reuses the
+ * same row, and the conversation_id is stamped so later events (audio) resolve
+ * to it normally.
+ */
+async function createInboundCallFromPayload(
+  supabase: SupabaseAdmin,
+  payload: ElevenLabsPostCallPayload,
+  conversationId: string,
+): Promise<Awaited<ReturnType<typeof resolveCall>>> {
+  const pc = payload.metadata?.phone_call;
+  if (!pc || pc.direction !== "inbound") return null;
+  const agentNumber = (pc.agent_number ?? "").trim();
+  const callerNumber = (pc.external_number ?? "").trim();
+  const callSid = (pc.call_sid ?? "").trim();
+  if (!agentNumber || !callSid) return null;
+
+  // Our number → campaign (owner + agent).
+  const { data: numberRow } = await supabase
+    .from("twilio_numbers")
+    .select("id, attached_campaign_id")
+    .eq("phone_number", agentNumber)
+    .maybeSingle();
+  if (!numberRow?.attached_campaign_id) return null;
+  const { data: campaign } = await supabase
+    .from("campaigns")
+    .select("id, owner_id, agent_id")
+    .eq("id", numberRow.attached_campaign_id)
+    .maybeSingle();
+  if (!campaign) return null;
+
+  // Caller → lead: reuse the owner's matching lead, else create one in the
+  // owner's Inbound list (same path as the legacy app-bridged inbound route).
+  let leadId: string | null = null;
+  if (callerNumber) {
+    const { data: existingLead } = await supabase
+      .from("leads")
+      .select("id")
+      .eq("owner_id", campaign.owner_id)
+      .eq("business_phone", callerNumber)
+      .maybeSingle();
+    if (existingLead) leadId = existingLead.id;
+  }
+  if (!leadId) {
+    const { data: listId } = await supabase.rpc("get_or_create_inbound_list", {
+      in_owner: campaign.owner_id,
+    });
+    if (!listId) return null;
+    const { data: newLead } = await supabase
+      .from("leads")
+      .insert({
+        owner_id: campaign.owner_id,
+        list_id: listId as string,
+        business_phone: callerNumber || null,
+        company: callerNumber || "Inbound caller",
+      })
+      .select("id")
+      .single();
+    if (!newLead) return null;
+    leadId = newLead.id;
+  }
+
+  const cols =
+    "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id, started_at";
+  const { data: call } = await supabase
+    .from("calls")
+    .upsert(
+      {
+        lead_id: leadId,
+        campaign_id: campaign.id,
+        agent_id: campaign.agent_id,
+        twilio_number_id: numberRow.id,
+        direction: "inbound",
+        status: "in_progress",
+        twilio_call_sid: callSid,
+        elevenlabs_conversation_id: conversationId,
+        started_at: new Date().toISOString(),
+      },
+      { onConflict: "twilio_call_sid" },
+    )
+    .select(cols)
+    .maybeSingle();
+  return (call ?? null) as Awaited<ReturnType<typeof resolveCall>>;
+}
+
+/**
  * Top-level dispatcher. Unwraps the ElevenLabs envelope ({ type, data }),
  * falls back to the legacy flat shape, and routes to the right handler:
  *   post_call_transcription (or flat) → processTranscription
@@ -740,11 +844,20 @@ async function processTranscription(
     return { ok: false, reason: "could_not_log_event" };
   }
 
-  const call = await resolveCall(
+  let call = await resolveCall(
     supabase,
     conversationId,
     extractEchoedCallId(payload),
   );
+  // EL-native inbound has no echoed call_id, so resolveCall misses. Create the
+  // inbound call + lead so it's logged instead of dropped as unknown.
+  if (!call) {
+    call = await createInboundCallFromPayload(
+      supabase,
+      payload,
+      conversationId,
+    );
+  }
   if (!call) return { ok: true, status: "unknown_conversation" };
 
   // Map disposition → outcome. If the agent didn't set a disposition but its
