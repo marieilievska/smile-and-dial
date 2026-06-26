@@ -20,6 +20,13 @@ export const REPORTING_TABS = [
 
 export type ReportingTabKey = (typeof REPORTING_TABS)[number]["key"];
 
+/** Shown above the interest tabs (Voice of Customer, Hot Leads) in the combined
+ *  / all-agents view, where they aggregate every agent's data but interest is
+ *  only collected by the Market Research campaign today. Shared by the in-app
+ *  page and the public share so the wording can't drift. */
+export const INTEREST_COMBINED_NOTE =
+  "Heads-up: yes / no / maybe is only recorded by agents set up to ask about it — currently the Market Research campaign — so this combined view reflects those calls.";
+
 /** The tabs to show for the current scope. The interest-based tabs (Voice of
  *  Customer, Hot Leads) only make sense when the scope has yes/no/maybe data. */
 export function reportingTabsFor(

@@ -154,10 +154,30 @@ type VoiceRawRow = {
   lead: unknown;
 };
 
+/** PostgREST `.or()` condition string selecting the calls in a scope, or null
+ *  for "all" (no filter). An AGENT scope rolls up the agent's campaigns too —
+ *  calls keep `campaign_id` even after the agent row is replaced, so matching on
+ *  either catches calls whose `agent_id` has since gone null. Mirrors how
+ *  fetchDashboardKpis matches by agent AND campaign. */
+async function scopeCallConds(
+  supabase: DB,
+  scope: ReportScope,
+): Promise<string | null> {
+  if (scope.kind === "all") return null;
+  if (scope.kind === "campaign") return `campaign_id.eq.${scope.campaignId}`;
+  const campaignIds = await fetchAgentCampaignIds(supabase, scope.agentId);
+  const conds = [`agent_id.eq.${scope.agentId}`];
+  if (campaignIds.length > 0) {
+    conds.push(`campaign_id.in.(${campaignIds.join(",")})`);
+  }
+  return conds.join(",");
+}
+
 export async function fetchVoiceRows(
   supabase: DB,
   scope: ReportScope,
 ): Promise<VoiceRow[]> {
+  const conds = await scopeCallConds(supabase, scope);
   let q = supabase
     .from("calls")
     .select(
@@ -168,8 +188,7 @@ export async function fetchVoiceRows(
     .not("extracted_data->>ai_call_answering_interest", "is", null)
     .order("started_at", { ascending: false })
     .limit(2000);
-  if (scope.kind === "agent") q = q.eq("agent_id", scope.agentId);
-  else if (scope.kind === "campaign") q = q.eq("campaign_id", scope.campaignId);
+  if (conds) q = q.or(conds);
   const { data } = await q;
 
   return ((data ?? []) as unknown as VoiceRawRow[])
@@ -211,14 +230,14 @@ export async function hasInterestData(
   supabase: DB,
   scope: ReportScope,
 ): Promise<boolean> {
+  const conds = await scopeCallConds(supabase, scope);
   let q = supabase
     .from("calls")
     .select("id", { count: "exact", head: true })
     .eq("direction", "outbound")
     .gte("started_at", sinceDaysAgoIso(VOICE_DAYS))
     .in("extracted_data->>ai_call_answering_interest", ["yes", "no", "maybe"]);
-  if (scope.kind === "agent") q = q.eq("agent_id", scope.agentId);
-  else if (scope.kind === "campaign") q = q.eq("campaign_id", scope.campaignId);
+  if (conds) q = q.or(conds);
   const { count } = await q;
   return (count ?? 0) > 0;
 }
