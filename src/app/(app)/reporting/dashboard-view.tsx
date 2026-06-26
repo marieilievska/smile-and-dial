@@ -11,6 +11,11 @@ function pct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
 
+/** "lead source satisfaction" / "happy" → "Happy" for a column header. */
+function titleCase(v: string): string {
+  return v.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /** Tailwind classes for the Warm % chip, color-coded by health. */
 function warmChip(v: number) {
   const cls =
@@ -50,9 +55,7 @@ function zeroDay(day: string): DailyKpi {
     hungUp: 0,
     aiError: 0,
     dnc: 0,
-    interestYes: 0,
-    interestMaybe: 0,
-    interestNo: 0,
+    sentimentCounts: {},
     warmPct: 0,
   };
 }
@@ -127,7 +130,7 @@ export function DashboardView({
   notes,
   notesEditable = false,
   scopeSlug = "all-agents",
-  showSentiment = false,
+  sentimentValues = [],
 }: {
   kpis: DailyKpi[];
   day: string;
@@ -140,8 +143,11 @@ export function DashboardView({
    *  it renders read-only text (anonymous share viewers). */
   notesEditable?: boolean;
   scopeSlug?: string;
-  showSentiment?: boolean;
+  /** The selected campaign's sentiment values, in display order. Empty = no
+   *  sentiment columns (combined view or a campaign without sentiment). */
+  sentimentValues?: string[];
 }) {
+  const showSentiment = sentimentValues.length > 0;
   const showNotes = notes !== undefined;
   const sel = kpis.find((k) => k.day === day) ?? zeroDay(day);
   const chrono = [...kpis].sort((a, b) => a.day.localeCompare(b.day));
@@ -162,9 +168,8 @@ export function DashboardView({
     k.hungUp,
     k.aiError,
     k.dnc,
-    ...(showSentiment
-      ? [k.interestYes, k.interestMaybe, k.interestNo, pct(k.warmPct)]
-      : []),
+    ...sentimentValues.map((v) => k.sentimentCounts[v] ?? 0),
+    ...(showSentiment ? [pct(k.warmPct)] : []),
   ]);
 
   const NUM_HEADERS = [
@@ -180,7 +185,7 @@ export function DashboardView({
     "Hung up",
     "AI err",
     "DNC",
-    ...(showSentiment ? ["Yes", "Maybe", "No"] : []),
+    ...sentimentValues.map(titleCase),
   ];
 
   return (
@@ -264,9 +269,8 @@ export function DashboardView({
               "hung_up",
               "ai_error",
               "dnc",
-              ...(showSentiment
-                ? ["interest_yes", "interest_maybe", "interest_no", "warm_pct"]
-                : []),
+              ...sentimentValues,
+              ...(showSentiment ? ["warm_pct"] : []),
             ]}
             rows={exportRows}
           />
@@ -368,15 +372,14 @@ export function DashboardView({
                     </td>
                     {showSentiment ? (
                       <>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {k.interestYes}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {k.interestMaybe}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {k.interestNo}
-                        </td>
+                        {sentimentValues.map((v) => (
+                          <td
+                            key={v}
+                            className="px-3 py-2 text-right tabular-nums"
+                          >
+                            {k.sentimentCounts[v] ?? 0}
+                          </td>
+                        ))}
                         <td className="px-3 py-2 text-right">
                           {warmChip(k.warmPct)}
                         </td>
