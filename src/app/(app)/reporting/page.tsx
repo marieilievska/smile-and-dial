@@ -74,7 +74,8 @@ export default async function AgentAnalyticsPage({
   let scope = parseScopeParam(str(params.scope));
   let scopeLabel = "All campaigns (combined)";
   if (scope.kind === "campaign") {
-    const found = campaigns.find((c) => c.id === scope.campaignId);
+    const campaignId = scope.campaignId;
+    const found = campaigns.find((c) => c.id === campaignId);
     if (found) scopeLabel = found.name;
     else scope = { kind: "all" };
   }
