@@ -35,9 +35,11 @@ const INTEREST_BADGE: Record<VoiceRow["interest"], string> = {
 export function VoiceTable({
   rows,
   readOnly = false,
+  scopeSlug = "all-agents",
 }: {
   rows: VoiceRow[];
   readOnly?: boolean;
+  scopeSlug?: string;
 }) {
   const [interest, setInterest] = useState<InterestFilter>("all");
   const [q, setQ] = useState("");
@@ -207,7 +209,7 @@ export function VoiceTable({
 
         <div className="ml-auto">
           <ExportCsvButton
-            filename="market-research-voice-of-customer.csv"
+            filename={`${scopeSlug}-voice-of-customer.csv`}
             headers={[
               "day",
               "company",

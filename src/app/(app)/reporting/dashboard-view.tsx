@@ -126,6 +126,7 @@ export function DashboardView({
   dayHrefFor,
   notes,
   notesEditable = false,
+  scopeSlug = "all-agents",
 }: {
   kpis: DailyKpi[];
   day: string;
@@ -137,6 +138,7 @@ export function DashboardView({
   /** When true the note cell is an inline editor (logged-in admin); otherwise
    *  it renders read-only text (anonymous share viewers). */
   notesEditable?: boolean;
+  scopeSlug?: string;
 }) {
   const showNotes = notes !== undefined;
   const sel = kpis.find((k) => k.day === day) ?? zeroDay(day);
@@ -247,7 +249,7 @@ export function DashboardView({
             Daily history
           </h2>
           <ExportCsvButton
-            filename="market-research-kpis.csv"
+            filename={`${scopeSlug}-kpis.csv`}
             headers={[
               "day",
               "calls_made",

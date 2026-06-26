@@ -59,9 +59,11 @@ const STATUS_RAIL: Record<string, string> = {
 export function HotLeadsTable({
   rows,
   readOnly = false,
+  scopeSlug = "all-agents",
 }: {
   rows: HotLeadRow[];
   readOnly?: boolean;
+  scopeSlug?: string;
 }) {
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [q, setQ] = useState("");
@@ -218,7 +220,7 @@ export function HotLeadsTable({
 
         <div className="ml-auto">
           <ExportCsvButton
-            filename="market-research-hot-leads.csv"
+            filename={`${scopeSlug}-hot-leads.csv`}
             headers={[
               "session_date",
               "company",
