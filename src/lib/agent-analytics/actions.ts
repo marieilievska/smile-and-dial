@@ -110,12 +110,31 @@ type ChangelogField =
   | "owner"
   | "ticket_link";
 
-/** Add a blank changelog row (DB defaults: today's date, status "Open"). */
-export async function createChangelogEntry(): Promise<{
-  error: string | null;
-}> {
+/** Add a changelog entry from the Add form. Owner is intentionally omitted.
+ *  change_date defaults to today if blank/invalid; status defaults to "Open". */
+export async function createChangelogEntry(input: {
+  change_date: string;
+  change_type: string;
+  status: string;
+  summary: string;
+  details: string;
+  area: string;
+  ticket_link: string;
+}): Promise<{ error: string | null }> {
   if (!(await isCallerAdmin())) return { error: "Admins only." };
-  const { error } = await adminClient().from("app_changelog").insert({});
+  const t = (s: string) => s.trim() || null;
+  const patch: Database["public"]["Tables"]["app_changelog"]["Insert"] = {
+    change_type: t(input.change_type),
+    status: input.status.trim() || "Open",
+    summary: t(input.summary),
+    details: t(input.details),
+    area: t(input.area),
+    ticket_link: t(input.ticket_link),
+  };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input.change_date)) {
+    patch.change_date = input.change_date;
+  }
+  const { error } = await adminClient().from("app_changelog").insert(patch);
   if (error) return { error: "Could not add entry." };
   revalidatePath(AGENT_ANALYTICS_PATH);
   return { error: null };
