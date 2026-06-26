@@ -7,8 +7,8 @@ import { DashboardView } from "@/app/(app)/reporting/dashboard-view";
 import { HotLeadsTable } from "@/app/(app)/reporting/hot-leads-table";
 import { PromptLogTable } from "@/app/(app)/reporting/prompt-log-table";
 import {
-  REPORTING_TABS,
   ReportingTabs,
+  reportingTabsFor,
 } from "@/app/(app)/reporting/reporting-tabs";
 import { VoiceTable } from "@/app/(app)/reporting/voice-table";
 import {
@@ -18,6 +18,7 @@ import {
   fetchHotLeadRows,
   fetchPromptLogRows,
   fetchVoiceRows,
+  hasInterestData,
 } from "@/lib/agent-analytics/report-data";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
 import type { Database } from "@/lib/supabase/database.types";
@@ -28,7 +29,7 @@ import { createClient } from "@/lib/supabase/server";
 // revocable). No login. Same tabs as the in-app page, all rendered read-only.
 // Never indexed.
 export const metadata = {
-  title: "Market Research — Reporting",
+  title: "Reporting",
   robots: { index: false, follow: false },
 };
 
@@ -64,31 +65,19 @@ export default async function PublicReporting({
   const expected = settings?.agent_analytics_share_token ?? "";
   if (!expected || token !== expected) notFound();
 
-  const tab = REPORTING_TABS.some((t) => t.key === str(sp.tab))
+  // The share is a fixed all-agents combined view (no picker).
+  const showInterest = await hasInterestData(supabase, { kind: "all" });
+  const visibleTabs = reportingTabsFor(showInterest);
+  const tab = visibleTabs.some((t) => t.key === str(sp.tab))
     ? str(sp.tab)
     : "dashboard";
 
-  const { data: agent } = await supabase
-    .from("agents")
-    .select("id")
-    .ilike("name", "%market research%")
-    .maybeSingle();
-
-  // Resolve the Market Research campaign(s) by name too — the dashboard counts
-  // by campaign as well, so the numbers survive if the agent is ever deleted
-  // (calls keep campaign_id; agent_id goes null).
-  const { data: campaignRows } = await supabase
-    .from("campaigns")
-    .select("id")
-    .ilike("name", "%market research%");
-  const campaignIds = (campaignRows ?? []).map((c) => c.id);
-
-  // Per-day comments on the dashboard: visible read-only to anyone with the
-  // link, and editable when a logged-in admin is the one viewing the preview
-  // (the upsertDashboardNote action re-checks admin, so this is safe).
+  // Per-day comments on the dashboard: read-only to anyone with the link, and
+  // editable when a logged-in admin is viewing the preview (the
+  // upsertDashboardNote action re-checks admin, so this is safe).
   let dashNotes: Record<string, string> | undefined;
   let viewerIsAdmin = false;
-  if (tab === "dashboard" && (agent || campaignIds.length > 0)) {
+  if (tab === "dashboard") {
     const { data: noteRows } = await supabase
       .from("dashboard_notes")
       .select("day, note");
@@ -117,45 +106,40 @@ export default async function PublicReporting({
       <div className="mx-auto flex max-w-6xl flex-col gap-5 p-6">
         <div>
           <h1 className="text-foreground text-2xl font-bold tracking-tight">
-            Market Research — Reporting
+            Reporting
           </h1>
           <p className="text-muted-foreground mt-0.5 text-sm">
-            Read-only shared view · updates live.
+            Read-only shared view · all agents · updates live.
           </p>
         </div>
 
         <ReportingTabs
           active={tab}
+          tabs={visibleTabs}
           hrefFor={(k) => `/share/reporting/${token}?tab=${k}`}
         />
 
-        {!agent && campaignIds.length === 0 ? (
-          <p className="text-muted-foreground text-sm">No data yet.</p>
-        ) : tab === "dashboard" ? (
+        {tab === "dashboard" ? (
           <DashboardView
-            kpis={await fetchDashboardKpis(supabase, {
-              agentId: agent?.id ?? null,
-              campaignIds,
-            })}
+            kpis={await fetchDashboardKpis(supabase, { all: true })}
             day={yesterdayEt()}
             historyDays={DASHBOARD_DAYS}
             notes={dashNotes}
             notesEditable={viewerIsAdmin}
+            scopeSlug="all-agents"
           />
         ) : tab === "voice" ? (
-          agent ? (
-            <VoiceTable
-              rows={await fetchVoiceRows(supabase, agent.id)}
-              readOnly
-            />
-          ) : (
-            <p className="text-muted-foreground text-sm">
-              Per-call detail isn’t available (the agent was removed). The
-              dashboard still covers this campaign.
-            </p>
-          )
+          <VoiceTable
+            rows={await fetchVoiceRows(supabase, { kind: "all" })}
+            readOnly
+            scopeSlug="all-agents"
+          />
         ) : tab === "hot-leads" ? (
-          <HotLeadsTable rows={await fetchHotLeadRows(supabase)} readOnly />
+          <HotLeadsTable
+            rows={await fetchHotLeadRows(supabase)}
+            readOnly
+            scopeSlug="all-agents"
+          />
         ) : tab === "changelog" ? (
           <ChangelogTable rows={await fetchChangelogRows(supabase)} readOnly />
         ) : tab === "prompt-log" ? (
