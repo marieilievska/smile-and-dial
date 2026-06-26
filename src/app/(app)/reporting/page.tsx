@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+import {
+  detectCampaignFields,
+  type DetectedFields,
+} from "@/lib/agent-analytics/field-detect";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
 import {
   DASHBOARD_DAYS,
@@ -23,11 +27,7 @@ import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
 import { HotLeadsTable } from "./hot-leads-table";
 import { PromptLogTable } from "./prompt-log-table";
-import {
-  INTEREST_COMBINED_NOTE,
-  ReportingTabs,
-  reportingTabsFor,
-} from "./reporting-tabs";
+import { ReportingTabs, reportingTabsFor } from "./reporting-tabs";
 import { ScopePicker } from "./scope-picker";
 import { VoiceTable } from "./voice-table";
 
@@ -81,12 +81,17 @@ export default async function AgentAnalyticsPage({
   }
   const scopeParam = serializeScope(scope);
 
-  // Interest tabs (Voice of Customer, Hot Leads) show when the scope has
-  // yes/no/maybe data; the dashboard's sentiment columns show only for a single
-  // campaign that has it (never in the combined view).
-  const showInterest = await hasInterestData(supabase, scope);
-  const showSentiment = scope.kind === "campaign" && showInterest;
-  const visibleTabs = reportingTabsFor(showInterest);
+  // Detect the campaign's own sentiment + notes fields (combined view has none).
+  // Voice of Customer shows when a sentiment field is detected; Hot Leads keeps
+  // its interest-driven gate.
+  const detected: DetectedFields =
+    scope.kind === "campaign"
+      ? await detectCampaignFields(supabase, scope.campaignId)
+      : { sentimentKey: null, sentimentValues: [], notesKey: null };
+  const showVoice = scope.kind === "campaign" && detected.sentimentKey !== null;
+  const showHotLeads =
+    scope.kind === "campaign" && (await hasInterestData(supabase, scope));
+  const visibleTabs = reportingTabsFor({ showVoice, showHotLeads });
   const tab = visibleTabs.some((t) => t.key === str(params.tab))
     ? str(params.tab)
     : "dashboard";
@@ -105,12 +110,6 @@ export default async function AgentAnalyticsPage({
 
   const slug = scopeSlug(scope, scopeLabel);
 
-  // In the combined view the interest tabs aggregate every agent's data — but
-  // interest answers are only collected by the Market Research campaign today,
-  // so flag that so the numbers aren't read as spanning all agents.
-  const interestNote =
-    scope.kind === "all" ? INTEREST_COMBINED_NOTE : undefined;
-
   return (
     <div className="flex flex-col gap-5 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -124,7 +123,11 @@ export default async function AgentAnalyticsPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ScopePicker campaigns={campaigns} value={scopeParam} />
+          <ScopePicker
+            campaigns={campaigns}
+            value={scopeParam}
+            basePath="/reporting"
+          />
           {shareToken ? <CopyShareLinkButton token={shareToken} /> : null}
         </div>
       </div>
@@ -141,12 +144,13 @@ export default async function AgentAnalyticsPage({
           selectedDay={str(params.day)}
           scopeParam={scopeParam}
           slug={slug}
-          showSentiment={showSentiment}
+          sentimentKey={detected.sentimentKey}
+          sentimentValues={detected.sentimentValues}
         />
       ) : tab === "voice" ? (
-        <VoiceTab scope={scope} slug={slug} note={interestNote} />
+        <VoiceTab scope={scope} detected={detected} slug={slug} />
       ) : tab === "hot-leads" ? (
-        <HotLeadsTab note={interestNote} />
+        <HotLeadsTab />
       ) : tab === "changelog" ? (
         <ChangelogTab />
       ) : tab === "prompt-log" ? (
@@ -161,16 +165,18 @@ async function DashboardTab({
   selectedDay,
   scopeParam,
   slug,
-  showSentiment,
+  sentimentKey,
+  sentimentValues,
 }: {
   kpiScope: DashboardKpiScope;
   selectedDay: string;
   scopeParam: string;
   slug: string;
-  showSentiment: boolean;
+  sentimentKey: string | null;
+  sentimentValues: string[];
 }) {
   const supabase = await createClient();
-  const kpis = await fetchDashboardKpis(supabase, kpiScope);
+  const kpis = await fetchDashboardKpis(supabase, kpiScope, sentimentKey);
   const day = /^\d{4}-\d{2}-\d{2}$/.test(selectedDay)
     ? selectedDay
     : yesterdayEt();
@@ -191,37 +197,37 @@ async function DashboardTab({
       notes={notes}
       notesEditable
       scopeSlug={slug}
-      showSentiment={showSentiment}
+      sentimentValues={sentimentValues}
     />
   );
 }
 
 async function VoiceTab({
   scope,
+  detected,
   slug,
-  note,
 }: {
   scope: ReportScope;
+  detected: DetectedFields;
   slug: string;
-  note?: string;
 }) {
   const supabase = await createClient();
   return (
     <VoiceTable
-      rows={await fetchVoiceRows(supabase, scope)}
+      rows={await fetchVoiceRows(supabase, scope, detected)}
+      sentimentValues={detected.sentimentValues}
+      recordingSrcFor={(id) => `/api/reporting/recording/${id}`}
       scopeSlug={slug}
-      note={note}
     />
   );
 }
 
-async function HotLeadsTab({ note }: { note?: string }) {
+async function HotLeadsTab() {
   const supabase = await createClient();
   return (
     <HotLeadsTable
       rows={await fetchHotLeadRows(supabase)}
       scopeSlug="all-agents"
-      note={note}
     />
   );
 }
