@@ -2,6 +2,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { pickBreakdown } from "@/lib/analytics/costs";
 
+const PAGE = 1000;
+
+/** Page past PostgREST's hard 1,000-row cap. An un-paginated `.select()` over a
+ *  busy month silently returns only the first 1,000 calls, so every spend
+ *  rollup built by summing rows in JS undercounts (and the month-end projection
+ *  built on that total reads far too low). `makeQuery` must return a fresh
+ *  range-bounded query per page. Mirrors `fetchCostRows` in lib/analytics/costs. */
+async function fetchAllRows<T>(
+  makeQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const { data } = await makeQuery(offset, offset + PAGE - 1);
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < PAGE) break;
+    if (offset > 500_000) break; // safety backstop
+  }
+  return rows;
+}
+
 export type CostsHeadlineStats = {
   /** Spend across all calls today (workspace-wide, unaffected by
    *  page slicers) — used for the budget-pace tile. */
@@ -13,10 +34,11 @@ export type CostsHeadlineStats = {
   projectedMonthSpend: number;
 };
 
-/** Pulls today + month-to-date spend (and a month-end projection) in a
- *  single query. Powers the budget-pace tile, which stays fixed when
- *  the user changes the page-level date filter so it always answers
- *  "am I on track this month?". */
+/** Pulls today + month-to-date spend (and a month-end projection). Powers the
+ *  budget-pace tile, which stays fixed when the user changes the page-level
+ *  date filter so it always answers "am I on track this month?". Both source
+ *  queries page past the 1,000-row cap so the month total — and the projection
+ *  built on it — stay correct once the month exceeds 1,000 calls. */
 export async function fetchCostsHeadlineStats(
   supabase: SupabaseClient,
 ): Promise<CostsHeadlineStats> {
@@ -26,36 +48,42 @@ export async function fetchCostsHeadlineStats(
   const startOfMonth = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
   );
+  const startOfMonthIso = startOfMonth.toISOString();
 
-  const [{ data }, { data: lookupRows }] = await Promise.all([
-    supabase
-      .from("calls")
-      .select("cost_breakdown, created_at")
-      .gte("created_at", startOfMonth.toISOString()),
+  const [data, lookupRows] = await Promise.all([
+    fetchAllRows<{ cost_breakdown: unknown; created_at: string }>((from, to) =>
+      supabase
+        .from("calls")
+        .select("cost_breakdown, created_at")
+        .gte("created_at", startOfMonthIso)
+        .order("created_at", { ascending: false })
+        .range(from, to),
+    ),
     // Import-lookup charges this month (billed outside calls).
-    supabase
-      .from("lookup_charges")
-      .select("cost, created_at")
-      .gte("created_at", startOfMonth.toISOString()),
+    fetchAllRows<{ cost: number; created_at: string }>((from, to) =>
+      supabase
+        .from("lookup_charges")
+        .select("cost, created_at")
+        .gte("created_at", startOfMonthIso)
+        .order("created_at", { ascending: false })
+        .range(from, to),
+    ),
   ]);
 
   let todaySpend = 0;
   let mtdSpend = 0;
   const todayIso = startOfDay.toISOString();
-  for (const row of data ?? []) {
-    const breakdown = pickBreakdown(
-      (row as { cost_breakdown: unknown }).cost_breakdown,
-    );
+  for (const row of data) {
+    const breakdown = pickBreakdown(row.cost_breakdown);
     mtdSpend += breakdown.total;
-    if ((row as { created_at: string }).created_at >= todayIso) {
+    if (row.created_at >= todayIso) {
       todaySpend += breakdown.total;
     }
   }
-  for (const row of lookupRows ?? []) {
-    const r = row as { cost: number; created_at: string };
-    const cost = Number(r.cost) || 0;
+  for (const row of lookupRows) {
+    const cost = Number(row.cost) || 0;
     mtdSpend += cost;
-    if (r.created_at >= todayIso) todaySpend += cost;
+    if (row.created_at >= todayIso) todaySpend += cost;
   }
 
   // Linear month-end projection. dayOfMonth counts today as elapsed so
@@ -87,19 +115,28 @@ export async function fetchCampaignCaps(
   supabase: SupabaseClient,
 ): Promise<Map<string, CampaignCap>> {
   const out = new Map<string, CampaignCap>();
-  const [{ data: campaigns }, { data: calls }] = await Promise.all([
+  const startOfMonth = new Date();
+  startOfMonth.setUTCDate(1);
+  startOfMonth.setUTCHours(0, 0, 0, 0);
+  const startOfMonthIso = startOfMonth.toISOString();
+  const [{ data: campaigns }, calls] = await Promise.all([
     supabase
       .from("campaigns")
       .select("id, name, status, daily_spend_cap, monthly_spend_cap"),
-    (async () => {
-      const startOfMonth = new Date();
-      startOfMonth.setUTCDate(1);
-      startOfMonth.setUTCHours(0, 0, 0, 0);
-      return supabase
+    // Page past the 1,000-row cap so a busy month doesn't undercount each
+    // campaign's month spend (and its progress against the monthly cap).
+    fetchAllRows<{
+      campaign_id: string;
+      cost_breakdown: unknown;
+      created_at: string;
+    }>((from, to) =>
+      supabase
         .from("calls")
         .select("campaign_id, cost_breakdown, created_at")
-        .gte("created_at", startOfMonth.toISOString());
-    })(),
+        .gte("created_at", startOfMonthIso)
+        .order("created_at", { ascending: false })
+        .range(from, to),
+    ),
   ]);
 
   const dayStart = new Date();
@@ -108,12 +145,7 @@ export async function fetchCampaignCaps(
 
   const spendDay = new Map<string, number>();
   const spendMonth = new Map<string, number>();
-  for (const row of calls ?? []) {
-    const r = row as {
-      campaign_id: string;
-      cost_breakdown: unknown;
-      created_at: string;
-    };
+  for (const r of calls) {
     const total = pickBreakdown(r.cost_breakdown).total;
     spendMonth.set(r.campaign_id, (spendMonth.get(r.campaign_id) ?? 0) + total);
     if (r.created_at >= dayIso) {
