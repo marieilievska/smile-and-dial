@@ -14,16 +14,13 @@ import {
 
 type Option = { id: string; name: string };
 
-/** Reporting scope selector. Picks All agents, one agent, or one campaign and
- *  navigates to the same page with the new `?scope=` value (preserving the
- *  current tab/day). `value` is the serialized scope (e.g. "all",
- *  "agent:<id>"). */
+/** Reporting scope selector. Picks All campaigns or one campaign and navigates
+ *  to the same page with the new `?scope=` value (preserving the current
+ *  tab/day). `value` is the serialized scope ("all" or "campaign:<id>"). */
 export function ScopePicker({
-  agents,
   campaigns,
   value,
 }: {
-  agents: Option[];
   campaigns: Option[];
   value: string;
 }) {
@@ -39,20 +36,10 @@ export function ScopePicker({
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger id="reporting-scope" className="w-[260px]">
-        <SelectValue placeholder="All agents (combined)" />
+        <SelectValue placeholder="All campaigns (combined)" />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="all">All agents (combined)</SelectItem>
-        {agents.length > 0 ? (
-          <SelectGroup>
-            <SelectLabel>Agents</SelectLabel>
-            {agents.map((a) => (
-              <SelectItem key={a.id} value={`agent:${a.id}`}>
-                {a.name}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        ) : null}
+        <SelectItem value="all">All campaigns (combined)</SelectItem>
         {campaigns.length > 0 ? (
           <SelectGroup>
             <SelectLabel>Campaigns</SelectLabel>
