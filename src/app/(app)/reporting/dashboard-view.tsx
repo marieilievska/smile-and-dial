@@ -127,6 +127,7 @@ export function DashboardView({
   notes,
   notesEditable = false,
   scopeSlug = "all-agents",
+  showSentiment = false,
 }: {
   kpis: DailyKpi[];
   day: string;
@@ -139,6 +140,7 @@ export function DashboardView({
    *  it renders read-only text (anonymous share viewers). */
   notesEditable?: boolean;
   scopeSlug?: string;
+  showSentiment?: boolean;
 }) {
   const showNotes = notes !== undefined;
   const sel = kpis.find((k) => k.day === day) ?? zeroDay(day);
@@ -160,13 +162,11 @@ export function DashboardView({
     k.hungUp,
     k.aiError,
     k.dnc,
-    k.interestYes,
-    k.interestMaybe,
-    k.interestNo,
-    pct(k.warmPct),
+    ...(showSentiment
+      ? [k.interestYes, k.interestMaybe, k.interestNo, pct(k.warmPct)]
+      : []),
   ]);
 
-  // Day | (15 counts, right-aligned) | Warm % (chip)
   const NUM_HEADERS = [
     "Calls",
     "Conn.",
@@ -180,9 +180,7 @@ export function DashboardView({
     "Hung up",
     "AI err",
     "DNC",
-    "Yes",
-    "Maybe",
-    "No",
+    ...(showSentiment ? ["Yes", "Maybe", "No"] : []),
   ];
 
   return (
@@ -225,7 +223,9 @@ export function DashboardView({
         <KpiTile label="DMs reached" value={sel.dms.toLocaleString()} />
         <KpiTile label="Callbacks" value={sel.callbacks.toLocaleString()} />
         <KpiTile label="Goals met" value={sel.goals.toLocaleString()} />
-        <KpiTile label="Warm %" value={pct(sel.warmPct)} />
+        {showSentiment ? (
+          <KpiTile label="Warm %" value={pct(sel.warmPct)} />
+        ) : null}
       </section>
 
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -264,10 +264,9 @@ export function DashboardView({
               "hung_up",
               "ai_error",
               "dnc",
-              "interest_yes",
-              "interest_maybe",
-              "interest_no",
-              "warm_pct",
+              ...(showSentiment
+                ? ["interest_yes", "interest_maybe", "interest_no", "warm_pct"]
+                : []),
             ]}
             rows={exportRows}
           />
@@ -279,19 +278,27 @@ export function DashboardView({
                 <th className="rounded-l-md px-3 py-2 font-medium whitespace-nowrap">
                   Day
                 </th>
-                {NUM_HEADERS.map((h) => (
+                {NUM_HEADERS.map((h, i) => {
+                  const isLast =
+                    i === NUM_HEADERS.length - 1 &&
+                    !showSentiment &&
+                    !showNotes;
+                  return (
+                    <th
+                      key={h}
+                      className={`px-3 py-2 text-right font-medium whitespace-nowrap ${isLast ? "rounded-r-md" : ""}`}
+                    >
+                      {h}
+                    </th>
+                  );
+                })}
+                {showSentiment ? (
                   <th
-                    key={h}
-                    className="px-3 py-2 text-right font-medium whitespace-nowrap"
+                    className={`px-3 py-2 text-right font-medium whitespace-nowrap ${showNotes ? "" : "rounded-r-md"}`}
                   >
-                    {h}
+                    Warm %
                   </th>
-                ))}
-                <th
-                  className={`px-3 py-2 text-right font-medium whitespace-nowrap ${showNotes ? "" : "rounded-r-md"}`}
-                >
-                  Warm %
-                </th>
+                ) : null}
                 {showNotes ? (
                   <th className="rounded-r-md px-3 py-2 text-left font-medium whitespace-nowrap">
                     Notes
@@ -303,7 +310,12 @@ export function DashboardView({
               {kpis.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={17 + (showNotes ? 1 : 0)}
+                    colSpan={
+                      1 +
+                      NUM_HEADERS.length +
+                      (showSentiment ? 1 : 0) +
+                      (showNotes ? 1 : 0)
+                    }
                     className="text-muted-foreground px-3 py-6 text-center"
                   >
                     No calls in the last {historyDays} days.
@@ -354,18 +366,22 @@ export function DashboardView({
                     <td className="px-3 py-2 text-right tabular-nums">
                       {k.dnc}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {k.interestYes}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {k.interestMaybe}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {k.interestNo}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {warmChip(k.warmPct)}
-                    </td>
+                    {showSentiment ? (
+                      <>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {k.interestYes}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {k.interestMaybe}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {k.interestNo}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {warmChip(k.warmPct)}
+                        </td>
+                      </>
+                    ) : null}
                     {showNotes ? (
                       <td className="px-3 py-2">
                         {notesEditable ? (
