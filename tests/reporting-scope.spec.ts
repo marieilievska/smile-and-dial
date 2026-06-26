@@ -4,19 +4,25 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 test.describe.configure({ mode: "serial" });
 
 /**
- * Reporting scope filter:
- *  - The scope picker is present; default view is All agents.
- *  - An agent WITH interest data shows the Voice of Customer + Hot Leads tabs.
- *  - An agent WITHOUT interest data hides those tabs (Dashboard only).
+ * Reporting scope filter (campaign-only):
+ *  - The scope picker is present and offers only All + campaign options (no
+ *    agent options).
+ *  - A campaign WITH sentiment data shows the dashboard's Yes/Maybe/No columns
+ *    and the interest tabs (Voice of Customer + Hot Leads).
+ *  - A campaign WITHOUT sentiment data hides the dashboard sentiment columns
+ *    and the interest tabs; the combined (All) view also hides the sentiment
+ *    columns.
+ *  - The App Changelog is a read-only table (Date header, no Owner header).
  */
 test.describe("Reporting scope filter", () => {
   const stamp = Date.now();
   let admin: SupabaseClient;
   let ownerId: string;
-  let interestAgentId: string;
-  let plainAgentId: string;
+  let agentId: string;
   let goalId: string;
   let leadId: string;
+  let interestCampaignId: string;
+  let plainCampaignId: string;
   const callIds: string[] = [];
 
   test.beforeAll(async () => {
@@ -32,24 +38,20 @@ test.describe("Reporting scope filter", () => {
       .single();
     ownerId = owner!.id;
 
-    const mk = async (name: string) => {
-      const { data } = await admin
-        .from("agents")
-        .insert({
-          owner_id: ownerId,
-          name,
-          prompt_personality: "x",
-          prompt_environment: "x",
-          prompt_tone: "x",
-          prompt_goal: "x",
-          prompt_guardrails: "x",
-        })
-        .select("id")
-        .single();
-      return data!.id as string;
-    };
-    interestAgentId = await mk(`E2E Scope Interest ${stamp}`);
-    plainAgentId = await mk(`E2E Scope Plain ${stamp}`);
+    const { data: agent } = await admin
+      .from("agents")
+      .insert({
+        owner_id: ownerId,
+        name: `E2E Scope Agent ${stamp}`,
+        prompt_personality: "x",
+        prompt_environment: "x",
+        prompt_tone: "x",
+        prompt_goal: "x",
+        prompt_guardrails: "x",
+      })
+      .select("id")
+      .single();
+    agentId = agent!.id as string;
 
     const { data: goal } = await admin
       .from("goals")
@@ -57,6 +59,17 @@ test.describe("Reporting scope filter", () => {
       .select("id")
       .single();
     goalId = goal!.id;
+
+    const mkCampaign = async (name: string) => {
+      const { data } = await admin
+        .from("campaigns")
+        .insert({ owner_id: ownerId, agent_id: agentId, goal_id: goalId, name })
+        .select("id")
+        .single();
+      return data!.id as string;
+    };
+    interestCampaignId = await mkCampaign(`E2E Scope Interest ${stamp}`);
+    plainCampaignId = await mkCampaign(`E2E Scope Plain ${stamp}`);
 
     const { data: lead } = await admin
       .from("leads")
@@ -71,7 +84,7 @@ test.describe("Reporting scope filter", () => {
     leadId = lead!.id;
 
     const insertCall = async (
-      agentId: string,
+      campaignId: string,
       extracted: Record<string, unknown> | null,
     ) => {
       const { data } = await admin
@@ -79,6 +92,7 @@ test.describe("Reporting scope filter", () => {
         .insert({
           lead_id: leadId,
           agent_id: agentId,
+          campaign_id: campaignId,
           goal_id: goalId,
           direction: "outbound",
           status: "completed",
@@ -91,8 +105,8 @@ test.describe("Reporting scope filter", () => {
         .single();
       callIds.push(data!.id);
     };
-    await insertCall(interestAgentId, { ai_call_answering_interest: "yes" });
-    await insertCall(plainAgentId, { some_other_field: "value" });
+    await insertCall(interestCampaignId, { ai_call_answering_interest: "yes" });
+    await insertCall(plainCampaignId, {});
   });
 
   test.afterAll(async () => {
@@ -102,48 +116,73 @@ test.describe("Reporting scope filter", () => {
       .delete()
       .eq("id", leadId ?? "");
     await admin
-      .from("agents")
+      .from("campaigns")
       .delete()
-      .eq("id", interestAgentId ?? "");
+      .eq("id", interestCampaignId ?? "");
+    await admin
+      .from("campaigns")
+      .delete()
+      .eq("id", plainCampaignId ?? "");
     await admin
       .from("agents")
       .delete()
-      .eq("id", plainAgentId ?? "");
+      .eq("id", agentId ?? "");
     await admin
       .from("goals")
       .delete()
       .eq("id", goalId ?? "");
   });
 
-  test("default view shows the picker and the interest tabs", async ({
-    page,
-  }) => {
+  test("the picker has no agent options", async ({ page }) => {
     await page.goto("/reporting");
     await expect(page.locator("#reporting-scope")).toBeVisible();
+    // No agent-scoped options exist in the campaigns-only picker.
+    await expect(
+      page.locator('#reporting-scope option[value^="agent:"]'),
+    ).toHaveCount(0);
+  });
+
+  test("a campaign with sentiment data shows the Yes column + interest tabs", async ({
+    page,
+  }) => {
+    await page.goto(`/reporting?scope=campaign:${interestCampaignId}`);
+    await expect(page.locator("#reporting-scope")).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Yes" })).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Voice of Customer" }),
     ).toBeVisible();
   });
 
-  test("an agent without interest data hides the interest tabs", async ({
+  test("a campaign without sentiment data hides the Yes column + interest tabs", async ({
     page,
   }) => {
-    await page.goto(`/reporting?scope=agent:${plainAgentId}`);
+    await page.goto(`/reporting?scope=campaign:${plainCampaignId}`);
     await expect(page.locator("#reporting-scope")).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Yes" })).toHaveCount(
+      0,
+    );
     await expect(
       page.getByRole("link", { name: "Voice of Customer" }),
     ).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Hot Leads" })).toHaveCount(0);
-    // Dashboard is still there.
     await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
   });
 
-  test("an agent with interest data shows the interest tabs", async ({
+  test("the combined view hides the Yes column", async ({ page }) => {
+    await page.goto("/reporting?scope=all");
+    await expect(page.getByRole("columnheader", { name: "Yes" })).toHaveCount(
+      0,
+    );
+  });
+
+  test("the App Changelog is a read-only table with no Owner header", async ({
     page,
   }) => {
-    await page.goto(`/reporting?scope=agent:${interestAgentId}`);
+    await page.goto("/reporting?tab=changelog");
     await expect(
-      page.getByRole("link", { name: "Voice of Customer" }),
+      page.getByRole("columnheader", { name: "Date" }),
     ).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Owner" })).toHaveCount(
+      0,
+    );
   });
 });

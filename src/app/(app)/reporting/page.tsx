@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
 import {
   DASHBOARD_DAYS,
-  fetchAgentCampaignIds,
   fetchChangelogRows,
   fetchDashboardKpis,
   fetchHotLeadRows,
@@ -38,7 +37,7 @@ function str(v: string | string[] | undefined): string {
 
 /** A short, file-safe label for the current scope, used in CSV filenames. */
 function scopeSlug(scope: ReportScope, label: string): string {
-  if (scope.kind === "all") return "all-agents";
+  if (scope.kind === "all") return "all-campaigns";
   return (
     label
       .toLowerCase()
@@ -65,24 +64,16 @@ export default async function AgentAnalyticsPage({
     .single();
   if (me?.role !== "admin") redirect("/");
 
-  // Load every agent + campaign for the picker (and to validate the URL scope).
-  const [{ data: agentRows }, { data: campaignRows }] = await Promise.all([
-    supabase.from("agents").select("id, name").order("name"),
-    supabase.from("campaigns").select("id, name").order("name"),
-  ]);
-  const agents = (agentRows ?? []) as { id: string; name: string }[];
+  const { data: campaignRows } = await supabase
+    .from("campaigns")
+    .select("id, name")
+    .order("name");
   const campaigns = (campaignRows ?? []) as { id: string; name: string }[];
 
-  // Parse + validate the scope. A stale id (deleted agent/campaign) falls back
-  // to All so the page never errors on an old link.
+  // Parse + validate the scope. A stale id (deleted campaign) falls back to All.
   let scope = parseScopeParam(str(params.scope));
-  let scopeLabel = "All agents (combined)";
-  if (scope.kind === "agent") {
-    const agentId = scope.agentId;
-    const found = agents.find((a) => a.id === agentId);
-    if (found) scopeLabel = found.name;
-    else scope = { kind: "all" };
-  } else if (scope.kind === "campaign") {
+  let scopeLabel = "All campaigns (combined)";
+  if (scope.kind === "campaign") {
     const campaignId = scope.campaignId;
     const found = campaigns.find((c) => c.id === campaignId);
     if (found) scopeLabel = found.name;
@@ -90,25 +81,18 @@ export default async function AgentAnalyticsPage({
   }
   const scopeParam = serializeScope(scope);
 
-  // The interest tabs (Voice of Customer, Hot Leads) only show when the scope
-  // has yes/no/maybe data.
+  // Interest tabs (Voice of Customer, Hot Leads) show when the scope has
+  // yes/no/maybe data; the dashboard's sentiment columns show only for a single
+  // campaign that has it (never in the combined view).
   const showInterest = await hasInterestData(supabase, scope);
+  const showSentiment = scope.kind === "campaign" && showInterest;
   const visibleTabs = reportingTabsFor(showInterest);
   const tab = visibleTabs.some((t) => t.key === str(params.tab))
     ? str(params.tab)
     : "dashboard";
 
-  // Map the scope to the dashboard-kpi args (all mode, or agent+its campaigns,
-  // or one campaign).
   const kpiScope: DashboardKpiScope =
-    scope.kind === "all"
-      ? { all: true }
-      : scope.kind === "agent"
-        ? {
-            agentId: scope.agentId,
-            campaignIds: await fetchAgentCampaignIds(supabase, scope.agentId),
-          }
-        : { campaignIds: [scope.campaignId] };
+    scope.kind === "all" ? { all: true } : { campaignIds: [scope.campaignId] };
 
   // Public read-only share token (revocable from settings). When set, admins
   // get a "Copy share link" button; when blank, the link is disabled.
@@ -136,15 +120,11 @@ export default async function AgentAnalyticsPage({
           </h1>
           <p className="text-muted-foreground mt-0.5 text-sm">
             For upper-management reporting — agent performance, call results,
-            and app changes. Pick an agent or campaign to scope the view.
+            and app changes. Pick a campaign to scope the view.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ScopePicker
-            agents={agents}
-            campaigns={campaigns}
-            value={scopeParam}
-          />
+          <ScopePicker campaigns={campaigns} value={scopeParam} />
           {shareToken ? <CopyShareLinkButton token={shareToken} /> : null}
         </div>
       </div>
@@ -161,6 +141,7 @@ export default async function AgentAnalyticsPage({
           selectedDay={str(params.day)}
           scopeParam={scopeParam}
           slug={slug}
+          showSentiment={showSentiment}
         />
       ) : tab === "voice" ? (
         <VoiceTab scope={scope} slug={slug} note={interestNote} />
@@ -180,11 +161,13 @@ async function DashboardTab({
   selectedDay,
   scopeParam,
   slug,
+  showSentiment,
 }: {
   kpiScope: DashboardKpiScope;
   selectedDay: string;
   scopeParam: string;
   slug: string;
+  showSentiment: boolean;
 }) {
   const supabase = await createClient();
   const kpis = await fetchDashboardKpis(supabase, kpiScope);
@@ -208,6 +191,7 @@ async function DashboardTab({
       notes={notes}
       notesEditable
       scopeSlug={slug}
+      showSentiment={showSentiment}
     />
   );
 }

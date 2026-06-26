@@ -58,7 +58,6 @@ export type ChangelogRow = {
   summary: string;
   details: string;
   status: string;
-  owner: string;
   ticketLink: string;
 };
 
@@ -98,11 +97,7 @@ function fmtLen(s: number | null): string {
 
 // --- Fetchers --------------------------------------------------------------
 
-export type DashboardKpiScope = {
-  all?: boolean;
-  agentId?: string | null;
-  campaignIds?: string[];
-};
+export type DashboardKpiScope = { all?: boolean; campaignIds?: string[] };
 
 export async function fetchDashboardKpis(
   supabase: DB,
@@ -112,7 +107,6 @@ export async function fetchDashboardKpis(
   // agent is deleted, but `calls.campaign_id` is durable — so matching on either
   // keeps the dashboard accurate even after an agent is removed.
   const conds: string[] = [];
-  if (scope.agentId) conds.push(`agent_id.eq.${scope.agentId}`);
   if (scope.campaignIds && scope.campaignIds.length > 0) {
     conds.push(`campaign_id.in.(${scope.campaignIds.join(",")})`);
   }
@@ -155,29 +149,17 @@ type VoiceRawRow = {
 };
 
 /** PostgREST `.or()` condition string selecting the calls in a scope, or null
- *  for "all" (no filter). An AGENT scope rolls up the agent's campaigns too —
- *  calls keep `campaign_id` even after the agent row is replaced, so matching on
- *  either catches calls whose `agent_id` has since gone null. Mirrors how
- *  fetchDashboardKpis matches by agent AND campaign. */
-async function scopeCallConds(
-  supabase: DB,
-  scope: ReportScope,
-): Promise<string | null> {
-  if (scope.kind === "all") return null;
+ *  for "all" (no filter). Campaign scope filters by campaign_id. */
+function scopeCallConds(scope: ReportScope): string | null {
   if (scope.kind === "campaign") return `campaign_id.eq.${scope.campaignId}`;
-  const campaignIds = await fetchAgentCampaignIds(supabase, scope.agentId);
-  const conds = [`agent_id.eq.${scope.agentId}`];
-  if (campaignIds.length > 0) {
-    conds.push(`campaign_id.in.(${campaignIds.join(",")})`);
-  }
-  return conds.join(",");
+  return null;
 }
 
 export async function fetchVoiceRows(
   supabase: DB,
   scope: ReportScope,
 ): Promise<VoiceRow[]> {
-  const conds = await scopeCallConds(supabase, scope);
+  const conds = scopeCallConds(scope);
   let q = supabase
     .from("calls")
     .select(
@@ -230,7 +212,7 @@ export async function hasInterestData(
   supabase: DB,
   scope: ReportScope,
 ): Promise<boolean> {
-  const conds = await scopeCallConds(supabase, scope);
+  const conds = scopeCallConds(scope);
   let q = supabase
     .from("calls")
     .select("id", { count: "exact", head: true })
@@ -240,20 +222,6 @@ export async function hasInterestData(
   if (conds) q = q.or(conds);
   const { count } = await q;
   return (count ?? 0) > 0;
-}
-
-/** The campaign ids run by an agent. Passed alongside agentId to
- *  fetchDashboardKpis so totals survive the agent row being deleted later
- *  (calls keep campaign_id; only agent_id goes null). */
-export async function fetchAgentCampaignIds(
-  supabase: DB,
-  agentId: string,
-): Promise<string[]> {
-  const { data } = await supabase
-    .from("campaigns")
-    .select("id")
-    .eq("agent_id", agentId);
-  return (data ?? []).map((c) => (c as { id: string }).id);
 }
 
 type HotLeadRawRow = {
@@ -301,7 +269,7 @@ export async function fetchChangelogRows(
   const { data } = await supabase
     .from("app_changelog")
     .select(
-      "id, change_date, area, change_type, summary, details, status, owner, ticket_link",
+      "id, change_date, area, change_type, summary, details, status, ticket_link",
     )
     .order("change_date", { ascending: false })
     .order("created_at", { ascending: false })
@@ -315,7 +283,6 @@ export async function fetchChangelogRows(
     summary: r.summary ?? "",
     details: r.details ?? "",
     status: r.status ?? "Open",
-    owner: r.owner ?? "",
     ticketLink: r.ticket_link ?? "",
   }));
 }
