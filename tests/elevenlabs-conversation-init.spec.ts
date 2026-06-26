@@ -13,6 +13,9 @@ test.describe.configure({ mode: "serial" });
  *  - A pending callback flips call_type to "callback" and surfaces the
  *    originating call's summary as last_callback_notes.
  *  - An unknown call_sid still returns 200 with a complete blank set.
+ *  - For INBOUND (keyed on called_number), the response carries a
+ *    conversation_config_override.agent.first_message — the dialed number's
+ *    campaign greeting, or the default when none is configured.
  */
 test.describe("ElevenLabs conversation-init webhook", () => {
   const stamp = Date.now();
@@ -268,6 +271,48 @@ test.describe("ElevenLabs conversation-init webhook", () => {
     expect(body.dynamic_variables.transfer_number).toBe("");
     expect(body.dynamic_variables.owner_name).toBe("");
     expect(body.dynamic_variables.google_rating).toBe("");
+    await api.dispose();
+  });
+
+  test("inbound: returns the campaign greeting as a first_message override", async ({
+    baseURL,
+  }) => {
+    const greeting = `Thanks for calling E2E ${stamp}! How can I help?`;
+    await admin
+      .from("campaigns")
+      .update({ inbound_greeting: greeting })
+      .eq("id", campaignId);
+    try {
+      const api = await playwrightRequest.newContext({ baseURL });
+      const r = await api.post("/api/elevenlabs/conversation-init", {
+        data: { called_number: `+1555${tail}66` },
+      });
+      expect(r.status()).toBe(200);
+      const body = await r.json();
+      expect(body.conversation_config_override.agent.first_message).toBe(
+        greeting,
+      );
+      await api.dispose();
+    } finally {
+      await admin
+        .from("campaigns")
+        .update({ inbound_greeting: null })
+        .eq("id", campaignId);
+    }
+  });
+
+  test("inbound: an unconfigured number falls back to the default greeting", async ({
+    baseURL,
+  }) => {
+    const api = await playwrightRequest.newContext({ baseURL });
+    const r = await api.post("/api/elevenlabs/conversation-init", {
+      data: { called_number: "+19998887777" },
+    });
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.conversation_config_override.agent.first_message).toBe(
+      "Hi, thanks for calling! How can I help you today?",
+    );
     await api.dispose();
   });
 });

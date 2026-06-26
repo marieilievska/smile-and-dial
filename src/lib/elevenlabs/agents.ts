@@ -502,6 +502,32 @@ async function postCallWebhookBlock(): Promise<
 }
 
 /**
+ * Build the agent's override allow-list. Two flags, both additive:
+ *  - enable the conversation-init webhook (per-call dynamic variables), and
+ *  - allow that webhook to set the agent's first_message — the per-campaign
+ *    INBOUND greeting. ElevenLabs silently ignores a first_message override
+ *    unless this flag is on, which is why inbound agents otherwise open silent.
+ * Any override flags already on the agent are preserved.
+ */
+function buildInitOverrides(
+  existing: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const cco = (existing.conversation_config_override ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const ccoAgent = (cco.agent ?? {}) as Record<string, unknown>;
+  return {
+    ...existing,
+    enable_conversation_initiation_client_data_from_webhook: true,
+    conversation_config_override: {
+      ...cco,
+      agent: { ...ccoAgent, first_message: true },
+    },
+  };
+}
+
+/**
  * Overlay OUR platform integration onto an agent that was built in ElevenLabs
  * and connected by ID — without disturbing the prompt/voice/model/guardrails
  * the user set up there. We read the agent's current config, then PATCH it
@@ -655,12 +681,7 @@ export async function applyConnectedAgentIntegration(
         ? { workspace_overrides: workspaceOverrides }
         : {}),
       ...(initWebhook
-        ? {
-            overrides: {
-              ...existingOverrides,
-              enable_conversation_initiation_client_data_from_webhook: true,
-            },
-          }
+        ? { overrides: buildInitOverrides(existingOverrides) }
         : {}),
     },
   };
@@ -930,13 +951,7 @@ async function liveSync(
         : {}),
       // The conversation-init webhook only fires when the agent opts in via
       // this flag, so enable it whenever we're wiring that webhook.
-      ...(initWebhook
-        ? {
-            overrides: {
-              enable_conversation_initiation_client_data_from_webhook: true,
-            },
-          }
-        : {}),
+      ...(initWebhook ? { overrides: buildInitOverrides() } : {}),
     },
   };
 

@@ -6,7 +6,10 @@ import type { ToolsEnabled } from "@/lib/agents/prompt";
 import { sanitizeAudienceSearch } from "@/lib/campaigns/audience-filter";
 import { applyConnectedAgentIntegration } from "@/lib/elevenlabs/agents";
 import { createClient } from "@/lib/supabase/server";
-import { ensureNumberImportedToElevenLabs } from "@/lib/twilio/place-call";
+import {
+  assignAgentToNumber,
+  ensureNumberImportedToElevenLabs,
+} from "@/lib/twilio/place-call";
 
 export type CampaignResult = { error: string | null; campaignId?: string };
 
@@ -96,6 +99,10 @@ export type CampaignInput = {
   /** Optional attached smart list id (smart_lists.id). When set, the campaign
    *  also dials every member of that smart list. Empty = no smart list. */
   smartListId?: string;
+  /** First line the agent speaks on an INBOUND call to this campaign's number.
+   *  Delivered to ElevenLabs per-call by the conversation-init webhook. Empty =
+   *  the webhook's default greeting (so inbound is never silent). */
+  inboundGreeting?: string;
 };
 
 function parseNumber(value: string): number | null {
@@ -135,6 +142,7 @@ function buildUpdate(input: CampaignInput) {
     email_template_id: input.emailTemplateId?.trim() || null,
     audience_search: sanitizeAudienceSearch(input.audienceSearch ?? "") || null,
     smart_list_id: input.smartListId?.trim() || null,
+    inbound_greeting: input.inboundGreeting?.trim() || null,
   };
 }
 
@@ -180,7 +188,52 @@ async function syncTwilioAttachment(
     // attached number unknown to ElevenLabs. Best-effort: never block the
     // campaign save on an ElevenLabs hiccup; the per-number "Connect to
     // ElevenLabs" button is the visible retry.
-    await ensureNumberImportedToElevenLabs(supabase, newNumberId);
+    const imported = await ensureNumberImportedToElevenLabs(
+      supabase,
+      newNumberId,
+    );
+    // Inbound is ElevenLabs-native: the agent that answers a number is the one
+    // assigned to it in ElevenLabs. Assign this campaign's agent so callbacks to
+    // the number reach the right agent — no manual step in the EL dashboard.
+    if (imported.ok) {
+      await assignCampaignAgentToNumber(
+        supabase,
+        campaignId,
+        imported.phoneNumberId,
+      );
+    }
+  }
+}
+
+/** Assign the campaign's agent to its ElevenLabs phone number so inbound calls
+ *  to that number are answered by the right agent (EL-native inbound). Reads the
+ *  campaign's agent → its published elevenlabs_agent_id; skips quietly if the
+ *  agent isn't synced yet. Best-effort: a hiccup never blocks the campaign save
+ *  (re-saving, or the per-number Connect button, re-asserts it). */
+async function assignCampaignAgentToNumber(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  campaignId: string,
+  elevenlabsPhoneNumberId: string,
+): Promise<void> {
+  const { data: campaign } = await supabase
+    .from("campaigns")
+    .select("agent_id")
+    .eq("id", campaignId)
+    .maybeSingle();
+  if (!campaign?.agent_id) return;
+  const { data: agent } = await supabase
+    .from("agents")
+    .select("elevenlabs_agent_id")
+    .eq("id", campaign.agent_id)
+    .maybeSingle();
+  if (!agent?.elevenlabs_agent_id) return;
+  try {
+    await assignAgentToNumber(
+      elevenlabsPhoneNumberId,
+      agent.elevenlabs_agent_id,
+    );
+  } catch {
+    // best-effort — never block a campaign action on an ElevenLabs hiccup
   }
 }
 

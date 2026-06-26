@@ -730,6 +730,7 @@ export type Database = {
           ended_at: string | null;
           goal_id: string;
           id: string;
+          inbound_greeting: string | null;
           monthly_spend_cap: number | null;
           name: string;
           owner_id: string;
@@ -758,6 +759,7 @@ export type Database = {
           ended_at?: string | null;
           goal_id: string;
           id?: string;
+          inbound_greeting?: string | null;
           monthly_spend_cap?: number | null;
           name: string;
           owner_id: string;
@@ -786,6 +788,7 @@ export type Database = {
           ended_at?: string | null;
           goal_id?: string;
           id?: string;
+          inbound_greeting?: string | null;
           monthly_spend_cap?: number | null;
           name?: string;
           owner_id?: string;
