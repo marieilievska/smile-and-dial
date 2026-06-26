@@ -14,6 +14,7 @@ import { ScopePicker } from "@/app/(app)/reporting/scope-picker";
 import { VoiceTable } from "@/app/(app)/reporting/voice-table";
 import {
   detectCampaignFields,
+  isWarm,
   type DetectedFields,
 } from "@/lib/agent-analytics/field-detect";
 import {
@@ -23,7 +24,6 @@ import {
   fetchHotLeadRows,
   fetchPromptLogRows,
   fetchVoiceRows,
-  hasInterestData,
 } from "@/lib/agent-analytics/report-data";
 import { parseScopeParam, serializeScope } from "@/lib/agent-analytics/scope";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
@@ -92,7 +92,9 @@ export default async function PublicReporting({
       : { sentimentKey: null, sentimentValues: [], notesKey: null };
   const showVoice = scope.kind === "campaign" && detected.sentimentKey !== null;
   const showHotLeads =
-    scope.kind === "campaign" && (await hasInterestData(supabase, scope));
+    scope.kind === "campaign" &&
+    detected.sentimentKey !== null &&
+    detected.sentimentValues.some(isWarm);
   const visibleTabs = reportingTabsFor({ showVoice, showHotLeads });
   const tab = visibleTabs.some((t) => t.key === str(sp.tab))
     ? str(sp.tab)
@@ -183,9 +185,9 @@ export default async function PublicReporting({
           />
         ) : tab === "hot-leads" ? (
           <HotLeadsTable
-            rows={await fetchHotLeadRows(supabase)}
+            rows={await fetchHotLeadRows(supabase, scope, detected)}
             readOnly
-            scopeSlug="all-campaigns"
+            scopeSlug="campaign"
           />
         ) : tab === "changelog" ? (
           <ChangelogTable rows={await fetchChangelogRows(supabase)} readOnly />
