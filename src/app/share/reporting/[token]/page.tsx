@@ -7,11 +7,15 @@ import { DashboardView } from "@/app/(app)/reporting/dashboard-view";
 import { HotLeadsTable } from "@/app/(app)/reporting/hot-leads-table";
 import { PromptLogTable } from "@/app/(app)/reporting/prompt-log-table";
 import {
-  INTEREST_COMBINED_NOTE,
   ReportingTabs,
   reportingTabsFor,
 } from "@/app/(app)/reporting/reporting-tabs";
+import { ScopePicker } from "@/app/(app)/reporting/scope-picker";
 import { VoiceTable } from "@/app/(app)/reporting/voice-table";
+import {
+  detectCampaignFields,
+  type DetectedFields,
+} from "@/lib/agent-analytics/field-detect";
 import {
   DASHBOARD_DAYS,
   fetchChangelogRows,
@@ -21,6 +25,7 @@ import {
   fetchVoiceRows,
   hasInterestData,
 } from "@/lib/agent-analytics/report-data";
+import { parseScopeParam, serializeScope } from "@/lib/agent-analytics/scope";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -66,12 +71,35 @@ export default async function PublicReporting({
   const expected = settings?.agent_analytics_share_token ?? "";
   if (!expected || token !== expected) notFound();
 
-  // The share is a fixed all-agents combined view (no picker).
-  const showInterest = await hasInterestData(supabase, { kind: "all" });
-  const visibleTabs = reportingTabsFor(showInterest);
+  // Scope-aware: a read-only campaign picker drives the same per-campaign
+  // detection as the admin page. A stale id falls back to the combined view.
+  const { data: campaignRows } = await supabase
+    .from("campaigns")
+    .select("id, name")
+    .order("name");
+  const campaigns = (campaignRows ?? []) as { id: string; name: string }[];
+
+  let scope = parseScopeParam(str(sp.scope));
+  if (scope.kind === "campaign") {
+    const campaignId = scope.campaignId;
+    if (!campaigns.some((c) => c.id === campaignId)) scope = { kind: "all" };
+  }
+  const scopeParam = serializeScope(scope);
+
+  const detected: DetectedFields =
+    scope.kind === "campaign"
+      ? await detectCampaignFields(supabase, scope.campaignId)
+      : { sentimentKey: null, sentimentValues: [], notesKey: null };
+  const showVoice = scope.kind === "campaign" && detected.sentimentKey !== null;
+  const showHotLeads =
+    scope.kind === "campaign" && (await hasInterestData(supabase, scope));
+  const visibleTabs = reportingTabsFor({ showVoice, showHotLeads });
   const tab = visibleTabs.some((t) => t.key === str(sp.tab))
     ? str(sp.tab)
     : "dashboard";
+
+  const kpiScope =
+    scope.kind === "all" ? { all: true } : { campaignIds: [scope.campaignId] };
 
   // Per-day comments on the dashboard: read-only to anyone with the link, and
   // editable when a logged-in admin is viewing the preview (the
@@ -105,44 +133,59 @@ export default async function PublicReporting({
   return (
     <main className="bg-background text-foreground min-h-screen">
       <div className="mx-auto flex max-w-6xl flex-col gap-5 p-6">
-        <div>
-          <h1 className="text-foreground text-2xl font-bold tracking-tight">
-            Reporting
-          </h1>
-          <p className="text-muted-foreground mt-0.5 text-sm">
-            Read-only shared view · all campaigns · updates live.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-foreground text-2xl font-bold tracking-tight">
+              Reporting
+            </h1>
+            <p className="text-muted-foreground mt-0.5 text-sm">
+              Read-only shared view · updates live.
+            </p>
+          </div>
+          <ScopePicker
+            campaigns={campaigns}
+            value={scopeParam}
+            basePath={`/share/reporting/${token}`}
+          />
         </div>
 
         <ReportingTabs
           active={tab}
           tabs={visibleTabs}
-          hrefFor={(k) => `/share/reporting/${token}?tab=${k}`}
+          hrefFor={(k) =>
+            `/share/reporting/${token}?tab=${k}&scope=${scopeParam}`
+          }
         />
 
         {tab === "dashboard" ? (
           <DashboardView
-            kpis={await fetchDashboardKpis(supabase, { all: true })}
+            kpis={await fetchDashboardKpis(
+              supabase,
+              kpiScope,
+              detected.sentimentKey,
+            )}
             day={yesterdayEt()}
             historyDays={DASHBOARD_DAYS}
             notes={dashNotes}
             notesEditable={viewerIsAdmin}
-            scopeSlug="all-campaigns"
-            showSentiment={false}
+            scopeSlug={scope.kind === "campaign" ? "campaign" : "all-campaigns"}
+            sentimentValues={detected.sentimentValues}
           />
         ) : tab === "voice" ? (
           <VoiceTable
-            rows={await fetchVoiceRows(supabase, { kind: "all" })}
+            rows={await fetchVoiceRows(supabase, scope, detected)}
+            sentimentValues={detected.sentimentValues}
+            recordingSrcFor={(id) =>
+              `/share/reporting/${token}/recording/${id}`
+            }
             readOnly
-            scopeSlug="all-campaigns"
-            note={INTEREST_COMBINED_NOTE}
+            scopeSlug="campaign"
           />
         ) : tab === "hot-leads" ? (
           <HotLeadsTable
             rows={await fetchHotLeadRows(supabase)}
             readOnly
             scopeSlug="all-campaigns"
-            note={INTEREST_COMBINED_NOTE}
           />
         ) : tab === "changelog" ? (
           <ChangelogTable rows={await fetchChangelogRows(supabase)} readOnly />

@@ -1,367 +1,221 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { Search } from "lucide-react";
-import { toast } from "sonner";
+import { useMemo, useState } from "react";
+import { Play } from "lucide-react";
+import Link from "next/link";
 
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { saveCallAnnotation } from "@/lib/agent-analytics/actions";
+import { sentimentTone } from "@/lib/agent-analytics/field-detect";
 import type { VoiceRow } from "@/lib/agent-analytics/report-data";
 
 import { ExportCsvButton } from "./export-csv-button";
 
 export type { VoiceRow };
 
-type InterestFilter = "all" | "yes" | "maybe" | "no";
+/** "yes" → "Yes", "lead source" stays per-word capitalized. */
+function titleCase(v: string): string {
+  return v.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
-const INTEREST_PILLS: { key: InterestFilter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "yes", label: "Yes" },
-  { key: "maybe", label: "Maybe" },
-  { key: "no", label: "No" },
-];
-
-const INTEREST_BADGE: Record<VoiceRow["interest"], string> = {
-  yes: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-  maybe: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  no: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
-};
-
-/** Voice of Customer: every call that has an interest answer, with the owner's
- *  verbatim reason and two operator-editable annotation fields (theme +
- *  suggested action) that save inline to the call. `readOnly` renders the
- *  annotation cells as plain text (public share view). */
+/** Voice of Customer — one row per call that recorded the campaign's sentiment
+ *  answer (last 30d), with the free-text notes, the lead, and an inline
+ *  recording player. `readOnly` (public share) makes the company plain text.
+ *  `recordingSrcFor` builds the `<audio src>` URL for a call id. */
 export function VoiceTable({
   rows,
+  sentimentValues,
+  recordingSrcFor,
   readOnly = false,
-  scopeSlug = "all-agents",
-  note,
+  scopeSlug = "all-campaigns",
 }: {
   rows: VoiceRow[];
+  sentimentValues: string[];
+  recordingSrcFor: (callId: string) => string;
   readOnly?: boolean;
   scopeSlug?: string;
-  /** Optional clarifier shown above the table (e.g. in the combined view). */
-  note?: string;
 }) {
-  const [interest, setInterest] = useState<InterestFilter>("all");
+  const [filter, setFilter] = useState<string>("all");
   const [q, setQ] = useState("");
-
-  // Working text per editable cell, keyed `${id}:${field}`. `saved` tracks the
-  // last value persisted to the DB so a blur with no change is a no-op.
-  const initial = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const r of rows) {
-      m[`${r.id}:theme`] = r.theme;
-      m[`${r.id}:suggested_action`] = r.suggestedAction;
-    }
-    return m;
-  }, [rows]);
-  const [draft, setDraft] = useState<Record<string, string>>(initial);
-  const [saved, setSaved] = useState<Record<string, string>>(initial);
-  const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+  const [playing, setPlaying] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
-      if (interest !== "all" && r.interest !== interest) return false;
+      if (filter !== "all" && r.sentiment !== filter) return false;
       if (!needle) return true;
       return (
         r.company.toLowerCase().includes(needle) ||
-        r.reason.toLowerCase().includes(needle) ||
+        r.notes.toLowerCase().includes(needle) ||
         r.list.toLowerCase().includes(needle)
       );
     });
-  }, [rows, interest, q]);
+  }, [rows, filter, q]);
 
-  // Overall interest mix across ALL rows (stable summary, independent of the
-  // interest/search filters below).
   const counts = useMemo(() => {
-    let yes = 0;
-    let maybe = 0;
-    let no = 0;
-    for (const r of rows) {
-      if (r.interest === "yes") yes++;
-      else if (r.interest === "maybe") maybe++;
-      else no++;
-    }
-    return { yes, maybe, no, total: rows.length };
+    const m: Record<string, number> = {};
+    for (const r of rows) m[r.sentiment] = (m[r.sentiment] ?? 0) + 1;
+    return m;
   }, [rows]);
-  const barPct = (n: number) =>
-    counts.total > 0 ? `${(n / counts.total) * 100}%` : "0%";
-
-  function commit(id: string, field: "theme" | "suggested_action") {
-    const key = `${id}:${field}`;
-    const value = draft[key] ?? "";
-    if (value === (saved[key] ?? "")) return; // unchanged — nothing to save
-    setSavingKey(key);
-    startTransition(async () => {
-      const res = await saveCallAnnotation({ callId: id, field, value });
-      setSavingKey(null);
-      if (res.error) {
-        toast.error(res.error);
-        return;
-      }
-      setSaved((s) => ({ ...s, [key]: value }));
-      toast.success(
-        field === "theme" ? "Theme saved" : "Suggested action saved",
-      );
-    });
-  }
 
   const exportRows = filtered.map((r) => [
     r.day,
     r.company,
     r.list,
-    r.interest,
-    r.reason,
-    draft[`${r.id}:theme`] ?? "",
-    draft[`${r.id}:suggested_action`] ?? "",
+    r.sentiment,
+    r.notes,
   ]);
 
   return (
     <div className="flex flex-col gap-4">
-      {note ? (
-        <p className="border-border bg-muted/20 text-muted-foreground rounded-lg border px-3 py-2 text-sm">
-          {note}
-        </p>
-      ) : null}
       <p className="text-muted-foreground text-sm">
-        Every call with an interest answer, in the owner’s own words.
-        {!readOnly ? (
-          <>
-            {" "}
-            Edit the <span className="text-foreground font-medium">
-              Theme
-            </span>{" "}
-            and{" "}
-            <span className="text-foreground font-medium">
-              Suggested action
-            </span>{" "}
-            cells — they save automatically when you click away.
-          </>
-        ) : null}
+        Every call with a customer-sentiment answer (last 30 days), with the
+        agent&apos;s recorded notes and the call recording.
       </p>
 
-      {/* Interest mix summary */}
-      <section className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-5 shadow-sm">
-        <div className="flex flex-wrap gap-x-8 gap-y-2">
-          <VoiceStat
-            label="Yes"
-            value={counts.yes}
-            tone="text-emerald-600 dark:text-emerald-400"
+      <div className="flex flex-wrap items-center gap-2">
+        <FilterPill
+          label="All"
+          active={filter === "all"}
+          onClick={() => setFilter("all")}
+          count={rows.length}
+        />
+        {sentimentValues.map((v) => (
+          <FilterPill
+            key={v}
+            label={titleCase(v)}
+            active={filter === v}
+            onClick={() => setFilter(v)}
+            count={counts[v] ?? 0}
           />
-          <VoiceStat
-            label="Maybe"
-            value={counts.maybe}
-            tone="text-amber-700 dark:text-amber-400"
-          />
-          <VoiceStat
-            label="No"
-            value={counts.no}
-            tone="text-rose-600 dark:text-rose-400"
-          />
-        </div>
-        <div className="bg-muted flex h-2 overflow-hidden rounded-full">
-          <div
-            className="bg-emerald-500"
-            style={{ width: barPct(counts.yes) }}
-          />
-          <div
-            className="bg-amber-500"
-            style={{ width: barPct(counts.maybe) }}
-          />
-          <div className="bg-rose-500" style={{ width: barPct(counts.no) }} />
-        </div>
-      </section>
-
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="bg-muted/40 inline-flex rounded-lg p-0.5">
-          {INTEREST_PILLS.map((p) => {
-            const active = p.key === interest;
-            return (
-              <button
-                key={p.key}
-                type="button"
-                onClick={() => setInterest(p.key)}
-                className={
-                  "rounded-md px-3 py-1 text-sm font-medium transition-colors " +
-                  (active
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground")
-                }
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="relative max-w-xs flex-1">
-          <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search company, reason, list…"
-            className="pl-8"
-          />
-        </div>
-
-        <span className="text-muted-foreground text-sm">
-          {filtered.length.toLocaleString()}{" "}
-          {filtered.length === 1 ? "call" : "calls"}
-        </span>
-
-        <div className="ml-auto">
-          <ExportCsvButton
-            filename={`${scopeSlug}-voice-of-customer.csv`}
-            headers={[
-              "day",
-              "company",
-              "list",
-              "interest",
-              "reason",
-              "theme",
-              "suggested_action",
-            ]}
-            rows={exportRows}
-          />
-        </div>
+        ))}
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search company, notes, list…"
+          className="ml-auto h-8 w-[16rem]"
+        />
+        <ExportCsvButton
+          filename={`${scopeSlug}-voice-of-customer.csv`}
+          headers={["day", "company", "list", "sentiment", "notes"]}
+          rows={exportRows}
+        />
       </div>
 
-      {/* Table */}
-      <div className="border-border bg-card overflow-x-auto rounded-2xl border shadow-sm">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-muted-foreground border-border bg-muted/30 border-b text-left text-xs">
-              {[
-                "Date",
-                "Company",
-                "List",
-                "Interest",
-                "Reason",
-                "Theme",
-                "Suggested action",
-              ].map((h) => (
-                <th key={h} className="px-3 py-2 font-medium whitespace-nowrap">
-                  {h}
+      {filtered.length === 0 ? (
+        <div className="border-border text-muted-foreground rounded-2xl border border-dashed px-6 py-12 text-center text-sm">
+          No matching calls.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-muted-foreground bg-muted/30 text-left text-[10px] tracking-wide uppercase">
+                <th className="rounded-l-md px-3 py-2 font-medium whitespace-nowrap">
+                  Day
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="text-muted-foreground px-3 py-8 text-center"
-                >
-                  No calls match these filters.
-                </td>
+                <th className="px-3 py-2 font-medium">Company</th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">
+                  List
+                </th>
+                <th className="px-3 py-2 font-medium whitespace-nowrap">
+                  Sentiment
+                </th>
+                <th className="px-3 py-2 font-medium">Notes</th>
+                <th className="rounded-r-md px-3 py-2 font-medium whitespace-nowrap">
+                  Recording
+                </th>
               </tr>
-            ) : (
-              filtered.map((r) => (
+            </thead>
+            <tbody>
+              {filtered.map((r) => (
                 <tr
                   key={r.id}
-                  className="border-border/60 hover:bg-muted/20 border-b align-top"
+                  className="border-border/60 hover:bg-muted/30 border-b align-top transition-colors"
                 >
                   <td className="px-3 py-2 whitespace-nowrap tabular-nums">
                     {r.day}
                   </td>
-                  <td className="px-3 py-2 font-medium">{r.company || "—"}</td>
+                  <td className="text-foreground px-3 py-2 font-medium">
+                    {!readOnly && r.leadId ? (
+                      <Link
+                        href={`/leads/${r.leadId}`}
+                        className="hover:text-primary hover:underline"
+                      >
+                        {r.company || "—"}
+                      </Link>
+                    ) : (
+                      r.company || "—"
+                    )}
+                  </td>
                   <td className="text-muted-foreground px-3 py-2 whitespace-nowrap">
                     {r.list || "—"}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 whitespace-nowrap">
                     <span
-                      className={
-                        "rounded-full px-2 py-0.5 text-xs font-medium capitalize " +
-                        INTEREST_BADGE[r.interest]
-                      }
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${sentimentTone(r.sentiment)}`}
                     >
-                      {r.interest}
+                      {titleCase(r.sentiment)}
                     </span>
                   </td>
-                  <td className="text-foreground min-w-[18rem] px-3 py-2 leading-relaxed">
-                    {r.reason || (
-                      <span className="text-muted-foreground">—</span>
-                    )}
+                  <td className="text-muted-foreground px-3 py-2">
+                    {r.notes || "—"}
                   </td>
-                  <td className="px-3 py-2">
-                    {readOnly ? (
-                      <span className="block min-w-[10rem]">
-                        {draft[`${r.id}:theme`] || "—"}
-                      </span>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {r.recordingPath ? (
+                      playing === r.id ? (
+                        <audio
+                          controls
+                          autoPlay
+                          preload="none"
+                          src={recordingSrcFor(r.id)}
+                          className="h-8 w-[14rem]"
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPlaying(r.id)}
+                          className="text-primary inline-flex items-center gap-1 hover:underline"
+                        >
+                          <Play className="size-3.5" /> Play
+                        </button>
+                      )
                     ) : (
-                      <Textarea
-                        value={draft[`${r.id}:theme`] ?? ""}
-                        onChange={(e) =>
-                          setDraft((d) => ({
-                            ...d,
-                            [`${r.id}:theme`]: e.target.value,
-                          }))
-                        }
-                        onBlur={() => commit(r.id, "theme")}
-                        placeholder="Add a theme…"
-                        rows={2}
-                        disabled={savingKey === `${r.id}:theme`}
-                        className="min-h-0 min-w-[10rem] resize-y text-sm"
-                      />
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {readOnly ? (
-                      <span className="block min-w-[12rem]">
-                        {draft[`${r.id}:suggested_action`] || "—"}
-                      </span>
-                    ) : (
-                      <Textarea
-                        value={draft[`${r.id}:suggested_action`] ?? ""}
-                        onChange={(e) =>
-                          setDraft((d) => ({
-                            ...d,
-                            [`${r.id}:suggested_action`]: e.target.value,
-                          }))
-                        }
-                        onBlur={() => commit(r.id, "suggested_action")}
-                        placeholder="Add a suggested action…"
-                        rows={2}
-                        disabled={savingKey === `${r.id}:suggested_action`}
-                        className="min-h-0 min-w-[12rem] resize-y text-sm"
-                      />
+                      "—"
                     )}
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-function VoiceStat({
+function FilterPill({
   label,
-  value,
-  tone,
+  count,
+  active,
+  onClick,
 }: {
   label: string;
-  value: number;
-  tone: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span
-        className={`text-[10px] font-medium tracking-[0.14em] uppercase ${tone}`}
-      >
-        {label}
-      </span>
-      <span className="text-foreground text-2xl font-medium tabular-nums">
-        {value.toLocaleString()}
-      </span>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "rounded-full px-3 py-1 text-xs font-medium transition-colors " +
+        (active
+          ? "bg-foreground text-background"
+          : "bg-muted text-muted-foreground hover:text-foreground")
+      }
+    >
+      {label} <span className="tabular-nums opacity-70">{count}</span>
+    </button>
   );
 }

@@ -9,9 +9,13 @@ test.describe.configure({ mode: "serial" });
  *    agent options).
  *  - A campaign WITH sentiment data shows the dashboard's Yes/Maybe/No columns
  *    and the interest tabs (Voice of Customer + Hot Leads).
+ *  - The Voice of Customer tab renders the sentiment pill + notes + recording
+ *    player + a clickable lead link (admin only).
  *  - A campaign WITHOUT sentiment data hides the dashboard sentiment columns
  *    and the interest tabs; the combined (All) view also hides the sentiment
  *    columns.
+ *  - The admin recording redirect route resolves a known call and 404s an
+ *    unknown one.
  *  - The App Changelog is a read-only table (Date header, no Owner header).
  */
 test.describe("Reporting scope filter", () => {
@@ -23,6 +27,7 @@ test.describe("Reporting scope filter", () => {
   let leadId: string;
   let interestCampaignId: string;
   let plainCampaignId: string;
+  let voiceCallId: string;
   const callIds: string[] = [];
 
   test.beforeAll(async () => {
@@ -86,6 +91,7 @@ test.describe("Reporting scope filter", () => {
     const insertCall = async (
       campaignId: string,
       extracted: Record<string, unknown> | null,
+      recordingPath: string | null = null,
     ) => {
       const { data } = await admin
         .from("calls")
@@ -100,12 +106,35 @@ test.describe("Reporting scope filter", () => {
           duration_seconds: 80,
           started_at: new Date().toISOString(),
           extracted_data: extracted,
+          recording_path: recordingPath,
         })
         .select("id")
         .single();
-      callIds.push(data!.id);
+      callIds.push(data!.id as string);
+      return data!.id as string;
     };
-    await insertCall(interestCampaignId, { ai_call_answering_interest: "yes" });
+    // The interest campaign: a categorical sentiment field + a long-text notes
+    // field. The first call carries an http recording_path so the redirect uses
+    // the legacy http branch (no storage signing).
+    voiceCallId = await insertCall(
+      interestCampaignId,
+      {
+        ai_call_answering_interest: "yes",
+        ai_call_answering_reason:
+          "They were very enthusiastic about an AI answering service and asked for pricing details right away.",
+      },
+      "https://example.com/rec.mp3",
+    );
+    await insertCall(interestCampaignId, {
+      ai_call_answering_interest: "maybe",
+      ai_call_answering_reason:
+        "On the fence — they already use a part-time receptionist but might switch.",
+    });
+    await insertCall(interestCampaignId, {
+      ai_call_answering_interest: "no",
+      ai_call_answering_reason:
+        "Not interested at this time; happy with their current phone setup.",
+    });
     await insertCall(plainCampaignId, {});
   });
 
@@ -151,6 +180,42 @@ test.describe("Reporting scope filter", () => {
     await expect(
       page.getByRole("link", { name: "Voice of Customer" }),
     ).toBeVisible();
+  });
+
+  test("the Voice of Customer tab shows sentiment + recording + a lead link", async ({
+    page,
+  }) => {
+    await page.goto(
+      `/reporting?scope=campaign:${interestCampaignId}&tab=voice`,
+    );
+    // Sentiment column header + a Play control for the call with a recording.
+    await expect(
+      page.getByRole("columnheader", { name: "Sentiment" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /play/i }).first(),
+    ).toBeVisible();
+    // The company cell links to the lead (admin view only).
+    await expect(
+      page.getByRole("link", { name: `E2E Scope Co ${stamp}` }).first(),
+    ).toHaveAttribute("href", `/leads/${leadId}`);
+  });
+
+  test("the admin recording route resolves a known call and 404s an unknown one", async ({
+    page,
+  }) => {
+    // Authenticated context (the page fixture carries the admin session); the
+    // seeded call has an http recording_path so the route 3xx-redirects to it.
+    const ok = await page.request.get(
+      `/api/reporting/recording/${voiceCallId}`,
+      { maxRedirects: 0 },
+    );
+    expect(ok.status()).toBeLessThan(400);
+    const missing = await page.request.get(
+      `/api/reporting/recording/00000000-0000-0000-0000-000000000000`,
+      { maxRedirects: 0 },
+    );
+    expect(missing.status()).toBe(404);
   });
 
   test("a campaign without sentiment data hides the Yes column + interest tabs", async ({

@@ -20,9 +20,11 @@ type Option = { id: string; name: string };
 export function ScopePicker({
   campaigns,
   value,
+  basePath,
 }: {
   campaigns: Option[];
   value: string;
+  basePath: string;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -30,7 +32,7 @@ export function ScopePicker({
   function onChange(next: string) {
     const params = new URLSearchParams(sp.toString());
     params.set("scope", next);
-    router.push(`/reporting?${params.toString()}`);
+    router.push(`${basePath}?${params.toString()}`);
   }
 
   return (

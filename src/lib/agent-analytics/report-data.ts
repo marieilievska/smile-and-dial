@@ -8,11 +8,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 
+import type { DetectedFields } from "./field-detect";
 import type { ReportScope } from "./scope";
 import {
   computeDailyKpis,
   etDay,
-  interestOf,
   sinceDaysAgoIso,
   type AgentCallRow,
   type DailyKpi,
@@ -30,10 +30,13 @@ export type VoiceRow = {
   day: string;
   company: string;
   list: string;
-  interest: "yes" | "no" | "maybe";
-  reason: string;
-  theme: string;
-  suggestedAction: string;
+  leadId: string | null;
+  /** The campaign's sentiment value, lowercased (e.g. "yes", "happy"). */
+  sentiment: string;
+  /** The campaign's free-text notes answer. */
+  notes: string;
+  /** Storage object path or legacy http(s) URL; null when no recording. */
+  recordingPath: string | null;
 };
 
 export type HotLeadRow = {
@@ -102,6 +105,7 @@ export type DashboardKpiScope = { all?: boolean; campaignIds?: string[] };
 export async function fetchDashboardKpis(
   supabase: DB,
   scope: DashboardKpiScope,
+  sentimentKey?: string | null,
 ): Promise<DailyKpi[]> {
   // Count by the agent AND/OR the campaign(s). `calls.agent_id` goes NULL if the
   // agent is deleted, but `calls.campaign_id` is durable — so matching on either
@@ -136,17 +140,8 @@ export async function fetchDashboardKpis(
     if (batch.length < PAGE) break;
     if (offset > 500_000) break; // safety backstop
   }
-  return computeDailyKpis(rows);
+  return computeDailyKpis(rows, sentimentKey);
 }
-
-type VoiceRawRow = {
-  id: string;
-  started_at: string | null;
-  extracted_data: unknown;
-  theme: string | null;
-  suggested_action: string | null;
-  lead: unknown;
-};
 
 /** PostgREST `.or()` condition string selecting the calls in a scope, or null
  *  for "all" (no filter). Campaign scope filters by campaign_id. */
@@ -158,48 +153,53 @@ function scopeCallConds(scope: ReportScope): string | null {
 export async function fetchVoiceRows(
   supabase: DB,
   scope: ReportScope,
+  detected: DetectedFields,
 ): Promise<VoiceRow[]> {
-  const conds = scopeCallConds(scope);
-  let q = supabase
+  if (scope.kind !== "campaign" || !detected.sentimentKey) return [];
+  const sentimentKey = detected.sentimentKey;
+  const { data } = await supabase
     .from("calls")
     .select(
-      "id, started_at, extracted_data, theme, suggested_action, lead:leads(company, list:lists(name))",
+      "id, started_at, lead_id, extracted_data, recording_path, lead:leads(company, list:lists(name))",
     )
+    .eq("campaign_id", scope.campaignId)
     .eq("direction", "outbound")
     .gte("started_at", sinceDaysAgoIso(VOICE_DAYS))
-    .not("extracted_data->>ai_call_answering_interest", "is", null)
+    .not(`extracted_data->>${sentimentKey}`, "is", null)
     .order("started_at", { ascending: false })
     .limit(2000);
-  if (conds) q = q.or(conds);
-  const { data } = await q;
 
-  return ((data ?? []) as unknown as VoiceRawRow[])
+  type Raw = {
+    id: string;
+    started_at: string | null;
+    lead_id: string | null;
+    extracted_data: unknown;
+    recording_path: string | null;
+    lead: unknown;
+  };
+  return ((data ?? []) as unknown as Raw[])
     .map((r): VoiceRow | null => {
-      const interest = interestOf({
-        started_at: r.started_at,
-        outcome: null,
-        duration_seconds: null,
-        extracted_data: r.extracted_data,
-      });
-      if (!interest) return null; // belt-and-suspenders vs the DB JSON filter
       const ed =
         r.extracted_data && typeof r.extracted_data === "object"
           ? (r.extracted_data as Record<string, unknown>)
           : {};
-      const reason =
-        typeof ed.ai_call_answering_reason === "string"
-          ? ed.ai_call_answering_reason
-          : "";
+      const sentiment = String(ed[sentimentKey] ?? "")
+        .trim()
+        .toLowerCase();
+      if (!sentiment) return null; // belt-and-suspenders vs the DB JSON filter
+      const notes = detected.notesKey
+        ? String(ed[detected.notesKey] ?? "").trim()
+        : "";
       const { company, list } = leadCompany(r.lead);
       return {
         id: r.id,
         day: r.started_at ? etDay(r.started_at) : "",
         company,
         list,
-        interest,
-        reason,
-        theme: r.theme ?? "",
-        suggestedAction: r.suggested_action ?? "",
+        leadId: r.lead_id,
+        sentiment,
+        notes,
+        recordingPath: r.recording_path,
       };
     })
     .filter((r): r is VoiceRow => r !== null);
