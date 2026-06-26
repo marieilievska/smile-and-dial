@@ -56,26 +56,25 @@ export async function upsertDashboardNote(input: {
   return { error: null };
 }
 
-/** Save a team edit on a hot lead (status / owner / next step / date
- *  contacted). Status falls back to "New" rather than null (it's NOT NULL).
- *  Empty string clears the other fields. */
-export async function saveHotLeadField(input: {
-  id: string;
-  field: "status" | "owner" | "next_step" | "date_contacted";
-  value: string;
+/** Permanently hide a call from Hot Leads. Admin-only; idempotent (upsert on the
+ *  call_id primary key). */
+export async function dismissHotLead(input: {
+  callId: string;
 }): Promise<{ error: string | null }> {
   if (!(await isCallerAdmin())) return { error: "Admins only." };
-  const value = input.value.trim() || null;
-  const patch: Database["public"]["Tables"]["hot_leads"]["Update"] = {};
-  if (input.field === "status") patch.status = value ?? "New";
-  else if (input.field === "owner") patch.owner = value;
-  else if (input.field === "next_step") patch.next_step = value;
-  else if (input.field === "date_contacted") patch.date_contacted = value;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const { error } = await adminClient()
-    .from("hot_leads")
-    .update(patch)
-    .eq("id", input.id);
-  return { error: error ? "Could not save." : null };
+    .from("hot_lead_dismissals")
+    .upsert(
+      { call_id: input.callId, dismissed_by: user?.id ?? null },
+      { onConflict: "call_id" },
+    );
+  if (error) return { error: "Could not remove from Hot Leads." };
+  revalidatePath(AGENT_ANALYTICS_PATH);
+  return { error: null };
 }
 
 // ---------------------------------------------------------------------------
