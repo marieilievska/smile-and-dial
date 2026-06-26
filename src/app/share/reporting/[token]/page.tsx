@@ -128,6 +128,7 @@ export default async function PublicReporting({
             notes={dashNotes}
             notesEditable={viewerIsAdmin}
             scopeSlug="all-agents"
+            showSentiment={false}
           />
         ) : tab === "voice" ? (
           <VoiceTable
