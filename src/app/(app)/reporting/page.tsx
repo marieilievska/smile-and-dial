@@ -37,7 +37,7 @@ function str(v: string | string[] | undefined): string {
 
 /** A short, file-safe label for the current scope, used in CSV filenames. */
 function scopeSlug(scope: ReportScope, label: string): string {
-  if (scope.kind === "all") return "all-agents";
+  if (scope.kind === "all") return "all-campaigns";
   return (
     label
       .toLowerCase()

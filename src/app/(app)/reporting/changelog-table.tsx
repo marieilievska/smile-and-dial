@@ -53,6 +53,10 @@ export function ChangelogTable({
   }
 
   function submit() {
+    if (!form.summary.trim()) {
+      toast.error("Add a short summary first.");
+      return;
+    }
     startTransition(async () => {
       const res = await createChangelogEntry(form);
       if (res.error) {

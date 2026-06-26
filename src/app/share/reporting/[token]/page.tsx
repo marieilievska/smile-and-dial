@@ -110,7 +110,7 @@ export default async function PublicReporting({
             Reporting
           </h1>
           <p className="text-muted-foreground mt-0.5 text-sm">
-            Read-only shared view · all agents · updates live.
+            Read-only shared view · all campaigns · updates live.
           </p>
         </div>
 
@@ -127,21 +127,21 @@ export default async function PublicReporting({
             historyDays={DASHBOARD_DAYS}
             notes={dashNotes}
             notesEditable={viewerIsAdmin}
-            scopeSlug="all-agents"
+            scopeSlug="all-campaigns"
             showSentiment={false}
           />
         ) : tab === "voice" ? (
           <VoiceTable
             rows={await fetchVoiceRows(supabase, { kind: "all" })}
             readOnly
-            scopeSlug="all-agents"
+            scopeSlug="all-campaigns"
             note={INTEREST_COMBINED_NOTE}
           />
         ) : tab === "hot-leads" ? (
           <HotLeadsTable
             rows={await fetchHotLeadRows(supabase)}
             readOnly
-            scopeSlug="all-agents"
+            scopeSlug="all-campaigns"
             note={INTEREST_COMBINED_NOTE}
           />
         ) : tab === "changelog" ? (
