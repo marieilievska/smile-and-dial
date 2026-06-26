@@ -4,23 +4,43 @@ import { createClient } from "@/lib/supabase/server";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
 import {
   DASHBOARD_DAYS,
+  fetchAgentCampaignIds,
   fetchChangelogRows,
   fetchDashboardKpis,
   fetchHotLeadRows,
   fetchPromptLogRows,
   fetchVoiceRows,
+  hasInterestData,
+  type DashboardKpiScope,
 } from "@/lib/agent-analytics/report-data";
+import {
+  parseScopeParam,
+  serializeScope,
+  type ReportScope,
+} from "@/lib/agent-analytics/scope";
 
 import { ChangelogTable } from "./changelog-table";
 import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
 import { HotLeadsTable } from "./hot-leads-table";
 import { PromptLogTable } from "./prompt-log-table";
-import { REPORTING_TABS, ReportingTabs } from "./reporting-tabs";
+import { ReportingTabs, reportingTabsFor } from "./reporting-tabs";
+import { ScopePicker } from "./scope-picker";
 import { VoiceTable } from "./voice-table";
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
+}
+
+/** A short, file-safe label for the current scope, used in CSV filenames. */
+function scopeSlug(scope: ReportScope, label: string): string {
+  if (scope.kind === "all") return "all-agents";
+  return (
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || scope.kind
+  );
 }
 
 export default async function AgentAnalyticsPage({
@@ -41,35 +61,61 @@ export default async function AgentAnalyticsPage({
     .single();
   if (me?.role !== "admin") redirect("/");
 
-  const tab = REPORTING_TABS.some((t) => t.key === str(params.tab))
+  // Load every agent + campaign for the picker (and to validate the URL scope).
+  const [{ data: agentRows }, { data: campaignRows }] = await Promise.all([
+    supabase.from("agents").select("id, name").order("name"),
+    supabase.from("campaigns").select("id, name").order("name"),
+  ]);
+  const agents = (agentRows ?? []) as { id: string; name: string }[];
+  const campaigns = (campaignRows ?? []) as { id: string; name: string }[];
+
+  // Parse + validate the scope. A stale id (deleted agent/campaign) falls back
+  // to All so the page never errors on an old link.
+  let scope = parseScopeParam(str(params.scope));
+  let scopeLabel = "All agents (combined)";
+  if (scope.kind === "agent") {
+    const agentId = scope.agentId;
+    const found = agents.find((a) => a.id === agentId);
+    if (found) scopeLabel = found.name;
+    else scope = { kind: "all" };
+  } else if (scope.kind === "campaign") {
+    const campaignId = scope.campaignId;
+    const found = campaigns.find((c) => c.id === campaignId);
+    if (found) scopeLabel = found.name;
+    else scope = { kind: "all" };
+  }
+  const scopeParam = serializeScope(scope);
+
+  // The interest tabs (Voice of Customer, Hot Leads) only show when the scope
+  // has yes/no/maybe data.
+  const showInterest = await hasInterestData(supabase, scope);
+  const visibleTabs = reportingTabsFor(showInterest);
+  const tab = visibleTabs.some((t) => t.key === str(params.tab))
     ? str(params.tab)
     : "dashboard";
 
-  // Scope to the Market Research agent.
-  const { data: agent } = await supabase
-    .from("agents")
-    .select("id, name")
-    .ilike("name", "%market research%")
-    .maybeSingle();
-
-  // Also resolve the Market Research campaign(s) by name. The dashboard counts
-  // by campaign as well, so the numbers survive even if the agent is later
-  // deleted (calls keep their campaign_id; only agent_id goes null).
-  const { data: campaignRows } = await supabase
-    .from("campaigns")
-    .select("id")
-    .ilike("name", "%market research%");
-  const campaignIds = (campaignRows ?? []).map((c) => c.id);
+  // Map the scope to the dashboard-kpi args (all mode, or agent+its campaigns,
+  // or one campaign).
+  const kpiScope: DashboardKpiScope =
+    scope.kind === "all"
+      ? { all: true }
+      : scope.kind === "agent"
+        ? {
+            agentId: scope.agentId,
+            campaignIds: await fetchAgentCampaignIds(supabase, scope.agentId),
+          }
+        : { campaignIds: [scope.campaignId] };
 
   // Public read-only share token (revocable from settings). When set, admins
-  // get a "Copy share link" button; when blank, the link is disabled so we
-  // hide the button.
+  // get a "Copy share link" button; when blank, the link is disabled.
   const { data: shareRow } = await supabase
     .from("app_settings")
     .select("agent_analytics_share_token")
     .eq("id", 1)
     .maybeSingle();
   const shareToken = shareRow?.agent_analytics_share_token ?? "";
+
+  const slug = scopeSlug(scope, scopeLabel);
 
   return (
     <div className="flex flex-col gap-5 p-6">
@@ -80,35 +126,34 @@ export default async function AgentAnalyticsPage({
           </h1>
           <p className="text-muted-foreground mt-0.5 text-sm">
             For upper-management reporting — agent performance, call results,
-            and app changes. Currently covering the Market Research agent.
+            and app changes. Pick an agent or campaign to scope the view.
           </p>
         </div>
-        {shareToken ? <CopyShareLinkButton token={shareToken} /> : null}
+        <div className="flex items-center gap-2">
+          <ScopePicker
+            agents={agents}
+            campaigns={campaigns}
+            value={scopeParam}
+          />
+          {shareToken ? <CopyShareLinkButton token={shareToken} /> : null}
+        </div>
       </div>
 
-      <ReportingTabs active={tab} hrefFor={(k) => `/reporting?tab=${k}`} />
+      <ReportingTabs
+        active={tab}
+        tabs={visibleTabs}
+        hrefFor={(k) => `/reporting?tab=${k}&scope=${scopeParam}`}
+      />
 
-      {!agent && campaignIds.length === 0 ? (
-        <div className="border-border bg-muted/20 rounded-lg border p-6 text-sm">
-          No agent or campaign named “Market Research” was found, so there’s
-          nothing to report yet.
-        </div>
-      ) : tab === "dashboard" ? (
+      {tab === "dashboard" ? (
         <DashboardTab
-          agentId={agent?.id ?? null}
-          campaignIds={campaignIds}
+          kpiScope={kpiScope}
           selectedDay={str(params.day)}
+          scopeParam={scopeParam}
+          slug={slug}
         />
       ) : tab === "voice" ? (
-        agent ? (
-          <VoiceTab agentId={agent.id} />
-        ) : (
-          <div className="border-border bg-muted/20 rounded-lg border p-6 text-sm">
-            The Market Research agent was removed, so per-call detail isn’t
-            available here. The dashboard counts (by campaign) and Costs /
-            Analytics still cover this campaign.
-          </div>
-        )
+        <VoiceTab scope={scope} slug={slug} />
       ) : tab === "hot-leads" ? (
         <HotLeadsTab />
       ) : tab === "changelog" ? (
@@ -121,16 +166,18 @@ export default async function AgentAnalyticsPage({
 }
 
 async function DashboardTab({
-  agentId,
-  campaignIds,
+  kpiScope,
   selectedDay,
+  scopeParam,
+  slug,
 }: {
-  agentId: string | null;
-  campaignIds: string[];
+  kpiScope: DashboardKpiScope;
   selectedDay: string;
+  scopeParam: string;
+  slug: string;
 }) {
   const supabase = await createClient();
-  const kpis = await fetchDashboardKpis(supabase, { agentId, campaignIds });
+  const kpis = await fetchDashboardKpis(supabase, kpiScope);
   const day = /^\d{4}-\d{2}-\d{2}$/.test(selectedDay)
     ? selectedDay
     : yesterdayEt();
@@ -145,21 +192,31 @@ async function DashboardTab({
       kpis={kpis}
       day={day}
       historyDays={DASHBOARD_DAYS}
-      dayHrefFor={(d) => `/reporting?tab=dashboard&day=${d}`}
+      dayHrefFor={(d) =>
+        `/reporting?tab=dashboard&scope=${scopeParam}&day=${d}`
+      }
       notes={notes}
       notesEditable
+      scopeSlug={slug}
     />
   );
 }
 
-async function VoiceTab({ agentId }: { agentId: string }) {
+async function VoiceTab({ scope, slug }: { scope: ReportScope; slug: string }) {
   const supabase = await createClient();
-  return <VoiceTable rows={await fetchVoiceRows(supabase, agentId)} />;
+  return (
+    <VoiceTable rows={await fetchVoiceRows(supabase, scope)} scopeSlug={slug} />
+  );
 }
 
 async function HotLeadsTab() {
   const supabase = await createClient();
-  return <HotLeadsTable rows={await fetchHotLeadRows(supabase)} />;
+  return (
+    <HotLeadsTable
+      rows={await fetchHotLeadRows(supabase)}
+      scopeSlug="all-agents"
+    />
+  );
 }
 
 async function ChangelogTab() {
