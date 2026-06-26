@@ -98,9 +98,15 @@ function fmtLen(s: number | null): string {
 
 // --- Fetchers --------------------------------------------------------------
 
+export type DashboardKpiScope = {
+  all?: boolean;
+  agentId?: string | null;
+  campaignIds?: string[];
+};
+
 export async function fetchDashboardKpis(
   supabase: DB,
-  scope: { all?: boolean; agentId?: string | null; campaignIds?: string[] },
+  scope: DashboardKpiScope,
 ): Promise<DailyKpi[]> {
   // Count by the agent AND/OR the campaign(s). `calls.agent_id` goes NULL if the
   // agent is deleted, but `calls.campaign_id` is durable — so matching on either
@@ -210,7 +216,7 @@ export async function hasInterestData(
     .select("id", { count: "exact", head: true })
     .eq("direction", "outbound")
     .gte("started_at", sinceDaysAgoIso(VOICE_DAYS))
-    .not("extracted_data->>ai_call_answering_interest", "is", null);
+    .in("extracted_data->>ai_call_answering_interest", ["yes", "no", "maybe"]);
   if (scope.kind === "agent") q = q.eq("agent_id", scope.agentId);
   else if (scope.kind === "campaign") q = q.eq("campaign_id", scope.campaignId);
   const { count } = await q;

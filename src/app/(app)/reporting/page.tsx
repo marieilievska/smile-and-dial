@@ -11,6 +11,7 @@ import {
   fetchPromptLogRows,
   fetchVoiceRows,
   hasInterestData,
+  type DashboardKpiScope,
 } from "@/lib/agent-analytics/report-data";
 import {
   parseScopeParam,
@@ -95,7 +96,7 @@ export default async function AgentAnalyticsPage({
 
   // Map the scope to the dashboard-kpi args (all mode, or agent+its campaigns,
   // or one campaign).
-  const kpiScope =
+  const kpiScope: DashboardKpiScope =
     scope.kind === "all"
       ? { all: true }
       : scope.kind === "agent"
@@ -154,7 +155,7 @@ export default async function AgentAnalyticsPage({
       ) : tab === "voice" ? (
         <VoiceTab scope={scope} slug={slug} />
       ) : tab === "hot-leads" ? (
-        <HotLeadsTab slug={slug} />
+        <HotLeadsTab />
       ) : tab === "changelog" ? (
         <ChangelogTab />
       ) : tab === "prompt-log" ? (
@@ -170,7 +171,7 @@ async function DashboardTab({
   scopeParam,
   slug,
 }: {
-  kpiScope: { all?: boolean; agentId?: string | null; campaignIds?: string[] };
+  kpiScope: DashboardKpiScope;
   selectedDay: string;
   scopeParam: string;
   slug: string;
@@ -208,10 +209,13 @@ async function VoiceTab({ scope, slug }: { scope: ReportScope; slug: string }) {
   );
 }
 
-async function HotLeadsTab({ slug }: { slug: string }) {
+async function HotLeadsTab() {
   const supabase = await createClient();
   return (
-    <HotLeadsTable rows={await fetchHotLeadRows(supabase)} scopeSlug={slug} />
+    <HotLeadsTable
+      rows={await fetchHotLeadRows(supabase)}
+      scopeSlug="all-agents"
+    />
   );
 }
 

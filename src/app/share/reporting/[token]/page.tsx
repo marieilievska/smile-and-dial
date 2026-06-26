@@ -24,7 +24,7 @@ import { yesterdayEt } from "@/lib/agent-analytics/stats";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
-// Public, read-only share of the Market Research reporting page, gated by an
+// Public, read-only, all-agents combined reporting view, gated by an
 // unguessable token in the URL (validated against app_settings, so it's
 // revocable). No login. Same tabs as the in-app page, all rendered read-only.
 // Never indexed.
