@@ -218,7 +218,7 @@ async function VoiceTab({
     <VoiceTable
       rows={await fetchVoiceRows(supabase, scope, detected)}
       sentimentValues={detected.sentimentValues}
-      recordingSrcFor={(id) => `/api/reporting/recording/${id}`}
+      recordingBase="/api/reporting/recording"
       scopeSlug={slug}
     />
   );
