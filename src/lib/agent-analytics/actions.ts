@@ -35,24 +35,6 @@ async function isCallerAdmin(): Promise<boolean> {
   return me?.role === "admin";
 }
 
-/** Save an operator's theme / suggested-action annotation on a call (Voice of
- *  Customer tab). Empty string clears the field. */
-export async function saveCallAnnotation(input: {
-  callId: string;
-  field: "theme" | "suggested_action";
-  value: string;
-}): Promise<{ error: string | null }> {
-  if (!(await isCallerAdmin())) return { error: "Admins only." };
-  const value = input.value.trim() || null;
-  const patch =
-    input.field === "theme" ? { theme: value } : { suggested_action: value };
-  const { error } = await adminClient()
-    .from("calls")
-    .update(patch)
-    .eq("id", input.callId);
-  return { error: error ? "Could not save." : null };
-}
-
 /** Upsert the per-day dashboard note (an operator's explanation of why a KPI
  *  moved that day). Empty clears it. Admin-only; one row per Eastern day. */
 export async function upsertDashboardNote(input: {

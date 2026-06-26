@@ -28,12 +28,6 @@ function ex(r: AgentCallRow): Record<string, unknown> {
     ? (r.extracted_data as Record<string, unknown>)
     : {};
 }
-export function interestOf(r: AgentCallRow): "yes" | "no" | "maybe" | null {
-  const v = String(ex(r).ai_call_answering_interest ?? "")
-    .trim()
-    .toLowerCase();
-  return v === "yes" || v === "no" || v === "maybe" ? v : null;
-}
 export function dmReached(r: AgentCallRow): boolean {
   return (
     String(ex(r).decision_maker_reached ?? "")

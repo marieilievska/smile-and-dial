@@ -32,6 +32,7 @@ export async function GET(
     .from("calls")
     .select("recording_path")
     .eq("id", callId)
+    .eq("direction", "outbound")
     .maybeSingle();
   const path = call?.recording_path;
   if (!path) return new NextResponse("Not found", { status: 404 });
