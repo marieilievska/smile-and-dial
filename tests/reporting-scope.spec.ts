@@ -11,6 +11,9 @@ test.describe.configure({ mode: "serial" });
  *    and the interest tabs (Voice of Customer + Hot Leads).
  *  - The Voice of Customer tab renders the sentiment pill + notes + recording
  *    player + a clickable lead link (admin only).
+ *  - The Hot Leads tab is a live list of the campaign's warm calls (yes +
+ *    maybe, not no) with Contact / Why hot / List columns (no Status / Owner),
+ *    a lead link, and a permanent dismissal that removes a row.
  *  - A campaign WITHOUT sentiment data hides the dashboard sentiment columns
  *    and the interest tabs; the combined (All) view also hides the sentiment
  *    columns.
@@ -24,11 +27,14 @@ test.describe("Reporting scope filter", () => {
   let ownerId: string;
   let agentId: string;
   let goalId: string;
+  let listId: string;
   let leadId: string;
   let interestCampaignId: string;
   let plainCampaignId: string;
   let voiceCallId: string;
+  let maybeCallId: string;
   const callIds: string[] = [];
+  const dismissedCallIds: string[] = [];
 
   test.beforeAll(async () => {
     admin = createClient(
@@ -76,6 +82,13 @@ test.describe("Reporting scope filter", () => {
     interestCampaignId = await mkCampaign(`E2E Scope Interest ${stamp}`);
     plainCampaignId = await mkCampaign(`E2E Scope Plain ${stamp}`);
 
+    const { data: list } = await admin
+      .from("lists")
+      .insert({ owner_id: ownerId, name: `E2E Scope List ${stamp}` })
+      .select("id")
+      .single();
+    listId = list!.id as string;
+
     const { data: lead } = await admin
       .from("leads")
       .insert({
@@ -83,6 +96,8 @@ test.describe("Reporting scope filter", () => {
         company: `E2E Scope Co ${stamp}`,
         business_phone: `+1555${String(stamp).slice(-7)}`,
         status: "ready_to_call",
+        owner_name: `E2E Owner ${stamp}`,
+        list_id: listId,
       })
       .select("id")
       .single();
@@ -125,7 +140,7 @@ test.describe("Reporting scope filter", () => {
       },
       "https://example.com/rec.mp3",
     );
-    await insertCall(interestCampaignId, {
+    maybeCallId = await insertCall(interestCampaignId, {
       ai_call_answering_interest: "maybe",
       ai_call_answering_reason:
         "On the fence — they already use a part-time receptionist but might switch.",
@@ -139,11 +154,17 @@ test.describe("Reporting scope filter", () => {
   });
 
   test.afterAll(async () => {
+    for (const id of dismissedCallIds)
+      await admin.from("hot_lead_dismissals").delete().eq("call_id", id);
     for (const id of callIds) await admin.from("calls").delete().eq("id", id);
     await admin
       .from("leads")
       .delete()
       .eq("id", leadId ?? "");
+    await admin
+      .from("lists")
+      .delete()
+      .eq("id", listId ?? "");
     await admin
       .from("campaigns")
       .delete()
@@ -180,6 +201,7 @@ test.describe("Reporting scope filter", () => {
     await expect(
       page.getByRole("link", { name: "Voice of Customer" }),
     ).toBeVisible();
+    await expect(page.getByRole("link", { name: "Hot Leads" })).toBeVisible();
   });
 
   test("the Voice of Customer tab shows sentiment + recording + a lead link", async ({
@@ -199,6 +221,58 @@ test.describe("Reporting scope filter", () => {
     await expect(
       page.getByRole("link", { name: `E2E Scope Co ${stamp}` }).first(),
     ).toHaveAttribute("href", `/leads/${leadId}`);
+  });
+
+  test("the Hot Leads tab lists the warm calls (yes + maybe, not no)", async ({
+    page,
+  }) => {
+    await page.goto(
+      `/reporting?scope=campaign:${interestCampaignId}&tab=hot-leads`,
+    );
+    // The simplified columns — Contact / Why hot / List — and none of the old
+    // editable hot-leads columns (Status / Owner).
+    await expect(
+      page.getByRole("columnheader", { name: "Contact" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "Why hot" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "List" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "Status" }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("columnheader", { name: "Owner" })).toHaveCount(
+      0,
+    );
+    // Both warm calls (yes + maybe) reference the same lead, so the company
+    // appears as an admin lead link; the "no" call is filtered out (it's not
+    // warm), so exactly the two warm rows render.
+    const companyLink = page.getByRole("link", {
+      name: `E2E Scope Co ${stamp}`,
+    });
+    await expect(companyLink.first()).toHaveAttribute(
+      "href",
+      `/leads/${leadId}`,
+    );
+    await expect(companyLink).toHaveCount(2);
+  });
+
+  test("dismissing a warm call hides it from Hot Leads on reload", async () => {
+    // Record a dismissal for the "maybe" call directly (service client).
+    await admin.from("hot_lead_dismissals").insert({ call_id: maybeCallId });
+    dismissedCallIds.push(maybeCallId);
+  });
+
+  test("the dismissed warm call no longer appears", async ({ page }) => {
+    await page.goto(
+      `/reporting?scope=campaign:${interestCampaignId}&tab=hot-leads`,
+    );
+    // Only the "yes" call's row remains → a single company link.
+    await expect(
+      page.getByRole("link", { name: `E2E Scope Co ${stamp}` }),
+    ).toHaveCount(1);
   });
 
   test("the admin recording route resolves a known call and 404s an unknown one", async ({
@@ -229,6 +303,7 @@ test.describe("Reporting scope filter", () => {
     await expect(
       page.getByRole("link", { name: "Voice of Customer" }),
     ).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Hot Leads" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
   });
 

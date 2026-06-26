@@ -1143,6 +1143,32 @@ export type Database = {
         };
         Relationships: [];
       };
+      hot_lead_dismissals: {
+        Row: {
+          call_id: string;
+          dismissed_at: string;
+          dismissed_by: string | null;
+        };
+        Insert: {
+          call_id: string;
+          dismissed_at?: string;
+          dismissed_by?: string | null;
+        };
+        Update: {
+          call_id?: string;
+          dismissed_at?: string;
+          dismissed_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "hot_lead_dismissals_call_id_fkey";
+            columns: ["call_id"];
+            isOneToOne: true;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       hot_leads: {
         Row: {
           call_id: string;

@@ -5,7 +5,6 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 import { QUALITY_CRITERIA_IDS } from "@/lib/elevenlabs/agents";
-import { seedHotLeadFromCall } from "@/lib/agent-analytics/hot-leads";
 import {
   resolveDueCallbacksForLead,
   syncLeadNextCallToEarliestCallback,
@@ -1057,19 +1056,6 @@ async function processTranscription(
   // autoFillLeadFromExtraction only writes non-blank values into empty lead
   // fields, so it's safe to run on every call.
   await autoFillLeadFromExtraction(supabase, call.lead_id, payload);
-
-  // Auto-seed the Hot Leads sell list when this call's owner said "yes". Keyed
-  // on the unique call_id, so it's inserted once and never clobbers team edits.
-  await seedHotLeadFromCall(
-    supabase,
-    {
-      id: call.id,
-      lead_id: call.lead_id,
-      started_at: call.started_at,
-      duration_seconds: callDurationSecs ?? null,
-    },
-    cleanedExtraction,
-  );
 
   // The judgment fields + research answers (decision maker, sentiment, …) only
   // mean something when a human actually talked with us, so mirror those onto
