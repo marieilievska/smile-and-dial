@@ -60,10 +60,13 @@ export function HotLeadsTable({
   rows,
   readOnly = false,
   scopeSlug = "all-agents",
+  note,
 }: {
   rows: HotLeadRow[];
   readOnly?: boolean;
   scopeSlug?: string;
+  /** Optional clarifier shown above the table (e.g. in the combined view). */
+  note?: string;
 }) {
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [q, setQ] = useState("");
@@ -151,6 +154,11 @@ export function HotLeadsTable({
 
   return (
     <div className="flex flex-col gap-4">
+      {note ? (
+        <p className="border-border bg-muted/20 text-muted-foreground rounded-lg border px-3 py-2 text-sm">
+          {note}
+        </p>
+      ) : null}
       <p className="text-muted-foreground text-sm">
         Auto-built from every “yes” call.
         {!readOnly ? (

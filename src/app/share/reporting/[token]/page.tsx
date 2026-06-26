@@ -7,6 +7,7 @@ import { DashboardView } from "@/app/(app)/reporting/dashboard-view";
 import { HotLeadsTable } from "@/app/(app)/reporting/hot-leads-table";
 import { PromptLogTable } from "@/app/(app)/reporting/prompt-log-table";
 import {
+  INTEREST_COMBINED_NOTE,
   ReportingTabs,
   reportingTabsFor,
 } from "@/app/(app)/reporting/reporting-tabs";
@@ -133,12 +134,14 @@ export default async function PublicReporting({
             rows={await fetchVoiceRows(supabase, { kind: "all" })}
             readOnly
             scopeSlug="all-agents"
+            note={INTEREST_COMBINED_NOTE}
           />
         ) : tab === "hot-leads" ? (
           <HotLeadsTable
             rows={await fetchHotLeadRows(supabase)}
             readOnly
             scopeSlug="all-agents"
+            note={INTEREST_COMBINED_NOTE}
           />
         ) : tab === "changelog" ? (
           <ChangelogTable rows={await fetchChangelogRows(supabase)} readOnly />

@@ -24,7 +24,11 @@ import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
 import { HotLeadsTable } from "./hot-leads-table";
 import { PromptLogTable } from "./prompt-log-table";
-import { ReportingTabs, reportingTabsFor } from "./reporting-tabs";
+import {
+  INTEREST_COMBINED_NOTE,
+  ReportingTabs,
+  reportingTabsFor,
+} from "./reporting-tabs";
 import { ScopePicker } from "./scope-picker";
 import { VoiceTable } from "./voice-table";
 
@@ -117,6 +121,12 @@ export default async function AgentAnalyticsPage({
 
   const slug = scopeSlug(scope, scopeLabel);
 
+  // In the combined view the interest tabs aggregate every agent's data — but
+  // interest answers are only collected by the Market Research campaign today,
+  // so flag that so the numbers aren't read as spanning all agents.
+  const interestNote =
+    scope.kind === "all" ? INTEREST_COMBINED_NOTE : undefined;
+
   return (
     <div className="flex flex-col gap-5 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -153,9 +163,9 @@ export default async function AgentAnalyticsPage({
           slug={slug}
         />
       ) : tab === "voice" ? (
-        <VoiceTab scope={scope} slug={slug} />
+        <VoiceTab scope={scope} slug={slug} note={interestNote} />
       ) : tab === "hot-leads" ? (
-        <HotLeadsTab />
+        <HotLeadsTab note={interestNote} />
       ) : tab === "changelog" ? (
         <ChangelogTab />
       ) : tab === "prompt-log" ? (
@@ -202,19 +212,32 @@ async function DashboardTab({
   );
 }
 
-async function VoiceTab({ scope, slug }: { scope: ReportScope; slug: string }) {
+async function VoiceTab({
+  scope,
+  slug,
+  note,
+}: {
+  scope: ReportScope;
+  slug: string;
+  note?: string;
+}) {
   const supabase = await createClient();
   return (
-    <VoiceTable rows={await fetchVoiceRows(supabase, scope)} scopeSlug={slug} />
+    <VoiceTable
+      rows={await fetchVoiceRows(supabase, scope)}
+      scopeSlug={slug}
+      note={note}
+    />
   );
 }
 
-async function HotLeadsTab() {
+async function HotLeadsTab({ note }: { note?: string }) {
   const supabase = await createClient();
   return (
     <HotLeadsTable
       rows={await fetchHotLeadRows(supabase)}
       scopeSlug="all-agents"
+      note={note}
     />
   );
 }

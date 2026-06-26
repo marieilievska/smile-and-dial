@@ -36,10 +36,13 @@ export function VoiceTable({
   rows,
   readOnly = false,
   scopeSlug = "all-agents",
+  note,
 }: {
   rows: VoiceRow[];
   readOnly?: boolean;
   scopeSlug?: string;
+  /** Optional clarifier shown above the table (e.g. in the combined view). */
+  note?: string;
 }) {
   const [interest, setInterest] = useState<InterestFilter>("all");
   const [q, setQ] = useState("");
@@ -119,9 +122,13 @@ export function VoiceTable({
 
   return (
     <div className="flex flex-col gap-4">
+      {note ? (
+        <p className="border-border bg-muted/20 text-muted-foreground rounded-lg border px-3 py-2 text-sm">
+          {note}
+        </p>
+      ) : null}
       <p className="text-muted-foreground text-sm">
-        Every Market Research call with an interest answer, with the owner’s own
-        words.
+        Every call with an interest answer, in the owner’s own words.
         {!readOnly ? (
           <>
             {" "}
