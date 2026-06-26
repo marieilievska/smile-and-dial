@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 
+import type { ReportScope } from "./scope";
 import {
   computeDailyKpis,
   etDay,
@@ -99,7 +100,7 @@ function fmtLen(s: number | null): string {
 
 export async function fetchDashboardKpis(
   supabase: DB,
-  scope: { agentId?: string | null; campaignIds?: string[] },
+  scope: { all?: boolean; agentId?: string | null; campaignIds?: string[] },
 ): Promise<DailyKpi[]> {
   // Count by the agent AND/OR the campaign(s). `calls.agent_id` goes NULL if the
   // agent is deleted, but `calls.campaign_id` is durable — so matching on either
@@ -109,7 +110,8 @@ export async function fetchDashboardKpis(
   if (scope.campaignIds && scope.campaignIds.length > 0) {
     conds.push(`campaign_id.in.(${scope.campaignIds.join(",")})`);
   }
-  if (conds.length === 0) return [];
+  // No scope and not the all-agents view → nothing to report.
+  if (!scope.all && conds.length === 0) return [];
 
   // Paginate: PostgREST hard-caps every response at 1,000 rows on this project
   // (a bare `.limit(5000)` still returns only 1,000), so a busy window would
@@ -118,14 +120,17 @@ export async function fetchDashboardKpis(
   const since = sinceDaysAgoIso(DASHBOARD_DAYS);
   const rows: AgentCallRow[] = [];
   for (let offset = 0; ; offset += PAGE) {
-    const { data } = await supabase
+    let q = supabase
       .from("calls")
       .select("started_at, outcome, duration_seconds, extracted_data")
-      .or(conds.join(","))
       .eq("direction", "outbound")
       .gte("started_at", since)
       .order("started_at", { ascending: false })
       .range(offset, offset + PAGE - 1);
+    // All-agents mode counts every outbound call; scoped mode narrows by
+    // agent/campaign.
+    if (!scope.all) q = q.or(conds.join(","));
+    const { data } = await q;
     const batch = (data ?? []) as AgentCallRow[];
     rows.push(...batch);
     if (batch.length < PAGE) break;
@@ -145,19 +150,21 @@ type VoiceRawRow = {
 
 export async function fetchVoiceRows(
   supabase: DB,
-  agentId: string,
+  scope: ReportScope,
 ): Promise<VoiceRow[]> {
-  const { data } = await supabase
+  let q = supabase
     .from("calls")
     .select(
       "id, started_at, extracted_data, theme, suggested_action, lead:leads(company, list:lists(name))",
     )
-    .eq("agent_id", agentId)
     .eq("direction", "outbound")
     .gte("started_at", sinceDaysAgoIso(VOICE_DAYS))
     .not("extracted_data->>ai_call_answering_interest", "is", null)
     .order("started_at", { ascending: false })
     .limit(2000);
+  if (scope.kind === "agent") q = q.eq("agent_id", scope.agentId);
+  else if (scope.kind === "campaign") q = q.eq("campaign_id", scope.campaignId);
+  const { data } = await q;
 
   return ((data ?? []) as unknown as VoiceRawRow[])
     .map((r): VoiceRow | null => {
@@ -189,6 +196,39 @@ export async function fetchVoiceRows(
       };
     })
     .filter((r): r is VoiceRow => r !== null);
+}
+
+/** True when the scope has at least one call carrying an interest answer
+ *  (yes/no/maybe) in the Voice window. Drives whether the interest-based tabs
+ *  (Voice of Customer, Hot Leads) render. Cheap: a head-only count, no rows. */
+export async function hasInterestData(
+  supabase: DB,
+  scope: ReportScope,
+): Promise<boolean> {
+  let q = supabase
+    .from("calls")
+    .select("id", { count: "exact", head: true })
+    .eq("direction", "outbound")
+    .gte("started_at", sinceDaysAgoIso(VOICE_DAYS))
+    .not("extracted_data->>ai_call_answering_interest", "is", null);
+  if (scope.kind === "agent") q = q.eq("agent_id", scope.agentId);
+  else if (scope.kind === "campaign") q = q.eq("campaign_id", scope.campaignId);
+  const { count } = await q;
+  return (count ?? 0) > 0;
+}
+
+/** The campaign ids run by an agent. Passed alongside agentId to
+ *  fetchDashboardKpis so totals survive the agent row being deleted later
+ *  (calls keep campaign_id; only agent_id goes null). */
+export async function fetchAgentCampaignIds(
+  supabase: DB,
+  agentId: string,
+): Promise<string[]> {
+  const { data } = await supabase
+    .from("campaigns")
+    .select("id")
+    .eq("agent_id", agentId);
+  return (data ?? []).map((c) => (c as { id: string }).id);
 }
 
 type HotLeadRawRow = {
