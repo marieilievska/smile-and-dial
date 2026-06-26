@@ -20,17 +20,19 @@ function titleCase(v: string): string {
 /** Voice of Customer — one row per call that recorded the campaign's sentiment
  *  answer (last 30d), with the free-text notes, the lead, and an inline
  *  recording player. `readOnly` (public share) makes the company plain text.
- *  `recordingSrcFor` builds the `<audio src>` URL for a call id. */
+ *  `recordingBase` is the URL prefix for a recording route; the `<audio src>` is
+ *  `${recordingBase}/${callId}`. (A string, not a function — Server Components
+ *  can't pass functions into client components.) */
 export function VoiceTable({
   rows,
   sentimentValues,
-  recordingSrcFor,
+  recordingBase,
   readOnly = false,
   scopeSlug = "all-campaigns",
 }: {
   rows: VoiceRow[];
   sentimentValues: string[];
-  recordingSrcFor: (callId: string) => string;
+  recordingBase: string;
   readOnly?: boolean;
   scopeSlug?: string;
 }) {
@@ -167,7 +169,7 @@ export function VoiceTable({
                           controls
                           autoPlay
                           preload="none"
-                          src={recordingSrcFor(r.id)}
+                          src={`${recordingBase}/${r.id}`}
                           className="h-8 w-[14rem]"
                         />
                       ) : (

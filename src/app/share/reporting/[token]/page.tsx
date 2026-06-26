@@ -177,9 +177,7 @@ export default async function PublicReporting({
           <VoiceTable
             rows={await fetchVoiceRows(supabase, scope, detected)}
             sentimentValues={detected.sentimentValues}
-            recordingSrcFor={(id) =>
-              `/share/reporting/${token}/recording/${id}`
-            }
+            recordingBase={`/share/reporting/${token}/recording`}
             readOnly
             scopeSlug="campaign"
           />
