@@ -20,21 +20,34 @@ export const REPORTING_TABS = [
 
 export type ReportingTabKey = (typeof REPORTING_TABS)[number]["key"];
 
+/** The tabs to show for the current scope. The interest-based tabs (Voice of
+ *  Customer, Hot Leads) only make sense when the scope has yes/no/maybe data. */
+export function reportingTabsFor(
+  showInterest: boolean,
+): readonly (typeof REPORTING_TABS)[number][] {
+  if (showInterest) return REPORTING_TABS;
+  return REPORTING_TABS.filter(
+    (t) => t.key !== "voice" && t.key !== "hot-leads",
+  );
+}
+
 /** Elevated segmented tab bar. `hrefFor` lets each surface build its own
  *  links (/reporting?tab=… vs /share/reporting/<token>?tab=…). */
 export function ReportingTabs({
   active,
   hrefFor,
+  tabs = REPORTING_TABS,
 }: {
   active: string;
   hrefFor: (key: ReportingTabKey) => string;
+  tabs?: readonly (typeof REPORTING_TABS)[number][];
 }) {
   return (
     <nav
       aria-label="Reporting sections"
       className="border-border bg-card flex flex-wrap items-center gap-1 rounded-xl border p-1 shadow-sm"
     >
-      {REPORTING_TABS.map((t) => {
+      {tabs.map((t) => {
         const isActive = t.key === active;
         const Icon = t.icon;
         return (
