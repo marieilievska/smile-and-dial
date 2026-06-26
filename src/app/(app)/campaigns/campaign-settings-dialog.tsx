@@ -75,6 +75,7 @@ export type CampaignData = {
   email_template_id: string | null;
   audience_search: string | null;
   smart_list_id: string | null;
+  inbound_greeting: string | null;
 };
 
 const NO_NUMBER = "__none__";
@@ -171,6 +172,9 @@ export function CampaignSettingsDialog({
   );
   const [transferDestinationPhone, setTransferDestinationPhone] = useState(
     campaign?.transfer_destination_phone ?? "",
+  );
+  const [inboundGreeting, setInboundGreeting] = useState(
+    campaign?.inbound_greeting ?? "",
   );
   const [dailySpendCap, setDailySpendCap] = useState(
     campaign?.daily_spend_cap != null ? String(campaign.daily_spend_cap) : "",
@@ -286,6 +290,7 @@ export function CampaignSettingsDialog({
         callsPerDayCap,
         concurrencyCapPerUser,
         transferDestinationPhone,
+        inboundGreeting,
         dailySpendCap,
         monthlySpendCap,
         autopilotEnabled,
@@ -775,6 +780,24 @@ export function CampaignSettingsDialog({
               <p className="text-muted-foreground text-xs">
                 When set and the agent has the &ldquo;transfer to a human&rdquo;
                 tool enabled, this is the number it dials.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="campaign-inbound-greeting">
+                Inbound greeting
+              </Label>
+              <Textarea
+                id="campaign-inbound-greeting"
+                value={inboundGreeting}
+                onChange={(event) => setInboundGreeting(event.target.value)}
+                placeholder="Hi, thanks for calling! How can I help you today?"
+                rows={2}
+              />
+              <p className="text-muted-foreground text-xs">
+                The first line the agent speaks when someone calls this
+                campaign&apos;s number back. Leave blank to use a standard
+                greeting. (Inbound only — on outbound calls the person answers
+                first.)
               </p>
             </div>
           </CampaignSection>

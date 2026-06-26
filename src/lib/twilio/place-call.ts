@@ -4,8 +4,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 
-import { pointNumberWebhooks } from "./numbers";
-
 /** Place outbound calls via ElevenLabs' NATIVE Twilio integration.
  *
  *  Why not a home-grown bridge? We previously dialed Twilio directly and
@@ -104,7 +102,7 @@ export async function ensureNumberImportedToElevenLabs(
   const { data: num } = await supabase
     .from("twilio_numbers")
     .select(
-      "phone_number, friendly_name, released_at, elevenlabs_phone_number_id, twilio_sid",
+      "phone_number, friendly_name, released_at, elevenlabs_phone_number_id",
     )
     .eq("id", twilioNumberId)
     .maybeSingle();
@@ -133,27 +131,49 @@ export async function ensureNumberImportedToElevenLabs(
     .update({ elevenlabs_phone_number_id: imported.phoneNumberId })
     .eq("id", twilioNumberId);
 
-  // Importing a number into ElevenLabs HIJACKS its Twilio voice webhook:
-  // ElevenLabs repoints VoiceUrl at api.elevenlabs.io/twilio/inbound_call. That
-  // silently breaks our app-bridged INBOUND — incoming calls would hit
-  // ElevenLabs (which has no agent assigned to the number) and never reach the
-  // app to create the lead, log the call, or bridge to the campaign's agent.
-  // Re-point the webhook back at the app so inbound keeps working. Outbound is
-  // unaffected: ElevenLabs places outbound through its API, not this webhook.
-  // Best-effort — a failure here must not undo the (successful) import.
-  if (num.twilio_sid) {
-    const pointed = await pointNumberWebhooks(num.twilio_sid);
-    if (!pointed.error && pointed.voiceUrl) {
-      await supabase
-        .from("twilio_numbers")
-        .update({
-          voice_webhook_url: pointed.voiceUrl,
-          status_webhook_url: pointed.statusCallback,
-        })
-        .eq("id", twilioNumberId);
-    }
-  }
+  // Importing a number into ElevenLabs repoints its Twilio VoiceUrl at
+  // api.elevenlabs.io/twilio/inbound_call. That is exactly what we want:
+  // inbound is ElevenLabs-NATIVE — EL answers the call directly with the agent
+  // assigned to the number (see assignAgentToNumber, called right after import
+  // from the campaign-attach flow), then fires the post-call webhook so the app
+  // logs the call. We deliberately do NOT point the webhook back at the app;
+  // doing so re-breaks the working native setup (the lesson of #222).
   return imported;
+}
+
+/** Assign an ElevenLabs agent to an imported phone number so the agent answers
+ *  INBOUND calls to it (EL-native inbound). Idempotent: re-assigning the same
+ *  agent is a no-op on ElevenLabs' side, so it's safe to re-assert on every
+ *  campaign save. Mocked unless ELEVENLABS_LIVE=live. */
+export async function assignAgentToNumber(
+  elevenlabsPhoneNumberId: string,
+  elevenlabsAgentId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isLive()) return { ok: true };
+  const apiKey = elevenLabsApiKey();
+  if (!apiKey) return { ok: false, error: "ELEVENLABS_API_KEY is not set." };
+  try {
+    const res = await fetch(
+      `${ELEVENLABS_BASE}/v1/convai/phone-numbers/${encodeURIComponent(
+        elevenlabsPhoneNumberId,
+      )}`,
+      {
+        method: "PATCH",
+        headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: elevenlabsAgentId }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      return {
+        ok: false,
+        error: `ElevenLabs agent assignment failed (${res.status})${detail ? ` ${detail.slice(0, 200)}` : ""}.`,
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "ElevenLabs agent assignment request failed." };
+  }
 }
 
 export type PlaceCallInput = {

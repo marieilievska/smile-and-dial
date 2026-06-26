@@ -35,8 +35,22 @@ export type ConversationInitRequest = {
   call_sid?: string;
 };
 
+/** Fallback greeting when an inbound call's campaign has no custom one set, so
+ *  an EL-native inbound call is never silent (the agent waits for the caller
+ *  otherwise, and the caller waits for the agent → dead air). */
+export const DEFAULT_INBOUND_GREETING =
+  "Hi, thanks for calling! How can I help you today?";
+
 export type ConversationInitResponse = {
   type: "conversation_initiation_client_data";
+  /** Per-call config overrides. We only set the agent's first_message — the
+   *  inbound greeting for the dialed number's campaign. Requires the agent to
+   *  allow this override (platform_settings.overrides.conversation_config_override
+   *  .agent.first_message, set on agent sync). Omitted entirely on outbound,
+   *  which never hits this webhook. */
+  conversation_config_override?: {
+    agent: { first_message: string };
+  };
   dynamic_variables: {
     call_type: string;
     last_call_summary: string;
@@ -288,20 +302,62 @@ export async function buildCallDynamicVariables(
   return buildVarsForCall(supabase, call);
 }
 
+/**
+ * Resolve the inbound greeting (first_message override) for a dialed number.
+ *
+ * Keyed on `called_number` — the number the caller dialed — because that's the
+ * only identifier we have for an EL-native inbound call at init time: the call
+ * row doesn't exist yet (it's created from the post-call webhook). We map the
+ * number → its attached campaign → the campaign's inbound_greeting, falling
+ * back to the default so the agent always opens with something. Returns
+ * undefined only when no number was provided (e.g. an outbound init, which in
+ * practice never reaches this webhook).
+ */
+async function resolveGreetingOverride(
+  supabase: SupabaseAdmin,
+  calledNumber: string | undefined,
+): Promise<ConversationInitResponse["conversation_config_override"]> {
+  const dialed = calledNumber?.trim();
+  if (!dialed) return undefined;
+
+  let greeting = DEFAULT_INBOUND_GREETING;
+  const { data: num } = await supabase
+    .from("twilio_numbers")
+    .select("attached_campaign_id")
+    .eq("phone_number", dialed)
+    .maybeSingle();
+  if (num?.attached_campaign_id) {
+    const { data: campaign } = await supabase
+      .from("campaigns")
+      .select("inbound_greeting")
+      .eq("id", num.attached_campaign_id)
+      .maybeSingle();
+    const custom = campaign?.inbound_greeting?.trim();
+    if (custom) greeting = custom;
+  }
+  return { agent: { first_message: greeting } };
+}
+
 export async function buildConversationInitData(
   body: ConversationInitRequest,
 ): Promise<ConversationInitResponse> {
+  const supabase = makeServiceClient();
+
+  // The inbound greeting is keyed on the dialed number, independent of whether
+  // we can resolve the call row — so a brand-new inbound caller (no call row
+  // yet) still gets the campaign's greeting instead of dead air.
+  const override = await resolveGreetingOverride(supabase, body.called_number);
+
   const wrap = (
     vars: ConversationInitResponse["dynamic_variables"],
   ): ConversationInitResponse => ({
     type: "conversation_initiation_client_data",
+    ...(override ? { conversation_config_override: override } : {}),
     dynamic_variables: vars,
   });
 
   const callSid = body.call_sid?.trim() ?? "";
   if (!callSid) return wrap(emptyVariables());
-
-  const supabase = makeServiceClient();
 
   // Resolve the call by the Twilio CallSid we stamped at dial time.
   const { data: call } = await supabase

@@ -90,7 +90,7 @@ export default async function CampaignsPage({
     supabase
       .from("campaigns")
       .select(
-        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, calendly_event_id, email_template_id, audience_search, smart_list_id, created_at, agent:agents(name), goal:goals(name)",
+        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, calendly_event_id, email_template_id, audience_search, smart_list_id, inbound_greeting, created_at, agent:agents(name), goal:goals(name)",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -256,6 +256,7 @@ export default async function CampaignsPage({
     email_template_id: c.email_template_id ?? null,
     audience_search: c.audience_search ?? null,
     smart_list_id: c.smart_list_id ?? null,
+    inbound_greeting: c.inbound_greeting ?? null,
     created_at: c.created_at,
     agent_name: c.agent?.name ?? "—",
     goal_name: c.goal?.name ?? "—",
@@ -311,6 +312,7 @@ export default async function CampaignsPage({
       email_template_id: campaign.email_template_id,
       audience_search: campaign.audience_search,
       smart_list_id: campaign.smart_list_id,
+      inbound_greeting: campaign.inbound_greeting,
     };
     const today = perCampaignSpend.get(campaign.id);
     return {
