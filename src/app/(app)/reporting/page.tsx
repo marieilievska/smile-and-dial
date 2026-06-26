@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
   detectCampaignFields,
+  isWarm,
   type DetectedFields,
 } from "@/lib/agent-analytics/field-detect";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
@@ -13,7 +14,6 @@ import {
   fetchHotLeadRows,
   fetchPromptLogRows,
   fetchVoiceRows,
-  hasInterestData,
   type DashboardKpiScope,
 } from "@/lib/agent-analytics/report-data";
 import {
@@ -90,7 +90,9 @@ export default async function AgentAnalyticsPage({
       : { sentimentKey: null, sentimentValues: [], notesKey: null };
   const showVoice = scope.kind === "campaign" && detected.sentimentKey !== null;
   const showHotLeads =
-    scope.kind === "campaign" && (await hasInterestData(supabase, scope));
+    scope.kind === "campaign" &&
+    detected.sentimentKey !== null &&
+    detected.sentimentValues.some(isWarm);
   const visibleTabs = reportingTabsFor({ showVoice, showHotLeads });
   const tab = visibleTabs.some((t) => t.key === str(params.tab))
     ? str(params.tab)
@@ -150,7 +152,7 @@ export default async function AgentAnalyticsPage({
       ) : tab === "voice" ? (
         <VoiceTab scope={scope} detected={detected} slug={slug} />
       ) : tab === "hot-leads" ? (
-        <HotLeadsTab />
+        <HotLeadsTab scope={scope} detected={detected} slug={slug} />
       ) : tab === "changelog" ? (
         <ChangelogTab />
       ) : tab === "prompt-log" ? (
@@ -222,12 +224,20 @@ async function VoiceTab({
   );
 }
 
-async function HotLeadsTab() {
+async function HotLeadsTab({
+  scope,
+  detected,
+  slug,
+}: {
+  scope: ReportScope;
+  detected: DetectedFields;
+  slug: string;
+}) {
   const supabase = await createClient();
   return (
     <HotLeadsTable
-      rows={await fetchHotLeadRows(supabase)}
-      scopeSlug="all-agents"
+      rows={await fetchHotLeadRows(supabase, scope, detected)}
+      scopeSlug={slug}
     />
   );
 }
