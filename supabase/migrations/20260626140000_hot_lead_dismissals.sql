@@ -11,4 +11,4 @@ alter table public.hot_lead_dismissals enable row level security;
 -- admin check, mirroring the other Agent Analytics tables.
 create policy "admins read hot_lead_dismissals"
   on public.hot_lead_dismissals for select
-  using (public.is_admin(auth.uid()));
+  using (public.is_admin((select auth.uid())));

@@ -227,6 +227,8 @@ export async function fetchHotLeadRows(
     .gte("started_at", sinceDaysAgoIso(VOICE_DAYS))
     .in(`extracted_data->>${sentimentKey}`, warmValues)
     .order("started_at", { ascending: false })
+    // Intentional cap: a 30-day campaign window won't realistically exceed this;
+    // the newest 2,000 warm calls are shown (matches fetchVoiceRows).
     .limit(2000);
 
   type Raw = {
