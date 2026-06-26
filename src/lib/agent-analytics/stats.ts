@@ -4,6 +4,8 @@
 
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 
+import { isWarm } from "./field-detect";
+
 export type AgentCallRow = {
   started_at: string | null;
   outcome: string | null;
@@ -54,10 +56,10 @@ export type DailyKpi = {
   hungUp: number;
   aiError: number;
   dnc: number;
-  interestYes: number;
-  interestMaybe: number;
-  interestNo: number;
-  /** (yes + maybe) / (yes + maybe + no), 0..1. */
+  /** Per-day counts keyed by the campaign's lowercased sentiment value
+   *  (e.g. { yes: 3, maybe: 1, no: 2 }). Empty when no sentiment field. */
+  sentimentCounts: Record<string, number>;
+  /** (warm answers) / (total answered), 0..1; warm = positive or neutral. */
   warmPct: number;
 };
 
@@ -76,15 +78,18 @@ function emptyDay(day: string): DailyKpi {
     hungUp: 0,
     aiError: 0,
     dnc: 0,
-    interestYes: 0,
-    interestMaybe: 0,
-    interestNo: 0,
+    sentimentCounts: {},
     warmPct: 0,
   };
 }
 
-/** Group calls into per-ET-day KPI rows, newest day first. */
-export function computeDailyKpis(rows: AgentCallRow[]): DailyKpi[] {
+/** Group calls into per-ET-day KPI rows, newest day first. When `sentimentKey`
+ *  is given, also bucket each call's extracted_data[sentimentKey] value and
+ *  compute warmPct via the sentiment lexicon. */
+export function computeDailyKpis(
+  rows: AgentCallRow[],
+  sentimentKey?: string | null,
+): DailyKpi[] {
   const byDay = new Map<string, DailyKpi>();
   for (const r of rows) {
     if (!r.started_at) continue;
@@ -107,14 +112,22 @@ export function computeDailyKpis(rows: AgentCallRow[]): DailyKpi[] {
     if (o === "hung_up_immediately") k.hungUp++;
     if (o === "ai_error") k.aiError++;
     if (o === "dnc") k.dnc++;
-    const i = interestOf(r);
-    if (i === "yes") k.interestYes++;
-    else if (i === "maybe") k.interestMaybe++;
-    else if (i === "no") k.interestNo++;
+    if (sentimentKey) {
+      const ed =
+        r.extracted_data && typeof r.extracted_data === "object"
+          ? (r.extracted_data as Record<string, unknown>)
+          : {};
+      const v = String(ed[sentimentKey] ?? "")
+        .trim()
+        .toLowerCase();
+      if (v) k.sentimentCounts[v] = (k.sentimentCounts[v] ?? 0) + 1;
+    }
   }
   for (const k of byDay.values()) {
-    const denom = k.interestYes + k.interestMaybe + k.interestNo;
-    k.warmPct = denom === 0 ? 0 : (k.interestYes + k.interestMaybe) / denom;
+    const entries = Object.entries(k.sentimentCounts);
+    const total = entries.reduce((s, [, n]) => s + n, 0);
+    const warm = entries.reduce((s, [v, n]) => s + (isWarm(v) ? n : 0), 0);
+    k.warmPct = total === 0 ? 0 : warm / total;
   }
   return [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1));
 }
