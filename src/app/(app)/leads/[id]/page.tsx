@@ -40,6 +40,7 @@ export default async function LeadDetailPage({
     { data: emailRows },
     { data: eventRows },
     { data: activeCallRows },
+    { data: callbackRows },
   ] = await Promise.all([
     supabase
       .from("leads")
@@ -85,6 +86,12 @@ export default async function LeadDetailPage({
       .in("status", ["queued", "dialing", "ringing", "in_progress"])
       .order("created_at", { ascending: false })
       .limit(1),
+    supabase
+      .from("callbacks")
+      .select("id, scheduled_at, status")
+      .eq("lead_id", id)
+      .order("scheduled_at", { ascending: false })
+      .limit(50),
   ]);
 
   if (!lead) notFound();
@@ -112,9 +119,10 @@ export default async function LeadDetailPage({
   // skipping the campaign picker step.
   const { data: profileWithActive } = await supabase
     .from("profiles")
-    .select("active_campaign_id")
+    .select("active_campaign_id, role")
     .eq("id", user.id)
     .single();
+  const isAdmin = profileWithActive?.role === "admin";
   const activeCampaignId =
     profileWithActive?.active_campaign_id &&
     availableCampaigns.some(
@@ -198,6 +206,12 @@ export default async function LeadDetailPage({
     onCallStartedAt: activeCall?.started_at ?? null,
   };
 
+  const callbacks = (callbackRows ?? []).map((c) => ({
+    id: c.id,
+    scheduledAt: c.scheduled_at,
+    status: c.status,
+  }));
+
   // Lightweight projection of the feed for the "since-you-last-looked"
   // chip. Just timestamps + a short one-line description; keeps the
   // server/client payload small.
@@ -261,6 +275,8 @@ export default async function LeadDetailPage({
       activityFeed={<LeadActivityFeed items={feedItems} leadId={lead.id} />}
       feedItemsForChip={feedItemsForChip}
       nav={nav}
+      isAdmin={isAdmin}
+      callbacks={callbacks}
     />
   );
 }

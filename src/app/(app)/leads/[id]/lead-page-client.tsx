@@ -34,6 +34,7 @@ import {
 } from "@/lib/relative-time";
 import { MergeInboundDialog } from "../merge-inbound-dialog";
 import { EditableCompanyName } from "./editable-company-name";
+import { LeadCallbacks, type LeadCallbackRow } from "./lead-callbacks";
 import { LeadHeroActions } from "./lead-hero-actions";
 import { ManualCallPanel } from "./manual-call-panel";
 import { OwnerCallControl } from "./owner-call-control";
@@ -57,6 +58,8 @@ export function LeadPageClient({
   activityFeed,
   feedItemsForChip,
   nav,
+  isAdmin,
+  callbacks,
 }: {
   leadId: string;
   userId: string;
@@ -79,6 +82,8 @@ export function LeadPageClient({
     total: number;
     capped: boolean;
   } | null;
+  isAdmin: boolean;
+  callbacks: LeadCallbackRow[];
 }) {
   const { status, saveField, saveCustom } = useLeadSaver(leadId);
   const router = useRouter();
@@ -452,6 +457,14 @@ export function LeadPageClient({
             <SinceLastViewed leadId={leadId} items={feedItemsForChip} />
             {activityFeed}
           </section>
+
+          <section
+            data-testid="lead-callbacks-column"
+            className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-4 shadow-sm"
+          >
+            <h2 className="text-foreground text-sm font-semibold">Callbacks</h2>
+            <LeadCallbacks callbacks={callbacks} isAdmin={isAdmin} />
+          </section>
         </div>
       </div>
 
@@ -461,7 +474,7 @@ export function LeadPageClient({
           inline, without navigating away from the lead detail. The
           modal reads ?call=<id> from the URL; its close handler
           (updated round 13) returns to the current pathname. */}
-      <CallDetailModal />
+      <CallDetailModal isAdmin={isAdmin} />
     </div>
   );
 }

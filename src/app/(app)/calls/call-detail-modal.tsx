@@ -9,6 +9,7 @@ import {
   PhoneCall,
   Save,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -42,6 +43,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  deleteCalls,
   getCallDetail,
   overrideCallOutcome,
   scheduleManualCallback,
@@ -203,7 +205,7 @@ function Section({
  *   correction tool, not the primary action.
  * - Copy buttons on the summary card and the transcript section.
  */
-export function CallDetailModal() {
+export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Round 13 — the modal is now also mounted on /leads/<id>, so
@@ -259,6 +261,28 @@ export function CallDetailModal() {
   function callAgain() {
     if (!call?.leadId) return;
     router.push(`/leads/${call.leadId}?action=call`);
+  }
+
+  const [deleting, startDelete] = useTransition();
+
+  function deleteThisCall() {
+    if (!call) return;
+    if (
+      !window.confirm(
+        "Delete this call? It's removed permanently and drops out of cost/analytics totals.",
+      )
+    )
+      return;
+    startDelete(async () => {
+      const res = await deleteCalls([call.id]);
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Call deleted");
+      close();
+      router.refresh();
+    });
   }
 
   // Talk ratio (M15) — what fraction of call time was actual speech.
@@ -582,6 +606,18 @@ export function CallDetailModal() {
             own weight. */}
         {call ? (
           <div className="border-border bg-card flex flex-wrap items-center justify-end gap-2 border-t px-6 py-4">
+            {isAdmin ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={deleteThisCall}
+                disabled={deleting}
+                className="text-muted-foreground hover:text-destructive mr-auto"
+              >
+                <Trash2 className="size-4" />
+                Delete call
+              </Button>
+            ) : null}
             <ScheduleCallbackDialog callId={call.id} />
             {call.leadId ? (
               <Button
