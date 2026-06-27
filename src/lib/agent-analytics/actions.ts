@@ -165,12 +165,30 @@ type PromptLogField =
   | "why"
   | "full_prompt";
 
-/** Add a blank prompt-log row (DB defaults: today's date, "No change"). */
-export async function createPromptLogEntry(): Promise<{
-  error: string | null;
-}> {
+/** Add a prompt-log entry for an agent (form-based). changed defaults to
+ *  "No change"; log_date defaults to today if blank/invalid. Admin-only. */
+export async function createPromptLogEntry(input: {
+  agentId: string;
+  log_date: string;
+  version: string;
+  changed: string;
+  what_changed: string;
+  why: string;
+  full_prompt: string;
+}): Promise<{ error: string | null }> {
   if (!(await isCallerAdmin())) return { error: "Admins only." };
-  const { error } = await adminClient().from("agent_prompt_log").insert({});
+  const t = (s: string) => s.trim() || null;
+  const patch: Database["public"]["Tables"]["agent_prompt_log"]["Insert"] = {
+    agent_id: input.agentId || null,
+    version: t(input.version),
+    changed: input.changed.trim() || "No change",
+    what_changed: t(input.what_changed),
+    why: t(input.why),
+    full_prompt: t(input.full_prompt),
+  };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input.log_date))
+    patch.log_date = input.log_date;
+  const { error } = await adminClient().from("agent_prompt_log").insert(patch);
   if (error) return { error: "Could not add entry." };
   revalidatePath(AGENT_ANALYTICS_PATH);
   return { error: null };

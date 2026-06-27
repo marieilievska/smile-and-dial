@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       agent_prompt_log: {
         Row: {
+          agent_id: string | null;
           changed: string;
           created_at: string;
           full_prompt: string | null;
@@ -26,6 +27,7 @@ export type Database = {
           why: string | null;
         };
         Insert: {
+          agent_id?: string | null;
           changed?: string;
           created_at?: string;
           full_prompt?: string | null;
@@ -36,6 +38,7 @@ export type Database = {
           why?: string | null;
         };
         Update: {
+          agent_id?: string | null;
           changed?: string;
           created_at?: string;
           full_prompt?: string | null;
@@ -45,7 +48,15 @@ export type Database = {
           what_changed?: string | null;
           why?: string | null;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "agent_prompt_log_agent_id_fkey";
+            columns: ["agent_id"];
+            isOneToOne: false;
+            referencedRelation: "agents";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       agents: {
         Row: {

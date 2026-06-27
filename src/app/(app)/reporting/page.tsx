@@ -64,11 +64,12 @@ export default async function AgentAnalyticsPage({
     .single();
   if (me?.role !== "admin") redirect("/");
 
-  const { data: campaignRows } = await supabase
-    .from("campaigns")
-    .select("id, name")
-    .order("name");
+  const [{ data: campaignRows }, { data: agentRows }] = await Promise.all([
+    supabase.from("campaigns").select("id, name").order("name"),
+    supabase.from("agents").select("id, name").order("name"),
+  ]);
   const campaigns = (campaignRows ?? []) as { id: string; name: string }[];
+  const agents = (agentRows ?? []) as { id: string; name: string }[];
 
   // Parse + validate the scope. A stale id (deleted campaign) falls back to All.
   let scope = parseScopeParam(str(params.scope));
@@ -156,7 +157,7 @@ export default async function AgentAnalyticsPage({
       ) : tab === "changelog" ? (
         <ChangelogTab />
       ) : tab === "prompt-log" ? (
-        <PromptLogTab />
+        <PromptLogTab scope={scope} agents={agents} />
       ) : null}
     </div>
   );
@@ -248,8 +249,20 @@ async function ChangelogTab() {
   return <ChangelogTable key={rows.map((r) => r.id).join(",")} rows={rows} />;
 }
 
-async function PromptLogTab() {
+async function PromptLogTab({
+  scope,
+  agents,
+}: {
+  scope: ReportScope;
+  agents: { id: string; name: string }[];
+}) {
   const supabase = await createClient();
-  const rows = await fetchPromptLogRows(supabase);
-  return <PromptLogTable key={rows.map((r) => r.id).join(",")} rows={rows} />;
+  const rows = await fetchPromptLogRows(supabase, scope);
+  return (
+    <PromptLogTable
+      key={rows.map((r) => r.id).join(",")}
+      rows={rows}
+      agents={agents}
+    />
+  );
 }

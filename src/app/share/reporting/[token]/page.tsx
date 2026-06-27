@@ -190,7 +190,10 @@ export default async function PublicReporting({
         ) : tab === "changelog" ? (
           <ChangelogTable rows={await fetchChangelogRows(supabase)} readOnly />
         ) : tab === "prompt-log" ? (
-          <PromptLogTable rows={await fetchPromptLogRows(supabase)} readOnly />
+          <PromptLogTable
+            rows={await fetchPromptLogRows(supabase, scope)}
+            readOnly
+          />
         ) : null}
       </div>
     </main>
