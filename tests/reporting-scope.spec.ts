@@ -35,6 +35,15 @@ test.describe("Reporting scope filter", () => {
   let maybeCallId: string;
   const callIds: string[] = [];
   const dismissedCallIds: string[] = [];
+  // Prompt-log per-agent fixtures: two agents, each with one prompt-log entry,
+  // and a campaign whose agent is A — so the campaign-scoped prompt log shows
+  // only A's entry while the combined view shows both.
+  let promptAgentAId: string;
+  let promptAgentBId: string;
+  let promptAgentAName: string;
+  let promptAgentBName: string;
+  let promptCampaignId: string;
+  const promptLogIds: string[] = [];
 
   test.beforeAll(async () => {
     admin = createClient(
@@ -151,12 +160,77 @@ test.describe("Reporting scope filter", () => {
         "Not interested at this time; happy with their current phone setup.",
     });
     await insertCall(plainCampaignId, {});
+
+    // --- Prompt-log per-agent fixtures ---
+    promptAgentAName = `E2E Prompt Agent A ${stamp}`;
+    promptAgentBName = `E2E Prompt Agent B ${stamp}`;
+    const mkPromptAgent = async (name: string) => {
+      const { data } = await admin
+        .from("agents")
+        .insert({
+          owner_id: ownerId,
+          name,
+          prompt_personality: "x",
+          prompt_environment: "x",
+          prompt_tone: "x",
+          prompt_goal: "x",
+          prompt_guardrails: "x",
+        })
+        .select("id")
+        .single();
+      return data!.id as string;
+    };
+    promptAgentAId = await mkPromptAgent(promptAgentAName);
+    promptAgentBId = await mkPromptAgent(promptAgentBName);
+
+    const mkPromptLog = async (agentForLog: string, prompt: string) => {
+      const { data } = await admin
+        .from("agent_prompt_log")
+        .insert({
+          agent_id: agentForLog,
+          version: "v1",
+          changed: "No change",
+          full_prompt: prompt,
+        })
+        .select("id")
+        .single();
+      promptLogIds.push(data!.id as string);
+    };
+    await mkPromptLog(promptAgentAId, `Prompt for agent A ${stamp}`);
+    await mkPromptLog(promptAgentBId, `Prompt for agent B ${stamp}`);
+
+    // The campaign whose agent is A — its prompt-log view shows only A.
+    const { data: promptCampaign } = await admin
+      .from("campaigns")
+      .insert({
+        owner_id: ownerId,
+        agent_id: promptAgentAId,
+        goal_id: goalId,
+        name: `E2E Prompt Campaign ${stamp}`,
+      })
+      .select("id")
+      .single();
+    promptCampaignId = promptCampaign!.id as string;
   });
 
   test.afterAll(async () => {
     for (const id of dismissedCallIds)
       await admin.from("hot_lead_dismissals").delete().eq("call_id", id);
     for (const id of callIds) await admin.from("calls").delete().eq("id", id);
+    for (const id of promptLogIds)
+      await admin.from("agent_prompt_log").delete().eq("id", id);
+    await admin
+      .from("campaigns")
+      .delete()
+      .eq("id", promptCampaignId ?? "");
+    await admin
+      .from("agents")
+      .delete()
+      .eq("id", promptAgentAId ?? "");
+    await admin
+      .from("agents")
+      .delete()
+      .eq("id", promptAgentBId ?? "");
     await admin
       .from("leads")
       .delete()
@@ -324,5 +398,32 @@ test.describe("Reporting scope filter", () => {
     await expect(page.getByRole("columnheader", { name: "Owner" })).toHaveCount(
       0,
     );
+  });
+
+  test("the combined prompt log shows every agent's entries", async ({
+    page,
+  }) => {
+    await page.goto("/reporting?scope=all&tab=prompt-log");
+    await expect(page.getByText(promptAgentAName).first()).toBeVisible();
+    await expect(page.getByText(promptAgentBName).first()).toBeVisible();
+  });
+
+  test("a campaign-scoped prompt log shows only that campaign's agent", async ({
+    page,
+  }) => {
+    await page.goto(
+      `/reporting?scope=campaign:${promptCampaignId}&tab=prompt-log`,
+    );
+    await expect(page.getByText(promptAgentAName).first()).toBeVisible();
+    await expect(page.getByText(promptAgentBName)).toHaveCount(0);
+  });
+
+  test("the Add form exposes an agent picker", async ({ page }) => {
+    await page.goto("/reporting?scope=all&tab=prompt-log");
+    await page.getByRole("button", { name: "Add entry" }).click();
+    await expect(page.getByRole("combobox").first()).toBeVisible();
+    await expect(
+      page.getByRole("option", { name: promptAgentAName }),
+    ).toHaveCount(1);
   });
 });
