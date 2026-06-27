@@ -70,6 +70,8 @@ export type PromptLogRow = {
   fullPrompt: string;
   /** The full_prompt of the chronologically previous entry, for the diff. */
   prevPrompt: string;
+  agentId: string | null;
+  agentName: string;
 };
 
 // --- Helpers ---------------------------------------------------------------
@@ -301,25 +303,61 @@ export async function fetchChangelogRows(
 
 export async function fetchPromptLogRows(
   supabase: DB,
+  scope: ReportScope,
 ): Promise<PromptLogRow[]> {
-  const { data } = await supabase
+  // Campaign scope → that campaign's agent only; combined → all agents.
+  let agentId: string | null = null;
+  if (scope.kind === "campaign") {
+    const { data: c } = await supabase
+      .from("campaigns")
+      .select("agent_id")
+      .eq("id", scope.campaignId)
+      .maybeSingle();
+    agentId = c?.agent_id ?? null;
+    if (!agentId) return [];
+  }
+
+  let q = supabase
     .from("agent_prompt_log")
-    .select("id, log_date, version, changed, what_changed, why, full_prompt")
+    .select(
+      "id, log_date, version, changed, what_changed, why, full_prompt, agent_id, agent:agents(name)",
+    )
     .order("log_date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(2000);
+  if (agentId) q = q.eq("agent_id", agentId);
+  const { data } = await q;
 
-  const raw = data ?? [];
-  return raw.map((r, i) => {
-    // The diff baseline is the next-older entry that actually has a prompt.
+  type Raw = {
+    id: string;
+    log_date: string | null;
+    version: string | null;
+    changed: string | null;
+    what_changed: string | null;
+    why: string | null;
+    full_prompt: string | null;
+    agent_id: string | null;
+    agent: unknown;
+  };
+  const raw = (data ?? []) as unknown as Raw[];
+  return raw.map((r, i): PromptLogRow => {
+    // Diff baseline = the next-older entry FOR THE SAME AGENT that has a prompt.
     let prevPrompt = "";
     for (let j = i + 1; j < raw.length; j++) {
+      if (raw[j].agent_id !== r.agent_id) continue;
       const fp = raw[j].full_prompt;
       if (fp && fp.trim()) {
         prevPrompt = fp;
         break;
       }
     }
+    const a = Array.isArray(r.agent) ? r.agent[0] : r.agent;
+    const agentName =
+      a &&
+      typeof a === "object" &&
+      typeof (a as { name?: unknown }).name === "string"
+        ? (a as { name: string }).name
+        : "";
     return {
       id: r.id,
       logDate: r.log_date ?? "",
@@ -329,6 +367,8 @@ export async function fetchPromptLogRows(
       why: r.why ?? "",
       fullPrompt: r.full_prompt ?? "",
       prevPrompt,
+      agentId: r.agent_id,
+      agentName,
     };
   });
 }
