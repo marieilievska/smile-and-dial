@@ -43,6 +43,11 @@ export type CallDetail = {
   costBreakdown: Record<string, unknown> | null;
   twilioCallSid: string | null;
   elevenlabsConversationId: string | null;
+  /** The ElevenLabs agent id for this call's agent. Paired with the
+   *  conversation id, it builds a deep link to the conversation (and its
+   *  recording) in the ElevenLabs dashboard. null for calls without an agent
+   *  or an EL-connected agent (e.g. legacy / human browser calls). */
+  elevenlabsAgentId: string | null;
   leadId: string | null;
   leadCompany: string | null;
   leadPhone: string | null;
@@ -73,7 +78,7 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
         "recording_path, score, summary, transcript_json, extracted_data, " +
         "cost_breakdown, twilio_call_sid, elevenlabs_conversation_id, " +
         "lead:leads(id, company, business_phone), " +
-        "campaign:campaigns(name), agent:agents(name)",
+        "campaign:campaigns(name), agent:agents(name, elevenlabs_agent_id)",
     )
     .eq("id", callId)
     .maybeSingle();
@@ -108,7 +113,7 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
       business_phone: string | null;
     } | null;
     campaign: { name: string } | null;
-    agent: { name: string } | null;
+    agent: { name: string; elevenlabs_agent_id: string | null } | null;
   };
   const data = raw as unknown as Joined;
 
@@ -220,6 +225,7 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
       > | null,
       twilioCallSid: data.twilio_call_sid,
       elevenlabsConversationId: data.elevenlabs_conversation_id,
+      elevenlabsAgentId: data.agent?.elevenlabs_agent_id ?? null,
       leadId: data.lead?.id ?? null,
       leadCompany: data.lead?.company ?? null,
       leadPhone: data.lead?.business_phone ?? null,
