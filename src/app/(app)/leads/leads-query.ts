@@ -1,4 +1,3 @@
-import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 import { resolveRecipeIds } from "@/lib/smart-lists/resolve";
 import type { createClient } from "@/lib/supabase/server";
 import { endOfEtDayUtcIso, etDayRangeUtc } from "@/lib/time/eastern";
@@ -42,68 +41,26 @@ export function parseSort(params: SearchParams): {
   return { sort, dir };
 }
 
-/** List form of the connected-outcome set for PostgREST `in` filters. */
-const CONNECTED_LIST = [...CONNECTED_OUTCOMES];
-
-/** True when the Leads view is filtered to "has a connected call". */
-export function connectedFilterActive(params: SearchParams): boolean {
-  return str(params.connected) === "yes";
-}
-
-/** PostgREST returns ≤1000 rows/request; keyset-page to collect every match. */
-const CONNECTED_PAGE = 1000;
-
-/**
- * Resolve the lead ids that have at least one CONNECTED call, for the
- * "Connected" Leads filter. Returns null when the filter isn't active (don't
- * constrain), else the distinct lead ids (keyset-paged on the calls' id past
- * the 1000-row cap). The caller feeds this into applyLeadFilters, which
- * constrains the leads query by id — keeping the leads SELECT a literal (so
- * Supabase still infers the row type) rather than an inner-join in the select.
- */
-export async function resolveConnectedLeadIds(
-  supabase: SupabaseServerClient,
-  params: SearchParams,
-): Promise<string[] | null> {
-  if (!connectedFilterActive(params)) return null;
-  const ids = new Set<string>();
-  let lastId: string | null = null;
-  for (;;) {
-    let q = supabase
-      .from("calls")
-      .select("id, lead_id")
-      .in("outcome", CONNECTED_LIST)
-      .order("id", { ascending: true })
-      .limit(CONNECTED_PAGE);
-    if (lastId !== null) q = q.gt("id", lastId);
-    const { data } = await q;
-    const page = (data ?? []) as { id: string; lead_id: string | null }[];
-    for (const r of page) if (r.lead_id) ids.add(r.lead_id);
-    if (page.length < CONNECTED_PAGE) break;
-    lastId = page[page.length - 1].id;
-  }
-  return [...ids];
+/** True when the Leads view is filtered to "has at least one call attempt". */
+export function calledFilterActive(params: SearchParams): boolean {
+  return str(params.called) === "yes";
 }
 
 /**
- * The combined id restriction for the Leads view: the "Connected" filter AND
- * the advanced-filter recipe (if either is active). Returns null when neither
- * restricts; an empty array when an active restriction matched nothing (→ zero
- * rows). Shared by the table query and the CSV export so both agree.
+ * The lead-id restriction for the Leads view: the advanced-filter recipe (smart
+ * lists), if active. Returns null when no recipe is active (don't constrain).
+ *
+ * NOTE: the "Connected" filter is deliberately NOT resolved to ids here — it's
+ * applied DB-side as a PostgREST inner-join embed (see `applyLeadFilters` +
+ * `buildLeadsQuery`). Resolving it to ids and passing them to `.in("id", …)`
+ * overflowed the request URL once a few hundred leads qualified (≈639 ids →
+ * a 23 KB URL the server rejects), so the filter silently returned nothing.
  */
 export async function resolveRestrictLeadIds(
   supabase: SupabaseServerClient,
   params: SearchParams,
 ): Promise<string[] | null> {
-  const [connected, recipe] = await Promise.all([
-    resolveConnectedLeadIds(supabase, params),
-    resolveRecipeIds(supabase, str(params.recipe)),
-  ]);
-  if (connected !== null && recipe !== null) {
-    const set = new Set(recipe);
-    return connected.filter((id) => set.has(id));
-  }
-  return recipe ?? connected;
+  return resolveRecipeIds(supabase, str(params.recipe));
 }
 
 /** Apply the Leads page search + filters to any leads query builder,
@@ -119,10 +76,16 @@ export function applyLeadFilters<
     in(column: string, values: readonly string[]): Q;
   },
 >(query: Q, params: SearchParams, restrictLeadIds: string[] | null = null): Q {
-  // Id-set restriction (the "Connected" filter): the caller resolves the
-  // matching lead ids (resolveConnectedLeadIds) and passes them in. null = no
-  // restriction; [] = a restriction that matched nothing → zero rows.
+  // Id-set restriction (the advanced-filter recipe): the caller resolves the
+  // matching lead ids and passes them in. null = no restriction; [] = a
+  // restriction that matched nothing → zero rows.
   if (restrictLeadIds !== null) query = query.in("id", restrictLeadIds);
+
+  // The "Called" filter (≥1 call attempt) is applied purely by the inner-join
+  // embed the caller adds to its SELECT (`_call:calls!inner(id)`): an inner join
+  // returns only leads that have a related call. Done DB-side so we never build a
+  // giant id-list URL (the bug that made this filter return nothing at scale).
+  // No outcome filter — any call counts.
 
   // Search across company, phone, and email.
   const search = str(params.q);
@@ -170,10 +133,18 @@ export function buildLeadsQuery(
   params: SearchParams,
   restrictLeadIds: string[] | null = null,
 ) {
-  const query = supabase
-    .from("leads")
-    .select(LEADS_SELECT, { count: "exact" })
-    .is("deleted_at", null);
+  // When the Called filter is on, the SELECT carries an inner-join embed on
+  // `calls` so only leads with ≥1 call attempt come back. The two branches keep
+  // their literal SELECT so Supabase still infers the row type.
+  const query = calledFilterActive(params)
+    ? supabase
+        .from("leads")
+        .select(`${LEADS_SELECT}, _call:calls!inner(id)`, { count: "exact" })
+        .is("deleted_at", null)
+    : supabase
+        .from("leads")
+        .select(LEADS_SELECT, { count: "exact" })
+        .is("deleted_at", null);
   return applyLeadFilters(query, params, restrictLeadIds);
 }
 
@@ -207,8 +178,13 @@ export async function fetchLeadSiblings(
   currentId: string,
 ): Promise<LeadSiblings> {
   const { sort, dir } = parseSort(params);
-  const restrictLeadIds = await resolveConnectedLeadIds(supabase, params);
-  const base = supabase.from("leads").select("id").is("deleted_at", null);
+  const restrictLeadIds = await resolveRestrictLeadIds(supabase, params);
+  const base = calledFilterActive(params)
+    ? supabase
+        .from("leads")
+        .select("id, _call:calls!inner(id)")
+        .is("deleted_at", null)
+    : supabase.from("leads").select("id").is("deleted_at", null);
   const { data } = await applyLeadFilters(base, params, restrictLeadIds)
     .order(sort, { ascending: dir === "asc" })
     .order("id", { ascending: true })

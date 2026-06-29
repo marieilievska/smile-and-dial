@@ -162,7 +162,18 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
         started_at: startedAt,
       };
     })
-    .filter((t) => typeof t.text === "string" && t.text.trim().length > 0);
+    .filter((t) => typeof t.text === "string" && t.text.trim().length > 0)
+    .sort((a, b) => {
+      // ElevenLabs returns turns in payload order, which can diverge from spoken
+      // order (e.g. the caller speaks twice before the agent replies). Order by
+      // the per-turn second offset so the transcript reads chronologically.
+      // Turns without a numeric offset keep their place (stable sort — the
+      // comparator returns 0 when either side isn't a number).
+      const as = typeof a.started_at === "number" ? a.started_at : null;
+      const bs = typeof b.started_at === "number" ? b.started_at : null;
+      if (as === null || bs === null) return 0;
+      return as - bs;
+    });
 
   // Resolve a playable URL. The recording lives in the private
   // `call-recordings` bucket (object path like "<callId>.mp3"), so mint a

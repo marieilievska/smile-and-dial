@@ -2,6 +2,7 @@ import type { createClient } from "@/lib/supabase/server";
 
 import {
   applyLeadFilters,
+  calledFilterActive,
   LEADS_SELECT,
   resolveRestrictLeadIds,
 } from "@/app/(app)/leads/leads-query";
@@ -56,7 +57,10 @@ export async function fetchAllMatchingLeadIds(
 
   for (;;) {
     let query = applyLeadFilters(
-      supabase.from("leads").select("id").is("deleted_at", null),
+      (calledFilterActive(params)
+        ? supabase.from("leads").select("id, _call:calls!inner(id)")
+        : supabase.from("leads").select("id")
+      ).is("deleted_at", null),
       params,
       restrictLeadIds,
     ).order("id", { ascending: true });

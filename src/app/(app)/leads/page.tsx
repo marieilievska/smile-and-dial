@@ -174,7 +174,7 @@ export default async function LeadsPage({
     "list",
     "status",
     "outcome",
-    "connected",
+    "called",
     "created_from",
     "created_to",
     "lastcall_from",
@@ -250,7 +250,7 @@ export default async function LeadsPage({
       str(params.status) ||
       str(params.outcome) ||
       str(params.list) ||
-      str(params.connected),
+      str(params.called),
     ) ||
     Boolean(
       str(params.created_from) ||
