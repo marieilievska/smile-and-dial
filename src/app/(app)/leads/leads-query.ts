@@ -1,4 +1,3 @@
-import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 import { resolveRecipeIds } from "@/lib/smart-lists/resolve";
 import type { createClient } from "@/lib/supabase/server";
 import { endOfEtDayUtcIso, etDayRangeUtc } from "@/lib/time/eastern";
@@ -42,12 +41,9 @@ export function parseSort(params: SearchParams): {
   return { sort, dir };
 }
 
-/** List form of the connected-outcome set for PostgREST `in` filters. */
-const CONNECTED_LIST = [...CONNECTED_OUTCOMES];
-
-/** True when the Leads view is filtered to "has a connected call". */
-export function connectedFilterActive(params: SearchParams): boolean {
-  return str(params.connected) === "yes";
+/** True when the Leads view is filtered to "has at least one call attempt". */
+export function calledFilterActive(params: SearchParams): boolean {
+  return str(params.called) === "yes";
 }
 
 /**
@@ -85,14 +81,11 @@ export function applyLeadFilters<
   // restriction that matched nothing → zero rows.
   if (restrictLeadIds !== null) query = query.in("id", restrictLeadIds);
 
-  // The "Connected" filter: keep only leads with ≥1 connected-outcome call.
-  // Applied as a PostgREST inner-join embed — callers add `_conn:calls!inner(id)`
-  // to their SELECT, and this filters the embedded calls' outcome, which
-  // restricts the parent leads. Done DB-side so we never build a giant id-list
-  // URL (the bug that made this filter return nothing at scale).
-  if (connectedFilterActive(params)) {
-    query = query.in("_conn.outcome", CONNECTED_LIST);
-  }
+  // The "Called" filter (≥1 call attempt) is applied purely by the inner-join
+  // embed the caller adds to its SELECT (`_call:calls!inner(id)`): an inner join
+  // returns only leads that have a related call. Done DB-side so we never build a
+  // giant id-list URL (the bug that made this filter return nothing at scale).
+  // No outcome filter — any call counts.
 
   // Search across company, phone, and email.
   const search = str(params.q);
@@ -140,13 +133,13 @@ export function buildLeadsQuery(
   params: SearchParams,
   restrictLeadIds: string[] | null = null,
 ) {
-  // When the Connected filter is on, the SELECT carries an inner-join embed on
-  // `calls` so applyLeadFilters can filter by call outcome DB-side. The two
-  // branches keep their literal SELECT so Supabase still infers the row type.
-  const query = connectedFilterActive(params)
+  // When the Called filter is on, the SELECT carries an inner-join embed on
+  // `calls` so only leads with ≥1 call attempt come back. The two branches keep
+  // their literal SELECT so Supabase still infers the row type.
+  const query = calledFilterActive(params)
     ? supabase
         .from("leads")
-        .select(`${LEADS_SELECT}, _conn:calls!inner(id)`, { count: "exact" })
+        .select(`${LEADS_SELECT}, _call:calls!inner(id)`, { count: "exact" })
         .is("deleted_at", null)
     : supabase
         .from("leads")
@@ -186,10 +179,10 @@ export async function fetchLeadSiblings(
 ): Promise<LeadSiblings> {
   const { sort, dir } = parseSort(params);
   const restrictLeadIds = await resolveRestrictLeadIds(supabase, params);
-  const base = connectedFilterActive(params)
+  const base = calledFilterActive(params)
     ? supabase
         .from("leads")
-        .select("id, _conn:calls!inner(id)")
+        .select("id, _call:calls!inner(id)")
         .is("deleted_at", null)
     : supabase.from("leads").select("id").is("deleted_at", null);
   const { data } = await applyLeadFilters(base, params, restrictLeadIds)
