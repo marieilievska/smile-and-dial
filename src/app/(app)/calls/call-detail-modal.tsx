@@ -5,6 +5,7 @@ import {
   CalendarClock,
   Check,
   Copy,
+  ExternalLink,
   Mic,
   PhoneCall,
   Save,
@@ -409,27 +410,47 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
 
               {/* M4 — Recording (or a useful empty state). The audio src is
                   a short-lived signed URL minted server-side (recordingUrl),
-                  not the raw storage path. */}
-              {call.recordingUrl ? (
-                <Section title="Recording">
-                  <div className="border-border bg-muted/30 rounded-xl border p-3">
-                    <audio
-                      ref={audioRef}
-                      controls
-                      preload="metadata"
-                      className="w-full"
-                      src={call.recordingUrl}
-                    />
+                  not the raw storage path. The ElevenLabs deep link sits
+                  snug beneath it in the same group. */}
+              <div className="flex flex-col gap-2">
+                {call.recordingUrl ? (
+                  <Section title="Recording">
+                    <div className="border-border bg-muted/30 rounded-xl border p-3">
+                      <audio
+                        ref={audioRef}
+                        controls
+                        preload="metadata"
+                        className="w-full"
+                        src={call.recordingUrl}
+                      />
+                    </div>
+                  </Section>
+                ) : (
+                  <div className="border-border bg-muted/30 flex items-start gap-3 rounded-xl border p-3">
+                    <Mic className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                    <p className="text-muted-foreground text-sm">
+                      {noRecordingReason(call.outcome)}
+                    </p>
                   </div>
-                </Section>
-              ) : (
-                <div className="border-border bg-muted/30 flex items-start gap-3 rounded-xl border p-3">
-                  <Mic className="text-muted-foreground mt-0.5 size-4 shrink-0" />
-                  <p className="text-muted-foreground text-sm">
-                    {noRecordingReason(call.outcome)}
-                  </p>
-                </div>
-              )}
+                )}
+
+                {/* A deep link to the same conversation (and its recording) in
+                  the ElevenLabs dashboard, so the recording can be opened /
+                  saved without downloading the in-app copy. Only shown when we
+                  have both the EL agent and conversation ids (legacy / human
+                  browser calls have neither). */}
+                {call.elevenlabsAgentId && call.elevenlabsConversationId ? (
+                  <a
+                    href={`https://elevenlabs.io/app/agents/agents/${call.elevenlabsAgentId}/history/${call.elevenlabsConversationId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 self-start text-xs font-medium transition-colors"
+                  >
+                    <ExternalLink className="size-3.5" />
+                    Open recording in ElevenLabs
+                  </a>
+                ) : null}
+              </div>
 
               {/* M7 — AI summary in a coral-accented card, matching
                   the elevated treatment on the lead detail page. */}
