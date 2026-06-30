@@ -7,11 +7,11 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { repointNumberWebhooks } from "@/lib/twilio/number-actions";
 
-/** Round L2 — per-row "Point webhooks here" button. Used when the
- *  Vercel URL changes (custom domain, preview promotion) or when the
- *  initial purchase-time pointing failed. Sends a single
- *  IncomingPhoneNumbers PATCH to Twilio and updates the stored
- *  webhook columns. */
+/** Per-row "Point to ElevenLabs" button. Repoints a number's Twilio voice +
+ *  status webhooks at ElevenLabs' native inbound endpoints — the recovery path
+ *  when a number's routing drifted back at the app (which breaks inbound) or the
+ *  purchase-time pointing failed. Sends a single IncomingPhoneNumbers PATCH to
+ *  Twilio and updates the stored webhook columns. */
 export function RepointWebhooksButton({ id }: { id: string }) {
   const [pending, startTransition] = useTransition();
 
@@ -22,7 +22,7 @@ export function RepointWebhooksButton({ id }: { id: string }) {
         if (result.error) {
           toast.error(result.error);
         } else {
-          toast.success("Webhooks repointed.");
+          toast.success("Pointed at ElevenLabs.");
         }
       } catch {
         toast.error("Repoint failed. Try again in a moment.");
@@ -37,14 +37,14 @@ export function RepointWebhooksButton({ id }: { id: string }) {
       size="sm"
       onClick={onClick}
       disabled={pending}
-      aria-label="Point webhooks at this deployment"
+      aria-label="Point webhooks at ElevenLabs"
     >
       {pending ? (
         <Loader2 className="size-3.5 animate-spin" />
       ) : (
         <Webhook className="size-3.5" />
       )}
-      {pending ? "Pointing…" : "Point webhooks"}
+      {pending ? "Pointing…" : "Point to ElevenLabs"}
     </Button>
   );
 }

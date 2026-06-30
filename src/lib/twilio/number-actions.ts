@@ -9,7 +9,7 @@ import { ensureNumberImportedToElevenLabs } from "@/lib/twilio/place-call";
 import {
   type AvailableNumber,
   type Country,
-  appWebhookUrls,
+  expectedNumberWebhooks,
   listOwnedNumbers,
   pointNumberWebhooks,
   purchaseTwilioNumber,
@@ -80,10 +80,12 @@ export async function purchaseNumber(input: {
   );
   if (buyError) return { error: buyError };
 
-  // Round L2 — auto-point the new number's voice + status webhooks
-  // at this deployment before we tell the admin "done." If the
-  // pointing call fails, we still want to record the row so the
-  // admin can see the number and hit "Repoint" themselves.
+  // Auto-point the new number's voice + status webhooks at ElevenLabs'
+  // native inbound endpoints before we tell the admin "done." (Inbound is
+  // EL-native; the number becomes fully answerable once it's attached to a
+  // campaign, which imports it into EL and assigns the agent.) If the pointing
+  // call fails, we still record the row so the admin can see the number and hit
+  // "Point to ElevenLabs" themselves.
   let voiceWebhookUrl: string | null = null;
   let statusWebhookUrl: string | null = null;
   let webhookError: string | null = null;
@@ -208,9 +210,10 @@ export async function deleteTwilioNumber(id: string): Promise<ActionResult> {
   return { error: null };
 }
 
-/** Round L2 — repoint a single number's webhooks at this deployment.
- *  Used when the deployment URL changes (custom domain, preview
- *  promote) or when the purchase-time pointing call failed. */
+/** Repoint a single number's Twilio webhooks at ElevenLabs' native inbound
+ *  endpoints. The recovery path when a number's VoiceUrl drifted back to the app
+ *  (which breaks inbound — see expectedNumberWebhooks) or the purchase-time
+ *  pointing call failed. */
 export async function repointNumberWebhooks(id: string): Promise<ActionResult> {
   const { supabase, error: adminError } = await requireAdmin();
   if (adminError) return { error: adminError };
@@ -326,12 +329,12 @@ export async function connectNumberToElevenLabs(
   return { error: null };
 }
 
-/** Expose the webhook URLs the page expects so the UI can render
- *  "ok / mismatch" without recomputing them client-side. Returns
- *  null when the env var isn't set so the page can show a hint. */
+/** Expose the webhook URLs the page expects (ElevenLabs' native inbound
+ *  endpoints) so the UI can render "ok / mismatch" without recomputing them
+ *  client-side. */
 export async function getExpectedWebhookUrls(): Promise<{
   voiceUrl: string;
   statusCallback: string;
-} | null> {
-  return appWebhookUrls();
+}> {
+  return expectedNumberWebhooks();
 }
