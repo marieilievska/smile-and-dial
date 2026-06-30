@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
-import { appWebhookUrls } from "@/lib/twilio/numbers";
+import { expectedNumberWebhooks } from "@/lib/twilio/numbers";
 
 import { formatCreatedAt } from "../format-created";
 import { BuyNumberDialog } from "./buy-number-dialog";
@@ -58,11 +58,10 @@ export default async function TwilioNumbersPage({
     .order("purchased_at", { ascending: false });
   const numbers = rawNumbers ?? [];
 
-  // The webhook URLs we *expect* every number to be set to, based on
-  // this deployment's NEXT_PUBLIC_APP_URL. Used to render an
-  // "ok / mismatch / unset" indicator in the Webhooks column. Null
-  // means the env var isn't set on this deployment.
-  const expectedWebhooks = appWebhookUrls();
+  // The webhook URLs we *expect* every number to be set to: ElevenLabs' native
+  // inbound endpoints (inbound is EL-native). Used to render an
+  // "ok / mismatch / unset" indicator in the Webhooks column.
+  const expectedWebhooks = expectedNumberWebhooks();
 
   const counts = {
     all: numbers.length,
@@ -245,20 +244,17 @@ export default async function TwilioNumbersPage({
   );
 }
 
-/** Round L2 — small visual indicator for the Webhooks column. Three
- *  states matter to the operator:
- *    · "Pointed here"   — both URLs match the deployment's expected
- *                          values. Green check, no action needed.
- *    · "Pointed elsewhere" — Twilio has SOME URL on file, but it's
- *                          not us. Amber. The "Point webhooks"
- *                          button in the row actions fixes it.
+/** Small visual indicator for the Webhooks column. The states that matter to the
+ *  operator:
+ *    · "Pointed at ElevenLabs" — both URLs match EL's native inbound endpoints.
+ *                          Green check, no action needed.
+ *    · "Pointed elsewhere" — Twilio has SOME URL on file, but it's not EL
+ *                          (e.g. pointed back at the app, which breaks inbound).
+ *                          Amber. The "Point to ElevenLabs" button fixes it.
  *    · "Not set"        — Twilio has nothing configured (or the
  *                          sync hasn't run yet). Muted dash.
  *    · "Released"       — short-circuit muted dash; the column is
- *                          irrelevant for released numbers.
- *  When the deployment doesn't have NEXT_PUBLIC_APP_URL set, we
- *  can't compute "ok / mismatch" so we say "deployment URL
- *  missing." */
+ *                          irrelevant for released numbers. */
 function WebhookStatus({
   voice,
   status,
@@ -267,22 +263,11 @@ function WebhookStatus({
 }: {
   voice: string | null;
   status: string | null;
-  expected: { voiceUrl: string; statusCallback: string } | null;
+  expected: { voiceUrl: string; statusCallback: string };
   released: boolean;
 }) {
   if (released) {
     return <span className="text-muted-foreground text-xs">—</span>;
-  }
-  if (!expected) {
-    return (
-      <span
-        className="text-muted-foreground inline-flex items-center gap-1 text-xs"
-        title="NEXT_PUBLIC_APP_URL isn't set on this deployment."
-      >
-        <CircleAlert className="size-3.5" />
-        Deployment URL missing
-      </span>
-    );
   }
   if (!voice && !status) {
     return (
@@ -304,7 +289,7 @@ function WebhookStatus({
         title={`Voice → ${expected.voiceUrl}\nStatus → ${expected.statusCallback}`}
       >
         <CircleCheck className="size-3.5" />
-        Pointed here
+        Pointed at ElevenLabs
       </span>
     );
   }

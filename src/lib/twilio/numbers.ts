@@ -9,7 +9,6 @@
  * account, not just the ones bought through the app.
  */
 
-import { appBaseUrl } from "@/lib/app-url";
 import { twilioNumberMonthlyUsd } from "@/lib/costs/rates";
 
 export type AvailableNumber = {
@@ -67,40 +66,44 @@ function twilioAuth(): { account: string; header: string } | null {
   };
 }
 
-/** Build the webhook URLs this deployment expects on every Twilio
- *  number. Resolved via `appBaseUrl()` (NEXT_PUBLIC_APP_URL, else the
- *  Vercel production domain) so a deployment routes to itself even when
- *  NEXT_PUBLIC_APP_URL was never set. Returns null when nothing resolves
- *  so the caller can surface "deployment URL isn't configured" instead of
- *  pointing numbers at a string like "undefined/api/twilio/voice-inbound". */
-export function appWebhookUrls(): {
+/** The webhook endpoints every in-service Twilio number must point at.
+ *
+ *  Inbound is ElevenLabs-NATIVE: ElevenLabs answers the call directly with the
+ *  agent assigned to the number, so the Twilio VoiceUrl + StatusCallback must
+ *  point at ElevenLabs — NOT at this app. Pointing them back at the app's
+ *  `/api/twilio/voice-inbound` bridge re-breaks inbound: that bridge is a dead
+ *  legacy path (Twilio Media Streams ≠ EL's convai socket), so it answers, logs
+ *  an empty `calls` row, and drops the caller. That's the #222 regression that
+ *  silently killed every inbound call to a number — see the lesson in
+ *  place-call.ts. These are constants (no deployment URL needed), so unlike the
+ *  old app-relative URLs this can never be null. */
+export function expectedNumberWebhooks(): {
   voiceUrl: string;
   statusCallback: string;
-} | null {
-  const base = appBaseUrl();
-  if (!base) return null;
+} {
   return {
-    voiceUrl: `${base}/api/twilio/voice-inbound`,
-    statusCallback: `${base}/api/twilio/status`,
+    voiceUrl: "https://api.elevenlabs.io/twilio/inbound_call",
+    statusCallback: "https://api.elevenlabs.io/twilio/status-callback",
   };
 }
 
-/** Point a Twilio number's webhooks at this deployment. Used both
- *  immediately after purchase and from the admin "Repoint webhooks"
- *  button. Mocked unless TWILIO_LIVE=live so tests don't hit Twilio. */
+/** Point a Twilio number's webhooks at ElevenLabs' native inbound endpoints
+ *  (so EL answers inbound directly with the number's assigned agent). Used both
+ *  immediately after purchase and from the admin "Point to ElevenLabs" button.
+ *  Mocked unless TWILIO_LIVE=live so tests don't hit Twilio. */
 export async function pointNumberWebhooks(twilioSid: string): Promise<{
   voiceUrl: string | null;
   statusCallback: string | null;
   error: string | null;
 }> {
+  const urls = expectedNumberWebhooks();
   if (!isLive()) {
     // In mock mode we still return the URLs the caller would have
     // pointed at, so the DB writes the expected values and the UI
     // can show "webhooks ok" without round-tripping Twilio.
-    const urls = appWebhookUrls();
     return {
-      voiceUrl: urls?.voiceUrl ?? null,
-      statusCallback: urls?.statusCallback ?? null,
+      voiceUrl: urls.voiceUrl,
+      statusCallback: urls.statusCallback,
       error: null,
     };
   }
@@ -110,14 +113,6 @@ export async function pointNumberWebhooks(twilioSid: string): Promise<{
       voiceUrl: null,
       statusCallback: null,
       error: "Twilio is not configured.",
-    };
-  }
-  const urls = appWebhookUrls();
-  if (!urls) {
-    return {
-      voiceUrl: null,
-      statusCallback: null,
-      error: "NEXT_PUBLIC_APP_URL isn't set on this deployment.",
     };
   }
   try {
