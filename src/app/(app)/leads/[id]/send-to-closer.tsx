@@ -28,7 +28,7 @@ export function SendToCloserButton({
     const confirmMsg = handoff
       ? "This lead was already handed off. Re-send an updated note to Close?"
       : "Send this lead to the closer in Close?";
-    if (!window.confirm(confirmMsg)) return;
+    if (!confirm(confirmMsg)) return;
     startTransition(async () => {
       const res = await handoffLeadToClose(leadId);
       if (res.error) {

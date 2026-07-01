@@ -185,6 +185,18 @@ export default async function LeadDetailPage({
   }
   feedItems.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 
+  const lastHandoffEvent = (eventRows ?? []).find(
+    (e) => e.kind === "lead_handoff",
+  );
+  const handoff = lastHandoffEvent
+    ? {
+        at: lastHandoffEvent.created_at,
+        byName:
+          ((lastHandoffEvent.payload as Record<string, unknown> | null)
+            ?.by_name as string | null) ?? null,
+      }
+    : null;
+
   const activeCall = (activeCallRows ?? [])[0] ?? null;
   const meta = {
     status: lead.status,
@@ -277,6 +289,7 @@ export default async function LeadDetailPage({
       nav={nav}
       isAdmin={isAdmin}
       callbacks={callbacks}
+      handoff={handoff}
     />
   );
 }
@@ -313,6 +326,8 @@ function describeFeedItem(item: FeedItem): string {
       return "Calendly appointment booked";
     case "close_email_received":
       return "Email reply received";
+    case "lead_handoff":
+      return "Handed off to closer";
     default:
       return (
         item.eventKind.charAt(0).toUpperCase() +
