@@ -185,15 +185,19 @@ export default async function LeadDetailPage({
   }
   feedItems.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 
+  // eventRows is ordered newest-first (see the query above), so .find returns
+  // the most recent handoff. Guard by_name with typeof so a malformed payload
+  // can't render as "[object Object]".
   const lastHandoffEvent = (eventRows ?? []).find(
     (e) => e.kind === "lead_handoff",
   );
+  const rawByName = (
+    lastHandoffEvent?.payload as Record<string, unknown> | null | undefined
+  )?.by_name;
   const handoff = lastHandoffEvent
     ? {
         at: lastHandoffEvent.created_at,
-        byName:
-          ((lastHandoffEvent.payload as Record<string, unknown> | null)
-            ?.by_name as string | null) ?? null,
+        byName: typeof rawByName === "string" ? rawByName : null,
       }
     : null;
 
