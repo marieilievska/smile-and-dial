@@ -155,8 +155,9 @@ test.describe("Send to closer (UI)", () => {
     const button = page.getByRole("button", { name: /send to closer/i });
     await expect(button).toBeVisible();
 
-    page.on("dialog", (d) => d.accept()); // accept the confirm()
+    const dialogPromise = page.waitForEvent("dialog");
     await button.click();
+    await (await dialogPromise).accept();
     await expect(page.getByText(/connect close in settings/i)).toBeVisible();
 
     const { count } = await admin
