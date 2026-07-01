@@ -8,9 +8,11 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import {
   closeSenderEmail,
   createCloseLead,
+  createCloseNote,
   findCloseLeadByEmail,
   sendCloseEmail,
 } from "./api";
+import { buildHandoffNote } from "./handoff";
 import { renderTemplate, type TemplateContext } from "./templates";
 
 function makeServiceClient() {
@@ -241,4 +243,204 @@ export async function sendEmail(input: {
 
   revalidatePath(`/leads`);
   return { error: null, emailId: email.id };
+}
+
+const EL_HISTORY_BASE = "https://elevenlabs.io/app/agents/agents";
+
+/** Push a lead to the closer's Close CRM: find/create the Close lead + contact,
+ *  attach a rich handoff note, and log the handoff. Admin-only. Does NOT change
+ *  the lead's status or dialer eligibility. Re-runnable (a fresh note each time;
+ *  the Close lead is deduped by email). */
+export async function handoffLeadToClose(
+  leadId: string,
+): Promise<{ error: string | null; closeLeadId?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role, full_name")
+    .eq("id", user.id)
+    .single();
+  if (me?.role !== "admin") return { error: "Admins only." };
+
+  const admin = makeServiceClient();
+
+  // Lead.
+  const { data: leadRaw } = await admin
+    .from("leads")
+    .select(
+      "id, owner_id, company, owner_name, manager_name, employee_name, " +
+        "business_phone, business_email, timezone, city, state",
+    )
+    .eq("id", leadId)
+    .maybeSingle();
+  const lead = leadRaw as {
+    id: string;
+    owner_id: string;
+    company: string | null;
+    owner_name: string | null;
+    manager_name: string | null;
+    employee_name: string | null;
+    business_phone: string | null;
+    business_email: string | null;
+    timezone: string | null;
+    city: string | null;
+    state: string | null;
+  } | null;
+  if (!lead) return { error: "Lead not found." };
+
+  // Owner's Close key.
+  const { data: integ } = await admin
+    .from("user_integrations")
+    .select("close_api_key")
+    .eq("user_id", lead.owner_id)
+    .maybeSingle();
+  const closeKey = integ?.close_api_key?.trim() || null;
+  if (!closeKey) {
+    return { error: "Connect Close in Settings → Integrations first." };
+  }
+
+  // Packaged call: most recent WITH a summary, else most recent.
+  const { data: callRows } = await admin
+    .from("calls")
+    .select(
+      "id, summary, extracted_data, started_at, elevenlabs_conversation_id, " +
+        "agent:agents(elevenlabs_agent_id)",
+    )
+    .eq("lead_id", leadId)
+    .order("started_at", { ascending: false })
+    .limit(20);
+  const calls = (callRows ?? []) as unknown as {
+    id: string;
+    summary: string | null;
+    extracted_data: Record<string, unknown> | null;
+    started_at: string | null;
+    elevenlabs_conversation_id: string | null;
+    agent: { elevenlabs_agent_id: string | null } | null;
+  }[];
+  const packaged = calls.find((c) => c.summary) ?? calls[0] ?? null;
+
+  // Appointment: earliest upcoming, else most recent.
+  const nowIso = new Date().toISOString();
+  const { data: upcoming } = await admin
+    .from("calendly_events")
+    .select("scheduled_at, event_uri")
+    .eq("lead_id", leadId)
+    .eq("status", "scheduled")
+    .gte("scheduled_at", nowIso)
+    .order("scheduled_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  let appt = upcoming ?? null;
+  if (!appt) {
+    const { data: recent } = await admin
+      .from("calendly_events")
+      .select("scheduled_at, event_uri")
+      .eq("lead_id", leadId)
+      .order("scheduled_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    appt = recent ?? null;
+  }
+
+  // Custom field values → {label, value}[].
+  const [{ data: cvRows }, { data: defs }] = await Promise.all([
+    admin
+      .from("lead_custom_values")
+      .select("custom_field_id, value")
+      .eq("lead_id", leadId),
+    admin.from("custom_field_defs").select("id, name"),
+  ]);
+  const defName = new Map((defs ?? []).map((d) => [d.id, d.name] as const));
+  const customFields = (cvRows ?? [])
+    .map((v) => ({
+      label: defName.get(v.custom_field_id) ?? "",
+      value: v.value == null ? "" : String(v.value),
+    }))
+    .filter((f) => f.label && f.value.trim().length > 0);
+
+  const extracted = packaged?.extracted_data ?? {};
+  const recordingUrl =
+    packaged?.elevenlabs_conversation_id && packaged.agent?.elevenlabs_agent_id
+      ? `${EL_HISTORY_BASE}/${packaged.agent.elevenlabs_agent_id}/history/${packaged.elevenlabs_conversation_id}`
+      : null;
+
+  const note = buildHandoffNote({
+    lead: {
+      company: lead.company,
+      ownerName: lead.owner_name,
+      managerName: lead.manager_name,
+      employeeName: lead.employee_name,
+      businessPhone: lead.business_phone,
+      businessEmail: lead.business_email,
+      timezone: lead.timezone,
+      city: lead.city,
+      state: lead.state,
+    },
+    call: packaged
+      ? {
+          summary: packaged.summary,
+          disposition:
+            typeof extracted.disposition === "string"
+              ? extracted.disposition
+              : null,
+          leadResponseTime:
+            typeof extracted.lead_response_time === "string"
+              ? extracted.lead_response_time
+              : null,
+          decisionMakerReached:
+            typeof extracted.decision_maker_reached === "string"
+              ? extracted.decision_maker_reached
+              : null,
+          startedAt: packaged.started_at,
+          recordingUrl,
+        }
+      : null,
+    appointment: appt
+      ? { scheduledAt: appt.scheduled_at, eventLink: null }
+      : null,
+    customFields,
+  });
+
+  // Find/create the Close lead, then attach the note.
+  const contactName =
+    lead.owner_name || lead.manager_name || lead.employee_name || null;
+  const email = lead.business_email?.trim() || null;
+  let ref = email ? await findCloseLeadByEmail(closeKey, email) : null;
+  if (!ref) {
+    ref = await createCloseLead(closeKey, {
+      companyName: lead.company,
+      contactName,
+      email,
+      phone: lead.business_phone,
+    });
+  }
+  if (!ref) return { error: "Could not create the lead in Close." };
+
+  const posted = await createCloseNote(closeKey, {
+    closeLeadId: ref.leadId,
+    note,
+  });
+  if (!posted) return { error: "Could not post the handoff note to Close." };
+
+  await admin.from("system_events").insert({
+    kind: "lead_handoff",
+    actor_user_id: user.id,
+    ref_table: "leads",
+    ref_id: leadId,
+    payload: {
+      close_lead_id: ref.leadId,
+      note_id: posted.id,
+      packaged_call_id: packaged?.id ?? null,
+      by_name: me?.full_name ?? null,
+      at: new Date().toISOString(),
+    },
+  });
+
+  revalidatePath("/leads/[id]", "page");
+  return { error: null, closeLeadId: ref.leadId };
 }
