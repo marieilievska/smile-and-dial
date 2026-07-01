@@ -273,6 +273,9 @@ export async function getScheduledEventHostEmail(
     const res = await fetch(eventUri, { headers: authHeaders(token) });
     if (!res.ok) return null;
     const data = (await res.json()) as ScheduledEventResponse;
+    // Read user_email directly (present in the current Calendly API). If a future
+    // API version drops it, this returns null and the caller falls back to the
+    // account owner — no user-URI resolution needed.
     const email = data.resource?.event_memberships?.[0]?.user_email;
     return email && email.trim() ? email.trim() : null;
   } catch {

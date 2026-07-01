@@ -182,7 +182,9 @@ export async function findCloseUserByEmail(
   apiKey: string,
   email: string,
 ): Promise<{ id: string } | null> {
-  const res = await fetch(`${BASE}/user/`, {
+  // _limit=200 (Close's max page size) so the match works for any realistic
+  // sales-team size without implementing full cursor pagination.
+  const res = await fetch(`${BASE}/user/?_limit=200`, {
     headers: { Authorization: authHeader(apiKey) },
   });
   if (!res.ok) return null;
