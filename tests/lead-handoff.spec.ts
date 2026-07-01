@@ -70,4 +70,28 @@ test.describe("buildHandoffNote", () => {
     expect(note).not.toContain("KEY ANSWERS");
     expect(note).not.toContain("RECORDING");
   });
+
+  test("a malformed timezone does not throw (falls back)", () => {
+    expect(() =>
+      buildHandoffNote({
+        lead: {
+          company: "Bad TZ Co",
+          ownerName: null,
+          managerName: null,
+          employeeName: null,
+          businessPhone: null,
+          businessEmail: null,
+          timezone: "America/Denverrr", // not a real IANA zone
+          city: null,
+          state: null,
+        },
+        call: null,
+        appointment: {
+          scheduledAt: "2026-07-01T16:30:00.000Z",
+          eventLink: null,
+        },
+        customFields: [],
+      }),
+    ).not.toThrow();
+  });
 });

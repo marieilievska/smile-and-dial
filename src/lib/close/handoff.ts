@@ -31,14 +31,22 @@ export type HandoffNoteInput = {
 function fmtInZone(iso: string, tz: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-US", {
+  const opts: Intl.DateTimeFormatOptions = {
     weekday: "short",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    timeZone: tz || "America/New_York",
-  });
+  };
+  try {
+    return d.toLocaleString("en-US", {
+      ...opts,
+      timeZone: tz || "America/New_York",
+    });
+  } catch {
+    // Malformed/unknown timezone string from data → fall back to Eastern.
+    return d.toLocaleString("en-US", { ...opts, timeZone: "America/New_York" });
+  }
 }
 
 export function buildHandoffNote(input: HandoffNoteInput): string {
