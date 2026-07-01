@@ -370,10 +370,29 @@ export async function handoffLeadToClose(
     .filter((f) => f.label && f.value.trim().length > 0);
 
   const extracted = packaged?.extracted_data ?? {};
-  const recordingUrl =
-    packaged?.elevenlabs_conversation_id && packaged.agent?.elevenlabs_agent_id
-      ? `${EL_HISTORY_BASE}/${packaged.agent.elevenlabs_agent_id}/history/${packaged.elevenlabs_conversation_id}`
+  const leadResponseTime =
+    typeof extracted.lead_response_time === "string"
+      ? extracted.lead_response_time
       : null;
+  const decisionMakerReached =
+    typeof extracted.decision_maker_reached === "string"
+      ? extracted.decision_maker_reached
+      : null;
+
+  // Build per-call history (oldest→newest; DB query was desc, so reverse).
+  const callHistory = [...calls].reverse().map((c) => {
+    const url =
+      c.elevenlabs_conversation_id && c.agent?.elevenlabs_agent_id
+        ? `${EL_HISTORY_BASE}/${c.agent.elevenlabs_agent_id}/history/${c.elevenlabs_conversation_id}`
+        : null;
+    const cx = c.extracted_data ?? {};
+    return {
+      startedAt: c.started_at,
+      outcome: typeof cx.disposition === "string" ? cx.disposition : null,
+      summary: c.summary,
+      recordingUrl: url,
+    };
+  });
 
   const note = buildHandoffNote({
     lead: {
@@ -387,25 +406,9 @@ export async function handoffLeadToClose(
       city: lead.city,
       state: lead.state,
     },
-    call: packaged
-      ? {
-          summary: packaged.summary,
-          disposition:
-            typeof extracted.disposition === "string"
-              ? extracted.disposition
-              : null,
-          leadResponseTime:
-            typeof extracted.lead_response_time === "string"
-              ? extracted.lead_response_time
-              : null,
-          decisionMakerReached:
-            typeof extracted.decision_maker_reached === "string"
-              ? extracted.decision_maker_reached
-              : null,
-          startedAt: packaged.started_at,
-          recordingUrl,
-        }
-      : null,
+    calls: callHistory,
+    leadResponseTime,
+    decisionMakerReached,
     appointment: appt
       ? // eventLink is null on purpose: calendly_events only stores the API
         // event URI (api.calendly.com/scheduled_events/…), not a human-openable

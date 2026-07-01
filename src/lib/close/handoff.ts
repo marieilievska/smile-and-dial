@@ -16,14 +16,14 @@ export type HandoffNoteInput = {
     city: string | null;
     state: string | null;
   };
-  call: {
-    summary: string | null;
-    disposition: string | null;
-    leadResponseTime: string | null;
-    decisionMakerReached: string | null;
+  calls: {
     startedAt: string | null;
+    outcome: string | null;
+    summary: string | null;
     recordingUrl: string | null;
-  } | null;
+  }[];
+  leadResponseTime: string | null;
+  decisionMakerReached: string | null;
   appointment: { scheduledAt: string | null; eventLink: string | null } | null;
   customFields: { label: string; value: string }[];
 };
@@ -81,7 +81,14 @@ export function buildHandoffTaskText(input: HandoffTaskInput): string {
 }
 
 export function buildHandoffNote(input: HandoffNoteInput): string {
-  const { lead, call, appointment, customFields } = input;
+  const {
+    lead,
+    calls,
+    leadResponseTime,
+    decisionMakerReached,
+    appointment,
+    customFields,
+  } = input;
   const lines: string[] = ["Handed off from Smile & Dial.", ""];
 
   const who = lead.ownerName
@@ -111,22 +118,29 @@ export function buildHandoffNote(input: HandoffNoteInput): string {
     lines.push("", `BOOKED APPOINTMENT: ${when} (${tz})${link}`);
   }
 
-  if (call?.summary) {
-    const on = call.startedAt
-      ? ` (${fmtInZone(call.startedAt, lead.timezone)})`
-      : "";
-    lines.push("", `AI CALL SUMMARY${on}:`, call.summary);
+  // CALL HISTORY — one entry per call (the caller passes them oldest→newest).
+  const history = calls.filter((c) => c.summary || c.outcome);
+  if (history.length) {
+    lines.push(
+      "",
+      `CALL HISTORY (${history.length} call${history.length === 1 ? "" : "s"}):`,
+    );
+    for (const c of history) {
+      const when = c.startedAt ? fmtInZone(c.startedAt, lead.timezone) : "—";
+      const outcome = c.outcome ? c.outcome.replace(/_/g, " ") : "—";
+      lines.push(`— ${when} · ${outcome}`);
+      if (c.summary) lines.push(`  ${c.summary}`);
+      if (c.recordingUrl) lines.push(`  Recording: ${c.recordingUrl}`);
+    }
   }
 
   const answers: string[] = [];
-  if (call?.leadResponseTime)
-    answers.push(`• Lead response time: ${call.leadResponseTime}`);
-  if (call?.decisionMakerReached)
-    answers.push(`• Decision-maker reached: ${call.decisionMakerReached}`);
+  if (leadResponseTime)
+    answers.push(`• Lead response time: ${leadResponseTime}`);
+  if (decisionMakerReached)
+    answers.push(`• Decision-maker reached: ${decisionMakerReached}`);
   for (const cf of customFields) answers.push(`• ${cf.label}: ${cf.value}`);
   if (answers.length) lines.push("", "KEY ANSWERS:", ...answers);
-
-  if (call?.recordingUrl) lines.push("", `RECORDING: ${call.recordingUrl}`);
 
   return lines.join("\n");
 }
