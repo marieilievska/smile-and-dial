@@ -251,6 +251,35 @@ export async function cancelScheduledEvent(
   }
 }
 
+type ScheduledEventResponse = {
+  resource?: {
+    event_memberships?: { user?: string; user_email?: string }[];
+  };
+};
+
+/**
+ * Resolve the HOST of a scheduled Calendly event — the rep who ran the booking —
+ * by email, so a handoff task can be assigned to the right closer. `eventUri` is
+ * the full scheduled-event URI stored on `calendly_events.event_uri`
+ * (…/scheduled_events/{uuid}); we GET it and read
+ * `event_memberships[0].user_email`. Best-effort: returns null on any failure or
+ * missing field so the caller can fall back to another assignee.
+ */
+export async function getScheduledEventHostEmail(
+  eventUri: string,
+  token: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(eventUri, { headers: authHeaders(token) });
+    if (!res.ok) return null;
+    const data = (await res.json()) as ScheduledEventResponse;
+    const email = data.resource?.event_memberships?.[0]?.user_email;
+    return email && email.trim() ? email.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Book a meeting directly (Scheduling API). `startTime` must be an open slot
  * (ISO 8601). Returns the created invitee + event URIs, or a human-readable
