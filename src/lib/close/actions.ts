@@ -439,32 +439,42 @@ export async function handoffLeadToClose(
   // Also create a Close TASK assigned to the appointment's closer, so it lands
   // in that person's Close Inbox. Assignee = the Calendly event's host (matched
   // to a Close user by email); falls back to the account owner (/me), then
-  // unassigned. Best-effort: a failed task never fails the handoff.
-  const hostEmail =
-    appt?.event_uri && calendlyToken
-      ? await getScheduledEventHostEmail(appt.event_uri, calendlyToken)
-      : null;
-  const assignee =
-    (hostEmail ? await findCloseUserByEmail(closeKey, hostEmail) : null) ??
-    (await getCloseMe(closeKey));
-  const taskText = buildHandoffTaskText({
-    company: lead.company,
-    ownerName: lead.owner_name,
-    managerName: lead.manager_name,
-    employeeName: lead.employee_name,
-    businessPhone: lead.business_phone,
-    businessEmail: lead.business_email,
-    timezone: lead.timezone,
-    appointmentAt: appt?.scheduled_at ?? null,
-  });
-  const task = await createCloseTask(closeKey, {
-    closeLeadId: ref.leadId,
-    text: taskText,
-    assignedTo: assignee?.id ?? null,
-    dueDate: new Date().toISOString().slice(0, 10),
-  });
-  if (!task) {
-    console.error("lead_handoff task creation failed", { leadId });
+  // unassigned. Best-effort: the whole block is wrapped so a transient Close /
+  // Calendly network error can NEVER fail a handoff whose note already posted.
+  let assignee: { id: string } | null = null;
+  let task: { id: string } | null = null;
+  try {
+    const hostEmail =
+      appt?.event_uri && calendlyToken
+        ? await getScheduledEventHostEmail(appt.event_uri, calendlyToken)
+        : null;
+    assignee =
+      (hostEmail ? await findCloseUserByEmail(closeKey, hostEmail) : null) ??
+      (await getCloseMe(closeKey));
+    const taskText = buildHandoffTaskText({
+      company: lead.company,
+      ownerName: lead.owner_name,
+      managerName: lead.manager_name,
+      employeeName: lead.employee_name,
+      businessPhone: lead.business_phone,
+      businessEmail: lead.business_email,
+      timezone: lead.timezone,
+      appointmentAt: appt?.scheduled_at ?? null,
+    });
+    task = await createCloseTask(closeKey, {
+      closeLeadId: ref.leadId,
+      text: taskText,
+      assignedTo: assignee?.id ?? null,
+      dueDate: new Date().toISOString().slice(0, 10),
+    });
+    if (!task) {
+      console.error("lead_handoff task creation failed", { leadId });
+    }
+  } catch (err) {
+    console.error("lead_handoff task block failed", {
+      leadId,
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 
   // Best-effort audit log. The handoff itself (the Close note) already
