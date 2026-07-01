@@ -5,11 +5,13 @@ import { timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 import {
+  cancelScheduledEvent,
   createInvitee,
   getAvailableTimes as calendlyGetAvailableTimes,
 } from "@/lib/calendly/api";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import {
+  localHourDaysAheadIso,
   parseZonedDatetime,
   rollIsoOffWeekend,
 } from "@/lib/dialer/local-schedule";
@@ -168,8 +170,12 @@ function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-/** Human-readable slot label in the workspace's timezone. */
-function fmtSlot(iso: string): string {
+/** Human-readable slot label in the LEAD's local timezone. The agent reads
+ *  these aloud as "your time," so they MUST be in the lead's zone — quoting them
+ *  in a fixed Eastern zone booked an appointment 2 hours off for a Mountain-time
+ *  lead (Aqua-Tots Lone Tree). Falls back to Eastern only when the lead's
+ *  timezone is unknown. */
+function fmtSlot(iso: string, timeZone: string | null | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString("en-US", {
@@ -178,7 +184,7 @@ function fmtSlot(iso: string): string {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    timeZone: "America/New_York",
+    timeZone: timeZone || "America/New_York",
   });
 }
 
@@ -554,7 +560,7 @@ async function getAvailableTimesResult(
       );
       const slots = live.slice(0, 3).map((s) => ({
         slot_id: s.startTime,
-        label: fmtSlot(s.startTime),
+        label: fmtSlot(s.startTime, ctx?.lead.timezone),
       }));
       if (slots.length > 0) {
         return {
@@ -565,33 +571,29 @@ async function getAvailableTimesResult(
       }
     }
   }
-  return genericAvailableTimes();
+  return genericAvailableTimes(ctx?.lead.timezone);
 }
 
-/** Three generic weekday slots (10am / 2pm ET) used in mock mode or when live
- *  Calendly has no openings in the window. slot_id carries the ISO time so
+/** Three generic weekday slots at 10am / 2pm in the LEAD's local timezone, used
+ *  in mock mode or when live Calendly has no openings in the window. Built with
+ *  `localHourDaysAheadIso` (which anchors the hour in `tz` and rolls weekends
+ *  forward) so a Mountain-time lead is offered 10am/2pm Mountain — not the fixed
+ *  Eastern instants the old version produced. slot_id carries the ISO time so
  *  book_appointment can echo it back. */
-function genericAvailableTimes(): ToolWebhookResult {
+function genericAvailableTimes(
+  timeZone: string | null | undefined,
+): ToolWebhookResult {
+  const tz = timeZone || "America/New_York";
   const slots: { slot_id: string; label: string }[] = [];
-  const base = new Date();
-  let added = 0;
-  let dayOffset = 1;
-  const hours = [14, 18]; // ~10am & 2pm US-Eastern
-  while (added < 3 && dayOffset < 10) {
-    const day = new Date(base);
-    day.setUTCDate(day.getUTCDate() + dayOffset);
-    const dow = day.getUTCDay();
-    if (dow !== 0 && dow !== 6) {
-      for (const h of hours) {
-        if (added >= 3) break;
-        const slot = new Date(day);
-        slot.setUTCHours(h, 0, 0, 0);
-        const iso = slot.toISOString();
-        slots.push({ slot_id: iso, label: fmtSlot(iso) });
-        added += 1;
-      }
+  const seen = new Set<string>();
+  for (let dayOffset = 1; dayOffset < 10 && slots.length < 3; dayOffset++) {
+    for (const hour of [10, 14]) {
+      if (slots.length >= 3) break;
+      const iso = localHourDaysAheadIso(tz, dayOffset, hour);
+      if (seen.has(iso)) continue; // weekend rolls can collide
+      seen.add(iso);
+      slots.push({ slot_id: iso, label: fmtSlot(iso, tz) });
     }
-    dayOffset += 1;
   }
   return {
     success: true,
@@ -618,7 +620,9 @@ async function bookAppointment(
   }
 
   const when = new Date(slotId);
-  const label = Number.isNaN(when.getTime()) ? slotId : fmtSlot(slotId);
+  const label = Number.isNaN(when.getTime())
+    ? slotId
+    : fmtSlot(slotId, ctx.lead.timezone);
 
   const cal = await resolveCampaignCalendly(ctx.supabase, ctx.campaignId);
 
@@ -677,19 +681,57 @@ async function bookAppointment(
     }
 
     // Record the booking and move the lead into the 'scheduled' pipeline.
+    let newEventId: string | null = null;
     if (result.inviteeUri) {
-      await ctx.supabase.from("calendly_events").insert({
-        owner_id: ctx.lead.owner_id,
-        lead_id: ctx.lead.id,
-        invitee_uri: result.inviteeUri,
-        event_uri: result.eventUri ?? "",
-        event_type_uri: cal.eventTypeUri,
-        invitee_email: email,
-        invitee_name: name || null,
-        scheduled_at: when.toISOString(),
-        status: "scheduled",
-      });
+      const { data: inserted } = await ctx.supabase
+        .from("calendly_events")
+        .insert({
+          owner_id: ctx.lead.owner_id,
+          lead_id: ctx.lead.id,
+          invitee_uri: result.inviteeUri,
+          event_uri: result.eventUri ?? "",
+          event_type_uri: cal.eventTypeUri,
+          invitee_email: email,
+          invitee_name: name || null,
+          scheduled_at: when.toISOString(),
+          status: "scheduled",
+        })
+        .select("id")
+        .maybeSingle();
+      newEventId = inserted?.id ?? null;
     }
+
+    // De-dup: cancel any OTHER still-scheduled Calendly event for this lead — a
+    // prior booking from earlier in THIS call (the agent rebooked because the
+    // attendee or time changed mid-conversation). Without this the customer is
+    // left double-booked, which is exactly what happened on the Aqua-Tots Lone
+    // Tree call. Best-effort per event: a cancel that fails still gets marked
+    // canceled locally + logged, and never blocks the new booking.
+    if (newEventId) {
+      const { data: priorEvents } = await ctx.supabase
+        .from("calendly_events")
+        .select("id, event_uri")
+        .eq("lead_id", ctx.lead.id)
+        .eq("status", "scheduled")
+        .neq("id", newEventId);
+      for (const prior of priorEvents ?? []) {
+        const canceled = prior.event_uri
+          ? await cancelScheduledEvent(prior.event_uri, cal.token)
+          : { ok: false as const, error: "no event_uri on record" };
+        await ctx.supabase
+          .from("calendly_events")
+          .update({ status: "canceled" })
+          .eq("id", prior.id);
+        await logToolEvent(ctx, "tool_book_appointment_dedup", {
+          canceled_event_id: prior.id,
+          event_uri: prior.event_uri,
+          superseded_by: newEventId,
+          calendly_cancel_ok: canceled.ok,
+          calendly_cancel_error: canceled.ok ? null : canceled.error,
+        });
+      }
+    }
+
     await ctx.supabase
       .from("leads")
       .update({ status: "scheduled", calendly_event_uri: result.eventUri })

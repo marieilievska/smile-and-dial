@@ -225,6 +225,33 @@ type CreateInviteeResponse = {
 };
 
 /**
+ * Cancel a scheduled Calendly event (POST /scheduled_events/{uuid}/cancellation).
+ * `eventUri` is the full scheduled-event URI we store on `calendly_events`
+ * (…/scheduled_events/{uuid}), so we just append `/cancellation`. Best-effort:
+ * returns ok=false with a message on failure so the caller can log and carry on
+ * rather than throw (a cancel that hiccups must never block the new booking).
+ */
+export async function cancelScheduledEvent(
+  eventUri: string,
+  token: string,
+  reason = "Superseded by a newer appointment for this lead.",
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${eventUri}/cancellation`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) {
+      return { ok: false, error: `Calendly cancel failed (${res.status}).` };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Calendly cancel request failed." };
+  }
+}
+
+/**
  * Book a meeting directly (Scheduling API). `startTime` must be an open slot
  * (ISO 8601). Returns the created invitee + event URIs, or a human-readable
  * error (e.g. the slot was just taken).
