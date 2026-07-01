@@ -49,6 +49,37 @@ function fmtInZone(iso: string, tz: string | null): string {
   }
 }
 
+export type HandoffTaskInput = {
+  company: string | null;
+  ownerName: string | null;
+  managerName: string | null;
+  employeeName: string | null;
+  businessPhone: string | null;
+  businessEmail: string | null;
+  timezone: string | null;
+  appointmentAt: string | null;
+};
+
+/** The text of the Close Task the closer sees in their Inbox. Pure; reuses
+ *  `fmtInZone` so the appointment time renders in the LEAD's timezone. Contact /
+ *  appointment fragments are omitted when their data is absent. */
+export function buildHandoffTaskText(input: HandoffTaskInput): string {
+  const who =
+    input.ownerName || input.managerName || input.employeeName || null;
+  const when = input.appointmentAt
+    ? `${fmtInZone(input.appointmentAt, input.timezone)} (${input.timezone || "America/New_York"})`
+    : null;
+  const contactBits = [who, input.businessPhone, input.businessEmail].filter(
+    Boolean,
+  );
+  const parts: string[] = [
+    `Run the booked demo with ${input.company ?? "this lead"}${when ? ` — ${when}` : ""}.`,
+  ];
+  if (contactBits.length) parts.push(`Contact: ${contactBits.join(" · ")}.`);
+  parts.push("Full context is in the handoff note.");
+  return parts.join(" ");
+}
+
 export function buildHandoffNote(input: HandoffNoteInput): string {
   const { lead, call, appointment, customFields } = input;
   const lines: string[] = ["Handed off from Smile & Dial.", ""];

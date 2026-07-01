@@ -174,3 +174,69 @@ export async function sendCloseEmail(
   const json = (await res.json()) as { id?: string };
   return { id: json.id ?? null, error: null };
 }
+
+/** Find a Close USER by email — used to assign a task to the appointment's host.
+ *  GET /user/ lists the org's users; match by email case-insensitively. Returns
+ *  the user id, or null when there is no match / the request fails. */
+export async function findCloseUserByEmail(
+  apiKey: string,
+  email: string,
+): Promise<{ id: string } | null> {
+  // _limit=200 (Close's max page size) so the match works for any realistic
+  // sales-team size without implementing full cursor pagination.
+  const res = await fetch(`${BASE}/user/?_limit=200`, {
+    headers: { Authorization: authHeader(apiKey) },
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as {
+    data?: { id: string; email?: string }[];
+  };
+  const lower = email.trim().toLowerCase();
+  const user = (json.data ?? []).find((u) => u.email?.toLowerCase() === lower);
+  return user ? { id: user.id } : null;
+}
+
+/** The Close user that owns this API key (GET /me/) — the fallback task assignee.
+ *  Returns the user id, or null on failure. */
+export async function getCloseMe(
+  apiKey: string,
+): Promise<{ id: string } | null> {
+  const res = await fetch(`${BASE}/me/`, {
+    headers: { Authorization: authHeader(apiKey) },
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as { id?: string };
+  return json.id ? { id: json.id } : null;
+}
+
+/** Create a Task on a Close lead (POST /task/), which appears in the assignee's
+ *  Inbox. `assignedTo` (a Close user id) omitted → unassigned. `dueDate` is a
+ *  YYYY-MM-DD string. Returns the task id, or null on failure. */
+export async function createCloseTask(
+  apiKey: string,
+  input: {
+    closeLeadId: string;
+    text: string;
+    assignedTo?: string | null;
+    dueDate: string;
+  },
+): Promise<{ id: string } | null> {
+  const body: Record<string, unknown> = {
+    lead_id: input.closeLeadId,
+    text: input.text,
+    date: input.dueDate,
+    is_complete: false,
+  };
+  if (input.assignedTo) body.assigned_to = input.assignedTo;
+  const res = await fetch(`${BASE}/task/`, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(apiKey),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as { id?: string };
+  return json.id ? { id: json.id } : null;
+}

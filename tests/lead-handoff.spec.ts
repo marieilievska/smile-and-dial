@@ -4,7 +4,10 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 // Relative import (not the `@/` alias): keeps the pure helper resolvable under
 // Playwright's loader, matching how the other specs import. buildHandoffNote has
 // no server-only/Next imports, so pulling it into a test is safe.
-import { buildHandoffNote } from "../src/lib/close/handoff";
+import {
+  buildHandoffNote,
+  buildHandoffTaskText,
+} from "../src/lib/close/handoff";
 
 test.describe("buildHandoffNote", () => {
   test("renders appointment (lead tz), summary, key answers, recording", () => {
@@ -94,6 +97,43 @@ test.describe("buildHandoffNote", () => {
         customFields: [],
       }),
     ).not.toThrow();
+  });
+});
+
+test.describe("buildHandoffTaskText", () => {
+  test("includes company, appt time in lead tz, and contact", () => {
+    const text = buildHandoffTaskText({
+      company: "Aqua-Tots Lone Tree",
+      ownerName: null,
+      managerName: "Liam",
+      employeeName: null,
+      businessPhone: "+13037311363",
+      businessEmail: "info@aqua-tots.com",
+      timezone: "America/Denver",
+      appointmentAt: "2026-07-01T16:30:00.000Z", // 10:30 AM Mountain
+    });
+    expect(text).toContain("Aqua-Tots Lone Tree");
+    expect(text).toContain("10:30");
+    expect(text).toContain("America/Denver");
+    expect(text).toContain("Liam");
+    expect(text).toContain("info@aqua-tots.com");
+    expect(text).toContain("handoff note");
+  });
+
+  test("degrades gracefully with no appointment", () => {
+    const text = buildHandoffTaskText({
+      company: "Solo Co",
+      ownerName: null,
+      managerName: null,
+      employeeName: null,
+      businessPhone: null,
+      businessEmail: null,
+      timezone: null,
+      appointmentAt: null,
+    });
+    expect(text).toContain("Solo Co");
+    expect(text).not.toContain("—"); // the em-dash only appears with an appt time
+    expect(text).toContain("handoff note");
   });
 });
 
