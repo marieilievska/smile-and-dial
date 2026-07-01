@@ -401,7 +401,10 @@ export async function handoffLeadToClose(
         }
       : null,
     appointment: appt
-      ? { scheduledAt: appt.scheduled_at, eventLink: null }
+      ? // eventLink is null on purpose: calendly_events only stores the API
+        // event URI (api.calendly.com/scheduled_events/…), not a human-openable
+        // link, so the note shows the time only.
+        { scheduledAt: appt.scheduled_at, eventLink: null }
       : null,
     customFields,
   });
@@ -427,7 +430,11 @@ export async function handoffLeadToClose(
   });
   if (!posted) return { error: "Could not post the handoff note to Close." };
 
-  await admin.from("system_events").insert({
+  // Best-effort audit log. The handoff itself (the Close note) already
+  // succeeded, so a failed log must NOT return an error — that would show the
+  // operator a failure and prompt a re-send, duplicating the note in Close.
+  // Surface it to server logs instead so the failure isn't invisible.
+  const { error: logError } = await admin.from("system_events").insert({
     kind: "lead_handoff",
     actor_user_id: user.id,
     ref_table: "leads",
@@ -440,6 +447,12 @@ export async function handoffLeadToClose(
       at: new Date().toISOString(),
     },
   });
+  if (logError) {
+    console.error("lead_handoff audit log failed", {
+      leadId,
+      message: logError.message,
+    });
+  }
 
   revalidatePath("/leads/[id]", "page");
   return { error: null, closeLeadId: ref.leadId };
