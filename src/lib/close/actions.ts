@@ -5,14 +5,19 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
+import { getScheduledEventHostEmail } from "@/lib/calendly/api";
+
 import {
   closeSenderEmail,
   createCloseLead,
   createCloseNote,
+  createCloseTask,
   findCloseLeadByEmail,
+  findCloseUserByEmail,
+  getCloseMe,
   sendCloseEmail,
 } from "./api";
-import { buildHandoffNote } from "./handoff";
+import { buildHandoffNote, buildHandoffTaskText } from "./handoff";
 import { renderTemplate, type TemplateContext } from "./templates";
 
 function makeServiceClient() {
@@ -296,10 +301,11 @@ export async function handoffLeadToClose(
   // Owner's Close key.
   const { data: integ } = await admin
     .from("user_integrations")
-    .select("close_api_key")
+    .select("close_api_key, calendly_api_key")
     .eq("user_id", lead.owner_id)
     .maybeSingle();
   const closeKey = integ?.close_api_key?.trim() || null;
+  const calendlyToken = integ?.calendly_api_key?.trim() || null;
   if (!closeKey) {
     return { error: "Connect Close in Settings → Integrations first." };
   }
@@ -430,6 +436,37 @@ export async function handoffLeadToClose(
   });
   if (!posted) return { error: "Could not post the handoff note to Close." };
 
+  // Also create a Close TASK assigned to the appointment's closer, so it lands
+  // in that person's Close Inbox. Assignee = the Calendly event's host (matched
+  // to a Close user by email); falls back to the account owner (/me), then
+  // unassigned. Best-effort: a failed task never fails the handoff.
+  const hostEmail =
+    appt?.event_uri && calendlyToken
+      ? await getScheduledEventHostEmail(appt.event_uri, calendlyToken)
+      : null;
+  const assignee =
+    (hostEmail ? await findCloseUserByEmail(closeKey, hostEmail) : null) ??
+    (await getCloseMe(closeKey));
+  const taskText = buildHandoffTaskText({
+    company: lead.company,
+    ownerName: lead.owner_name,
+    managerName: lead.manager_name,
+    employeeName: lead.employee_name,
+    businessPhone: lead.business_phone,
+    businessEmail: lead.business_email,
+    timezone: lead.timezone,
+    appointmentAt: appt?.scheduled_at ?? null,
+  });
+  const task = await createCloseTask(closeKey, {
+    closeLeadId: ref.leadId,
+    text: taskText,
+    assignedTo: assignee?.id ?? null,
+    dueDate: new Date().toISOString().slice(0, 10),
+  });
+  if (!task) {
+    console.error("lead_handoff task creation failed", { leadId });
+  }
+
   // Best-effort audit log. The handoff itself (the Close note) already
   // succeeded, so a failed log must NOT return an error — that would show the
   // operator a failure and prompt a re-send, duplicating the note in Close.
@@ -444,6 +481,8 @@ export async function handoffLeadToClose(
       note_id: posted.id,
       packaged_call_id: packaged?.id ?? null,
       by_name: me?.full_name ?? null,
+      task_id: task?.id ?? null,
+      task_assigned_to: assignee?.id ?? null,
       at: new Date().toISOString(),
     },
   });
