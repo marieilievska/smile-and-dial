@@ -240,3 +240,65 @@ export async function createCloseTask(
   const json = (await res.json()) as { id?: string };
   return json.id ? { id: json.id } : null;
 }
+
+/** Ensure the org has lead custom-field definitions for `names` — GET the lead
+ *  custom fields, create any missing ones (type "text"). Returns a name→field-id
+ *  map. Best-effort: silently omits any it couldn't list or create. Used to stamp
+ *  UTM attribution onto a handed-off lead. */
+export async function ensureCloseLeadCustomFields(
+  apiKey: string,
+  names: string[],
+): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const res = await fetch(`${BASE}/custom_field/lead/?_limit=200`, {
+    headers: { Authorization: authHeader(apiKey) },
+  });
+  const existing = res.ok
+    ? (((await res.json()) as { data?: { id: string; name?: string }[] })
+        .data ?? [])
+    : [];
+  const byName = new Map(
+    existing.map((f) => [(f.name ?? "").toLowerCase(), f.id] as const),
+  );
+  for (const name of names) {
+    const found = byName.get(name.toLowerCase());
+    if (found) {
+      out[name] = found;
+      continue;
+    }
+    const cr = await fetch(`${BASE}/custom_field/lead/`, {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(apiKey),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name, type: "text" }),
+    });
+    if (cr.ok) {
+      const j = (await cr.json()) as { id?: string };
+      if (j.id) out[name] = j.id;
+    }
+  }
+  return out;
+}
+
+/** Set lead custom-field values on a Close lead — PUT /lead/{id}/ with
+ *  `custom.<field_id>` keys. Returns true on success. */
+export async function setCloseLeadCustomFields(
+  apiKey: string,
+  closeLeadId: string,
+  values: { fieldId: string; value: string }[],
+): Promise<boolean> {
+  if (values.length === 0) return true;
+  const body: Record<string, unknown> = {};
+  for (const v of values) body[`custom.${v.fieldId}`] = v.value;
+  const res = await fetch(`${BASE}/lead/${closeLeadId}/`, {
+    method: "PUT",
+    headers: {
+      Authorization: authHeader(apiKey),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  return res.ok;
+}
