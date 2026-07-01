@@ -47,23 +47,24 @@ export async function findCloseLeadByEmail(
   return { leadId: lead.id, contactId: contact?.id ?? null };
 }
 
-/** Create a Close lead with a single contact + email (and phone if known).
+/** Create a Close lead with a single contact + optional email (and phone if known).
  *  Returns the new lead/contact ids, or null on failure. */
 export async function createCloseLead(
   apiKey: string,
   input: {
     companyName: string | null;
     contactName: string | null;
-    email: string;
+    email?: string | null;
     phone?: string | null;
   },
 ): Promise<CloseLeadRef | null> {
+  const email = input.email?.trim() || null;
   const body = {
-    name: input.companyName || input.contactName || input.email,
+    name: input.companyName || input.contactName || email || "New lead",
     contacts: [
       {
         name: input.contactName || input.companyName || undefined,
-        emails: [{ email: input.email, type: "office" }],
+        ...(email ? { emails: [{ email, type: "office" }] } : {}),
         ...(input.phone
           ? { phones: [{ phone: input.phone, type: "office" }] }
           : {}),
@@ -84,6 +85,26 @@ export async function createCloseLead(
     contacts?: { id: string }[];
   };
   return { leadId: json.id, contactId: json.contacts?.[0]?.id ?? null };
+}
+
+/** Post a plain-text Note activity onto a Close lead (POST /activity/note/).
+ *  Returns the new activity id, or null on failure so the caller can surface a
+ *  clear error instead of logging a half-completed handoff. */
+export async function createCloseNote(
+  apiKey: string,
+  input: { closeLeadId: string; note: string },
+): Promise<{ id: string } | null> {
+  const res = await fetch(`${BASE}/activity/note/`, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(apiKey),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ lead_id: input.closeLeadId, note: input.note }),
+  });
+  if (!res.ok) return null;
+  const json = (await res.json()) as { id?: string };
+  return json.id ? { id: json.id } : null;
 }
 
 /** The email address Close will send FROM for this API key — the first

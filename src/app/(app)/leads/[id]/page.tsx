@@ -185,6 +185,22 @@ export default async function LeadDetailPage({
   }
   feedItems.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 
+  // eventRows is ordered newest-first (see the query above), so .find returns
+  // the most recent handoff. Guard by_name with typeof so a malformed payload
+  // can't render as "[object Object]".
+  const lastHandoffEvent = (eventRows ?? []).find(
+    (e) => e.kind === "lead_handoff",
+  );
+  const rawByName = (
+    lastHandoffEvent?.payload as Record<string, unknown> | null | undefined
+  )?.by_name;
+  const handoff = lastHandoffEvent
+    ? {
+        at: lastHandoffEvent.created_at,
+        byName: typeof rawByName === "string" ? rawByName : null,
+      }
+    : null;
+
   const activeCall = (activeCallRows ?? [])[0] ?? null;
   const meta = {
     status: lead.status,
@@ -277,6 +293,7 @@ export default async function LeadDetailPage({
       nav={nav}
       isAdmin={isAdmin}
       callbacks={callbacks}
+      handoff={handoff}
     />
   );
 }
@@ -313,6 +330,8 @@ function describeFeedItem(item: FeedItem): string {
       return "Calendly appointment booked";
     case "close_email_received":
       return "Email reply received";
+    case "lead_handoff":
+      return "Handed off to closer";
     default:
       return (
         item.eventKind.charAt(0).toUpperCase() +

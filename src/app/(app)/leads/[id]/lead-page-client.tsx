@@ -34,6 +34,7 @@ import {
 } from "@/lib/relative-time";
 import { MergeInboundDialog } from "../merge-inbound-dialog";
 import { EditableCompanyName } from "./editable-company-name";
+import { SendToCloserButton, type HandoffInfo } from "./send-to-closer";
 import { LeadCallbacks, type LeadCallbackRow } from "./lead-callbacks";
 import { LeadHeroActions } from "./lead-hero-actions";
 import { ManualCallPanel } from "./manual-call-panel";
@@ -60,6 +61,7 @@ export function LeadPageClient({
   nav,
   isAdmin,
   callbacks,
+  handoff,
 }: {
   leadId: string;
   userId: string;
@@ -84,6 +86,7 @@ export function LeadPageClient({
   } | null;
   isAdmin: boolean;
   callbacks: LeadCallbackRow[];
+  handoff: HandoffInfo;
 }) {
   const { status, saveField, saveCustom } = useLeadSaver(leadId);
   const router = useRouter();
@@ -220,6 +223,9 @@ export function LeadPageClient({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <LeadHeroActions leadId={leadId} leadName={leadCompany} />
+              {isAdmin ? (
+                <SendToCloserButton leadId={leadId} handoff={handoff} />
+              ) : null}
               <ManualCallPanel leadId={leadId} userId={userId} />
               <CallNowDialog
                 leadId={leadId}
