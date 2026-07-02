@@ -76,6 +76,10 @@ export async function mergeLeadSummary(input: {
 
   // Upsert the per-campaign summary row and copy to leads.ai_summary
   // (denormalized "latest campaign summary" for the leads list + CSV).
+  // The per-campaign row is authoritative; the leads.ai_summary copy is a
+  // best-effort convenience. Writing the row first means a failure of the
+  // second write only leaves the denormalized copy briefly stale — the next
+  // successful merge self-heals both.
   await supabase.from("lead_campaign_summaries").upsert(
     {
       lead_id: input.leadId,
