@@ -253,7 +253,10 @@ async function buildVarsForCall(
       .select("summary, campaign_id")
       .eq("id", pendingCallback.originating_call_id)
       .maybeSingle();
-    if (originating?.campaign_id === call.campaign_id) {
+    // Require a real campaign on both sides — never treat two campaign-less
+    // (null) calls as a match, matching the summary read's `if (call.campaign_id)`
+    // guard above.
+    if (call.campaign_id && originating?.campaign_id === call.campaign_id) {
       lastCallbackNotes = originating?.summary?.trim() ?? "";
     }
   }
