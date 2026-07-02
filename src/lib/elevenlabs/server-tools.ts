@@ -130,7 +130,13 @@ function bodySchemaFor(
         "The lead's email for the calendar invite, e.g. 'jane@business.com'.",
         true,
       );
-      add("name", "The lead's name for the calendar invite.", false);
+      add(
+        "name",
+        "The full name of the person the appointment is for — the caller you're " +
+          "speaking with. ALWAYS include this: a booking with no name is rejected. " +
+          "If you don't have their name yet, ask for it before booking.",
+        true,
+      );
       break;
     case "mark_dnc":
       add(
