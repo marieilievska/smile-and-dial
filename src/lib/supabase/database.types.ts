@@ -1413,7 +1413,6 @@ export type Database = {
       };
       leads: {
         Row: {
-          ai_summary: string | null;
           business_email: string | null;
           business_phone: string | null;
           calendly_event_uri: string | null;
@@ -1450,7 +1449,6 @@ export type Database = {
           website: string | null;
         };
         Insert: {
-          ai_summary?: string | null;
           business_email?: string | null;
           business_phone?: string | null;
           calendly_event_uri?: string | null;
@@ -1487,7 +1485,6 @@ export type Database = {
           website?: string | null;
         };
         Update: {
-          ai_summary?: string | null;
           business_email?: string | null;
           business_phone?: string | null;
           calendly_event_uri?: string | null;
