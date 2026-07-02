@@ -12,10 +12,12 @@ import {
   createCloseLead,
   createCloseNote,
   createCloseTask,
+  ensureCloseLeadCustomFields,
   findCloseLeadByEmail,
   findCloseUserByEmail,
   getCloseMe,
   sendCloseEmail,
+  setCloseLeadCustomFields,
 } from "./api";
 import { buildHandoffNote, buildHandoffTaskText } from "./handoff";
 import { renderTemplate, type TemplateContext } from "./templates";
@@ -310,12 +312,13 @@ export async function handoffLeadToClose(
     return { error: "Connect Close in Settings → Integrations first." };
   }
 
-  // Packaged call: most recent WITH a summary, else most recent.
+  // All calls for the lead (newest first), with outcome + campaign for the note.
   const { data: callRows } = await admin
     .from("calls")
     .select(
-      "id, summary, extracted_data, started_at, elevenlabs_conversation_id, " +
-        "agent:agents(elevenlabs_agent_id)",
+      "id, summary, extracted_data, started_at, outcome, " +
+        "elevenlabs_conversation_id, agent:agents(elevenlabs_agent_id), " +
+        "campaign:campaigns(name)",
     )
     .eq("lead_id", leadId)
     .order("started_at", { ascending: false })
@@ -325,10 +328,18 @@ export async function handoffLeadToClose(
     summary: string | null;
     extracted_data: Record<string, unknown> | null;
     started_at: string | null;
+    outcome: string | null;
     elevenlabs_conversation_id: string | null;
     agent: { elevenlabs_agent_id: string | null } | null;
+    campaign: { name: string | null } | null;
   }[];
-  const packaged = calls.find((c) => c.summary) ?? calls[0] ?? null;
+  const primary =
+    calls.find(
+      (c) => !!c.extracted_data && Object.keys(c.extracted_data).length > 0,
+    ) ??
+    calls[0] ??
+    null;
+  const utmCampaign = calls[0]?.campaign?.name ?? null;
 
   // Appointment: earliest upcoming, else most recent.
   const nowIso = new Date().toISOString();
@@ -353,27 +364,58 @@ export async function handoffLeadToClose(
     appt = recent ?? null;
   }
 
-  // Custom field values → {label, value}[].
+  // Custom field values → {label, value}[], excluding any that duplicate a
+  // hardcoded key answer (they'd otherwise show twice).
+  const RESERVED_CF_SLUGS = new Set([
+    "lead_response_time",
+    "decision_maker_reached",
+  ]);
   const [{ data: cvRows }, { data: defs }] = await Promise.all([
     admin
       .from("lead_custom_values")
       .select("custom_field_id, value")
       .eq("lead_id", leadId),
-    admin.from("custom_field_defs").select("id, name"),
+    admin.from("custom_field_defs").select("id, name, slug"),
   ]);
-  const defName = new Map((defs ?? []).map((d) => [d.id, d.name] as const));
+  const defById = new Map((defs ?? []).map((d) => [d.id, d] as const));
   const customFields = (cvRows ?? [])
-    .map((v) => ({
-      label: defName.get(v.custom_field_id) ?? "",
-      value: v.value == null ? "" : String(v.value),
-    }))
-    .filter((f) => f.label && f.value.trim().length > 0);
+    .map((v) => {
+      const d = defById.get(v.custom_field_id);
+      return {
+        slug: d?.slug ?? "",
+        label: d?.name ?? "",
+        value: v.value == null ? "" : String(v.value),
+      };
+    })
+    .filter(
+      (f) =>
+        f.label && f.value.trim().length > 0 && !RESERVED_CF_SLUGS.has(f.slug),
+    )
+    .map((f) => ({ label: f.label, value: f.value }));
 
-  const extracted = packaged?.extracted_data ?? {};
-  const recordingUrl =
-    packaged?.elevenlabs_conversation_id && packaged.agent?.elevenlabs_agent_id
-      ? `${EL_HISTORY_BASE}/${packaged.agent.elevenlabs_agent_id}/history/${packaged.elevenlabs_conversation_id}`
+  const extracted = primary?.extracted_data ?? {};
+  const leadResponseTime =
+    typeof extracted.lead_response_time === "string"
+      ? extracted.lead_response_time
       : null;
+  const decisionMakerReached =
+    typeof extracted.decision_maker_reached === "string"
+      ? extracted.decision_maker_reached
+      : null;
+
+  // Build per-call history (oldest→newest; DB query was desc, so reverse).
+  const callHistory = [...calls].reverse().map((c) => {
+    const url =
+      c.elevenlabs_conversation_id && c.agent?.elevenlabs_agent_id
+        ? `${EL_HISTORY_BASE}/${c.agent.elevenlabs_agent_id}/history/${c.elevenlabs_conversation_id}`
+        : null;
+    return {
+      startedAt: c.started_at,
+      outcome: c.outcome,
+      summary: c.summary,
+      recordingUrl: url,
+    };
+  });
 
   const note = buildHandoffNote({
     lead: {
@@ -387,25 +429,9 @@ export async function handoffLeadToClose(
       city: lead.city,
       state: lead.state,
     },
-    call: packaged
-      ? {
-          summary: packaged.summary,
-          disposition:
-            typeof extracted.disposition === "string"
-              ? extracted.disposition
-              : null,
-          leadResponseTime:
-            typeof extracted.lead_response_time === "string"
-              ? extracted.lead_response_time
-              : null,
-          decisionMakerReached:
-            typeof extracted.decision_maker_reached === "string"
-              ? extracted.decision_maker_reached
-              : null,
-          startedAt: packaged.started_at,
-          recordingUrl,
-        }
-      : null,
+    calls: callHistory,
+    leadResponseTime,
+    decisionMakerReached,
     appointment: appt
       ? // eventLink is null on purpose: calendly_events only stores the API
         // event URI (api.calendly.com/scheduled_events/…), not a human-openable
@@ -477,6 +503,33 @@ export async function handoffLeadToClose(
     });
   }
 
+  // UTM attribution on the Close lead so the sales team can see these came from
+  // the AI calling. Best-effort — a Close custom-field hiccup never fails the
+  // handoff (the note already posted).
+  try {
+    const ids = await ensureCloseLeadCustomFields(closeKey, [
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+    ]);
+    const utm: Record<string, string> = {
+      utm_source: "smile-and-dial",
+      utm_medium: "ai_call",
+      ...(utmCampaign ? { utm_campaign: utmCampaign } : {}),
+    };
+    const utmValues = Object.entries(utm)
+      .filter(([name]) => ids[name])
+      .map(([name, value]) => ({ fieldId: ids[name], value }));
+    if (utmValues.length) {
+      await setCloseLeadCustomFields(closeKey, ref.leadId, utmValues);
+    }
+  } catch (err) {
+    console.error("lead_handoff utm block failed", {
+      leadId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   // Best-effort audit log. The handoff itself (the Close note) already
   // succeeded, so a failed log must NOT return an error — that would show the
   // operator a failure and prompt a re-send, duplicating the note in Close.
@@ -489,7 +542,7 @@ export async function handoffLeadToClose(
     payload: {
       close_lead_id: ref.leadId,
       note_id: posted.id,
-      packaged_call_id: packaged?.id ?? null,
+      packaged_call_id: primary?.id ?? null,
       by_name: me?.full_name ?? null,
       task_id: task?.id ?? null,
       task_assigned_to: assignee?.id ?? null,

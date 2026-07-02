@@ -10,45 +10,51 @@ import {
 } from "../src/lib/close/handoff";
 
 test.describe("buildHandoffNote", () => {
-  test("renders appointment (lead tz), summary, key answers, recording", () => {
+  test("renders a per-call history, appointment (lead tz), single key answer", () => {
     const note = buildHandoffNote({
       lead: {
-        company: "Aqua-Tots Lone Tree",
+        company: "Aqua-Tots Myers Park",
         ownerName: null,
-        managerName: "Liam",
-        employeeName: "Danica",
-        businessPhone: "+13037311363",
-        businessEmail: "info@aqua-tots.com",
-        timezone: "America/Denver",
-        city: "Lone Tree",
-        state: "CO",
+        managerName: "Jessica",
+        employeeName: null,
+        businessPhone: "+17045858155",
+        businessEmail: "myersparkgm@aqua-tots.com",
+        timezone: "America/New_York",
+        city: "Charlotte",
+        state: "NC",
       },
-      call: {
-        summary: "Booked a demo with Liam.",
-        disposition: "goal_met",
-        leadResponseTime: "within 10 minutes",
-        decisionMakerReached: "no",
-        startedAt: "2026-06-30T22:00:37.910Z",
-        recordingUrl: "https://elevenlabs.io/app/agents/agents/A/history/C",
-      },
-      appointment: {
-        scheduledAt: "2026-07-01T16:30:00.000Z", // 10:30 AM Mountain
-        eventLink: null,
-      },
-      customFields: [{ label: "Current AI tools", value: "None" }],
+      calls: [
+        {
+          startedAt: "2026-06-30T13:45:57.940Z", // 9:45 AM ET
+          outcome: "callback",
+          summary: "First call — reached Clover, got response time.",
+          recordingUrl: "https://elevenlabs.io/app/agents/agents/A/history/C1",
+        },
+        {
+          startedAt: "2026-06-30T16:30:00.000Z", // 12:30 PM ET
+          outcome: "goal_met",
+          summary: "Booked a demo for 3 PM.",
+          recordingUrl: "https://elevenlabs.io/app/agents/agents/A/history/C2",
+        },
+      ],
+      leadResponseTime: "within a couple hours",
+      decisionMakerReached: "unknown",
+      appointment: { scheduledAt: "2026-06-30T19:00:00.000Z", eventLink: null }, // 3 PM ET
+      customFields: [{ label: "Current ai tools", value: "None" }],
     });
 
-    expect(note).toContain("WHO TO MEET: Liam (Manager)");
-    expect(note).toContain("Aqua-Tots Lone Tree");
-    expect(note).toContain("10:30"); // appointment in Mountain time
-    expect(note).toContain("America/Denver");
-    expect(note).toContain("Booked a demo with Liam.");
-    expect(note).toContain("Lead response time: within 10 minutes");
-    expect(note).toContain("Decision-maker reached: no");
-    expect(note).toContain("Current AI tools: None");
-    expect(note).toContain(
-      "RECORDING: https://elevenlabs.io/app/agents/agents/A/history/C",
-    );
+    expect(note).toContain("CALL HISTORY (2 calls)");
+    expect(note).toContain("First call — reached Clover, got response time.");
+    expect(note).toContain("Booked a demo for 3 PM.");
+    expect(note).toContain("9:45"); // first call, ET
+    expect(note).toContain("12:30"); // second call, ET
+    expect(note).toContain("goal met"); // outcome underscores → spaces
+    expect(note).toContain("history/C1");
+    expect(note).toContain("history/C2");
+    expect(note).toContain("3:00 PM"); // appointment, ET
+    // Lead response time appears exactly once (the caller dedups custom fields).
+    expect(note.match(/Lead response time/g)?.length).toBe(1);
+    expect(note).toContain("Current ai tools: None");
   });
 
   test("omits sections with no data", () => {
@@ -64,15 +70,16 @@ test.describe("buildHandoffNote", () => {
         city: null,
         state: null,
       },
-      call: null,
+      calls: [],
+      leadResponseTime: null,
+      decisionMakerReached: null,
       appointment: null,
       customFields: [],
     });
     expect(note).toContain("COMPANY: Solo Co");
+    expect(note).not.toContain("CALL HISTORY");
     expect(note).not.toContain("BOOKED APPOINTMENT");
-    expect(note).not.toContain("AI CALL SUMMARY");
     expect(note).not.toContain("KEY ANSWERS");
-    expect(note).not.toContain("RECORDING");
   });
 
   test("a malformed timezone does not throw (falls back)", () => {
@@ -85,11 +92,13 @@ test.describe("buildHandoffNote", () => {
           employeeName: null,
           businessPhone: null,
           businessEmail: null,
-          timezone: "America/Denverrr", // not a real IANA zone
+          timezone: "America/Denverrr",
           city: null,
           state: null,
         },
-        call: null,
+        calls: [],
+        leadResponseTime: null,
+        decisionMakerReached: null,
         appointment: {
           scheduledAt: "2026-07-01T16:30:00.000Z",
           eventLink: null,
