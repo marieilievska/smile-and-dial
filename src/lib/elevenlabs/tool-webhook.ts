@@ -617,15 +617,14 @@ async function bookAppointment(
   // ("invitee either name or first_name must be filled"), and the generic
   // failure path below then tells the caller the SLOT is unavailable, which is
   // wrong (the Evolve Thermal Spa bug: it declined an open slot, then booked it
-  // once a name was supplied). Guarantee a name: whatever the agent passed, else
-  // any contact we know, else the business name so a real slot never fails for a
-  // missing name.
+  // once a name was supplied). Prefer the name the agent passed, else any
+  // contact we already know. If we have none, the guard below ASKS for it rather
+  // than booking without one.
   const name =
     str(body.name) ||
     (ctx.lead.owner_name ?? "") ||
     (ctx.lead.manager_name ?? "") ||
-    (ctx.lead.employee_name ?? "") ||
-    (ctx.lead.company ?? "");
+    (ctx.lead.employee_name ?? "");
   if (!slotId) {
     return {
       success: false,
@@ -669,9 +668,9 @@ async function bookAppointment(
         message: "What's the best email for the calendar invite?",
       };
     }
-    // Should be unreachable given the fallback above, but never send Calendly an
-    // empty name — ask for it rather than fail the booking (which the caller
-    // would hear as the time being unavailable).
+    // Never send Calendly an empty name — ask for it rather than fail the
+    // booking (which the caller would otherwise hear as the time being
+    // unavailable).
     if (!name) {
       return {
         success: false,
