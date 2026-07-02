@@ -24,6 +24,7 @@ test.describe("OpenAI summary merger (mock)", () => {
   let ownerId: string;
   let listId: string;
   let leadId: string;
+  let campaignId: string;
 
   test.beforeAll(async () => {
     admin = createClient(
@@ -59,9 +60,33 @@ test.describe("OpenAI summary merger (mock)", () => {
       .select("id")
       .single();
     leadId = lead!.id;
+
+    const { data: agent } = await admin
+      .from("agents")
+      .select("id")
+      .eq("owner_id", ownerId)
+      .limit(1)
+      .maybeSingle();
+    const { data: goal } = await admin
+      .from("goals")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+    const { data: campaign } = await admin
+      .from("campaigns")
+      .insert({
+        owner_id: ownerId,
+        name: `E2E Summary Campaign ${stamp}`,
+        agent_id: agent!.id,
+        goal_id: goal!.id,
+      })
+      .select("id")
+      .single();
+    campaignId = campaign!.id;
   });
 
   test.afterAll(async () => {
+    if (campaignId) await admin.from("campaigns").delete().eq("id", campaignId);
     if (leadId) await admin.from("leads").delete().eq("id", leadId);
     if (listId) await admin.from("lists").delete().eq("id", listId);
   });
@@ -78,6 +103,7 @@ test.describe("OpenAI summary merger (mock)", () => {
   test("mergeLeadSummary writes the new summary onto the lead", async () => {
     const result = await mergeLeadSummary({
       leadId,
+      campaignId,
       latestSummary: "Owner committed to a Thursday discovery call.",
     });
     expect(result.mode).toBe("mock");
@@ -95,7 +121,11 @@ test.describe("OpenAI summary merger (mock)", () => {
   test("with no latest summary and no recent calls, nothing is written", async () => {
     // Wipe the existing ai_summary first so we can tell the difference.
     await admin.from("leads").update({ ai_summary: null }).eq("id", leadId);
-    const result = await mergeLeadSummary({ leadId, latestSummary: null });
+    const result = await mergeLeadSummary({
+      leadId,
+      campaignId,
+      latestSummary: null,
+    });
     expect(result.newSummary).toBeNull();
     expect(result.cost).toBe(0);
   });

@@ -1138,9 +1138,10 @@ async function processTranscription(
     reachedHuman && typeof callSummary === "string" && callSummary.trim()
       ? callSummary
       : null;
-  if (latestSummary) {
+  if (latestSummary && call.campaign_id) {
     const { cost } = await mergeLeadSummary({
       leadId: call.lead_id,
+      campaignId: call.campaign_id,
       latestSummary,
     });
     if (cost > 0) {

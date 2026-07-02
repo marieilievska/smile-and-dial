@@ -30,6 +30,11 @@ export async function recomputeLeadCallState(
     .eq("lead_id", leadId);
   const remaining = calls ?? [];
 
+  // Per-campaign rolling summaries rebuild from subsequent calls; clear them on
+  // reset so stale campaign memory doesn't survive a wipe. (leads.ai_summary,
+  // the denormalized latest, is still handled below.)
+  await admin.from("lead_campaign_summaries").delete().eq("lead_id", leadId);
+
   const base: LeadUpdate = {
     retry_counter: 0,
     retry_position: 0,

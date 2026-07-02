@@ -40,6 +40,7 @@ import { LeadHeroActions } from "./lead-hero-actions";
 import { ManualCallPanel } from "./manual-call-panel";
 import { OwnerCallControl } from "./owner-call-control";
 import { SinceLastViewed } from "./since-last-viewed";
+import { CampaignSummaries, type CampaignSummary } from "./campaign-summaries";
 
 /** v3 — two-zone layout. Left = every field surface + at-a-glance.
  *  Right = AI summary stacked above the activity feed. The hero shows
@@ -62,6 +63,7 @@ export function LeadPageClient({
   isAdmin,
   callbacks,
   handoff,
+  campaignSummaries,
 }: {
   leadId: string;
   userId: string;
@@ -87,6 +89,7 @@ export function LeadPageClient({
   isAdmin: boolean;
   callbacks: LeadCallbackRow[];
   handoff: HandoffInfo;
+  campaignSummaries: CampaignSummary[];
 }) {
   const { status, saveField, saveCustom } = useLeadSaver(leadId);
   const router = useRouter();
@@ -453,6 +456,17 @@ export function LeadPageClient({
                 what the contact said, where things stand, and what to do next.
               </p>
             )}
+          </section>
+
+          <section className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-4 shadow-sm">
+            <h2 className="text-foreground text-sm font-semibold">
+              Campaign summaries
+            </h2>
+            <CampaignSummaries
+              leadId={leadId}
+              summaries={campaignSummaries}
+              isAdmin={isAdmin}
+            />
           </section>
 
           <section

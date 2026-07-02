@@ -41,6 +41,7 @@ export default async function LeadDetailPage({
     { data: eventRows },
     { data: activeCallRows },
     { data: callbackRows },
+    { data: campaignSummaryRows },
   ] = await Promise.all([
     supabase
       .from("leads")
@@ -92,9 +93,21 @@ export default async function LeadDetailPage({
       .eq("lead_id", id)
       .order("scheduled_at", { ascending: false })
       .limit(50),
+    supabase
+      .from("lead_campaign_summaries")
+      .select("campaign_id, ai_summary, updated_at, campaign:campaigns(name)")
+      .eq("lead_id", id)
+      .order("updated_at", { ascending: false }),
   ]);
 
   if (!lead) notFound();
+
+  const campaignSummaries = (campaignSummaryRows ?? []).map((r) => ({
+    campaignId: r.campaign_id as string,
+    campaignName:
+      (r.campaign as { name: string | null } | null)?.name ?? "Campaign",
+    summary: (r.ai_summary as string | null) ?? "",
+  }));
 
   // Active campaigns this lead's list is attached to — same query the
   // legacy modal used so Call Now can pick a campaign.
@@ -294,6 +307,7 @@ export default async function LeadDetailPage({
       isAdmin={isAdmin}
       callbacks={callbacks}
       handoff={handoff}
+      campaignSummaries={campaignSummaries}
     />
   );
 }

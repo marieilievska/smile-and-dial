@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
+import { createClient as createAdminClient } from "@supabase/supabase-js";
+
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -9,6 +11,34 @@ import { IMPORTABLE_FIELDS } from "./import-fields";
 import { toE164UsCa } from "./twilio-lookup";
 
 type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
+
+function makeServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  return createAdminClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+/** Owner/admin gate for a lead. Returns an error object when denied, else null. */
+async function assertLeadAccess(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  leadId: string,
+): Promise<{ error: string } | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+  const [{ data: lead }, { data: me }] = await Promise.all([
+    supabase.from("leads").select("owner_id").eq("id", leadId).maybeSingle(),
+    supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+  ]);
+  if (!lead) return { error: "Lead not found." };
+  if (lead.owner_id !== user.id && me?.role !== "admin") {
+    return { error: "You don't have access to this lead." };
+  }
+  return null;
+}
 
 /** Standard lead fields the detail modal is allowed to edit. */
 const EDITABLE_KEYS = new Set<string>(IMPORTABLE_FIELDS.map((f) => f.key));
@@ -92,6 +122,25 @@ export async function updateLeadField(input: {
         .from("leads")
         .update({ ai_summary: fixed })
         .eq("id", input.leadId);
+    }
+  }
+
+  if (scrub) {
+    const admin = makeServiceClient();
+    const re = new RegExp(`\\b${escapeRegExp(scrub.old)}\\b`, "gi");
+    const { data: rows } = await admin
+      .from("lead_campaign_summaries")
+      .select("id, ai_summary")
+      .eq("lead_id", input.leadId);
+    for (const row of rows ?? []) {
+      const cur = row.ai_summary ?? "";
+      const fixed = cur.replace(re, scrub.next);
+      if (fixed !== cur) {
+        await admin
+          .from("lead_campaign_summaries")
+          .update({ ai_summary: fixed })
+          .eq("id", row.id);
+      }
     }
   }
 
@@ -310,5 +359,53 @@ export async function mergeInboundLead(input: {
   }
 
   revalidatePath("/leads");
+  return { error: null };
+}
+
+/** Edit a lead's per-campaign rolling summary (the memory the next same-campaign
+ *  call sees). Owner/admin only. */
+export async function updateLeadCampaignSummary(input: {
+  leadId: string;
+  campaignId: string;
+  summary: string;
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const gate = await assertLeadAccess(supabase, input.leadId);
+  if (gate) return gate;
+
+  const admin = makeServiceClient();
+  const { error } = await admin
+    .from("lead_campaign_summaries")
+    .update({
+      ai_summary: input.summary.trim(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("lead_id", input.leadId)
+    .eq("campaign_id", input.campaignId);
+  if (error) return { error: "Could not save the summary." };
+
+  revalidatePath(`/leads/${input.leadId}`);
+  return { error: null };
+}
+
+/** Clear (delete) a lead's per-campaign summary so the next same-campaign call
+ *  starts fresh. Owner/admin only. */
+export async function clearLeadCampaignSummary(input: {
+  leadId: string;
+  campaignId: string;
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const gate = await assertLeadAccess(supabase, input.leadId);
+  if (gate) return gate;
+
+  const admin = makeServiceClient();
+  const { error } = await admin
+    .from("lead_campaign_summaries")
+    .delete()
+    .eq("lead_id", input.leadId)
+    .eq("campaign_id", input.campaignId);
+  if (error) return { error: "Could not clear the summary." };
+
+  revalidatePath(`/leads/${input.leadId}`);
   return { error: null };
 }
