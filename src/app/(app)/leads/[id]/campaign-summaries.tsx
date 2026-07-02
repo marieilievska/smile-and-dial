@@ -112,6 +112,7 @@ function SummaryCard({
               size="sm"
               onClick={() => setEditing(true)}
               disabled={pending}
+              aria-label="Edit summary"
             >
               <Pencil className="size-3.5" />
             </Button>
@@ -121,6 +122,7 @@ function SummaryCard({
               size="sm"
               onClick={clear}
               disabled={pending}
+              aria-label="Clear summary"
             >
               <Trash2 className="size-3.5" />
             </Button>
