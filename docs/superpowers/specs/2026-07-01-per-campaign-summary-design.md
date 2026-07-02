@@ -40,8 +40,12 @@ concrete failures:
   separate lever if still needed).
 - Cross-campaign "shared facts" (rejected in favor of clean per-campaign
   isolation).
-- Dropping the legacy `leads.ai_summary` column (kept for now per migration
-  sequencing; backfilled + no longer read for call context).
+- Dropping `leads.ai_summary`. It's **kept and repurposed** as a denormalized
+  "latest campaign summary" (the merger copies the newest campaign's merged
+  summary into it) so the leads-list column, CSV export, lead-merge, and the
+  legacy inbound webhook keep working **unchanged**. It is simply no longer the
+  source for CALL CONTEXT (that's per-campaign now). No column drop, no 2-phase
+  migration, no rework of those surfaces.
 
 ## Current state (what changes)
 
@@ -99,6 +103,10 @@ campaign_id)` (empty if none).
   (`.eq("campaign_id", campaignId)`).
 - Merge (OpenAI or mock) and **upsert** `lead_campaign_summaries` on
   `(lead_id, campaign_id)`.
+- **Also write the merged value to `leads.ai_summary`** (the denormalized
+  "latest campaign summary") so the leads-list column + CSV export keep a
+  glanceable summary. Those surfaces, lead-merge, and the legacy inbound webhook
+  are otherwise **unchanged** — they keep reading `leads.ai_summary`.
 - **Prompt (B):** rewrite so the note is **facts-only** — keep "who/what we know",
   "what happened / what the lead said", "their stated pain (only if they raised
   it)", "commitment (only if explicit)", AND a factual **reachability** line
@@ -126,8 +134,8 @@ merge.)
 On reset / delete-calls for a lead, also delete the lead's
 `lead_campaign_summaries` rows (they rebuild from subsequent calls). Do NOT
 attempt a per-campaign rebuild here — clearing is sufficient and matches the
-"rolling memory rebuilds as calls happen" model. Keep the existing
-`leads.ai_summary` clear too (harmless legacy).
+"rolling memory rebuilds as calls happen" model. Keep clearing/rebuilding
+`leads.ai_summary` too (it's the latest-summary convenience for the list/CSV).
 
 ### 5. Lead page display (A) + manual edit (C)
 
@@ -141,9 +149,9 @@ attempt a per-campaign rebuild here — clearing is sufficient and matches the
 campaignId, summary })` updates the row's text; `clearLeadCampaignSummary({
 leadId, campaignId })` deletes the row. Mirrors the existing custom-value edit
   pattern.
-- The existing name-correction scrub of `leads.ai_summary` (`lead-actions.ts`)
-  is repointed to scrub the lead's `lead_campaign_summaries` rows instead (so
-  corrected names don't linger in the per-campaign summaries).
+- The existing name-correction scrub (`lead-actions.ts`) is extended to scrub
+  **both** the lead's `lead_campaign_summaries` rows AND `leads.ai_summary` (the
+  latest copy), so corrected names don't linger in either.
 
 ## Data flow
 
