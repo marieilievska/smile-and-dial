@@ -18,6 +18,7 @@ import { openAiKey } from "./live";
  */
 export async function mergeLeadSummary(input: {
   leadId: string;
+  campaignId: string;
   latestSummary?: string | null;
 }): Promise<{
   newSummary: string | null;
@@ -33,21 +34,21 @@ export async function mergeLeadSummary(input: {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  const { data: lead } = await supabase
-    .from("leads")
+  // Read the existing summary from the per-campaign row.
+  const { data: existingRow } = await supabase
+    .from("lead_campaign_summaries")
     .select("ai_summary")
-    .eq("id", input.leadId)
+    .eq("lead_id", input.leadId)
+    .eq("campaign_id", input.campaignId)
     .maybeSingle();
-  if (!lead) {
-    return { newSummary: null, cost: 0, mode: "mock" };
-  }
-  const existing = (lead.ai_summary ?? "").trim();
+  const existing = (existingRow?.ai_summary ?? "").trim();
 
-  // Pull the last 5 call summaries for context.
+  // Pull the last 5 call summaries for this campaign for context.
   const { data: recentCalls } = await supabase
     .from("calls")
     .select("summary, created_at")
     .eq("lead_id", input.leadId)
+    .eq("campaign_id", input.campaignId)
     .not("summary", "is", null)
     .order("created_at", { ascending: false })
     .limit(5);
@@ -73,6 +74,17 @@ export async function mergeLeadSummary(input: {
     newSummary = mockMerge(existing, latest);
   }
 
+  // Upsert the per-campaign summary row and copy to leads.ai_summary
+  // (denormalized "latest campaign summary" for the leads list + CSV).
+  await supabase.from("lead_campaign_summaries").upsert(
+    {
+      lead_id: input.leadId,
+      campaign_id: input.campaignId,
+      ai_summary: newSummary,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "lead_id,campaign_id" },
+  );
   await supabase
     .from("leads")
     .update({ ai_summary: newSummary })
@@ -117,30 +129,23 @@ ${existing || "(none yet)"}
 Newest call summary:
 ${latest}
 
-Rewrite the running note so the NEXT caller knows what happened and what to do.
-Capture, factually and in PAST tense (these calls already happened):
-- Who/what we know about the lead (their name or role IF they gave it, business
-  specifics, hours).
-- What actually happened on the last call and what the LEAD themselves said —
-  their questions, objections, or stated interest/disinterest. If the lead
-  didn't really engage (put us on hold, hung up, went to voicemail, or we only
-  reached a gatekeeper), say plainly what blocked us.
-- The lead's main challenge or pain point IN THEIR OWN BUSINESS — what they
-  said they struggle with (e.g. no-shows, slow seasons, staffing, getting
-  reviews, retaining members) — but ONLY if the LEAD themselves raised it. If
-  they mentioned no problem, leave it out; never guess one.
-- A commitment ONLY if the lead explicitly agreed to one (a callback time,
-  permission to send info). If none, say no commitment was made.
-- What the next caller should DO or open with, given how this went.
+Rewrite the running note as a FACTUAL record for the next caller. Past tense
+(these calls already happened). Capture ONLY:
+- Who/what we know about the lead (name/role IF given, business specifics, hours).
+- What actually happened and what the LEAD said — their questions, objections,
+  stated interest/disinterest. If they didn't engage (hold, hang-up, voicemail,
+  gatekeeper only), say plainly what blocked us.
+- REACHABILITY as facts: who we can/can't reach and who handles things — e.g.
+  "owner is never on-site; the front desk/manager <name> handles leads; best
+  contact is email <x>". State the facts; do NOT prescribe a next action.
+- The lead's own stated pain point, ONLY if the LEAD raised it. Never guess one.
+- A commitment ONLY if the lead explicitly agreed (callback time, permission to
+  send info). If none, say no commitment was made.
 
-Do NOT restate the agent's pitch or questions as the lead's interest. Do NOT
-invent details. Do NOT include dates or "X ago" timing — the caller is told
-separately how long ago the last call was.
-
-Write 2–5 short sentences in this shape:
-"We know X (include their main struggle if they shared one). Last call: Y.
-Next time: Z."
-Max 200 words. No filler.`;
+Do NOT restate the agent's pitch/questions as the lead's interest. Do NOT invent
+details. Do NOT include dates or "X ago" timing. Do NOT tell the next caller what
+to DO ("email the owner", "call back and pitch X") — record the facts and let the
+caller decide. Write 2–5 short sentences. Max 200 words. No filler.`;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
