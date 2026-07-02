@@ -106,7 +106,7 @@ export type InboundResult =
  *   1. Look up which campaign owns the destination Twilio number.
  *      No campaign → "not in service".
  *   2. Look up the caller's phone in that owner's leads.
- *      Match → reuse the lead, preserve ai_summary.
+ *      Match → reuse the lead.
  *      No match → create a new lead in the owner's Inbound list.
  *   3. Insert a `calls` row with direction='inbound', twilio_call_sid=
  *      Twilio's CallSid. Unique constraint on twilio_call_sid gives us
@@ -145,16 +145,14 @@ export async function routeInboundCall(input: {
 
   // 2. Caller phone → lead (within campaign owner's leads).
   let leadId: string;
-  let aiSummary: string | null = null;
   const { data: existingLead } = await supabase
     .from("leads")
-    .select("id, ai_summary")
+    .select("id")
     .eq("owner_id", campaign.owner_id)
     .eq("business_phone", input.fromNumber)
     .maybeSingle();
   if (existingLead) {
     leadId = existingLead.id;
-    aiSummary = existingLead.ai_summary;
   } else {
     const { data: listId } = await supabase.rpc("get_or_create_inbound_list", {
       in_owner: campaign.owner_id,
@@ -212,7 +210,7 @@ export async function routeInboundCall(input: {
     elevenLabsAgentId,
     callId: call.id,
     leadId,
-    aiSummary,
+    aiSummary: null,
   });
   return { status: "routed", callId: call.id, leadId, twiml };
 }

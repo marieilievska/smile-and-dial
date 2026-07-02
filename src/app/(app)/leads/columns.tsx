@@ -1,5 +1,3 @@
-import { Sparkles } from "lucide-react";
-
 import { Badge } from "@/components/ui/badge";
 import { formatPhone } from "@/lib/format-phone";
 import { leadStatusLabel } from "@/lib/labels";
@@ -39,10 +37,6 @@ export type DisplayLead = {
   /** True when the dialer has a call in flight for this lead right now —
    *  drives the live "On call" pulse in the primary cell. */
   onCall?: boolean;
-  /** Rolling AI summary of everything the agent has learned across this
-   *  lead's calls (maintained by the summary-merger). Surfaced as a third
-   *  line in the primary cell so the table reads as an AI product. */
-  aiSummary?: string | null;
   /** True when the lead was created in the last 24h — drives a "New" chip. */
   isNew?: boolean;
 };
@@ -131,15 +125,6 @@ export const LEAD_COLUMNS: LeadColumn[] = [
           ) : l.business_phone ? (
             <span className="text-muted-foreground truncate font-mono text-[11px]">
               {formatPhone(l.business_phone)}
-            </span>
-          ) : null}
-          {!l.onCall && l.aiSummary ? (
-            <span
-              className="text-muted-foreground/90 inline-flex min-w-0 items-center gap-1 truncate text-[11px]"
-              title={l.aiSummary}
-            >
-              <Sparkles className="size-2.5 shrink-0" />
-              <span className="truncate">{l.aiSummary}</span>
             </span>
           ) : null}
         </div>

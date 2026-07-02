@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -412,52 +412,8 @@ export function LeadPageClient({
           </CollapsibleSection>
         </div>
 
-        {/* RIGHT — AI summary then activity, stacked. */}
+        {/* RIGHT — Campaign summaries then activity, stacked. */}
         <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-4 delay-200 duration-500">
-          {/* AI summary — a tinted, gradient-washed panel so it reads as
-              a generated artifact rather than a plain note field. A
-              freshness line (proxied off the last call, since summaries
-              are rolling and regenerate per call) reinforces that this is
-              kept current by the AI. */}
-          <section
-            data-testid="ai-summary-block"
-            className="relative overflow-hidden rounded-2xl border p-5 shadow-sm"
-            style={{
-              borderColor:
-                "color-mix(in oklab, var(--primary) 25%, var(--border))",
-              backgroundImage:
-                "linear-gradient(135deg, color-mix(in oklab, var(--primary) 8%, var(--card)), var(--card) 60%)",
-            }}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-foreground inline-flex items-center gap-2 text-sm font-semibold">
-                <Sparkles
-                  className="size-4"
-                  style={{ color: "var(--primary)" }}
-                />
-                AI summary
-              </h2>
-              {meta.aiSummary && meta.lastCallAt ? (
-                <span
-                  className="text-muted-foreground text-[11px]"
-                  title={exactDateTime(meta.lastCallAt)}
-                >
-                  Updated {relativeTime(meta.lastCallAt)}
-                </span>
-              ) : null}
-            </div>
-            {meta.aiSummary ? (
-              <p className="text-foreground mt-3 text-sm leading-relaxed whitespace-pre-line">
-                {meta.aiSummary}
-              </p>
-            ) : (
-              <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
-                The AI will write a running summary here after its first call —
-                what the contact said, where things stand, and what to do next.
-              </p>
-            )}
-          </section>
-
           <section className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-4 shadow-sm">
             <h2 className="text-foreground text-sm font-semibold">
               Campaign summaries

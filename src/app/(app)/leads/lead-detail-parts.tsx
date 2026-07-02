@@ -94,7 +94,6 @@ export type LeadMeta = {
    *  at import. Drives calling-hours; surfaced so the operator can see when
    *  it's the lead's daytime. */
   timezone: string | null;
-  aiSummary: string | null;
   /** Sticky "have we ever reached the decision maker?" flag. Maintained by the
    *  post-call webhook, manually correctable on the detail page. */
   decisionMakerReached: boolean;

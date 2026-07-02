@@ -54,8 +54,7 @@ function toDisplayLead(
 }
 
 /** Build the CSV body. Exports the FULL record — every standard column (not
- *  just the table's visible ones), the rolling AI summary, and every custom
- *  data-collection field. */
+ *  just the table's visible ones) and every custom data-collection field. */
 async function buildCsv(
   supabase: SupabaseServerClient,
   rawLeads: RawLead[],
@@ -117,7 +116,6 @@ async function buildCsv(
 
   const header = [
     ...columns.map((c) => c.label),
-    "AI summary",
     ...customDefs.map((d) => d.name),
   ];
   const rows = [
@@ -125,11 +123,8 @@ async function buildCsv(
     ...rawLeads.map((raw) => {
       const display = toDisplayLead(raw, ownerName);
       const custom = valueByLead.get(raw.id);
-      const aiSummary =
-        typeof raw.ai_summary === "string" ? raw.ai_summary : "";
       return [
         ...columns.map((c) => c.text(display)),
-        aiSummary,
         ...customDefs.map((d) => custom?.get(d.id) ?? ""),
       ];
     }),
