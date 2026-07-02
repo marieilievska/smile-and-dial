@@ -31,8 +31,7 @@ export async function recomputeLeadCallState(
   const remaining = calls ?? [];
 
   // Per-campaign rolling summaries rebuild from subsequent calls; clear them on
-  // reset so stale campaign memory doesn't survive a wipe. (leads.ai_summary,
-  // the denormalized latest, is still handled below.)
+  // reset so stale campaign memory doesn't survive a wipe.
   await admin.from("lead_campaign_summaries").delete().eq("lead_id", leadId);
 
   const base: LeadUpdate = {
@@ -41,10 +40,6 @@ export async function recomputeLeadCallState(
     call_back_later_count: 0,
     resting_until: null,
     next_call_at: null,
-    // ai_summary is the rolling memory built from this lead's calls. Clear it
-    // here; the calls-remain branch overrides it with the latest remaining
-    // call's summary (it rebuilds fully on the next real call).
-    ai_summary: null,
     updated_at: new Date().toISOString(),
   };
 
@@ -63,8 +58,8 @@ export async function recomputeLeadCallState(
       })
       .eq("id", leadId);
   } else {
-    // Most recent remaining call (by ended_at, else created_at) — drives both
-    // last_call_at and the rewound ai_summary.
+    // Most recent remaining call (by ended_at, else created_at) — drives
+    // last_call_at.
     const latest = [...remaining]
       .sort((a, b) => {
         const ta = a.ended_at ?? a.created_at ?? "";
@@ -73,10 +68,6 @@ export async function recomputeLeadCallState(
       })
       .at(-1);
     const lastCallAt = latest ? (latest.ended_at ?? latest.created_at) : null;
-    const aiSummary =
-      typeof latest?.summary === "string" && latest.summary.trim()
-        ? latest.summary
-        : null;
     const conversations = remaining.filter(
       (c) => c.outcome && CONVERSATION_OUTCOMES.has(c.outcome),
     ).length;
@@ -111,7 +102,6 @@ export async function recomputeLeadCallState(
       last_call_at: lastCallAt,
       call_attempts: remaining.length,
       conversations,
-      ai_summary: aiSummary,
     };
     // decision_maker_reached is sticky — only ever set it TRUE, never un-mark a
     // lead we already reached just because the remaining calls didn't.

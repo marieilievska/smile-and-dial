@@ -153,7 +153,6 @@ export default async function LeadsPage({
     listName: l.list?.name ?? "—",
     ownerName: ownerName.get(l.owner_id) ?? "—",
     onCall: onCallIds.has(l.id),
-    aiSummary: l.ai_summary,
     isNew: l.created_at ? new Date(l.created_at).getTime() >= newCutoff : false,
   }));
 

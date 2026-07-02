@@ -1001,7 +1001,7 @@ async function processTranscription(
     // Only keep a summary when a real human conversation happened. A voicemail
     // greeting, no-answer, or instant hang-up has nothing worth summarizing —
     // and the analysis LLM otherwise "summarizes" the agent's own scripted
-    // monologue, which then pollutes the lead's rolling ai_summary.
+    // monologue, which then pollutes the per-campaign rolling summary.
     summary: reachedHuman ? callSummary : null,
     // AI call-quality score (0–10), averaged from the ElevenLabs quality
     // criteria — only for real conversations. Voicemails / no-answers /
@@ -1123,16 +1123,17 @@ async function processTranscription(
         : null,
   });
 
-  // Step 39: roll the per-call summary into the lead's running ai_summary.
-  // Mock by default; OPENAI_LIVE=live calls gpt-4o-mini. The merger logs
-  // its own cost into cost_breakdown.openai on the call.
+  // Step 39: roll the per-call summary into the lead's per-campaign rolling
+  // summary (lead_campaign_summaries). Mock by default; OPENAI_LIVE=live calls
+  // gpt-4o-mini. The merger logs its own cost into cost_breakdown.openai on the
+  // call.
   // Use the SAME real summary written to the call row (transcript_summary, with
   // the legacy `summary` fallback) — NOT the legacy-only `analysis.summary`,
-  // which real ElevenLabs payloads never send (that left leads.ai_summary blank
-  // and follow-up calls running with no memory). Only merge a real, non-empty
+  // which real ElevenLabs payloads never send (that left the summary blank and
+  // follow-up calls running with no memory). Only merge a real, non-empty
   // summary string.
   // Same gate as the call's summary above: never roll a non-connected call's
-  // "summary" into the lead's rolling ai_summary (a voicemail / no-answer /
+  // "summary" into the per-campaign rolling summary (a voicemail / no-answer /
   // hang-up has no real content, only the agent's own words).
   const latestSummary =
     reachedHuman && typeof callSummary === "string" && callSummary.trim()

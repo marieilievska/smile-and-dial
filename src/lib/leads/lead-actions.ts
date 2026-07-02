@@ -44,8 +44,8 @@ async function assertLeadAccess(
 const EDITABLE_KEYS = new Set<string>(IMPORTABLE_FIELDS.map((f) => f.key));
 const NUMERIC_KEYS = new Set(["google_rating", "google_reviews"]);
 /** Contact-name fields whose ASR-captured value can be wrong and also lives,
- *  verbatim, inside the rolling ai_summary. Correcting one should scrub the old
- *  name out of the summary so the agent doesn't reuse it on the next call. */
+ *  verbatim, inside the per-campaign summaries. Correcting one should scrub the
+ *  old name out of those summaries so the agent doesn't reuse it on the next call. */
 const NAME_FIELDS = new Set(["owner_name", "manager_name", "employee_name"]);
 
 function escapeRegExp(s: string): string {
@@ -86,22 +86,21 @@ export async function updateLeadField(input: {
     value = e164;
   }
 
-  // Correcting a contact name? Capture the old (likely ASR-mangled) value + the
-  // current summary BEFORE the update, so we can scrub the wrong name out of the
-  // rolling ai_summary after — otherwise the agent reuses it on the next call.
-  let scrub: { old: string; summary: string; next: string } | null = null;
+  // Correcting a contact name? Capture the old (likely ASR-mangled) value
+  // BEFORE the update, so we can scrub the wrong name out of the per-campaign
+  // summaries after — otherwise the agent reuses it on the next call.
+  let scrub: { old: string; next: string } | null = null;
   if (NAME_FIELDS.has(input.field) && typeof value === "string" && value) {
     const { data: before } = await supabase
       .from("leads")
-      .select("owner_name, manager_name, employee_name, ai_summary")
+      .select("owner_name, manager_name, employee_name")
       .eq("id", input.leadId)
       .maybeSingle();
     const oldName = (
       (before?.[input.field as keyof typeof before] as string | null) ?? ""
     ).trim();
-    const summary = (before?.ai_summary ?? "").trim();
-    if (oldName && summary && oldName.toLowerCase() !== value.toLowerCase()) {
-      scrub = { old: oldName, summary, next: value };
+    if (oldName && oldName.toLowerCase() !== value.toLowerCase()) {
+      scrub = { old: oldName, next: value };
     }
   }
 
@@ -111,20 +110,9 @@ export async function updateLeadField(input: {
     .eq("id", input.leadId);
   if (error) return { error: "Could not save that change." };
 
-  // Replace the old name with the corrected one in the summary (whole-word,
-  // case-insensitive). Best-effort: a summary write failure never blocks the
-  // field edit itself.
-  if (scrub) {
-    const re = new RegExp(`\\b${escapeRegExp(scrub.old)}\\b`, "gi");
-    const fixed = scrub.summary.replace(re, scrub.next);
-    if (fixed !== scrub.summary) {
-      await supabase
-        .from("leads")
-        .update({ ai_summary: fixed })
-        .eq("id", input.leadId);
-    }
-  }
-
+  // Replace the old name with the corrected one in all per-campaign summaries
+  // (whole-word, case-insensitive). Best-effort: a summary write failure
+  // never blocks the field edit itself.
   if (scrub) {
     const admin = makeServiceClient();
     const re = new RegExp(`\\b${escapeRegExp(scrub.old)}\\b`, "gi");
@@ -273,7 +261,6 @@ const MERGEABLE_FIELDS = [
   "city",
   "state",
   "google_place_id",
-  "ai_summary",
 ];
 
 /**
