@@ -59,40 +59,13 @@ create index if not exists lead_campaign_summaries_lead_id_idx
 
 alter table public.lead_campaign_summaries enable row level security;
 
--- Owner (or admin) can read AND edit/clear their leads' per-campaign summaries
--- (the manual-edit actions use the typed RLS client). The merger / reset /
--- backfill run under the service role, which bypasses RLS entirely.
+-- Owner (or admin) can READ their leads' per-campaign summaries (the lead page
+-- reads via the typed RLS client). WRITES go through service-role server actions
+-- with an in-code owner/admin check (merger, reset, backfill, manual edit) —
+-- matching the convention for other derived tables (hot_lead_dismissals,
+-- dashboard_notes). Service-role bypasses RLS, so no write policy is needed.
 create policy "read own lead campaign summaries"
   on public.lead_campaign_summaries for select
-  to authenticated
-  using (
-    exists (
-      select 1 from public.leads l
-      where l.id = lead_campaign_summaries.lead_id
-        and (l.owner_id = (select auth.uid()) or public.is_admin((select auth.uid())))
-    )
-  );
-
-create policy "update own lead campaign summaries"
-  on public.lead_campaign_summaries for update
-  to authenticated
-  using (
-    exists (
-      select 1 from public.leads l
-      where l.id = lead_campaign_summaries.lead_id
-        and (l.owner_id = (select auth.uid()) or public.is_admin((select auth.uid())))
-    )
-  )
-  with check (
-    exists (
-      select 1 from public.leads l
-      where l.id = lead_campaign_summaries.lead_id
-        and (l.owner_id = (select auth.uid()) or public.is_admin((select auth.uid())))
-    )
-  );
-
-create policy "delete own lead campaign summaries"
-  on public.lead_campaign_summaries for delete
   to authenticated
   using (
     exists (
@@ -333,16 +306,53 @@ git commit -m "feat(leads): clear per-campaign summaries on reset"
 
 **Files:** Modify `src/lib/leads/lead-actions.ts`
 
-Context: `lead-actions.ts` is `"use server"`, uses the TYPED `createClient` from `@/lib/supabase/server` (so `lead_campaign_summaries` must be in `database.types.ts` — done in Task 1). It has `updateLeadField` with a name-scrub that rewrites `leads.ai_summary` (lines ~59-96).
+Context: `lead-actions.ts` is `"use server"`, uses the TYPED `createClient` from `@/lib/supabase/server` (so `lead_campaign_summaries` must be in `database.types.ts` — done in Task 1). It has `updateLeadField` with a name-scrub that rewrites `leads.ai_summary` (lines ~59-96). `lead_campaign_summaries` has SELECT-only RLS (Task 1), so every WRITE to it (the scrub below and both actions in Step 2) must go through a service-role client behind an in-code owner/admin gate — matching `src/lib/close/actions.ts`.
 
-- [ ] **Step 1: Extend the name-scrub to the per-campaign rows**
+- [ ] **Step 1: Add the service-role helper + owner/admin gate**
 
-After the existing `scrub` block that updates `leads.ai_summary` (inside `updateLeadField`), also rewrite the name across the lead's `lead_campaign_summaries` rows:
+At the top of `lead-actions.ts`, add the import and helpers (mirroring `close/actions.ts` — do NOT duplicate if some already exist):
+
+```ts
+import { createClient as createAdminClient } from "@supabase/supabase-js";
+
+function makeServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  return createAdminClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+/** Owner/admin gate for a lead. Returns an error object when denied, else null. */
+async function assertLeadAccess(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  leadId: string,
+): Promise<{ error: string } | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+  const [{ data: lead }, { data: me }] = await Promise.all([
+    supabase.from("leads").select("owner_id").eq("id", leadId).maybeSingle(),
+    supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+  ]);
+  if (!lead) return { error: "Lead not found." };
+  if (lead.owner_id !== user.id && me?.role !== "admin") {
+    return { error: "You don't have access to this lead." };
+  }
+  return null;
+}
+```
+
+- [ ] **Step 2: Extend the name-scrub to the per-campaign rows**
+
+After the existing `scrub` block that updates `leads.ai_summary` (inside `updateLeadField`), also rewrite the name across the lead's `lead_campaign_summaries` rows. The scrub writes those rows via the service-role client (`updateLeadField` already verified the caller owns the lead before reaching here, so no extra gate is needed):
 
 ```ts
 if (scrub) {
+  const admin = makeServiceClient();
   const re = new RegExp(`\\b${escapeRegExp(scrub.old)}\\b`, "gi");
-  const { data: rows } = await supabase
+  const { data: rows } = await admin
     .from("lead_campaign_summaries")
     .select("id, ai_summary")
     .eq("lead_id", input.leadId);
@@ -350,7 +360,7 @@ if (scrub) {
     const cur = row.ai_summary ?? "";
     const fixed = cur.replace(re, scrub.next);
     if (fixed !== cur) {
-      await supabase
+      await admin
         .from("lead_campaign_summaries")
         .update({ ai_summary: fixed })
         .eq("id", row.id);
@@ -361,25 +371,24 @@ if (scrub) {
 
 (Place this alongside the existing `leads.ai_summary` scrub — both run.)
 
-- [ ] **Step 2: Add the two actions**
+- [ ] **Step 3: Add the two actions**
 
-Append two server actions (admin/owner via RLS on the typed client — the existing actions rely on RLS; keep that pattern):
+Append two server actions. Each gates on `assertLeadAccess` (owner/admin) using the typed client, then writes via the service-role client (the SELECT-only RLS blocks a typed-client write). Mirrors `handoffLeadToClose`:
 
 ```ts
 /** Edit a lead's per-campaign rolling summary (the memory the next same-campaign
- *  call sees). RLS enforces ownership. */
+ *  call sees). Owner/admin only. */
 export async function updateLeadCampaignSummary(input: {
   leadId: string;
   campaignId: string;
   summary: string;
 }): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "You are not signed in." };
+  const gate = await assertLeadAccess(supabase, input.leadId);
+  if (gate) return gate;
 
-  const { error } = await supabase
+  const admin = makeServiceClient();
+  const { error } = await admin
     .from("lead_campaign_summaries")
     .update({
       ai_summary: input.summary.trim(),
@@ -394,18 +403,17 @@ export async function updateLeadCampaignSummary(input: {
 }
 
 /** Clear (delete) a lead's per-campaign summary so the next same-campaign call
- *  starts fresh. RLS enforces ownership. */
+ *  starts fresh. Owner/admin only. */
 export async function clearLeadCampaignSummary(input: {
   leadId: string;
   campaignId: string;
 }): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "You are not signed in." };
+  const gate = await assertLeadAccess(supabase, input.leadId);
+  if (gate) return gate;
 
-  const { error } = await supabase
+  const admin = makeServiceClient();
+  const { error } = await admin
     .from("lead_campaign_summaries")
     .delete()
     .eq("lead_id", input.leadId)
@@ -417,16 +425,17 @@ export async function clearLeadCampaignSummary(input: {
 }
 ```
 
-NOTE: these use the typed `createClient` (RLS). Task 1 adds owner/admin `update`
-and `delete` RLS policies on `lead_campaign_summaries`, so the owner's edit/clear
-is authorized (and blocked for non-owners) without an in-code gate — matching how
-`updateLeadField` relies on RLS.
+NOTE: the service-role client bypasses RLS; `assertLeadAccess` is the real
+protection. `lead_campaign_summaries` keeps SELECT-only RLS (Task 1) so the lead
+page can READ these rows with the typed client, while all WRITES flow through
+these gated actions — the same convention used for `hot_lead_dismissals` and
+`handoffLeadToClose`.
 
-- [ ] **Step 3: Verify**
+- [ ] **Step 4: Verify**
 
 Run: `npx tsc --noEmit` → baseline only. `npx eslint "src/lib/leads/lead-actions.ts"` → clean.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/lib/leads/lead-actions.ts
