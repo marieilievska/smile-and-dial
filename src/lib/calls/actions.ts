@@ -9,8 +9,20 @@ import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-ca
 import { anyCallReachedDm } from "@/lib/calls/decision-maker";
 import { hardDeleteCalls } from "@/lib/calls/delete-calls-core";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
+import { applyOutcomeSideEffects } from "@/lib/elevenlabs/post-call-webhook";
 import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
 import { recomputeLeadCallState } from "@/lib/leads/recompute-call-state";
+import { createAdminClient as createServiceClient } from "@/lib/supabase/admin";
+
+/** Outcomes the retry engine intentionally ignores because they're owned by
+ *  `applyOutcomeSideEffects` (DNC block + terminal lead state). A manual
+ *  override to one of these must run that side-effect pipeline, or the override
+ *  only relabels the call and the lead stays dialable. */
+const SIDE_EFFECT_OUTCOMES = new Set([
+  "dnc",
+  "invalid_number",
+  "language_barrier",
+]);
 
 export type TranscriptTurn = {
   role?: string;
@@ -243,10 +255,13 @@ export type ActionResult = { error: string | null };
  * `outcome_override` row to `system_events` so we have an audit trail of
  * who changed what to what.
  *
- * Intentionally does NOT re-trigger the retry engine or any downstream
- * side effects (DNC insert, callback creation). Overrides change the
- * historical record; if a user also wants to act on the new outcome,
- * they take that action separately (Call Now button, manual DNC, etc.).
+ * Re-runs the retry engine so the lead's schedule reflects the corrected
+ * outcome. For DNC-family outcomes (dnc / invalid_number / language_barrier),
+ * which the retry engine deliberately ignores, it also runs the SAME
+ * side-effect pipeline the automatic + human-call paths use — adding the phone
+ * to the do-not-call list, flipping the lead to `dnc`, and clearing
+ * next_call_at — so a manual DNC actually stops the lead from being called
+ * again (not just a relabel).
  */
 export async function overrideCallOutcome(input: {
   callId: string;
@@ -265,7 +280,7 @@ export async function overrideCallOutcome(input: {
 
   const { data: existing } = await supabase
     .from("calls")
-    .select("outcome, lead_id")
+    .select("outcome, lead_id, campaign_id")
     .eq("id", input.callId)
     .maybeSingle();
   if (!existing) return { error: "Call not found." };
@@ -293,9 +308,32 @@ export async function overrideCallOutcome(input: {
     },
   });
 
+  // DNC-family override: the retry engine no-ops on these (they're owned by
+  // applyOutcomeSideEffects), so without this a manual DNC would only relabel
+  // the call and leave the lead with its old schedule — still dialable. Run the
+  // same side-effect pipeline the automatic + human-call paths use: block the
+  // number, flip the lead to `dnc`, and clear next_call_at. Service-role client
+  // because it writes dnc_entries + terminalizes the lead.
+  if (SIDE_EFFECT_OUTCOMES.has(input.outcome) && existing.lead_id) {
+    try {
+      await applyOutcomeSideEffects(createServiceClient(), {
+        callId: input.callId,
+        leadId: existing.lead_id,
+        // Unused for the DNC branch (keyed on the lead's phone), but the
+        // signature requires it; fall back to "" when the call has no campaign.
+        campaignId: existing.campaign_id ?? "",
+        outcome: input.outcome as never,
+        callbackDatetime: null,
+      });
+    } catch {
+      // Best-effort: the outcome is corrected even if the block hiccups.
+    }
+  }
+
   // Re-run scheduling so the lead's next call reflects the corrected outcome
   // (e.g. a hang-up should move to the 2-day retry, not keep a stale "in a few
   // minutes" placeholder). Clearing retry_applied_at lets the engine re-claim.
+  // No-ops on the DNC-family outcomes handled above.
   await supabase
     .from("calls")
     .update({ retry_applied_at: null })
