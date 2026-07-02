@@ -217,7 +217,7 @@ async function buildVarsForCall(
       supabase
         .from("leads")
         .select(
-          "company, ai_summary, status, owner_name, manager_name, employee_name, city, category, google_rating, google_reviews, timezone, last_call_at",
+          "company, status, owner_name, manager_name, employee_name, city, category, google_rating, google_reviews, timezone, last_call_at",
         )
         .eq("id", call.lead_id)
         .maybeSingle(),
@@ -243,23 +243,36 @@ async function buildVarsForCall(
   const isCallback = Boolean(pendingCallback) || lead?.status === "callback";
 
   // last_callback_notes: the summary of the call that originated the pending
-  // callback, so the agent can reference where things left off.
+  // callback, so the agent can reference where things left off. Only surfaced
+  // when the originating call belongs to the same campaign as the current call,
+  // so cross-campaign context doesn't bleed through.
   let lastCallbackNotes = "";
   if (pendingCallback?.originating_call_id) {
     const { data: originating } = await supabase
       .from("calls")
-      .select("summary")
+      .select("summary, campaign_id")
       .eq("id", pendingCallback.originating_call_id)
       .maybeSingle();
-    lastCallbackNotes = originating?.summary?.trim() ?? "";
+    if (originating?.campaign_id === call.campaign_id) {
+      lastCallbackNotes = originating?.summary?.trim() ?? "";
+    }
   }
 
-  // Anchor the rolling summary in time: prefix it with how long ago the last
-  // call was, so the agent doesn't treat a 2-day-old "left off on hold" as if
-  // it just happened. lead.last_call_at is still the PREVIOUS call here (the
-  // current call hasn't stamped it yet).
+  // Anchor the per-campaign summary in time: prefix it with how long ago the
+  // last call was, so the agent doesn't treat a 2-day-old "left off on hold"
+  // as if it just happened. lead.last_call_at is still the PREVIOUS call here
+  // (the current call hasn't stamped it yet).
   const recency = humanRecency(lead?.last_call_at);
-  const summaryText = lead?.ai_summary?.trim() ?? "";
+  let summaryText = "";
+  if (call.campaign_id) {
+    const { data: cs } = await supabase
+      .from("lead_campaign_summaries")
+      .select("ai_summary")
+      .eq("lead_id", call.lead_id)
+      .eq("campaign_id", call.campaign_id)
+      .maybeSingle();
+    summaryText = cs?.ai_summary?.trim() ?? "";
+  }
   const lastCallSummary =
     summaryText && recency
       ? `(Our last call with them was ${recency}.) ${summaryText}`
