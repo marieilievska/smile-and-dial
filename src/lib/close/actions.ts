@@ -312,7 +312,7 @@ export async function handoffLeadToClose(
     return { error: "Connect Close in Settings → Integrations first." };
   }
 
-  // Packaged call: most recent WITH a summary, else most recent.
+  // All calls for the lead (newest first), with outcome + campaign for the note.
   const { data: callRows } = await admin
     .from("calls")
     .select(
@@ -333,7 +333,12 @@ export async function handoffLeadToClose(
     agent: { elevenlabs_agent_id: string | null } | null;
     campaign: { name: string | null } | null;
   }[];
-  const packaged = calls.find((c) => c.summary) ?? calls[0] ?? null;
+  const primary =
+    calls.find(
+      (c) => !!c.extracted_data && Object.keys(c.extracted_data).length > 0,
+    ) ??
+    calls[0] ??
+    null;
   const utmCampaign = calls[0]?.campaign?.name ?? null;
 
   // Appointment: earliest upcoming, else most recent.
@@ -388,7 +393,7 @@ export async function handoffLeadToClose(
     )
     .map((f) => ({ label: f.label, value: f.value }));
 
-  const extracted = packaged?.extracted_data ?? {};
+  const extracted = primary?.extracted_data ?? {};
   const leadResponseTime =
     typeof extracted.lead_response_time === "string"
       ? extracted.lead_response_time
@@ -510,7 +515,7 @@ export async function handoffLeadToClose(
     const utm: Record<string, string> = {
       utm_source: "smile-and-dial",
       utm_medium: "ai_call",
-      utm_campaign: utmCampaign ?? "",
+      ...(utmCampaign ? { utm_campaign: utmCampaign } : {}),
     };
     const utmValues = Object.entries(utm)
       .filter(([name]) => ids[name])
@@ -537,7 +542,7 @@ export async function handoffLeadToClose(
     payload: {
       close_lead_id: ref.leadId,
       note_id: posted.id,
-      packaged_call_id: packaged?.id ?? null,
+      packaged_call_id: primary?.id ?? null,
       by_name: me?.full_name ?? null,
       task_id: task?.id ?? null,
       task_assigned_to: assignee?.id ?? null,
