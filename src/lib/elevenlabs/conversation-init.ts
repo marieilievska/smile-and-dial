@@ -210,8 +210,9 @@ async function buildVarsForCall(
   supabase: SupabaseAdmin,
   call: { id: string; lead_id: string; campaign_id: string | null },
 ): Promise<ConversationInitResponse["dynamic_variables"]> {
-  // Pull, in parallel: the lead (rolling summary + status), the campaign's
-  // transfer number, and the lead's pending callback.
+  // Pull, in parallel: the lead (status + display fields), the campaign's
+  // transfer number, and the lead's pending callback. The rolling summary now
+  // comes from the per-campaign lead_campaign_summaries row, fetched below.
   const [{ data: lead }, { data: campaign }, { data: pendingCallback }] =
     await Promise.all([
       supabase
