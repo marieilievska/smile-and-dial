@@ -8,8 +8,8 @@ import { openAiKey } from "./live";
  * Rolling AI summary merger (Step 39 / BUILD_PLAN §13).
  *
  * After each call, we merge ElevenLabs' per-call summary into the lead's
- * rolling `ai_summary` so the next outbound dial gets context about
- * everything that's happened before.
+ * per-campaign rolling summary (lead_campaign_summaries) so the next outbound
+ * dial for that campaign gets context about everything that's happened before.
  *
  * Cost: priced from the actual gpt-4o-mini token usage the API returns, via the
  * central rates module. Live whenever an OpenAI key is configured.
