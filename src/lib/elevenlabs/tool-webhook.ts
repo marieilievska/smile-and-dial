@@ -132,6 +132,8 @@ type CallContext = {
     owner_phone: string | null;
     business_email: string | null;
     owner_name: string | null;
+    manager_name: string | null;
+    employee_name: string | null;
     timezone: string | null;
     status: string;
   };
@@ -152,7 +154,7 @@ async function resolveCallContext(
   const { data: lead } = await supabase
     .from("leads")
     .select(
-      "id, owner_id, company, business_phone, owner_phone, business_email, owner_name, timezone, status",
+      "id, owner_id, company, business_phone, owner_phone, business_email, owner_name, manager_name, employee_name, timezone, status",
     )
     .eq("id", call.lead_id)
     .maybeSingle();
@@ -611,7 +613,19 @@ async function bookAppointment(
 ): Promise<ToolWebhookResult> {
   const slotId = str(body.slot_id);
   const email = str(body.email) || (ctx.lead.business_email ?? "");
-  const name = str(body.name) || (ctx.lead.owner_name ?? "");
+  // Calendly REQUIRES an invitee name — a booking sent without one is rejected
+  // ("invitee either name or first_name must be filled"), and the generic
+  // failure path below then tells the caller the SLOT is unavailable, which is
+  // wrong (the Evolve Thermal Spa bug: it declined an open slot, then booked it
+  // once a name was supplied). Guarantee a name: whatever the agent passed, else
+  // any contact we know, else the business name so a real slot never fails for a
+  // missing name.
+  const name =
+    str(body.name) ||
+    (ctx.lead.owner_name ?? "") ||
+    (ctx.lead.manager_name ?? "") ||
+    (ctx.lead.employee_name ?? "") ||
+    (ctx.lead.company ?? "");
   if (!slotId) {
     return {
       success: false,
@@ -653,6 +667,15 @@ async function bookAppointment(
       return {
         success: false,
         message: "What's the best email for the calendar invite?",
+      };
+    }
+    // Should be unreachable given the fallback above, but never send Calendly an
+    // empty name — ask for it rather than fail the booking (which the caller
+    // would hear as the time being unavailable).
+    if (!name) {
+      return {
+        success: false,
+        message: "Whose name should I put on the calendar invite?",
       };
     }
 
