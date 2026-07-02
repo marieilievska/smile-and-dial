@@ -1318,6 +1318,59 @@ export type Database = {
         };
         Relationships: [];
       };
+      lead_campaign_summaries: {
+        Row: {
+          ai_summary: string | null;
+          campaign_id: string;
+          id: string;
+          lead_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          ai_summary?: string | null;
+          campaign_id: string;
+          id?: string;
+          lead_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          ai_summary?: string | null;
+          campaign_id?: string;
+          id?: string;
+          lead_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lead_campaign_summaries_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lead_campaign_summaries_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
+            foreignKeyName: "lead_campaign_summaries_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "lead_campaign_summaries_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       lead_custom_values: {
         Row: {
           custom_field_id: string;
@@ -1711,6 +1764,13 @@ export type Database = {
           smart_list_id?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "smart_list_members_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
           {
             foreignKeyName: "smart_list_members_lead_id_fkey";
             columns: ["lead_id"];
