@@ -719,7 +719,7 @@ export function CampaignSettingsDialog({
                   id="campaign-dial-interval"
                   type="number"
                   min={0}
-                  max={600}
+                  max={120}
                   value={dialIntervalSeconds}
                   onChange={(event) =>
                     setDialIntervalSeconds(event.target.value)

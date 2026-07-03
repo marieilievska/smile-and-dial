@@ -297,6 +297,12 @@ export async function runDialerTick(
   // a single tick instead of firing its whole concurrency allotment at once.
   const dialIntervalCache = new Map<string, number>();
   const lastDialAtByCampaign = new Map<string, number>();
+  // Cap total wall-clock sleep per tick so a large interval can't run the
+  // function past the serverless timeout. Beyond this budget we stop staggering
+  // in-tick; the pre_call_check pacing backstop + subsequent ticks still enforce
+  // the spacing across ticks, so correctness never depends on the sleep.
+  const MAX_TICK_SLEEP_MS = 45_000;
+  let sleptMs = 0;
 
   for (const c of candidates) {
     // The queue can produce rows where the typed columns are nominally
@@ -322,7 +328,14 @@ export async function runDialerTick(
       const last = lastDialAtByCampaign.get(c.campaign_id);
       if (last !== undefined) {
         const waitMs = last + dialInterval * 1000 - Date.now();
-        if (waitMs > 0) await sleep(waitMs);
+        // Only sleep when the FULL wait fits the remaining budget. If it
+        // doesn't, skip the sleep — pre_call_check will return 'pacing_wait' and
+        // the lead stays due for the next tick (the backstop carries the spacing
+        // across ticks). This keeps total in-tick sleep <= MAX_TICK_SLEEP_MS.
+        if (waitMs > 0 && sleptMs + waitMs <= MAX_TICK_SLEEP_MS) {
+          await sleep(waitMs);
+          sleptMs += waitMs;
+        }
       }
     }
 

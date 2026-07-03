@@ -137,9 +137,9 @@ function buildUpdate(input: CampaignInput) {
       5,
       Math.max(1, parseNumber(input.concurrencyCapPerUser) ?? 2),
     ),
-    // Seconds between cold dials (0 = off). Clamped to a sane 0–600s.
+    // Seconds between cold dials (0 = off). Clamped to a sane 0–120s.
     dial_interval_seconds: Math.min(
-      600,
+      120,
       Math.max(0, parseNumber(input.dialIntervalSeconds ?? "") ?? 0),
     ),
     transfer_destination_phone: input.transferDestinationPhone.trim() || null,
