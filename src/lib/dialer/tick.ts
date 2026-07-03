@@ -220,6 +220,28 @@ async function currentAttempts(
   return data?.call_attempts ?? 0;
 }
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/** A campaign's `dial_interval_seconds` (min seconds between cold dials), cached
+ *  per tick so we look each campaign up at most once. 0 = no pacing. */
+async function campaignDialInterval(
+  supabase: SupabaseAdmin,
+  campaignId: string,
+  cache: Map<string, number>,
+): Promise<number> {
+  const hit = cache.get(campaignId);
+  if (hit !== undefined) return hit;
+  const { data } = await supabase
+    .from("campaigns")
+    .select("dial_interval_seconds")
+    .eq("id", campaignId)
+    .maybeSingle();
+  const v = data?.dial_interval_seconds ?? 0;
+  cache.set(campaignId, v);
+  return v;
+}
+
 /**
  * One dial-loop tick. Read the queue, pre-check each candidate, and place a
  * call for everything that passes. `TWILIO_LIVE=live` flips each candidate to
@@ -270,6 +292,18 @@ export async function runDialerTick(
     liveMode: { twilio: twilioLive, elevenlabs: elevenLive },
   };
 
+  // Per-tick pacing state: each campaign's dial interval (cached) and the last
+  // time we placed a call for it, so we space this campaign's dials out inside
+  // a single tick instead of firing its whole concurrency allotment at once.
+  const dialIntervalCache = new Map<string, number>();
+  const lastDialAtByCampaign = new Map<string, number>();
+  // Cap total wall-clock sleep per tick so a large interval can't run the
+  // function past the serverless timeout. Beyond this budget we stop staggering
+  // in-tick; the pre_call_check pacing backstop + subsequent ticks still enforce
+  // the spacing across ticks, so correctness never depends on the sleep.
+  const MAX_TICK_SLEEP_MS = 45_000;
+  let sleptMs = 0;
+
   for (const c of candidates) {
     // The queue can produce rows where the typed columns are nominally
     // nullable. In practice these are non-null by construction; skip
@@ -277,6 +311,32 @@ export async function runDialerTick(
     if (!c.lead_id || !c.campaign_id) {
       summary.errors++;
       continue;
+    }
+
+    // Pace cold dials: if this campaign placed a call earlier in THIS tick, wait
+    // out the remainder of its dial interval before dialing the next one. This
+    // fills the concurrency slots gradually (one every N seconds) rather than in
+    // one burst. `pre_call_check` below is the cross-tick backstop. (The sleep is
+    // sequential, so a paced campaign also spaces out later candidates in the
+    // same tick — fine for the current single-active-campaign setup.)
+    const dialInterval = await campaignDialInterval(
+      supabase,
+      c.campaign_id,
+      dialIntervalCache,
+    );
+    if (dialInterval > 0) {
+      const last = lastDialAtByCampaign.get(c.campaign_id);
+      if (last !== undefined) {
+        const waitMs = last + dialInterval * 1000 - Date.now();
+        // Only sleep when the FULL wait fits the remaining budget. If it
+        // doesn't, skip the sleep — pre_call_check will return 'pacing_wait' and
+        // the lead stays due for the next tick (the backstop carries the spacing
+        // across ticks). This keeps total in-tick sleep <= MAX_TICK_SLEEP_MS.
+        if (waitMs > 0 && sleptMs + waitMs <= MAX_TICK_SLEEP_MS) {
+          await sleep(waitMs);
+          sleptMs += waitMs;
+        }
+      }
     }
 
     const { data: reason, error } = await supabase.rpc("pre_call_check", {
@@ -291,13 +351,17 @@ export async function runDialerTick(
       summary.blocked++;
       summary.blockedReasons[reason as PreCallReason] =
         (summary.blockedReasons[reason as PreCallReason] ?? 0) + 1;
-      // Bump next_call_at so we don't keep re-checking this lead every tick.
-      await supabase
-        .from("leads")
-        .update({
-          next_call_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-        })
-        .eq("id", c.lead_id);
+      // `pacing_wait` means "try again shortly" — leave next_call_at alone so the
+      // lead stays due for the next tick. Any OTHER block bumps next_call_at so
+      // we don't re-check this lead every tick.
+      if (reason !== "pacing_wait") {
+        await supabase
+          .from("leads")
+          .update({
+            next_call_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          })
+          .eq("id", c.lead_id);
+      }
       continue;
     }
 
@@ -314,6 +378,10 @@ export async function runDialerTick(
         (summary.blockedReasons["already_claimed"] ?? 0) + 1;
       continue;
     }
+
+    // We're committing to place a call for this campaign now — stamp it so the
+    // next candidate for the same campaign waits out the dial interval above.
+    lastDialAtByCampaign.set(c.campaign_id, Date.now());
 
     if (elevenLive) {
       // TS doesn't carry the lead_id / campaign_id null narrow from

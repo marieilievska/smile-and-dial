@@ -90,7 +90,7 @@ export default async function CampaignsPage({
     supabase
       .from("campaigns")
       .select(
-        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, calendly_event_id, email_template_id, audience_search, smart_list_id, inbound_greeting, created_at, agent:agents(name), goal:goals(name)",
+        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, dial_interval_seconds, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, calendly_event_id, email_template_id, audience_search, smart_list_id, inbound_greeting, created_at, agent:agents(name), goal:goals(name)",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -246,6 +246,7 @@ export default async function CampaignsPage({
     calls_per_hour_cap: c.calls_per_hour_cap,
     calls_per_day_cap: c.calls_per_day_cap,
     concurrency_cap_per_user: c.concurrency_cap_per_user,
+    dial_interval_seconds: c.dial_interval_seconds,
     transfer_destination_phone: c.transfer_destination_phone,
     daily_spend_cap: c.daily_spend_cap,
     monthly_spend_cap: c.monthly_spend_cap,
@@ -303,6 +304,7 @@ export default async function CampaignsPage({
       calls_per_hour_cap: campaign.calls_per_hour_cap,
       calls_per_day_cap: campaign.calls_per_day_cap,
       concurrency_cap_per_user: campaign.concurrency_cap_per_user,
+      dial_interval_seconds: campaign.dial_interval_seconds,
       transfer_destination_phone: campaign.transfer_destination_phone,
       daily_spend_cap: campaign.daily_spend_cap,
       monthly_spend_cap: campaign.monthly_spend_cap,

@@ -26,6 +26,7 @@ export type PreCallReason =
   | "twilio_number_missing"
   | "twilio_number_reassigned"
   | "outside_calling_hours"
+  | "pacing_wait"
   | "hourly_cap_hit"
   | "daily_cap_hit"
   | "concurrency_cap_hit"

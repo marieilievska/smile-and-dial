@@ -735,6 +735,7 @@ export type Database = {
           calls_per_hour_cap: number;
           concurrency_cap_per_user: number;
           created_at: string;
+          dial_interval_seconds: number;
           daily_spend_cap: number | null;
           description: string | null;
           email_template_id: string | null;
@@ -763,6 +764,7 @@ export type Database = {
           calls_per_day_cap?: number;
           calls_per_hour_cap?: number;
           concurrency_cap_per_user?: number;
+          dial_interval_seconds?: number;
           created_at?: string;
           daily_spend_cap?: number | null;
           description?: string | null;
@@ -792,6 +794,7 @@ export type Database = {
           calls_per_day_cap?: number;
           calls_per_hour_cap?: number;
           concurrency_cap_per_user?: number;
+          dial_interval_seconds?: number;
           created_at?: string;
           daily_spend_cap?: number | null;
           description?: string | null;
