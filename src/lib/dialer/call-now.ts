@@ -36,6 +36,8 @@ const PRE_CALL_REASON_LABELS: Record<string, string> = {
     "The Twilio number was reassigned to another campaign.",
   outside_calling_hours:
     "The lead's local time is outside calling hours for this campaign.",
+  pacing_wait:
+    "Another call for this campaign was just placed — try again in a few seconds.",
   hourly_cap_hit: "The campaign hit its hourly call cap.",
   daily_cap_hit: "The campaign hit its daily call cap.",
   concurrency_cap_hit: "You're at your concurrent-call cap.",

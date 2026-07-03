@@ -66,6 +66,7 @@ export type CampaignData = {
   calls_per_hour_cap: number;
   calls_per_day_cap: number;
   concurrency_cap_per_user: number;
+  dial_interval_seconds: number;
   transfer_destination_phone: string | null;
   daily_spend_cap: number | null;
   monthly_spend_cap: number | null;
@@ -169,6 +170,9 @@ export function CampaignSettingsDialog({
   );
   const [concurrencyCapPerUser, setConcurrencyCapPerUser] = useState(
     String(campaign?.concurrency_cap_per_user ?? 2),
+  );
+  const [dialIntervalSeconds, setDialIntervalSeconds] = useState(
+    String(campaign?.dial_interval_seconds ?? 0),
   );
   const [transferDestinationPhone, setTransferDestinationPhone] = useState(
     campaign?.transfer_destination_phone ?? "",
@@ -289,6 +293,7 @@ export function CampaignSettingsDialog({
         callsPerHourCap,
         callsPerDayCap,
         concurrencyCapPerUser,
+        dialIntervalSeconds,
         transferDestinationPhone,
         inboundGreeting,
         dailySpendCap,
@@ -705,6 +710,24 @@ export function CampaignSettingsDialog({
                     setConcurrencyCapPerUser(event.target.value)
                   }
                 />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="campaign-dial-interval">
+                  Seconds between calls
+                </Label>
+                <Input
+                  id="campaign-dial-interval"
+                  type="number"
+                  min={0}
+                  max={600}
+                  value={dialIntervalSeconds}
+                  onChange={(event) =>
+                    setDialIntervalSeconds(event.target.value)
+                  }
+                />
+                <p className="text-muted-foreground text-[11px]">
+                  Space calls out instead of firing all at once. 0 = off.
+                </p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

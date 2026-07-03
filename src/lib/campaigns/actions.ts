@@ -76,6 +76,10 @@ export type CampaignInput = {
   callsPerHourCap: string;
   callsPerDayCap: string;
   concurrencyCapPerUser: string;
+  /** Minimum seconds between this campaign's cold dials, so the dialer spaces
+   *  calls out instead of firing the whole concurrency allotment at once.
+   *  "0"/empty = no pacing (dial as fast as the caps allow). Optional. */
+  dialIntervalSeconds?: string;
   transferDestinationPhone: string;
   dailySpendCap: string;
   monthlySpendCap: string;
@@ -132,6 +136,11 @@ function buildUpdate(input: CampaignInput) {
     concurrency_cap_per_user: Math.min(
       5,
       Math.max(1, parseNumber(input.concurrencyCapPerUser) ?? 2),
+    ),
+    // Seconds between cold dials (0 = off). Clamped to a sane 0–600s.
+    dial_interval_seconds: Math.min(
+      600,
+      Math.max(0, parseNumber(input.dialIntervalSeconds ?? "") ?? 0),
     ),
     transfer_destination_phone: input.transferDestinationPhone.trim() || null,
     daily_spend_cap: parseNumber(input.dailySpendCap),
@@ -429,7 +438,7 @@ export async function cloneCampaign(id: string): Promise<CampaignResult> {
   const { data: original } = await supabase
     .from("campaigns")
     .select(
-      "name, description, agent_id, goal_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, transfer_destination_phone, daily_spend_cap, monthly_spend_cap",
+      "name, description, agent_id, goal_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, dial_interval_seconds, transfer_destination_phone, daily_spend_cap, monthly_spend_cap",
     )
     .eq("id", id)
     .maybeSingle();
@@ -449,6 +458,7 @@ export async function cloneCampaign(id: string): Promise<CampaignResult> {
       calls_per_hour_cap: original.calls_per_hour_cap,
       calls_per_day_cap: original.calls_per_day_cap,
       concurrency_cap_per_user: original.concurrency_cap_per_user,
+      dial_interval_seconds: original.dial_interval_seconds,
       transfer_destination_phone: original.transfer_destination_phone,
       daily_spend_cap: original.daily_spend_cap,
       monthly_spend_cap: original.monthly_spend_cap,
