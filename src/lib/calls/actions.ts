@@ -324,6 +324,9 @@ export async function overrideCallOutcome(input: {
         campaignId: existing.campaign_id ?? "",
         outcome: input.outcome as never,
         callbackDatetime: null,
+        // An operator set this by hand — record it as a manual DNC, not
+        // "Caller requested" (which implies the lead asked to be removed).
+        dncReasonOverride: input.outcome === "dnc" ? "manual" : undefined,
       });
     } catch {
       // Best-effort: the outcome is corrected even if the block hiccups.

@@ -1366,6 +1366,11 @@ export async function applyOutcomeSideEffects(
     campaignId: string;
     outcome: CallOutcome;
     callbackDatetime: string | null;
+    /** Overrides the dnc_entries `reason` for a DNC-family outcome. The AI +
+     *  human-call paths leave this unset (a real caller asked → 'dnc_requested');
+     *  a manual outcome override passes 'manual' so the DNC page doesn't read
+     *  "Caller requested" for something an operator set by hand. */
+    dncReasonOverride?: "manual";
   },
 ): Promise<void> {
   // We just dialed this lead. A due callback is only FULFILLED when the call
@@ -1441,7 +1446,12 @@ export async function applyOutcomeSideEffects(
   }
 
   // --- DNC ---
-  const dncReason = dncReasonForOutcome(input.outcome);
+  // Only override the reason when the outcome is genuinely DNC-family, so a
+  // stray override can never turn a non-DNC outcome into a DNC insert.
+  const baseDncReason = dncReasonForOutcome(input.outcome);
+  const dncReason = baseDncReason
+    ? (input.dncReasonOverride ?? baseDncReason)
+    : null;
   if (dncReason && lead.business_phone) {
     // upsert with ignoreDuplicates so the unique-on-phone constraint
     // doesn't error if the number is already on the list.
