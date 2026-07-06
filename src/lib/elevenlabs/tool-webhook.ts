@@ -674,7 +674,7 @@ async function bookAppointment(
     if (!name) {
       return {
         success: false,
-        message: "Whose name should I put on the calendar invite?",
+        message: "What's their first name for the calendar invite?",
       };
     }
 

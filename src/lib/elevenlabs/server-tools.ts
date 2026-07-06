@@ -132,9 +132,9 @@ function bodySchemaFor(
       );
       add(
         "name",
-        "The full name of the person the appointment is for — the caller you're " +
-          "speaking with. ALWAYS include this: a booking with no name is rejected. " +
-          "If you don't have their name yet, ask for it before booking.",
+        "The caller's FIRST name for the calendar invite (first name only — don't " +
+          "ask for a last name). ALWAYS include this: a booking with no name is " +
+          "rejected. If you don't have it yet, ask for their first name before booking.",
         true,
       );
       break;
