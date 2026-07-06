@@ -43,6 +43,17 @@ export async function mergeLeadSummary(input: {
     .maybeSingle();
   const existing = (existingRow?.ai_summary ?? "").trim();
 
+  // The lead's REAL business name. ASR routinely mis-hears the company name on
+  // the call (e.g. "Evolve Thermal Spa" heard as "Mangerie Bravo"), so we anchor
+  // the summary to the lead record and tell the model to use it, not whatever
+  // name the transcript picked up.
+  const { data: leadRow } = await supabase
+    .from("leads")
+    .select("company")
+    .eq("id", input.leadId)
+    .maybeSingle();
+  const company = (leadRow?.company ?? "").trim();
+
   // Pull the last 5 call summaries for this campaign for context.
   const { data: recentCalls } = await supabase
     .from("calls")
@@ -67,7 +78,7 @@ export async function mergeLeadSummary(input: {
   let newSummary: string;
   let cost = 0;
   if (apiKey) {
-    const result = await callOpenAi(apiKey, existing, latest);
+    const result = await callOpenAi(apiKey, existing, latest, company);
     newSummary = result.text;
     cost = priceOpenAiTokens(result.promptTokens, result.completionTokens);
   } else {
@@ -118,8 +129,12 @@ async function callOpenAi(
   apiKey: string,
   existing: string,
   latest: string,
+  company: string,
 ): Promise<{ text: string; promptTokens: number; completionTokens: number }> {
-  const userPrompt = `Existing note about this lead:
+  const companyLine = company
+    ? `The business we're calling is named "${company}". Refer to it by THIS name only. If the notes below mention any other business name, it was mis-heard on the call — ignore it and use "${company}".\n\n`
+    : "";
+  const userPrompt = `${companyLine}Existing note about this lead:
 ${existing || "(none yet)"}
 
 Newest call summary:
