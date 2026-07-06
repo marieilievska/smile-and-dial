@@ -15,7 +15,6 @@ import {
   deferSameDayCallbackIso,
   localHourDaysAheadIso,
   parseZonedDatetime,
-  rollIsoOffWeekend,
 } from "@/lib/dialer/local-schedule";
 import {
   applyRetryForCall,
@@ -1540,11 +1539,11 @@ export async function applyOutcomeSideEffects(
       .eq("id", input.leadId)
       .maybeSingle();
     const parsed = parseZonedDatetime(input.callbackDatetime, leadTz?.timezone);
-    // We only call Mon–Fri: roll a weekend-named time to the same time Monday.
-    // The default slot (nextDayLocalHourIso → localHourDaysAheadIso) already
-    // rolls weekends.
+    // Honor the exact time the lead named, weekends included (agreed callbacks
+    // dial on weekends now). Only the DEFAULT slot (no time given) rolls to a
+    // weekday via nextDayLocalHourIso.
     const scheduledAt = parsed
-      ? rollIsoOffWeekend(parsed, leadTz?.timezone)
+      ? parsed.toISOString()
       : nextDayLocalHourIso(leadTz?.timezone, 10);
 
     await supabase.from("callbacks").insert({

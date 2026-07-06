@@ -13,7 +13,6 @@ import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-ca
 import {
   localHourDaysAheadIso,
   parseZonedDatetime,
-  rollIsoOffWeekend,
 } from "@/lib/dialer/local-schedule";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
 import type { Database, Json } from "@/lib/supabase/database.types";
@@ -481,9 +480,9 @@ async function scheduleCallback(
     };
   }
 
-  // We only call Mon–Fri, so roll a weekend-requested time forward to the same
-  // time Monday (the dialer's weekday gate would otherwise leave it undialed).
-  const scheduledAt = rollIsoOffWeekend(when, ctx.lead.timezone);
+  // Callbacks may be scheduled on weekends (agreed appointments), so honor the
+  // exact time the lead asked for instead of rolling a weekend time to Monday.
+  const scheduledAt = when.toISOString();
 
   // If this same call already booked a callback (the lead changed the time
   // mid-conversation), update that one in place instead of inserting a second.
