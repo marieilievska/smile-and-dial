@@ -82,6 +82,10 @@ export type ConversationInitResponse = {
     // when booking a callback. Without these it has no anchor for relative times.
     current_date: string;
     lead_timezone: string;
+    // The business's imported CRM / booking / scheduling software (the
+    // `booking_crm_software` custom field). Reference-only context the agent can
+    // mention — NOT extracted on the call. Blank when the lead has no value.
+    booking_crm_software: string;
   };
 };
 
@@ -191,6 +195,7 @@ function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
     google_reviews: "",
     current_date: todayInTimezone("America/New_York"),
     lead_timezone: "",
+    booking_crm_software: "",
   };
 }
 
@@ -282,6 +287,27 @@ async function buildVarsForCall(
       ? `(Our last call with them was ${recency}.) ${summaryText}`
       : summaryText;
 
+  // Imported "Booking / CRM software" custom-field value, exposed so the agent's
+  // prompt can reference {{booking_crm_software}}. This is context we already
+  // know (from import) — the agent does NOT extract it on the call. Two small
+  // lookups: the def id by slug, then the lead's value.
+  let bookingCrmSoftware = "";
+  const { data: bcsDef } = await supabase
+    .from("custom_field_defs")
+    .select("id")
+    .eq("slug", "booking_crm_software")
+    .maybeSingle();
+  if (bcsDef?.id) {
+    const { data: bcsVal } = await supabase
+      .from("lead_custom_values")
+      .select("value")
+      .eq("lead_id", call.lead_id)
+      .eq("custom_field_id", bcsDef.id)
+      .maybeSingle();
+    const v = bcsVal?.value;
+    bookingCrmSoftware = typeof v === "string" ? v : v != null ? String(v) : "";
+  }
+
   return {
     call_type: isCallback ? "callback" : "cold",
     last_call_summary: lastCallSummary,
@@ -299,6 +325,7 @@ async function buildVarsForCall(
     google_reviews: numStr(lead?.google_reviews),
     current_date: todayInTimezone(lead?.timezone || "America/New_York"),
     lead_timezone: lead?.timezone ?? "",
+    booking_crm_software: bookingCrmSoftware,
   };
 }
 

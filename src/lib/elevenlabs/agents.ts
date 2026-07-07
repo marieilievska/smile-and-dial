@@ -485,6 +485,10 @@ const DYNAMIC_VAR_PLACEHOLDERS = {
   google_rating: "",
   google_reviews: "",
   call_id: "",
+  // Imported CRM/booking software (booking_crm_software custom field), so the
+  // prompt can reference {{booking_crm_software}}. Filled per-call by the
+  // conversation-init webhook from the lead's custom value.
+  booking_crm_software: "",
 } as const;
 
 /** Our post-call webhook block (when a webhook id is configured). Requests
