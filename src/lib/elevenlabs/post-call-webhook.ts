@@ -22,6 +22,7 @@ import {
 } from "@/lib/dialer/retry-engine";
 import { priceTwilioCall, elevenLabsUsdPerCredit } from "@/lib/costs/rates";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
+import { enqueueCallReview } from "@/lib/review/enqueue";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -1160,6 +1161,18 @@ async function processTranscription(
         })
         .eq("id", call.id);
     }
+  }
+
+  // Queue this call for the reviewer. Human-reached calls get the deep two-pass
+  // analysis; the rest are auto-bucketed as no_conversation. Best-effort — never
+  // fail the webhook on a review-enqueue hiccup.
+  try {
+    await enqueueCallReview(supabase, {
+      callId: call.id,
+      reachedHuman,
+    });
+  } catch {
+    // best-effort
   }
 
   return { ok: true, status: "applied" };
