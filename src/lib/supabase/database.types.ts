@@ -1157,6 +1157,120 @@ export type Database = {
         };
         Relationships: [];
       };
+      review_flag_defs: {
+        Row: {
+          active: boolean;
+          created_at: string;
+          guidance: string;
+          id: string;
+          is_candidate: boolean;
+          key: string;
+          label: string;
+          lens: string;
+          severity: number;
+          sort_order: number;
+        };
+        Insert: {
+          active?: boolean;
+          created_at?: string;
+          guidance: string;
+          id?: string;
+          is_candidate?: boolean;
+          key: string;
+          label: string;
+          lens: string;
+          severity?: number;
+          sort_order?: number;
+        };
+        Update: {
+          active?: boolean;
+          created_at?: string;
+          guidance?: string;
+          id?: string;
+          is_candidate?: boolean;
+          key?: string;
+          label?: string;
+          lens?: string;
+          severity?: number;
+          sort_order?: number;
+        };
+        Relationships: [];
+      };
+      call_reviews: {
+        Row: {
+          analyzed_at: string | null;
+          call_id: string;
+          cost: number;
+          created_at: string;
+          error: string | null;
+          needs_review: boolean;
+          pass1_model: string | null;
+          pass2_model: string | null;
+          reached_human: boolean;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
+          status: string;
+        };
+        Insert: {
+          analyzed_at?: string | null;
+          call_id: string;
+          cost?: number;
+          created_at?: string;
+          error?: string | null;
+          needs_review?: boolean;
+          pass1_model?: string | null;
+          pass2_model?: string | null;
+          reached_human?: boolean;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
+          status?: string;
+        };
+        Update: {
+          analyzed_at?: string | null;
+          call_id?: string;
+          cost?: number;
+          created_at?: string;
+          error?: string | null;
+          needs_review?: boolean;
+          pass1_model?: string | null;
+          pass2_model?: string | null;
+          reached_human?: boolean;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
+          status?: string;
+        };
+        Relationships: [];
+      };
+      call_review_flags: {
+        Row: {
+          call_id: string;
+          confidence: number | null;
+          created_at: string;
+          evidence_quote: string | null;
+          flag_key: string;
+          id: string;
+          status: string;
+        };
+        Insert: {
+          call_id: string;
+          confidence?: number | null;
+          created_at?: string;
+          evidence_quote?: string | null;
+          flag_key: string;
+          id?: string;
+          status?: string;
+        };
+        Update: {
+          call_id?: string;
+          confidence?: number | null;
+          created_at?: string;
+          evidence_quote?: string | null;
+          flag_key?: string;
+          id?: string;
+          status?: string;
+        };
+        Relationships: [];
+      };
       hot_lead_dismissals: {
         Row: {
           call_id: string;
