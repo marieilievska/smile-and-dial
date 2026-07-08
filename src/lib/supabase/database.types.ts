@@ -2152,6 +2152,23 @@ export type Database = {
           },
         ];
       };
+      review_bucket_counts: {
+        Row: {
+          flag_key: string | null;
+          confirmed_count: number | null;
+          needs_review_count: number | null;
+          unreviewed_count: number | null;
+        };
+        Relationships: [];
+      };
+      review_summary: {
+        Row: {
+          flagged_calls: number | null;
+          unreviewed_calls: number | null;
+          needs_eyes_calls: number | null;
+        };
+        Relationships: [];
+      };
     };
     Functions: {
       _smart_list_custom_sql: {
