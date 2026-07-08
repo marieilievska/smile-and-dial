@@ -48,3 +48,32 @@ test("mergeVerification confirms agreed flags and flags disagreements for review
     status: "needs_review",
   });
 });
+
+// Deterministic golden check: a known transcript with a booking-recovery pattern.
+// In mock mode we assert the pipeline SHAPE; the LLM-dependent assertion is
+// guarded behind OPENAI_API_KEY so CI without a key still passes.
+const GOLDEN = {
+  transcript:
+    "Agent: I can book you for 4pm Tuesday.\nLead: sure.\nAgent: Hmm, that time isn't available.\nAgent: Actually, you're all set for 4pm Tuesday.",
+  expectFlag: "booking_failed_then_recovered",
+};
+
+test("golden: booking-failed-then-recovered (live only)", async () => {
+  test.skip(!process.env.OPENAI_API_KEY, "needs a live OpenAI key");
+  const { analyzeCall } = await import("../src/lib/review/analyze");
+  const { flags } = await analyzeCall({
+    transcript: GOLDEN.transcript,
+    extracted: "{}",
+    defs: [
+      {
+        key: "booking_failed_then_recovered",
+        label: "Booking failed then recovered",
+        lens: "bug",
+        severity: 1,
+        guidance:
+          "Said a time was unavailable, then booked the same slot anyway.",
+      },
+    ],
+  });
+  expect(flags.map((f) => f.flag_key)).toContain(GOLDEN.expectFlag);
+});
