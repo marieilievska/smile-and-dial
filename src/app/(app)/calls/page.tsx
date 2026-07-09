@@ -12,6 +12,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase/server";
+import {
+  resolveReviewFlagCallIds,
+  fetchCallEvidence,
+  type CallEvidence,
+} from "@/lib/review/calls-filter";
 
 import { CallsActiveFilterChips } from "./active-filter-chips";
 import { CallDetailModal } from "./call-detail-modal";
@@ -103,11 +108,20 @@ export default async function CallsPage({
   const agentOptions = (agents ?? []).map((a) => ({ id: a.id, name: a.name }));
 
   const leadFilterIds = await resolveLeadFilterIds(supabase, params);
+  // Review-bucket filter: an admin arriving from a Call Review bucket has a
+  // `review_flag` param; resolve it to the set of call ids to intersect on.
+  // Members have no RLS access to call_review_flags, so skip entirely for them.
+  const reviewFlag = str(params.review_flag);
+  const reviewCallIds =
+    isAdmin && reviewFlag
+      ? await resolveReviewFlagCallIds(supabase, reviewFlag)
+      : null;
   const offset = (page - 1) * pageSize;
   const { data, count } = await buildCallsQuery(
     supabase,
     params,
     leadFilterIds ?? undefined,
+    reviewCallIds ?? undefined,
   )
     .order(sort, { ascending: dir === "asc" })
     .order("id", { ascending: true })
@@ -150,6 +164,13 @@ export default async function CallsPage({
     }
   }
 
+  // Evidence quotes for the "Why flagged" column, scoped to the active
+  // review_flag view. Empty (typed) map on the non-admin / no-filter path.
+  const evidenceByCall: Map<string, CallEvidence[]> =
+    isAdmin && reviewFlag
+      ? await fetchCallEvidence(supabase, reviewFlag, callIds)
+      : new Map();
+
   const calls: DisplayCall[] = rawCalls.map((c) => ({
     id: c.id,
     direction: c.direction as DisplayCall["direction"],
@@ -180,6 +201,7 @@ export default async function CallsPage({
     summary: c.summary ?? null,
     dialedTarget:
       (c.dialed_target as DisplayCall["dialedTarget"] | undefined) ?? null,
+    reviewEvidence: evidenceByCall.get(c.id) ?? [],
   }));
 
   // Visible columns (URL param `cols` overrides the default set).
@@ -187,7 +209,11 @@ export default async function CallsPage({
   const visibleKeys = colsParam
     ? new Set(colsParam.split(","))
     : new Set(DEFAULT_COLUMN_KEYS);
-  const columns = CALL_COLUMNS.filter((c) => visibleKeys.has(c.key));
+  const activeKeys = new Set(visibleKeys);
+  // When the operator came from a Call Review bucket, force the "Why flagged"
+  // column on so the evidence is visible without touching the column picker.
+  if (reviewFlag) activeKeys.add("review_evidence");
+  const columns = CALL_COLUMNS.filter((c) => activeKeys.has(c.key));
 
   // Has the user applied any filters or a search? Drives the empty-
   // state variant when no calls match.
@@ -201,7 +227,8 @@ export default async function CallsPage({
       str(params.agent) ||
       str(params.owner) ||
       str(params.goal_met) ||
-      str(params.mode),
+      str(params.mode) ||
+      str(params.review_flag),
     ) ||
     Boolean(
       str(params.min_dur) ||
@@ -366,7 +393,7 @@ export default async function CallsPage({
         <NoCallsEmptyState />
       )}
 
-      <CallDetailModal />
+      <CallDetailModal isAdmin={isAdmin} />
     </div>
   );
 }

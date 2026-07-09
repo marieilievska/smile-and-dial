@@ -57,7 +57,12 @@ export function applyCallFilters<
     gte(column: string, value: string | number): Q;
     lte(column: string, value: string | number): Q;
   },
->(query: Q, params: SearchParams, searchLeadIds?: string[]): Q {
+>(
+  query: Q,
+  params: SearchParams,
+  searchLeadIds?: string[],
+  reviewCallIds?: string[],
+): Q {
   if (searchLeadIds !== undefined) {
     // Empty array → no calls match. PostgREST's `.in("col", [])` is buggy
     // (matches everything), so guard with a sentinel uuid.
@@ -65,6 +70,17 @@ export function applyCallFilters<
       "lead_id",
       searchLeadIds.length > 0
         ? searchLeadIds
+        : ["00000000-0000-0000-0000-000000000000"],
+    );
+  }
+
+  if (reviewCallIds !== undefined) {
+    // Same empty-set sentinel guard as searchLeadIds: an empty `.in([])`
+    // matches everything in PostgREST, so a no-match must use a dummy uuid.
+    query = query.in(
+      "id",
+      reviewCallIds.length > 0
+        ? reviewCallIds
         : ["00000000-0000-0000-0000-000000000000"],
     );
   }
@@ -137,9 +153,10 @@ export function buildCallsQuery(
   supabase: SupabaseServerClient,
   params: SearchParams,
   searchLeadIds?: string[],
+  reviewCallIds?: string[],
 ) {
   const query = supabase.from("calls").select(CALLS_SELECT, { count: "exact" });
-  return applyCallFilters(query, params, searchLeadIds);
+  return applyCallFilters(query, params, searchLeadIds, reviewCallIds);
 }
 
 /**
