@@ -278,4 +278,16 @@ describe("dedupeProposals", () => {
     );
     expect(out).toHaveLength(1);
   });
+  it("drops proposals with a blank label or guidance", () => {
+    const out = dedupeProposals(
+      [
+        { ...base, key: "no_label", label: "  " },
+        { ...base, key: "no_guidance", guidance: "" },
+        { ...base, key: "ok" },
+      ],
+      existing,
+      dismissed,
+    );
+    expect(out.map((p) => p.key)).toEqual(["ok"]);
+  });
 });

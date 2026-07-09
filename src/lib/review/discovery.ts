@@ -111,6 +111,9 @@ export function dedupeProposals(
     if (!LENSES.includes(p.lens)) continue;
     if (!Number.isInteger(p.severity) || p.severity < 1 || p.severity > 4)
       continue;
+    // A blank label/guidance would insert a silently-degraded rubric row (the
+    // guidance IS the Pass-1 prompt text for that flag), so drop it.
+    if (!(p.label || "").trim() || !(p.guidance || "").trim()) continue;
     seen.add(key);
     out.push({ ...p, key });
   }
@@ -118,21 +121,16 @@ export function dedupeProposals(
 }
 
 /** Sample recent human-reached calls that carry NO confirmed flags (the
- *  rubric's blind spots), returning their summaries. Two cheap bounded queries
- *  (recent confirmed-flag call ids, recent done+reached_human reviews) diffed in
- *  JS — avoids a NOT-IN subquery PostgREST can't express cleanly. */
+ *  rubric's blind spots), returning their summaries. Fetch the recent
+ *  done+reached_human reviews first, then look up confirmed flags scoped to
+ *  EXACTLY those call ids — an exact diff, avoiding a NOT-IN subquery PostgREST
+ *  can't express cleanly. (Ordering call_review_flags by its own PK would be
+ *  meaningless: `id` is a random uuid, so a blanket "recent flags" fetch is not
+ *  actually recent and could mislabel a flagged call as a blind spot.) */
 export async function sampleUnflaggedCalls(
   admin: Admin,
   limit = 40,
 ): Promise<DiscoverySample[]> {
-  const { data: flagged } = await admin
-    .from("call_review_flags")
-    .select("call_id")
-    .eq("status", "confirmed")
-    .order("id", { ascending: false })
-    .limit(4000);
-  const flaggedSet = new Set((flagged ?? []).map((f) => f.call_id));
-
   const { data: reviews } = await admin
     .from("call_reviews")
     .select("call_id")
@@ -140,9 +138,18 @@ export async function sampleUnflaggedCalls(
     .eq("reached_human", true)
     .order("analyzed_at", { ascending: false })
     .limit(600);
+  const reviewIds = (reviews ?? []).map((r) => r.call_id);
+  if (reviewIds.length === 0) return [];
 
-  const candidateIds = (reviews ?? [])
-    .map((r) => r.call_id)
+  // Confirmed flags for exactly this review pool — an exact, bounded diff.
+  const { data: flagged } = await admin
+    .from("call_review_flags")
+    .select("call_id")
+    .eq("status", "confirmed")
+    .in("call_id", reviewIds);
+  const flaggedSet = new Set((flagged ?? []).map((f) => f.call_id));
+
+  const candidateIds = reviewIds
     .filter((id) => !flaggedSet.has(id))
     .slice(0, limit);
   if (candidateIds.length === 0) return [];
