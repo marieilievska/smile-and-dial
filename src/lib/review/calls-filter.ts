@@ -35,6 +35,12 @@ export async function resolveReviewFlagCallIds(
     let q = supabase
       .from("call_review_flags")
       .select("call_id")
+      // Stable order is REQUIRED across range requests: without it Postgres may
+      // return rows in a different order on each page (especially while the
+      // operator is writing confirm/reject changes), which would silently SKIP
+      // call_ids past page 1 — the Set dedup can absorb duplicates but can't
+      // recover a skipped id. Order by the PK so paging is deterministic.
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (key === NEEDS_REVIEW_BUCKET) {
       q = q.eq("status", "needs_review");

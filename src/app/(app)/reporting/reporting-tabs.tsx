@@ -24,17 +24,23 @@ export type ReportingTabKey = (typeof REPORTING_TABS)[number]["key"];
 
 /** The tabs to show for the current scope. Voice of Customer shows when the
  *  campaign has a detected sentiment field; Hot Leads keeps its interest-driven
- *  gate (Phase 3 generalizes it). */
+ *  gate (Phase 3 generalizes it). Call Review is admin-only — the public
+ *  token-gated share surface must pass `showCallReview: false` so external
+ *  recipients never see the tab (it has no share render branch, and buckets are
+ *  admin-only by design). */
 export function reportingTabsFor({
   showVoice,
   showHotLeads,
+  showCallReview = true,
 }: {
   showVoice: boolean;
   showHotLeads: boolean;
+  showCallReview?: boolean;
 }): readonly (typeof REPORTING_TABS)[number][] {
   return REPORTING_TABS.filter((t) => {
     if (t.key === "voice") return showVoice;
     if (t.key === "hot-leads") return showHotLeads;
+    if (t.key === "call-review") return showCallReview;
     return true;
   });
 }
