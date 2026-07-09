@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   Bot,
+  ClipboardCheck,
   Flame,
   History,
   LayoutDashboard,
@@ -12,6 +13,7 @@ import {
  *  so both Server Components can import the array + component safely. */
 export const REPORTING_TABS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { key: "call-review", label: "Call Review", icon: ClipboardCheck },
   { key: "voice", label: "Voice of Customer", icon: MessageSquare },
   { key: "hot-leads", label: "Hot Leads", icon: Flame },
   { key: "changelog", label: "App Changelog", icon: History },
