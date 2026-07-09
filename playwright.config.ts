@@ -12,6 +12,9 @@ dotenv.config({ path: ".env.local" });
  */
 export default defineConfig({
   testDir: "./tests",
+  // Vitest owns *.unit.test.ts (pure-function unit tests); Playwright must
+  // never pick them up — they import from "vitest", not "@playwright/test".
+  testIgnore: ["**/*.unit.test.ts"],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

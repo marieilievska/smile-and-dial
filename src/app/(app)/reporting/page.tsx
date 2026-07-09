@@ -21,7 +21,9 @@ import {
   serializeScope,
   type ReportScope,
 } from "@/lib/agent-analytics/scope";
+import { fetchReviewBuckets } from "@/lib/review/buckets";
 
+import { CallReviewTable } from "./call-review-table";
 import { ChangelogTable } from "./changelog-table";
 import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
@@ -150,6 +152,8 @@ export default async function AgentAnalyticsPage({
           sentimentKey={detected.sentimentKey}
           sentimentValues={detected.sentimentValues}
         />
+      ) : tab === "call-review" ? (
+        <CallReviewTab />
       ) : tab === "voice" ? (
         <VoiceTab scope={scope} detected={detected} slug={slug} />
       ) : tab === "hot-leads" ? (
@@ -203,6 +207,12 @@ async function DashboardTab({
       sentimentValues={sentimentValues}
     />
   );
+}
+
+async function CallReviewTab() {
+  const supabase = await createClient();
+  const { summary, buckets } = await fetchReviewBuckets(supabase);
+  return <CallReviewTable summary={summary} buckets={buckets} />;
 }
 
 async function VoiceTab({

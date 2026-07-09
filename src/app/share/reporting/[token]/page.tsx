@@ -95,7 +95,13 @@ export default async function PublicReporting({
     scope.kind === "campaign" &&
     detected.sentimentKey !== null &&
     detected.sentimentValues.some(isWarm);
-  const visibleTabs = reportingTabsFor({ showVoice, showHotLeads });
+  // Call Review is admin-only and has no render branch on this public share
+  // surface — exclude it so external recipients never see a dead tab.
+  const visibleTabs = reportingTabsFor({
+    showVoice,
+    showHotLeads,
+    showCallReview: false,
+  });
   const tab = visibleTabs.some((t) => t.key === str(sp.tab))
     ? str(sp.tab)
     : "dashboard";

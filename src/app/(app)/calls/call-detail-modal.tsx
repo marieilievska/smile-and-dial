@@ -51,6 +51,12 @@ import {
   type CallDetail,
   type TranscriptTurn,
 } from "@/lib/calls/actions";
+import {
+  getCallReview,
+  markCallReviewed,
+  setFlagStatus,
+  type CallReviewDetail,
+} from "@/lib/review/actions";
 import { OVERRIDABLE_OUTCOMES, outcomeLabel } from "@/lib/calls/outcomes";
 import { callStatusLabel } from "@/lib/labels";
 import { exactDateTime, relativeTime } from "@/lib/relative-time";
@@ -180,6 +186,147 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+/** Admin-only review panel inside the call modal: the AI's flags with
+ *  confirm/reject, plus a Mark-reviewed toggle. Loads its own data keyed off
+ *  the open call id. */
+function CallReviewPanel({ callId }: { callId: string }) {
+  const router = useRouter();
+  // Keep the loaded review paired with the call it belongs to (like the parent
+  // modal keys `loaded.id === callId`) so switching calls never flashes stale
+  // flags, and so the effect never has to setState synchronously.
+  const [loaded, setLoaded] = useState<{
+    callId: string;
+    review: CallReviewDetail | null;
+  } | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    let cancelled = false;
+    getCallReview(callId).then((res) => {
+      if (cancelled) return;
+      setLoaded({ callId, review: res.review });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [callId]);
+
+  const review = loaded && loaded.callId === callId ? loaded.review : null;
+  if (!review) return null; // Still loading, or no review row (old call).
+
+  // Capture the narrowed value: TS drops the non-null narrowing inside the
+  // hoisted closures below, so read the fixed-per-render flag here.
+  const isReviewed = review.reviewedAt !== null;
+
+  function refresh() {
+    getCallReview(callId).then((res) =>
+      setLoaded({ callId, review: res.review }),
+    );
+    router.refresh();
+  }
+
+  function toggleReviewed() {
+    startTransition(async () => {
+      const res = await markCallReviewed({
+        callId,
+        reviewed: !isReviewed,
+      });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(isReviewed ? "Reopened" : "Marked reviewed");
+      refresh();
+    });
+  }
+
+  function updateFlag(flagId: string, status: "confirmed" | "rejected") {
+    startTransition(async () => {
+      const res = await setFlagStatus({ flagId, status });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(
+        status === "confirmed" ? "Flag confirmed" : "Flag rejected",
+      );
+      refresh();
+    });
+  }
+
+  return (
+    <div className="border-border flex flex-col gap-3 rounded-xl border p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-foreground text-sm font-semibold">Call review</h4>
+        <Button
+          size="sm"
+          variant={review.reviewedAt ? "outline" : "default"}
+          disabled={pending}
+          onClick={toggleReviewed}
+        >
+          {review.reviewedAt ? "Reviewed ✓ — reopen" : "Mark reviewed"}
+        </Button>
+      </div>
+
+      {review.flags.length === 0 ? (
+        <p className="text-muted-foreground text-xs">No flags on this call.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {review.flags.map((f) => (
+            <div
+              key={f.id}
+              className="border-border/70 flex items-start justify-between gap-3 rounded-lg border p-3"
+            >
+              <div className="flex min-w-0 flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-foreground text-sm font-medium">
+                    {f.label}
+                  </span>
+                  {f.status === "needs_review" ? (
+                    <Badge
+                      variant="outline"
+                      className="border-amber-300 text-amber-700"
+                    >
+                      needs eyes
+                    </Badge>
+                  ) : f.status === "rejected" ? (
+                    <Badge variant="secondary">rejected</Badge>
+                  ) : (
+                    <Badge variant="outline">confirmed</Badge>
+                  )}
+                </div>
+                {f.evidenceQuote ? (
+                  <p className="text-muted-foreground line-clamp-3 text-xs italic">
+                    “{f.evidenceQuote}”
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={pending || f.status === "confirmed"}
+                  onClick={() => updateFlag(f.id, "confirmed")}
+                >
+                  Confirm
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={pending || f.status === "rejected"}
+                  onClick={() => updateFlag(f.id, "rejected")}
+                >
+                  Reject
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -478,6 +625,11 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
                   </p>
                 </section>
               ) : null}
+
+              {/* Admin-only "Call Review" panel — confirm/reject the AI's
+                  flags and mark the call reviewed. Loads its own data, so the
+                  member path never queries it. */}
+              {isAdmin && call ? <CallReviewPanel callId={call.id} /> : null}
 
               {/* M9 — Transcript with clickable timestamp pills. */}
               {call.transcript.length > 0 ? (

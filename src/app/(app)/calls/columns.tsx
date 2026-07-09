@@ -50,6 +50,14 @@ export type DisplayCall = {
   /** Which of the lead's numbers this call dialed. "owner" surfaces an
    *  "Owner line" chip so owner calls are distinguishable from business ones. */
   dialedTarget: "business" | "owner" | null;
+  /** Review evidence for the active `review_flag` view (empty otherwise). Each
+   *  entry is the AI's quote + status for a flag on this call. Surfaced in the
+   *  `review_evidence` column so the operator sees WHY a call is in the bucket. */
+  reviewEvidence: {
+    flagKey: string;
+    evidenceQuote: string | null;
+    status: "confirmed" | "needs_review" | "rejected";
+  }[];
 };
 
 export type CallColumn = {
@@ -322,6 +330,34 @@ export const CALL_COLUMNS: CallColumn[] = [
       ) : (
         <span className="text-muted-foreground">—</span>
       ),
+  },
+  {
+    key: "review_evidence",
+    label: "Why flagged",
+    width: "w-[280px]",
+    cell: (call: DisplayCall) => {
+      if (call.reviewEvidence.length === 0)
+        return <span className="text-muted-foreground">—</span>;
+      return (
+        <div className="flex flex-col gap-1">
+          {call.reviewEvidence.map((e, i) => (
+            <div key={i} className="flex flex-col gap-0.5">
+              {e.status === "needs_review" ? (
+                <Badge
+                  variant="outline"
+                  className="w-fit border-amber-300 text-amber-700"
+                >
+                  needs eyes
+                </Badge>
+              ) : null}
+              <span className="text-muted-foreground line-clamp-2 text-xs italic">
+                {e.evidenceQuote ? `“${e.evidenceQuote}”` : "No quote captured"}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    },
   },
 ];
 
