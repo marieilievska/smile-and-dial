@@ -103,3 +103,40 @@ export async function fetchReviewBuckets(
   };
   return { summary, buckets };
 }
+
+/** A pending candidate flag for the "Suggested new flags" panel. */
+export type CandidateFlag = {
+  key: string;
+  label: string;
+  lens: ReviewFlagDef["lens"];
+  severity: number;
+  guidance: string;
+  rationale: string | null;
+  exampleCallIds: string[];
+  proposedAt: string | null;
+};
+
+/** Pending (not-yet-approved, not-dismissed) discovery candidates, newest
+ *  first. Read through the caller's admin-gated RLS client. */
+export async function fetchCandidateFlags(
+  client: ServerClient,
+): Promise<CandidateFlag[]> {
+  const { data } = await client
+    .from("review_flag_defs")
+    .select(
+      "key, label, lens, severity, guidance, rationale, example_call_ids, proposed_at",
+    )
+    .eq("is_candidate", true)
+    .is("dismissed_at", null)
+    .order("proposed_at", { ascending: false });
+  return (data ?? []).map((d) => ({
+    key: d.key,
+    label: d.label,
+    lens: d.lens as ReviewFlagDef["lens"],
+    severity: d.severity,
+    guidance: d.guidance,
+    rationale: d.rationale,
+    exampleCallIds: d.example_call_ids ?? [],
+    proposedAt: d.proposed_at,
+  }));
+}
