@@ -21,9 +21,10 @@ import {
   serializeScope,
   type ReportScope,
 } from "@/lib/agent-analytics/scope";
-import { fetchReviewBuckets } from "@/lib/review/buckets";
+import { fetchReviewBuckets, fetchCandidateFlags } from "@/lib/review/buckets";
 
 import { CallReviewTable } from "./call-review-table";
+import { SuggestedFlagsPanel } from "./suggested-flags-panel";
 import { ChangelogTable } from "./changelog-table";
 import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
@@ -211,8 +212,16 @@ async function DashboardTab({
 
 async function CallReviewTab() {
   const supabase = await createClient();
-  const { summary, buckets } = await fetchReviewBuckets(supabase);
-  return <CallReviewTable summary={summary} buckets={buckets} />;
+  const [{ summary, buckets }, candidates] = await Promise.all([
+    fetchReviewBuckets(supabase),
+    fetchCandidateFlags(supabase),
+  ]);
+  return (
+    <div className="flex flex-col gap-5">
+      <SuggestedFlagsPanel candidates={candidates} />
+      <CallReviewTable summary={summary} buckets={buckets} />
+    </div>
+  );
 }
 
 async function VoiceTab({
