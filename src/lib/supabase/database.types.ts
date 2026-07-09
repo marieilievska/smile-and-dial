@@ -1161,36 +1161,48 @@ export type Database = {
         Row: {
           active: boolean;
           created_at: string;
+          dismissed_at: string | null;
+          example_call_ids: string[];
           guidance: string;
           id: string;
           is_candidate: boolean;
           key: string;
           label: string;
           lens: string;
+          proposed_at: string | null;
+          rationale: string | null;
           severity: number;
           sort_order: number;
         };
         Insert: {
           active?: boolean;
           created_at?: string;
+          dismissed_at?: string | null;
+          example_call_ids?: string[];
           guidance: string;
           id?: string;
           is_candidate?: boolean;
           key: string;
           label: string;
           lens: string;
+          proposed_at?: string | null;
+          rationale?: string | null;
           severity?: number;
           sort_order?: number;
         };
         Update: {
           active?: boolean;
           created_at?: string;
+          dismissed_at?: string | null;
+          example_call_ids?: string[];
           guidance?: string;
           id?: string;
           is_candidate?: boolean;
           key?: string;
           label?: string;
           lens?: string;
+          proposed_at?: string | null;
+          rationale?: string | null;
           severity?: number;
           sort_order?: number;
         };
