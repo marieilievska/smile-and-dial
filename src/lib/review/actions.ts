@@ -144,3 +144,35 @@ export async function setFlagStatus(input: {
   revalidatePath("/reporting");
   return { error: null };
 }
+
+/** Approve a discovery candidate: it joins the live rubric (active=true,
+ *  is_candidate=false) and Pass 1 will check it on future calls. Admin-only. */
+export async function approveCandidate(input: {
+  key: string;
+}): Promise<{ error: string | null }> {
+  if (!(await currentAdminId())) return { error: "Admins only." };
+  const { error } = await adminClient()
+    .from("review_flag_defs")
+    .update({ active: true, is_candidate: false, dismissed_at: null })
+    .eq("key", input.key)
+    .eq("is_candidate", true);
+  if (error) return { error: "Could not approve the suggestion." };
+  revalidatePath("/reporting");
+  return { error: null };
+}
+
+/** Dismiss a candidate: kept (not deleted) with dismissed_at set so the hourly
+ *  pass is told not to re-propose it. Admin-only. */
+export async function dismissCandidate(input: {
+  key: string;
+}): Promise<{ error: string | null }> {
+  if (!(await currentAdminId())) return { error: "Admins only." };
+  const { error } = await adminClient()
+    .from("review_flag_defs")
+    .update({ dismissed_at: new Date().toISOString() })
+    .eq("key", input.key)
+    .eq("is_candidate", true);
+  if (error) return { error: "Could not dismiss the suggestion." };
+  revalidatePath("/reporting");
+  return { error: null };
+}

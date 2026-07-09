@@ -183,3 +183,111 @@ describe("orderBuckets", () => {
     expect(out[0].unreviewed).toBe(4);
   });
 });
+
+import {
+  buildDiscoveryPrompt,
+  dedupeProposals,
+  type DiscoverySample,
+  type ProposedCandidate,
+} from "@/lib/review/discovery";
+
+describe("buildDiscoveryPrompt", () => {
+  const samples: DiscoverySample[] = [
+    {
+      callId: "c1",
+      summary: "Caller asked if we integrate with Mindbody. Agent didn't know.",
+    },
+    {
+      callId: "c2",
+      summary: "Caller wanted Spanish; agent only spoke English.",
+    },
+  ];
+  it("lists existing + candidate keys as off-limits and includes the samples", () => {
+    const p = buildDiscoveryPrompt({
+      samples,
+      activeKeys: ["tool_error", "price_objection"],
+      candidateKeys: ["mentions_franchise"],
+      dismissedLabels: ["Weather smalltalk"],
+    });
+    expect(p).toContain("tool_error");
+    expect(p).toContain("price_objection");
+    expect(p).toContain("mentions_franchise");
+    expect(p).toContain("Weather smalltalk");
+    expect(p).toContain("c1");
+    expect(p).toContain("Mindbody");
+  });
+  it("still builds with empty existing/candidate/dismissed lists", () => {
+    const p = buildDiscoveryPrompt({
+      samples,
+      activeKeys: [],
+      candidateKeys: [],
+      dismissedLabels: [],
+    });
+    expect(p).toContain("c2");
+  });
+});
+
+describe("dedupeProposals", () => {
+  const existing = new Set([
+    "tool_error",
+    "price_objection",
+    "mentions_franchise",
+  ]);
+  const dismissed = new Set(["weather_smalltalk"]);
+  const base: ProposedCandidate = {
+    key: "x",
+    label: "X",
+    lens: "voc",
+    severity: 4,
+    guidance: "g",
+    rationale: "r",
+    exampleCallIds: ["c1"],
+  };
+  it("drops proposals whose key already exists (active or candidate) or was dismissed", () => {
+    const out = dedupeProposals(
+      [
+        { ...base, key: "tool_error" },
+        { ...base, key: "weather_smalltalk" },
+        { ...base, key: "software_integration_gap" },
+      ],
+      existing,
+      dismissed,
+    );
+    expect(out.map((p) => p.key)).toEqual(["software_integration_gap"]);
+  });
+  it("drops proposals with an invalid lens or out-of-range severity", () => {
+    const out = dedupeProposals(
+      [
+        { ...base, key: "a", lens: "nonsense" as ProposedCandidate["lens"] },
+        { ...base, key: "b", severity: 9 },
+        { ...base, key: "c" },
+      ],
+      existing,
+      dismissed,
+    );
+    expect(out.map((p) => p.key)).toEqual(["c"]);
+  });
+  it("de-dupes repeated keys within one batch", () => {
+    const out = dedupeProposals(
+      [
+        { ...base, key: "dup" },
+        { ...base, key: "dup" },
+      ],
+      existing,
+      dismissed,
+    );
+    expect(out).toHaveLength(1);
+  });
+  it("drops proposals with a blank label or guidance", () => {
+    const out = dedupeProposals(
+      [
+        { ...base, key: "no_label", label: "  " },
+        { ...base, key: "no_guidance", guidance: "" },
+        { ...base, key: "ok" },
+      ],
+      existing,
+      dismissed,
+    );
+    expect(out.map((p) => p.key)).toEqual(["ok"]);
+  });
+});
