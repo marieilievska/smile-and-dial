@@ -211,7 +211,7 @@ export default async function TodayPage() {
       {/* Live updates: keep the dashboard's live-calls band + pace fresh
           without a manual reload. Scoped to this page (not app-wide), and
           only polls quickly while calls are actually in flight. */}
-      <AutoRefresh active={activeCalls.total > 0} />
+      <AutoRefresh active={activeCalls.total > 0} realtime />
       {/* Command bar — greeting, AI-aware subtitle, date, the live waveform,
        *  and autopilot status, all in one elevated ambient header. */}
       <TodayHero

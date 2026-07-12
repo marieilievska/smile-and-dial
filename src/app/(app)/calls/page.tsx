@@ -246,7 +246,7 @@ export default async function CallsPage({
       {/* Live updates: quietly re-fetch so new calls + outcomes appear
           without a manual reload. Scoped to this page (not app-wide), and
           only polls quickly while a call is actually in flight. */}
-      <AutoRefresh active={anyLiveCall} />
+      <AutoRefresh active={anyLiveCall} realtime />
       <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-1.5 delay-75 duration-500">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-foreground text-2xl font-bold tracking-tight">

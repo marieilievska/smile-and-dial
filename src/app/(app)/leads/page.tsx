@@ -277,7 +277,7 @@ export default async function LeadsPage({
       {/* Live updates: quietly re-fetch so on-call pulses and outcomes
           appear without a manual reload. Scoped to this page (not app-wide),
           and only polls quickly while a visible lead is on a call. */}
-      <AutoRefresh active={onCallIds.size > 0} />
+      <AutoRefresh active={onCallIds.size > 0} realtime />
 
       {/* L1 — stat strip: ready · callbacks · goals met this week.
           Each tile is a clickable filter shortcut. */}
