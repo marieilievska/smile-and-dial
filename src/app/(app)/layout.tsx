@@ -154,8 +154,13 @@ export default async function AppLayout({
             {/* App-wide live refresh: every page quietly re-fetches on an
              *  interval so results update without a manual reload. Pauses on a
              *  hidden tab and while any dialog/popover is open, and uses a soft
-             *  refresh so scroll + open client state are preserved. */}
-            <AutoRefresh idleMs={8000} />
+             *  refresh so scroll + open client state are preserved.
+             *
+             *  NOTE: 60s (was 8s). An 8s app-wide poll re-ran the entire server
+             *  tree ~450×/hour per open tab — the dominant driver of Vercel
+             *  function invocations + transfer. Scoped, push-driven live
+             *  updates land in the following commits; this is the safe floor. */}
+            <AutoRefresh idleMs={60000} />
             {children}
           </main>
         </div>
