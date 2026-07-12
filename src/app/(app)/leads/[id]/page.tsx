@@ -293,8 +293,9 @@ export default async function LeadDetailPage({
   return (
     <>
       {/* Live updates: keep the "On call now" pulse + activity feed fresh
-          without a manual reload. Scoped to this page (not app-wide). */}
-      <AutoRefresh />
+          without a manual reload. Scoped to this page (not app-wide), and
+          only polls quickly while this lead is actually on a call. */}
+      <AutoRefresh active={meta.onCall} />
       <LeadPageClient
         leadId={lead.id}
         userId={user.id}
