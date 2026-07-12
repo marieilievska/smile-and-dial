@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 
+import { AutoRefresh } from "@/components/auto-refresh";
 import { type CustomFieldType } from "@/lib/custom-fields/actions";
 import { IMPORTABLE_FIELDS } from "@/lib/leads/import-fields";
 import { createClient } from "@/lib/supabase/server";
@@ -290,24 +291,30 @@ export default async function LeadDetailPage({
   }
 
   return (
-    <LeadPageClient
-      leadId={lead.id}
-      userId={user.id}
-      leadCompany={lead.company}
-      fieldValues={fieldValues}
-      customFields={customFields}
-      customValues={customValues}
-      meta={meta}
-      availableCampaigns={availableCampaigns}
-      activeCampaignId={activeCampaignId}
-      activityFeed={<LeadActivityFeed items={feedItems} leadId={lead.id} />}
-      feedItemsForChip={feedItemsForChip}
-      nav={nav}
-      isAdmin={isAdmin}
-      callbacks={callbacks}
-      handoff={handoff}
-      campaignSummaries={campaignSummaries}
-    />
+    <>
+      {/* Live updates: keep the "On call now" pulse + activity feed fresh
+          without a manual reload. Scoped to this page (not app-wide), and
+          only polls quickly while this lead is actually on a call. */}
+      <AutoRefresh active={meta.onCall} realtime />
+      <LeadPageClient
+        leadId={lead.id}
+        userId={user.id}
+        leadCompany={lead.company}
+        fieldValues={fieldValues}
+        customFields={customFields}
+        customValues={customValues}
+        meta={meta}
+        availableCampaigns={availableCampaigns}
+        activeCampaignId={activeCampaignId}
+        activityFeed={<LeadActivityFeed items={feedItems} leadId={lead.id} />}
+        feedItemsForChip={feedItemsForChip}
+        nav={nav}
+        isAdmin={isAdmin}
+        callbacks={callbacks}
+        handoff={handoff}
+        campaignSummaries={campaignSummaries}
+      />
+    </>
   );
 }
 
