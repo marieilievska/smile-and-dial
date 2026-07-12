@@ -2,6 +2,7 @@ import { Download, Upload, Users } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AutoRefresh } from "@/components/auto-refresh";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -273,8 +274,9 @@ export default async function LeadsPage({
         </p>
       </div>
 
-      {/* Live updates are handled app-wide by <AutoRefresh> in the (app)
-          layout — no per-page poller needed. */}
+      {/* Live updates: quietly re-fetch so on-call pulses and outcomes
+          appear without a manual reload. Scoped to this page (not app-wide). */}
+      <AutoRefresh />
 
       {/* L1 — stat strip: ready · callbacks · goals met this week.
           Each tile is a clickable filter shortcut. */}

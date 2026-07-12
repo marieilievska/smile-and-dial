@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AutoRefresh } from "@/components/auto-refresh";
 import { MobileNavTrigger } from "@/components/app-shell/mobile-nav-trigger";
 import { AppSidebar } from "@/components/app-shell/sidebar";
 import { TopBar } from "@/components/app-shell/top-bar";
@@ -151,16 +150,12 @@ export default async function AppLayout({
             tabIndex={-1}
             className="flex-1 overflow-y-auto"
           >
-            {/* App-wide live refresh: every page quietly re-fetches on an
-             *  interval so results update without a manual reload. Pauses on a
-             *  hidden tab and while any dialog/popover is open, and uses a soft
-             *  refresh so scroll + open client state are preserved.
-             *
-             *  NOTE: 60s (was 8s). An 8s app-wide poll re-ran the entire server
-             *  tree ~450×/hour per open tab — the dominant driver of Vercel
-             *  function invocations + transfer. Scoped, push-driven live
-             *  updates land in the following commits; this is the safe floor. */}
-            <AutoRefresh idleMs={60000} />
+            {/* Live refresh is NO LONGER app-wide. A blanket poll here re-ran
+             *  the whole server tree on every page (Settings, Reporting, …)
+             *  that never needs it — the dominant driver of Vercel function
+             *  invocations + transfer. It now lives only on the pages that
+             *  show live call state (Today, Leads, Lead detail, Calls), each
+             *  mounting its own <AutoRefresh>. */}
             {children}
           </main>
         </div>

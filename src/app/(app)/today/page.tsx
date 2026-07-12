@@ -10,6 +10,7 @@ import {
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { AutoRefresh } from "@/components/auto-refresh";
 import { Button } from "@/components/ui/button";
 
 import {
@@ -207,6 +208,9 @@ export default async function TodayPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-8">
+      {/* Live updates: keep the dashboard's live-calls band + pace fresh
+          without a manual reload. Scoped to this page (not app-wide). */}
+      <AutoRefresh />
       {/* Command bar — greeting, AI-aware subtitle, date, the live waveform,
        *  and autopilot status, all in one elevated ambient header. */}
       <TodayHero

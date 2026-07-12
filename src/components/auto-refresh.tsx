@@ -18,8 +18,8 @@ import { useRouter } from "next/navigation";
  */
 export function AutoRefresh({
   active = false,
-  activeMs = 5000,
-  idleMs = 15000,
+  activeMs = 10000,
+  idleMs = 60000,
 }: {
   active?: boolean;
   activeMs?: number;
