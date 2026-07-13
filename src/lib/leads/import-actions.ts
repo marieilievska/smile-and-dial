@@ -96,9 +96,13 @@ async function countImportDuplicates(
 }
 
 /**
- * Run a Twilio Lookup on every row's business phone and report how many
- * leads will import versus be skipped (mobile numbers for TCPA compliance,
- * or invalid/disconnected numbers). Shown to the user before they commit.
+ * Look up each row's business phone via Twilio and report how many leads will
+ * import versus be skipped (mobile numbers for TCPA compliance, or
+ * invalid/disconnected numbers). Shown to the user before they commit.
+ *
+ * Numbers that are ALREADY leads this owner has are not re-looked-up: their
+ * stored `line_type` is reused, so a re-import that overlaps existing leads
+ * doesn't pay Twilio again. Only numbers new to this owner are billed.
  *
  * Set `skipLookup` to true to bypass Twilio entirely — all rows pass
  * through as importable, line types come back as "unknown", and the
@@ -172,11 +176,35 @@ export async function analyzeImport(input: {
   let mobile = 0;
   let invalid = 0;
 
+  const rowLineTypes: LineType[] = new Array(input.rows.length).fill("unknown");
+
+  // Reuse line types we already have on file. A number that's already a lead
+  // this owner has was classified on a previous import, so re-running Twilio
+  // Lookup on it is wasted spend. Fetch the stored line_type for the batch's
+  // numbers and reuse it; only numbers new to this owner hit Twilio and are
+  // billed. (Numbers repeated within THIS file are still looked up per
+  // occurrence — we only skip numbers that already exist as leads.)
+  const ownedLineType = new Map<string, LineType | null>();
+  const uniquePhones = [...new Set(e164s.filter((p): p is string => !!p))];
+  if (uniquePhones.length > 0) {
+    const { data: owned } = await supabase
+      .from("leads")
+      .select("business_phone, line_type")
+      .eq("owner_id", user.id)
+      .not("business_phone", "is", null)
+      .in("business_phone", uniquePhones);
+    for (const lead of owned ?? []) {
+      if (lead.business_phone) {
+        const key = toE164UsCa(lead.business_phone) ?? lead.business_phone;
+        ownedLineType.set(key, (lead.line_type as LineType | null) ?? null);
+      }
+    }
+  }
+
   // Run the Twilio lookups CONCURRENTLY with a bounded pool. Sequential
   // lookups (one await per row) made large imports time the function out; a
   // pool keeps each batch fast while staying well under Twilio's rate limit.
   // Results are written back by index so rowLineTypes stays aligned to rows.
-  const rowLineTypes: LineType[] = new Array(input.rows.length).fill("unknown");
   const CONCURRENCY = 15;
   let cursor = 0;
   async function worker() {
@@ -185,6 +213,11 @@ export async function analyzeImport(input: {
       if (i >= e164s.length) return;
       const phone = e164s[i];
       if (!phone) continue; // no phone → leave "unknown"
+      if (ownedLineType.has(phone)) {
+        // Already a lead we own — reuse the stored classification, no charge.
+        rowLineTypes[i] = ownedLineType.get(phone) ?? "unknown";
+        continue;
+      }
       rowLineTypes[i] = await lookupLineType(phone);
     }
   }
@@ -192,7 +225,12 @@ export async function analyzeImport(input: {
     Array.from({ length: Math.min(CONCURRENCY, input.rows.length) }, worker),
   );
 
-  const lookups = e164s.filter(Boolean).length;
+  // Bill only for numbers actually sent to Twilio — the ones new to this owner.
+  // Numbers reused from existing leads cost nothing.
+  let lookups = 0;
+  for (const phone of e164s) {
+    if (phone && !ownedLineType.has(phone)) lookups++;
+  }
   e164s.forEach((phone, i) => {
     const lineType = rowLineTypes[i];
     if (!phone) {
