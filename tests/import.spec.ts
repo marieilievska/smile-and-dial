@@ -11,6 +11,8 @@ test.describe("CSV import", () => {
 
   let admin: SupabaseClient;
   let listId: string;
+  let ownerId: string;
+  let mobileListId: string;
 
   test.beforeAll(async () => {
     admin = createClient(
@@ -29,11 +31,20 @@ test.describe("CSV import", () => {
       .select("id")
       .single();
     listId = list!.id;
+    ownerId = owner!.id;
+    const { data: mobileList } = await admin
+      .from("lists")
+      .insert({ owner_id: owner!.id, name: `E2E Mobile List ${stamp}` })
+      .select("id")
+      .single();
+    mobileListId = mobileList!.id;
   });
 
   test.afterAll(async () => {
     await admin.from("leads").delete().eq("list_id", listId);
+    await admin.from("leads").delete().eq("list_id", mobileListId);
     await admin.from("lists").delete().eq("id", listId);
+    await admin.from("lists").delete().eq("id", mobileListId);
   });
 
   test("a CSV imports valid leads and blocks mobile numbers", async ({
@@ -101,5 +112,70 @@ test.describe("CSV import", () => {
     await expect(page.getByRole("cell", { name: mobileCompany })).toHaveCount(
       0,
     );
+  });
+
+  test("splitting mobiles routes them to the mobile list and locks dialing", async ({
+    page,
+  }) => {
+    const landline = `E2E Split Landline ${stamp}`;
+    const mobile = `E2E Split Mobile ${stamp}`;
+    // +1700… → mobile in the mock lookup; the rest are landlines.
+    const csv =
+      "company,business_phone,city,state\n" +
+      `${landline},+1512${tail}6,Austin,TX\n` +
+      `${mobile},+1700${tail}7,Austin,TX\n`;
+
+    await page.goto("/leads/import");
+    await page.getByLabel("CSV file").setInputFiles({
+      name: "split.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(csv),
+    });
+
+    await page.getByLabel("Import into list").click();
+    await page
+      .getByRole("option", { name: `E2E Import List ${stamp}` })
+      .click();
+
+    // Turn on the split and pick the mobile list.
+    await page
+      .getByLabel("Also import mobile numbers into a separate list")
+      .check();
+    await page.getByLabel("Put mobile numbers in").click();
+    await page
+      .getByRole("option", { name: `E2E Mobile List ${stamp}` })
+      .click();
+
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Review import" }).click();
+
+    // The mobile is now a destination, not a skipped error.
+    await expect(
+      page.getByText(new RegExp(`Mobile numbers → E2E Mobile List ${stamp}`)),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: /Import 1 lead/ }).click();
+    await expect(
+      page.getByRole("heading", { name: /leads imported/i }),
+    ).toBeVisible();
+
+    // DB assertions: the mobile landed in the mobile list, tagged 'mobile'.
+    const { data: mobileLead } = await admin
+      .from("leads")
+      .select("list_id, line_type")
+      .eq("owner_id", ownerId)
+      .eq("company", mobile)
+      .single();
+    expect(mobileLead?.list_id).toBe(mobileListId);
+    expect(mobileLead?.line_type).toBe("mobile");
+
+    // The landline went to the main list.
+    const { data: landlineLead } = await admin
+      .from("leads")
+      .select("list_id")
+      .eq("owner_id", ownerId)
+      .eq("company", landline)
+      .single();
+    expect(landlineLead?.list_id).toBe(listId);
   });
 });
