@@ -1560,6 +1560,7 @@ export type Database = {
           google_reviews: number | null;
           id: string;
           last_call_at: string | null;
+          line_type: string | null;
           list_id: string;
           manager_name: string | null;
           meta_synced_at: string | null;
@@ -1596,6 +1597,7 @@ export type Database = {
           google_reviews?: number | null;
           id?: string;
           last_call_at?: string | null;
+          line_type?: string | null;
           list_id: string;
           manager_name?: string | null;
           meta_synced_at?: string | null;
@@ -1632,6 +1634,7 @@ export type Database = {
           google_reviews?: number | null;
           id?: string;
           last_call_at?: string | null;
+          line_type?: string | null;
           list_id?: string;
           manager_name?: string | null;
           meta_synced_at?: string | null;
