@@ -124,6 +124,9 @@ export function ImportWizard({
   >(null);
   const [dedup, setDedup] = useState<"skip" | "update">("skip");
   const [skipLookup, setSkipLookup] = useState(false);
+  const [splitMobiles, setSplitMobiles] = useState(false);
+  const [mobileListId, setMobileListId] = useState("");
+  const [createMobileListOpen, setCreateMobileListOpen] = useState(false);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [analysis, setAnalysis] = useState<ImportAnalysis | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -138,6 +141,10 @@ export function ImportWizard({
   const selectedListName = useMemo(
     () => lists.find((l) => l.id === listId)?.name ?? "",
     [lists, listId],
+  );
+  const selectedMobileListName = useMemo(
+    () => lists.find((l) => l.id === mobileListId)?.name ?? "",
+    [lists, mobileListId],
   );
 
   function onFile(file: File) {
@@ -175,6 +182,21 @@ export function ImportWizard({
       [...current, { id, name }].sort((a, b) => a.name.localeCompare(b.name)),
     );
     setListId(id);
+  }
+
+  function onMobileListPicked(value: string) {
+    if (value === CREATE_LIST_SENTINEL) {
+      setTimeout(() => setCreateMobileListOpen(true), 50);
+      return;
+    }
+    setMobileListId(value);
+  }
+
+  function onMobileListCreated(id: string, name: string) {
+    setLists((current) =>
+      [...current, { id, name }].sort((a, b) => a.name.localeCompare(b.name)),
+    );
+    setMobileListId(id);
   }
 
   function onMappingChange(header: string, value: string) {
@@ -236,7 +258,7 @@ export function ImportWizard({
         let res;
         try {
           res = await withRetry(() =>
-            analyzeImport({ mapping, rows: chunk, skipLookup }),
+            analyzeImport({ mapping, rows: chunk, skipLookup, splitMobiles }),
           );
         } catch {
           toast.error(
@@ -287,6 +309,7 @@ export function ImportWizard({
         skipped: 0,
         skippedMobile: 0,
         skippedInvalid: 0,
+        mobileImported: 0,
         error: null,
       };
       setProgress({ done: 0, total: rows.length });
@@ -300,6 +323,7 @@ export function ImportWizard({
           res = await withRetry(() =>
             importLeads({
               listId,
+              mobileListId: splitMobiles ? mobileListId : undefined,
               dedup,
               mapping,
               rows: rows.slice(i, i + IMPORT_BATCH),
@@ -323,6 +347,7 @@ export function ImportWizard({
         total.skipped += res.skipped;
         total.skippedMobile += res.skippedMobile;
         total.skippedInvalid += res.skippedInvalid;
+        total.mobileImported += res.mobileImported;
         if (res.error) {
           setResult({ ...total, error: res.error });
           toast.error(res.error);
@@ -373,6 +398,7 @@ export function ImportWizard({
         result={result}
         listId={listId}
         listName={selectedListName}
+        mobileListName={selectedMobileListName}
         hasActiveCampaign={activeCampaignListIds.includes(listId)}
         onReset={resetWizard}
       />
@@ -391,6 +417,8 @@ export function ImportWizard({
           analysis={analysis}
           fileName={fileName}
           skippedLookup={skipLookup}
+          splitMobiles={splitMobiles}
+          mobileListName={selectedMobileListName}
           dedup={dedup}
           pending={pending}
           progress={progress}
@@ -437,12 +465,18 @@ export function ImportWizard({
 
   // ----- Upload (default) -------------------------------------------------
   const hasLists = lists.length > 0;
-  const canContinue = Boolean(parsed && listId);
+  const mobileListInvalid =
+    splitMobiles && (!mobileListId || mobileListId === listId);
+  const canContinue = Boolean(parsed && listId) && !mobileListInvalid;
   const blockedReason = !parsed
     ? "Drop a CSV above to continue."
     : !listId
       ? "Pick a list to continue."
-      : "";
+      : splitMobiles && !mobileListId
+        ? "Pick a list for mobile numbers."
+        : splitMobiles && mobileListId === listId
+          ? "The mobile list must be different from the main list."
+          : "";
 
   const costEstimate =
     parsed != null && !skipLookup ? parsed.rows.length * COST_PER_LOOKUP : 0;
@@ -566,7 +600,12 @@ export function ImportWizard({
           <Checkbox
             id="skip-lookup"
             checked={skipLookup}
-            onCheckedChange={(value) => setSkipLookup(value === true)}
+            disabled={splitMobiles}
+            onCheckedChange={(value) => {
+              const on = value === true;
+              setSkipLookup(on);
+              if (on) setSplitMobiles(false);
+            }}
             className="mt-0.5"
           />
           <div className="flex flex-col gap-0.5">
@@ -585,6 +624,69 @@ export function ImportWizard({
           </div>
         </div>
 
+        {/* Split mobiles into a separate, never-auto-dialed list. Requires the
+            Twilio lookup (mutually exclusive with "Skip verification"): without
+            it we can't tell which numbers are mobile. */}
+        <div className="border-border bg-muted/20 flex flex-col gap-3 rounded-xl border px-4 py-3">
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="split-mobiles"
+              checked={splitMobiles}
+              disabled={skipLookup}
+              onCheckedChange={(value) => {
+                const on = value === true;
+                setSplitMobiles(on);
+                if (on) setSkipLookup(false);
+                if (!on) setMobileListId("");
+              }}
+              className="mt-0.5"
+            />
+            <div className="flex flex-col gap-0.5">
+              <Label
+                htmlFor="split-mobiles"
+                className="cursor-pointer text-sm font-medium"
+              >
+                Also import mobile numbers into a separate list
+              </Label>
+              <p className="text-muted-foreground text-xs">
+                Mobiles are kept in their own list and are never auto-dialed
+                (call or text them manually). Landlines still go to your main
+                list above.
+                {skipLookup
+                  ? " Turn off “Skip Twilio number verification” to use this."
+                  : ""}
+              </p>
+            </div>
+          </div>
+
+          {splitMobiles ? (
+            <div className="flex flex-col gap-2 pl-7">
+              <Label htmlFor="mobile-list">Put mobile numbers in</Label>
+              <Select value={mobileListId} onValueChange={onMobileListPicked}>
+                <SelectTrigger id="mobile-list">
+                  <SelectValue placeholder="Choose a list for mobiles" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectLabel>Your lists</SelectLabel>
+                    {lists
+                      .filter((list) => list.id !== listId)
+                      .map((list) => (
+                        <SelectItem key={list.id} value={list.id}>
+                          {list.name}
+                        </SelectItem>
+                      ))}
+                  </SelectGroup>
+                  <SelectSeparator />
+                  <SelectItem value={CREATE_LIST_SENTINEL}>
+                    + Create a new list…
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+        </div>
+
         <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <p className="text-muted-foreground text-xs">
             {canContinue ? "Ready when you are." : blockedReason}
@@ -600,6 +702,12 @@ export function ImportWizard({
         open={createListOpen}
         onOpenChange={setCreateListOpen}
         onCreated={onListCreated}
+      />
+
+      <CreateListInlineDialog
+        open={createMobileListOpen}
+        onOpenChange={setCreateMobileListOpen}
+        onCreated={onMobileListCreated}
       />
     </div>
   );
@@ -786,6 +894,8 @@ function ReviewStep({
   analysis,
   fileName,
   skippedLookup,
+  splitMobiles,
+  mobileListName,
   dedup,
   pending,
   progress,
@@ -796,6 +906,8 @@ function ReviewStep({
   analysis: ImportAnalysis;
   fileName: string;
   skippedLookup: boolean;
+  splitMobiles: boolean;
+  mobileListName: string;
   dedup: "skip" | "update";
   pending: boolean;
   progress: { done: number; total: number } | null;
@@ -811,12 +923,17 @@ function ReviewStep({
   // already have read as "everything will import").
   const newCount = Math.max(0, analysis.importable - dupExisting - dupInFile);
   const hasDuplicates = dupExisting > 0 || dupInFile > 0;
+  // Mobiles routed to the separate list (only when splitting). analysis.mobile
+  // may include a few duplicates, but it's the honest "will be handled" count.
+  const mobileToImport = splitMobiles ? analysis.mobile : 0;
   // No row passed the line-type gate at all — usually a missing phone mapping.
-  const noImportable = analysis.importable === 0;
+  // When splitting, mobiles are real work too, so don't call it "nothing".
+  const noImportable = analysis.importable === 0 && mobileToImport === 0;
   // In Update mode, existing duplicates aren't dead weight — they refresh the
   // leads in place, so there's still work to do even with zero net-new.
   const willUpdateExisting = dedup === "update" && dupExisting > 0;
-  const nothingToDo = newCount === 0 && !willUpdateExisting;
+  const nothingToDo =
+    newCount === 0 && !willUpdateExisting && mobileToImport === 0;
 
   return (
     <section className="flex flex-col gap-5">
@@ -855,9 +972,17 @@ function ReviewStep({
           <ReviewStat
             icon={<Smartphone className="size-3.5" />}
             tone="muted"
-            label="Mobile numbers (skipped)"
+            label={
+              splitMobiles
+                ? `Mobile numbers → ${mobileListName}`
+                : "Mobile numbers (skipped)"
+            }
             value={analysis.mobile}
-            tooltip="Mobile lines can't be auto-dialed safely. Smile & Dial only calls landlines."
+            tooltip={
+              splitMobiles
+                ? "Kept in the separate mobile list. Never auto-dialed."
+                : "Mobile lines can't be auto-dialed safely. Smile & Dial only calls landlines."
+            }
           />
           <ReviewStat
             icon={<AlertTriangle className="size-3.5" />}
@@ -963,9 +1088,13 @@ function ReviewStep({
             ? progress
               ? `Importing ${progress.done.toLocaleString()} / ${progress.total.toLocaleString()}…`
               : "Importing…"
-            : willUpdateExisting && newCount === 0
-              ? `Update ${plural(dupExisting, "lead")}`
-              : `Import ${plural(newCount, "lead")}`}
+            : newCount > 0
+              ? `Import ${plural(newCount, "lead")}`
+              : mobileToImport > 0
+                ? `Import ${plural(mobileToImport, "mobile")}`
+                : willUpdateExisting
+                  ? `Update ${plural(dupExisting, "lead")}`
+                  : `Import ${plural(newCount, "lead")}`}
         </Button>
       </div>
     </section>
@@ -1012,21 +1141,27 @@ function DoneStep({
   result,
   listId,
   listName,
+  mobileListName,
   hasActiveCampaign,
   onReset,
 }: {
   result: ImportResult;
   listId: string;
   listName: string;
+  mobileListName: string;
   /** True when the destination list already has an active campaign
    *  attached — so Autopilot will pick these leads up on its own.
    *  When false we nudge the user to attach one. */
   hasActiveCampaign: boolean;
   onReset: () => void;
 }) {
-  // Newly-present leads = fresh inserts + revived (previously-deleted) leads.
-  const totalAdded = result.imported + result.revived;
+  // Newly-present leads = fresh inserts + revived + mobiles routed to their list.
+  const totalAdded = result.imported + result.revived + result.mobileImported;
   const detailParts: string[] = [];
+  if (result.mobileImported > 0)
+    detailParts.push(
+      `${result.mobileImported} mobile into “${mobileListName}”`,
+    );
   if (result.revived > 0) detailParts.push(`${result.revived} restored`);
   if (result.updated > 0) detailParts.push(`${result.updated} updated`);
   if (result.skipped > 0)
@@ -1066,7 +1201,7 @@ function DoneStep({
           <h2 className="text-foreground text-2xl font-semibold tracking-tight">
             {totalAdded.toLocaleString()} {totalAdded === 1 ? "lead" : "leads"}{" "}
             imported
-            {listName ? (
+            {listName && result.mobileImported === 0 ? (
               <span className="text-foreground/70 font-normal">
                 {" "}
                 into &ldquo;{listName}&rdquo;
