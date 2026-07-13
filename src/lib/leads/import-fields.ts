@@ -34,6 +34,10 @@ export type ImportResult = {
   skipped: number;
   skippedMobile: number;
   skippedInvalid: number;
+  /** Mobiles newly inserted/revived into the separate mobile list (only when the
+   *  "split mobiles" option was on). Distinct from `skippedMobile`, which counts
+   *  mobiles dropped because no mobile list was chosen. */
+  mobileImported: number;
   error: string | null;
 };
 
