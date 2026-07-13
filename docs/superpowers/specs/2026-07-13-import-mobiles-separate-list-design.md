@@ -162,9 +162,11 @@ regenerated so `leads` Row/Insert/Update include `line_type`.
 - **`analyzeImport({ ..., splitMobiles })`**
   - When `splitMobiles` is true, do **not** push mobile rows into `skipped[]`
     (they're a destination, not an error). Keep counting them in `mobile`.
-  - `countImportDuplicates(...)`: when `splitMobiles` is true, **include** mobile
-    rows as import candidates for duplicate detection (today they're excluded
-    because they were dropped).
+  - `countImportDuplicates(...)` stays **landline-only (unchanged)**. The "new
+    leads" headline is `importable − duplicates`, and `importable` never includes
+    mobiles, so counting mobile duplicates here would corrupt that math. Mobile
+    de-duplication is handled at commit time in `importLeads` (its `seen` /
+    `phoneToLead` logic already covers every row regardless of destination).
 - **`importLeads({ ..., mobileListId })`**
   - Compute each row's target list: `const targetListId =
 (lineType === 'mobile' && mobileListId) ? mobileListId : input.listId`.
@@ -172,14 +174,18 @@ regenerated so `leads` Row/Insert/Update include `line_type`.
     (`skippedMobile++`) — preserves current behavior when split is off.
   - Validate `mobileListId` (when provided) is a real list the user owns, same as
     `input.listId`.
-  - Stamp `line_type` on every inserted / updated / revived lead from
-    `rowLineTypes[index]` (null when unavailable). New leads carry
-    `list_id: targetListId`.
+  - Stamp `line_type` from `rowLineTypes[index]`. On **insert**, always set it
+    (`line_type: lineType ?? null`). On **update / revive**, set it only when the
+    row's type is a positive classification (not `"unknown"`), so re-importing a
+    known mobile with the lookup skipped can never silently **downgrade** a
+    `'mobile'` stamp and unlock it. New leads carry `list_id: targetListId`.
   - Accounting: select `list_id` back from the insert upsert and count inserts
     per destination — landlines into `imported`, mobiles into `mobileImported`.
     Revived mobiles move into `mobileListId` (mirrors the existing revive-relist
     behavior) and count toward `mobileImported`. Updates refresh fields in place
-    without moving lists (unchanged), but still set `line_type`.
+    without moving lists (unchanged); a live main-list lead re-classified as
+    mobile therefore stays put but gets stamped `'mobile'` and thus becomes
+    non-dialable — an intended safety outcome.
 
 ### 4. Wizard — `src/app/(app)/leads/import/import-wizard.tsx`
 
