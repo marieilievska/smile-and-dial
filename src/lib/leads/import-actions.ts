@@ -111,6 +111,7 @@ export async function analyzeImport(input: {
   mapping: Record<string, string>;
   rows: Record<string, string>[];
   skipLookup?: boolean;
+  splitMobiles?: boolean;
 }): Promise<ImportAnalysis> {
   const empty: ImportAnalysis = {
     total: input.rows.length,
@@ -198,7 +199,11 @@ export async function analyzeImport(input: {
       importable++;
     } else if (lineType === "mobile") {
       mobile++;
-      skipped.push({ phone, reason: "Mobile number (TCPA compliance)" });
+      // When splitting mobiles into their own list they're a destination, not
+      // an error — keep them out of the skipped/error report. Still counted.
+      if (!input.splitMobiles) {
+        skipped.push({ phone, reason: "Mobile number (TCPA compliance)" });
+      }
     } else if (lineType === "invalid") {
       invalid++;
       skipped.push({ phone, reason: "Invalid or disconnected number" });
@@ -252,6 +257,7 @@ export async function analyzeImport(input: {
  */
 export async function importLeads(input: {
   listId: string;
+  mobileListId?: string;
   dedup: "skip" | "update";
   mapping: Record<string, string>;
   rows: Record<string, string>[];
@@ -264,6 +270,7 @@ export async function importLeads(input: {
     skipped: 0,
     skippedMobile: 0,
     skippedInvalid: 0,
+    mobileImported: 0,
   };
   const supabase = await createClient();
   const {
@@ -277,6 +284,19 @@ export async function importLeads(input: {
     .eq("id", input.listId)
     .maybeSingle();
   if (!list) return { ...base, error: "Choose a valid list to import into." };
+
+  // When splitting mobiles, the mobile list must also be a real list the user
+  // owns (RLS scopes this select to the caller).
+  if (input.mobileListId) {
+    const { data: mobileList } = await supabase
+      .from("lists")
+      .select("id")
+      .eq("id", input.mobileListId)
+      .maybeSingle();
+    if (!mobileList) {
+      return { ...base, error: "Choose a valid list for mobile numbers." };
+    }
+  }
 
   // Creating a NEW custom field requires admin (RLS on custom_field_defs).
   // Catch this BEFORE inserting any leads so a non-admin doesn't get a
@@ -397,28 +417,37 @@ export async function importLeads(input: {
     leadId: string;
     fields: Record<string, unknown>;
     customs: { customId: string; value: string }[];
+    lineType?: LineType;
   }[] = [];
   // Soft-deleted matches: bring them back rather than skip/insert.
   const revives: {
     leadId: string;
     fields: Record<string, unknown>;
     customs: { customId: string; value: string }[];
+    targetListId: string;
+    lineType?: LineType;
   }[] = [];
   let skipped = 0;
   let skippedMobile = 0;
   let skippedInvalid = 0;
+  let mobileImported = 0;
 
   input.rows.forEach((row, index) => {
-    // Drop mobile and invalid numbers flagged by the Twilio Lookup analysis.
     const lineType = input.rowLineTypes?.[index];
-    if (lineType === "mobile") {
-      skippedMobile++;
-      return;
-    }
+    // Invalid/disconnected numbers are always dropped.
     if (lineType === "invalid") {
       skippedInvalid++;
       return;
     }
+    const isMobile = lineType === "mobile";
+    // A mobile with no mobile list to route into is dropped — preserves today's
+    // behavior when the split option is off.
+    if (isMobile && !input.mobileListId) {
+      skippedMobile++;
+      return;
+    }
+    // Mobiles go to the mobile list; everything else to the main list.
+    const targetListId = isMobile ? input.mobileListId! : input.listId;
 
     const fields: Record<string, unknown> = {};
     for (const [header, key] of headerToField) {
@@ -479,24 +508,41 @@ export async function importLeads(input: {
           // Revive a previously-deleted lead — clear deleted_at, refresh its
           // fields, and move it into the chosen list. Always happens (both
           // dedup modes), since a deleted lead isn't a live duplicate.
-          revives.push({ leadId: match.id, fields, customs });
+          revives.push({
+            leadId: match.id,
+            fields,
+            customs,
+            targetListId,
+            lineType,
+          });
           return;
         }
         if (input.dedup === "skip") {
           skipped++;
           return;
         }
-        updates.push({ leadId: match.id, fields, customs });
+        updates.push({ leadId: match.id, fields, customs, lineType });
         return;
       }
     }
 
-    newLeads.push({ ...fields, owner_id: user.id, list_id: input.listId });
+    newLeads.push({
+      ...fields,
+      owner_id: user.id,
+      list_id: targetListId,
+      line_type: lineType ?? null,
+    });
     newCustoms.push(customs);
   });
 
   let revived = 0;
-  const failTail = { revived, skipped, skippedMobile, skippedInvalid };
+  const failTail = {
+    revived,
+    skipped,
+    skippedMobile,
+    skippedInvalid,
+    mobileImported,
+  };
 
   // Insert new leads in batches. We UPSERT with ignoreDuplicates rather than a
   // plain INSERT so a row that already owns its (owner_id, business_phone) slot
@@ -515,7 +561,7 @@ export async function importLeads(input: {
         onConflict: "owner_id,business_phone",
         ignoreDuplicates: true,
       })
-      .select("id, business_phone");
+      .select("id, business_phone, list_id");
     if (error || !inserted) {
       return {
         ...failTail,
@@ -524,7 +570,12 @@ export async function importLeads(input: {
         error: "Some rows could not be imported.",
       };
     }
-    imported += inserted.length;
+    imported += inserted.filter((l) => l.list_id === input.listId).length;
+    if (input.mobileListId) {
+      mobileImported += inserted.filter(
+        (l) => l.list_id === input.mobileListId,
+      ).length;
+    }
     // Conflicting rows are NOT returned by an ignoreDuplicates upsert, so they
     // were silently skipped — count them as dedup skips so the wizard's
     // imported/skipped totals stay honest.
@@ -574,9 +625,13 @@ export async function importLeads(input: {
   // Apply updates for matched leads.
   let updated = 0;
   for (const u of updates) {
+    // Only stamp a positive classification, so a lookup-skipped re-import can't
+    // downgrade a 'mobile' lock to 'unknown' and quietly make it dialable.
+    const stamp =
+      u.lineType && u.lineType !== "unknown" ? { line_type: u.lineType } : {};
     const { error } = await supabase
       .from("leads")
-      .update(u.fields as LeadUpdate)
+      .update({ ...u.fields, ...stamp } as LeadUpdate)
       .eq("id", u.leadId);
     if (!error) {
       updated++;
@@ -595,12 +650,15 @@ export async function importLeads(input: {
   // Revive soft-deleted matches: clear deleted_at, refresh fields, and move
   // them into the chosen list so they reappear on the Leads page.
   for (const r of revives) {
+    const stamp =
+      r.lineType && r.lineType !== "unknown" ? { line_type: r.lineType } : {};
     const { error } = await supabase
       .from("leads")
       .update({
         ...r.fields,
+        ...stamp,
         deleted_at: null,
-        list_id: input.listId,
+        list_id: r.targetListId,
       } as LeadUpdate)
       .eq("id", r.leadId);
     if (!error) {
@@ -625,6 +683,7 @@ export async function importLeads(input: {
     skipped,
     skippedMobile,
     skippedInvalid,
+    mobileImported,
     error: null,
   };
 }
