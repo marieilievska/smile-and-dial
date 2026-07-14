@@ -108,7 +108,6 @@ test.describe("ElevenLabs conversation-init webhook", () => {
         list_id: listId,
         company: `E2E Init Co ${stamp}`,
         business_phone: `+1555${tail}55`,
-        ai_summary: "we know they run a busy gym / we last left off mid-pitch",
         status: "ready_to_call",
         owner_name: "Dana Owner",
         city: "Austin",
@@ -119,6 +118,15 @@ test.describe("ElevenLabs conversation-init webhook", () => {
       .select("id")
       .single();
     leadId = lead!.id;
+
+    // The rolling summary now lives per-campaign in lead_campaign_summaries
+    // (leads.ai_summary was dropped 2026-07-02); buildVarsForCall reads it from
+    // there, so seed it here for the "cold call surfaces the summary" assertion.
+    await admin.from("lead_campaign_summaries").insert({
+      lead_id: leadId,
+      campaign_id: campaignId,
+      ai_summary: "we know they run a busy gym / we last left off mid-pitch",
+    });
   });
 
   test.afterAll(async () => {
@@ -128,6 +136,10 @@ test.describe("ElevenLabs conversation-init webhook", () => {
       .eq("lead_id", leadId ?? "");
     await admin
       .from("calls")
+      .delete()
+      .eq("lead_id", leadId ?? "");
+    await admin
+      .from("lead_campaign_summaries")
       .delete()
       .eq("lead_id", leadId ?? "");
     await admin
