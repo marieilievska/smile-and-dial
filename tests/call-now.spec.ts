@@ -232,4 +232,35 @@ test.describe("Call Now from lead modal", () => {
       .eq("lead_id", leadId);
     expect((calls ?? []).length).toBe(0);
   });
+
+  test("Call Now is blocked when the lead already has an active call", async ({
+    page,
+  }) => {
+    const leadId = await seedLead("30", `+1222${tail}30`);
+    // Simulate a call already in flight for this lead (the autopilot tick
+    // placed one, or a first click is mid-dial). Call Now must not add a
+    // second simultaneous live call to the same business.
+    await admin.from("calls").insert({
+      lead_id: leadId,
+      campaign_id: campaignId,
+      agent_id: agentId,
+      twilio_number_id: twilioNumberId,
+      direction: "outbound",
+      status: "dialing",
+    });
+
+    await page.goto(`/leads/${leadId}`);
+    await page.getByRole("button", { name: "Call now" }).click();
+    await page.getByRole("button", { name: "Call", exact: true }).click();
+    await expect(
+      page.getByText("This lead already has a call in progress."),
+    ).toBeVisible();
+
+    // Still just the one in-flight call — no second row was written.
+    const { data: calls } = await admin
+      .from("calls")
+      .select("id")
+      .eq("lead_id", leadId);
+    expect((calls ?? []).length).toBe(1);
+  });
 });

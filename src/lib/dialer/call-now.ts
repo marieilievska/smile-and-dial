@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
+import { ACTIVE_CALL_STATUSES } from "@/lib/calls/live-calls";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 import type { Database } from "@/lib/supabase/database.types";
@@ -168,6 +169,26 @@ export async function callNow(input: {
   // fields the user doesn't directly own (status updates, costs).
   const admin = makeServiceClient();
   const startedAt = new Date();
+
+  // Guard against a double-dial. pre_call_check screened for an in-flight call
+  // earlier, but between that check and the insert below a second Call Now (a
+  // double-click, another operator) or the autopilot tick could place one —
+  // pre_call_check runs before either side inserts its calls row, so it can't
+  // see a sibling that's mid-flight. Re-check for an active call against the
+  // service client immediately before inserting so we never put two
+  // simultaneous live calls on the same business (wasted spend + a TCPA
+  // harassment pattern). This narrows the window to sub-millisecond; a
+  // partial-unique index on calls(lead_id) for active statuses would close it
+  // entirely at the DB level.
+  const { data: activeCalls } = await admin
+    .from("calls")
+    .select("id")
+    .eq("lead_id", input.leadId)
+    .in("status", ACTIVE_CALL_STATUSES as unknown as string[])
+    .limit(1);
+  if (activeCalls && activeCalls.length > 0) {
+    return { error: "This lead already has a call in progress." };
+  }
 
   // Fork: live calling (ElevenLabs places + runs the call) vs. mock synthetic.
   if (liveCalling) {
