@@ -191,9 +191,14 @@ test.describe("Twilio status webhook", () => {
     let res = await postStatus(context, "initiated");
     expect(res.ok()).toBe(true);
     expect(await res.json()).toEqual({ status: "applied" });
+    // `c` is reused across every status stage below, so its type is fixed by
+    // this first select — it must list every column any later stage reads
+    // (including duration_seconds, asserted after the completed event).
     let { data: c } = await admin
       .from("calls")
-      .select("status, started_at, answered_at, ended_at, outcome")
+      .select(
+        "status, started_at, answered_at, ended_at, duration_seconds, outcome",
+      )
       .eq("id", callId)
       .single();
     expect(c?.status).toBe("dialing");

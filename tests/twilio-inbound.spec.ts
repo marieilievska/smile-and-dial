@@ -234,12 +234,17 @@ test.describe("Twilio inbound routing", () => {
 
     const { data: lead } = await admin
       .from("leads")
-      .select("business_phone, list_id, list:lists(name, is_inbound_default)")
+      .select("business_phone, list_id")
       .eq("id", call!.lead_id)
       .single();
     expect(lead?.business_phone).toBe(unknownCaller);
-    expect(lead?.list?.name).toBe("Inbound");
-    expect(lead?.list?.is_inbound_default).toBe(true);
+    const { data: list } = await admin
+      .from("lists")
+      .select("name, is_inbound_default")
+      .eq("id", lead!.list_id!)
+      .single();
+    expect(list?.name).toBe("Inbound");
+    expect(list?.is_inbound_default).toBe(true);
   });
 
   test("a replayed inbound webhook is idempotent on CallSid", async () => {
