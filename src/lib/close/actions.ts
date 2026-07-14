@@ -8,7 +8,6 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { getScheduledEventHostEmail } from "@/lib/calendly/api";
 
 import {
-  closeSenderEmail,
   createCloseLead,
   createCloseNote,
   createCloseTask,
@@ -16,9 +15,9 @@ import {
   findCloseLeadByEmail,
   findCloseUserByEmail,
   getCloseMe,
-  sendCloseEmail,
   setCloseLeadCustomFields,
 } from "./api";
+import { deliverEmailViaClose } from "./send-email";
 import { buildHandoffNote, buildHandoffTaskText } from "./handoff";
 import { renderTemplate, type TemplateContext } from "./templates";
 
@@ -170,51 +169,30 @@ export async function sendEmail(input: {
   let fromAddress: string;
 
   if (closeKey) {
-    const senderEmail = await closeSenderEmail(closeKey);
-    if (!senderEmail) {
-      return {
-        error:
-          "Your Close account has no connected email to send from. Connect an email account in Close, then try again.",
-      };
-    }
-    const sender = ownerProfile?.full_name
-      ? `${ownerProfile.full_name} <${senderEmail}>`
-      : senderEmail;
-
-    // Find the contact in Close, creating the lead there if it's new.
-    const contactName =
-      (leadRecord.owner_name as string | null | undefined) ||
-      (leadRecord.manager_name as string | null | undefined) ||
-      null;
-    let ref = await findCloseLeadByEmail(closeKey, toAddress);
-    if (!ref) {
-      ref = await createCloseLead(closeKey, {
-        companyName: (leadRecord.company as string | null | undefined) ?? null,
-        contactName,
-        email: toAddress,
-        phone: (leadRecord.business_phone as string | null | undefined) ?? null,
-      });
-    }
-    if (!ref) {
-      return { error: "Could not create the contact in Close." };
-    }
-
-    const sent = await sendCloseEmail(closeKey, {
-      leadId: ref.leadId,
-      contactId: ref.contactId,
-      to: toAddress,
+    const delivered = await deliverEmailViaClose({
+      closeKey,
+      senderName: ownerProfile?.full_name ?? null,
+      toAddress,
       subject,
-      bodyText: body,
-      sender,
+      body,
+      contactName:
+        (leadRecord.owner_name as string | null | undefined) ||
+        (leadRecord.manager_name as string | null | undefined) ||
+        null,
+      company: (leadRecord.company as string | null | undefined) ?? null,
+      businessPhone:
+        (leadRecord.business_phone as string | null | undefined) ?? null,
     });
-    if (sent.error || !sent.id) {
+    if (!delivered.ok) {
       return {
         error:
-          `Couldn't send the email through Close. ${sent.error ?? ""}`.trim(),
+          delivered.error === "no_connected_sending_email"
+            ? "Your Close account has no connected email to send from. Connect an email account in Close, then try again."
+            : `Couldn't send the email through Close. ${delivered.error}`.trim(),
       };
     }
-    closeMessageId = sent.id;
-    fromAddress = sender;
+    closeMessageId = delivered.closeMessageId;
+    fromAddress = delivered.fromAddress;
   } else {
     // No Close connected for this owner — log the email without sending.
     closeMessageId = `mock-msg-${Date.now()}`;
