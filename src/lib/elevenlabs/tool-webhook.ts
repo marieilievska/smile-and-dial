@@ -15,6 +15,8 @@ import {
   parseZonedDatetime,
 } from "@/lib/dialer/local-schedule";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
+import { deliverEmailViaClose } from "@/lib/close/send-email";
+import { planEmailSend } from "@/lib/close/email-send-plan";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
 /**
@@ -367,6 +369,44 @@ async function buildEmailContext(ctx: CallContext): Promise<TemplateContext> {
   };
 }
 
+/** Insert the sent `emails` row + bump the template's last_used_at. Shared by
+ *  the real-delivery and mock paths (they differ only in from/message id). */
+async function recordSentEmail(
+  ctx: CallContext,
+  args: {
+    templateId: string;
+    subject: string;
+    body: string;
+    toAddress: string;
+    fromAddress: string;
+    closeMessageId: string;
+  },
+): Promise<string | null> {
+  const { data: inserted } = await ctx.supabase
+    .from("emails")
+    .insert({
+      lead_id: ctx.lead.id,
+      owner_id: ctx.lead.owner_id,
+      campaign_id: ctx.campaignId,
+      call_id: ctx.callId,
+      direction: "sent",
+      subject: args.subject,
+      body: args.body,
+      to_address: args.toAddress,
+      from_address: args.fromAddress,
+      close_message_id: args.closeMessageId,
+      status: "sent",
+      template_id: args.templateId,
+    })
+    .select("id")
+    .maybeSingle();
+  await ctx.supabase
+    .from("email_templates")
+    .update({ last_used_at: new Date().toISOString() })
+    .eq("id", args.templateId);
+  return inserted?.id ?? null;
+}
+
 async function sendEmail(
   ctx: CallContext,
   body: Record<string, unknown>,
@@ -412,46 +452,80 @@ async function sendEmail(
   const subject = renderTemplate(tmpl.subject, renderCtx);
   const renderedBody = renderTemplate(tmpl.body, renderCtx);
 
-  // Record the send. Live Close delivery isn't built yet, so this is the mock
-  // path (status=sent, fake message id) — but it's a REAL email row the lead
-  // detail + post-call pipeline can show, rendered from the chosen template.
-  const { data: inserted } = await ctx.supabase
-    .from("emails")
-    .insert({
-      lead_id: ctx.lead.id,
-      owner_id: ctx.lead.owner_id,
-      campaign_id: ctx.campaignId,
-      call_id: ctx.callId,
-      direction: "sent",
-      subject,
-      body: renderedBody,
-      to_address: email,
-      from_address: renderCtx.owner?.full_name
-        ? `${renderCtx.owner.full_name} via Close`
-        : "Close mock",
-      close_message_id: `mock-msg-${Date.now()}`,
-      status: "sent",
-      template_id: tmpl.id,
-    })
-    .select("id")
-    .maybeSingle();
+  const live = process.env.ELEVENLABS_LIVE === "live";
+  const sentMessage = `Done — I've sent the "${tmpl.name}" email to ${email}. It should arrive shortly.`;
+  const notedMessage = `Got it — I've noted to send that to ${email}.`;
 
-  await ctx.supabase
-    .from("email_templates")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", tmpl.id);
+  // In live mode, look up the owner's Close key and attempt real delivery.
+  // Non-live keeps a mock row so dev/test flows + the activity feed still work.
+  let hasCloseKey = false;
+  let delivered: Awaited<ReturnType<typeof deliverEmailViaClose>> | null = null;
+  if (live) {
+    const { data: integ } = await ctx.supabase
+      .from("user_integrations")
+      .select("close_api_key")
+      .eq("user_id", ctx.lead.owner_id)
+      .maybeSingle();
+    const closeKey = integ?.close_api_key?.trim() || null;
+    hasCloseKey = Boolean(closeKey);
+    if (closeKey) {
+      delivered = await deliverEmailViaClose({
+        closeKey,
+        senderName: renderCtx.owner?.full_name ?? null,
+        toAddress: email,
+        subject,
+        body: renderedBody,
+        contactName: ctx.lead.owner_name || ctx.lead.manager_name || null,
+        company: ctx.lead.company,
+        businessPhone: ctx.lead.business_phone,
+      });
+    }
+  }
+
+  const plan = planEmailSend({ live, hasCloseKey, delivered });
+
+  // Honesty rule: never tell the lead we sent when we couldn't. When we can't
+  // deliver we record the intent (system_events) but no fake "sent" row.
+  if (plan.action === "note_only") {
+    await logToolEvent(ctx, "tool_send_email", {
+      email,
+      template_id: tmpl.id,
+      sent: false,
+      reason: plan.reason,
+    });
+    return { success: true, message: notedMessage };
+  }
+
+  const isReal = plan.action === "record_real";
+  const fromAddress =
+    isReal && delivered?.ok
+      ? delivered.fromAddress
+      : renderCtx.owner?.full_name
+        ? `${renderCtx.owner.full_name} via Close`
+        : "Close mock";
+  const closeMessageId =
+    isReal && delivered?.ok
+      ? delivered.closeMessageId
+      : `mock-msg-${Date.now()}`;
+
+  const emailId = await recordSentEmail(ctx, {
+    templateId: tmpl.id,
+    subject,
+    body: renderedBody,
+    toAddress: email,
+    fromAddress,
+    closeMessageId,
+  });
 
   await logToolEvent(ctx, "tool_send_email", {
     email,
     template_id: tmpl.id,
-    email_id: inserted?.id ?? null,
+    email_id: emailId,
     sent: true,
+    mock: !isReal,
   });
 
-  return {
-    success: true,
-    message: `Done — I've sent the "${tmpl.name}" email to ${email}. It should arrive shortly.`,
-  };
+  return { success: true, message: sentMessage };
 }
 
 // ---------------------------------------------------------------------------
