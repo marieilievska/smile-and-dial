@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
+import { toE164UsCa } from "@/lib/leads/twilio-lookup";
 import { createClient } from "@/lib/supabase/server";
 
 export type DncReason =
@@ -22,8 +23,13 @@ export async function addToDnc(input: {
   reason: DncReason;
   company: string;
 }): Promise<DncResult> {
-  const phone = input.phone.trim();
-  if (!phone) return { error: "Enter a phone number." };
+  const raw = input.phone.trim();
+  if (!raw) return { error: "Enter a phone number." };
+  // Store in E.164 (+1XXXXXXXXXX) so the entry actually matches lead numbers
+  // (which are always E.164) at dial time. The add dialog normalizes
+  // client-side, but this is the server-side backstop for any other caller.
+  const phone = toE164UsCa(raw);
+  if (!phone) return { error: "Enter a valid US/CA phone number." };
 
   const supabase = await createClient();
   const {

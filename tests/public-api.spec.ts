@@ -81,7 +81,7 @@ test.describe("Public API: POST /api/v1/leads", () => {
   test("missing key → 401", async ({ baseURL }) => {
     const api = await playwrightRequest.newContext({ baseURL });
     const r = await api.post("/api/v1/leads", {
-      data: { business_phone: `+1777${tail}01` },
+      data: { business_phone: `+1777${tail}1` },
     });
     expect(r.status()).toBe(401);
   });
@@ -90,14 +90,14 @@ test.describe("Public API: POST /api/v1/leads", () => {
     const api = await playwrightRequest.newContext({ baseURL });
     const r = await api.post("/api/v1/leads", {
       headers: { authorization: `Bearer sk_${"x".repeat(20)}` },
-      data: { business_phone: `+1777${tail}02` },
+      data: { business_phone: `+1777${tail}2` },
     });
     expect(r.status()).toBe(403);
   });
 
   test("valid key creates a lead (201)", async ({ baseURL }) => {
     const api = await playwrightRequest.newContext({ baseURL });
-    const phone = `+1777${tail}03`;
+    const phone = `+1777${tail}3`;
     const r = await api.post("/api/v1/leads", {
       headers: { authorization: `Bearer ${rawKey}` },
       data: {
@@ -121,7 +121,7 @@ test.describe("Public API: POST /api/v1/leads", () => {
 
   test("same phone returns 200 duplicate", async ({ baseURL }) => {
     const api = await playwrightRequest.newContext({ baseURL });
-    const phone = `+1777${tail}03`;
+    const phone = `+1777${tail}3`;
     const r = await api.post("/api/v1/leads", {
       headers: { authorization: `Bearer ${rawKey}` },
       data: { business_phone: phone },
@@ -133,7 +133,7 @@ test.describe("Public API: POST /api/v1/leads", () => {
 
   test("Idempotency-Key replays the cached response", async ({ baseURL }) => {
     const api = await playwrightRequest.newContext({ baseURL });
-    const phone = `+1777${tail}04`;
+    const phone = `+1777${tail}4`;
     const headers = {
       authorization: `Bearer ${rawKey}`,
       "idempotency-key": idempotencyKey,
@@ -163,6 +163,44 @@ test.describe("Public API: POST /api/v1/leads", () => {
       .eq("owner_id", ownerId)
       .eq("business_phone", phone);
     expect(rows?.length).toBe(1);
+  });
+
+  test("normalizes a non-E.164 phone to E.164 on create", async ({
+    baseURL,
+  }) => {
+    const api = await playwrightRequest.newContext({ baseURL });
+    // A bare 10-digit number (no +1) — the format partner CRMs commonly send.
+    // It must be stored as E.164 (+1XXXXXXXXXX) so DNC suppression (an exact
+    // string match) and the dialer both work; otherwise a suppressed number
+    // sent in this shape would silently be dialed.
+    const digits = `775${tail}0`; // 10 digits, distinct area from other tests
+    const r = await api.post("/api/v1/leads", {
+      headers: { authorization: `Bearer ${rawKey}` },
+      data: { business_phone: digits, company: `E2E API Norm ${stamp}` },
+    });
+    expect(r.status()).toBe(201);
+    const body = await r.json();
+    createdLeadIds.push(body.id);
+
+    const { data: lead } = await admin
+      .from("leads")
+      .select("business_phone")
+      .eq("id", body.id)
+      .single();
+    expect(lead?.business_phone).toBe(`+1${digits}`);
+  });
+
+  test("rejects a phone that isn't a valid US/CA number → 400", async ({
+    baseURL,
+  }) => {
+    const api = await playwrightRequest.newContext({ baseURL });
+    const r = await api.post("/api/v1/leads", {
+      headers: { authorization: `Bearer ${rawKey}` },
+      data: { business_phone: "+44 20 7946 0000" }, // UK number, not US/CA
+    });
+    expect(r.status()).toBe(400);
+    const body = await r.json();
+    expect(body.error).toContain("US/CA");
   });
 
   test("requests over the per-key rate limit get 429", async ({ baseURL }) => {
@@ -200,7 +238,7 @@ test.describe("Public API: POST /api/v1/leads", () => {
       const api = await playwrightRequest.newContext({ baseURL });
       const r = await api.post("/api/v1/leads", {
         headers: { authorization: `Bearer ${rlRawKey}` },
-        data: { business_phone: `+1777${tail}99` },
+        data: { business_phone: `+1777${tail}9` },
       });
       expect(r.status()).toBe(429);
       expect(r.headers()["retry-after"]).toBeTruthy();
