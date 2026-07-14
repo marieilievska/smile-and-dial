@@ -217,28 +217,6 @@ export function outcomeDistribution(rows: CallRow[]): OutcomeBucket[] {
     .sort((a, b) => b.count - a.count);
 }
 
-export function buildFunnel(rows: CallRow[]): FunnelStep[] {
-  let dialed = 0;
-  let connected = 0;
-  let conversation = 0;
-  let dmsReached = 0;
-  let goalMet = 0;
-  for (const r of rows) {
-    dialed += 1;
-    if (r.outcome && CONNECTED_OUTCOMES.has(r.outcome)) connected += 1;
-    if (r.outcome && CONVERSATION_OUTCOMES.has(r.outcome)) conversation += 1;
-    if (rowReachedDm(r)) dmsReached += 1;
-    if (r.goal_met) goalMet += 1;
-  }
-  return [
-    { label: "Dialed", count: dialed },
-    { label: "Connected", count: connected },
-    { label: "Conversation", count: conversation },
-    { label: "DMs Reached", count: dmsReached },
-    { label: "Goal Met", count: goalMet },
-  ];
-}
-
 /** Per-BUSINESS conversion funnel — counts DISTINCT leads at each stage so the
  *  funnel narrows cleanly into a true subset chain (unlike the per-call version,
  *  where sticky lead flags like DM-reached/goal-met can make a later stage
