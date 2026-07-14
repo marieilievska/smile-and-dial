@@ -398,34 +398,6 @@ export async function fetchActiveCalls(
   return { rows: mapped, total: count ?? 0 };
 }
 
-/** Daily call counts for the last 7 days. */
-export async function fetch7dCallTrend(
-  supabase: SupabaseClient,
-): Promise<{ day: string; count: number }[]> {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - 6);
-  const { data: rows } = await supabase
-    .from("calls")
-    .select("created_at")
-    .gte("created_at", start.toISOString())
-    .order("created_at", { ascending: true });
-
-  const buckets = new Map<string, number>();
-  for (
-    let d = new Date(start);
-    d.getTime() <= Date.now();
-    d.setDate(d.getDate() + 1)
-  ) {
-    buckets.set(d.toISOString().slice(0, 10), 0);
-  }
-  for (const r of rows ?? []) {
-    const day = r.created_at.slice(0, 10);
-    buckets.set(day, (buckets.get(day) ?? 0) + 1);
-  }
-  return [...buckets.entries()].map(([day, count]) => ({ day, count }));
-}
-
 export type AutopilotStatus = {
   /** Campaigns currently dialing. */
   activeCampaigns: number;
