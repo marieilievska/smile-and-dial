@@ -16,6 +16,13 @@ import { formatPhone } from "@/lib/format-phone";
 import { callbackStatusLabel } from "@/lib/labels";
 import { callbackStatusBadgeVariant } from "@/lib/outcome-style";
 import { createClient } from "@/lib/supabase/server";
+import {
+  endOfEtDayUtcIso,
+  etDateDaysAgo,
+  etDayString,
+  etMidnightUtcIso,
+  startOfTodayEtIso,
+} from "@/lib/time/eastern";
 
 import { CallbackRow } from "./callback-row";
 import { CallbackRowActions } from "./callback-row-actions";
@@ -156,30 +163,31 @@ export default async function CallbacksPage({
   if (statusFilter !== "all") query = query.eq("status", statusFilter);
   if (campaignFilter) query = query.eq("campaign_id", campaignFilter);
 
-  // Stat-strip shortcuts.
+  // Stat-strip shortcuts. Day-based ranges use Eastern calendar-day
+  // boundaries (the app-wide convention) so "today"/"this week" match the
+  // stat strip and the rest of the app rather than the server's UTC midnight.
+  const todayEt = etDayString(now);
   if (rangeFilter === "today") {
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date(now);
-    endOfToday.setHours(23, 59, 59, 999);
     query = query
-      .gte("scheduled_at", startOfToday.toISOString())
-      .lte("scheduled_at", endOfToday.toISOString());
+      .gte("scheduled_at", startOfTodayEtIso(now))
+      .lte("scheduled_at", endOfEtDayUtcIso(todayEt));
   } else if (rangeFilter === "week") {
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const weekFromNow = new Date(startOfToday);
-    weekFromNow.setDate(weekFromNow.getDate() + 7);
     query = query
-      .gte("scheduled_at", startOfToday.toISOString())
-      .lt("scheduled_at", weekFromNow.toISOString());
+      .gte("scheduled_at", startOfTodayEtIso(now))
+      .lt("scheduled_at", etMidnightUtcIso(etDateDaysAgo(-7, now)));
   } else if (rangeFilter === "overdue") {
     query = query.lt("scheduled_at", now.toISOString());
   }
 
-  // Explicit date range overrides the stat-strip shortcuts.
-  if (fromFilter) query = query.gte("scheduled_at", fromFilter);
-  if (toFilter) query = query.lte("scheduled_at", `${toFilter}T23:59:59`);
+  // Explicit date range overrides the stat-strip shortcuts. fromFilter and
+  // toFilter are already validated to YYYY-MM-DD (or ""); treat them as
+  // Eastern calendar days.
+  if (fromFilter) {
+    query = query.gte("scheduled_at", etMidnightUtcIso(fromFilter));
+  }
+  if (toFilter) {
+    query = query.lte("scheduled_at", endOfEtDayUtcIso(toFilter));
+  }
 
   if (voicemailFilter === "none") query = query.eq("voicemail_attempts", 0);
   if (voicemailFilter === "some") query = query.gte("voicemail_attempts", 1);

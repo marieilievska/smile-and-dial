@@ -1,5 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  endOfEtDayUtcIso,
+  etDateDaysAgo,
+  etDayString,
+  etMidnightUtcIso,
+  startOfTodayEtIso,
+} from "@/lib/time/eastern";
+
 /** Four at-a-glance numbers for the /callbacks stat strip:
  *   - dueToday        — pending, scheduled today (00:00 → 23:59 local)
  *   - dueThisWeek     — pending, scheduled in the next 7 days (incl. today)
@@ -28,13 +36,15 @@ export async function fetchCallbackStats(
   supabase: SupabaseClient,
 ): Promise<CallbackStats> {
   const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const endOfToday = new Date(startOfToday);
-  endOfToday.setHours(23, 59, 59, 999);
-  const weekFromNow = new Date(startOfToday);
-  weekFromNow.setDate(weekFromNow.getDate() + 7);
-  const hourFromNow = new Date(now.getTime() + 60 * 60_000);
+  // Eastern calendar-day boundaries so "due today"/"this week" match the rest
+  // of the app instead of the server's UTC midnight (which rolls over ~7-8pm
+  // ET). scheduled_at is an absolute instant compared against ET-day bounds.
+  const todayEt = etDayString(now);
+  const startOfToday = startOfTodayEtIso(now);
+  const endOfToday = endOfEtDayUtcIso(todayEt);
+  const weekFromNow = etMidnightUtcIso(etDateDaysAgo(-7, now));
+  const nowIso = now.toISOString();
+  const hourFromNow = new Date(now.getTime() + 60 * 60_000).toISOString();
 
   const [dueToday, dueThisWeek, overdue, repeatVoicemail, dueWithinHour] =
     await Promise.all([
@@ -42,19 +52,19 @@ export async function fetchCallbackStats(
         .from("callbacks")
         .select("id", { count: "exact", head: true })
         .eq("status", "pending")
-        .gte("scheduled_at", startOfToday.toISOString())
-        .lte("scheduled_at", endOfToday.toISOString()),
+        .gte("scheduled_at", startOfToday)
+        .lte("scheduled_at", endOfToday),
       supabase
         .from("callbacks")
         .select("id", { count: "exact", head: true })
         .eq("status", "pending")
-        .gte("scheduled_at", startOfToday.toISOString())
-        .lt("scheduled_at", weekFromNow.toISOString()),
+        .gte("scheduled_at", startOfToday)
+        .lt("scheduled_at", weekFromNow),
       supabase
         .from("callbacks")
         .select("id", { count: "exact", head: true })
         .eq("status", "pending")
-        .lt("scheduled_at", now.toISOString()),
+        .lt("scheduled_at", nowIso),
       supabase
         .from("callbacks")
         .select("id", { count: "exact", head: true })
@@ -64,8 +74,8 @@ export async function fetchCallbackStats(
         .from("callbacks")
         .select("id", { count: "exact", head: true })
         .eq("status", "pending")
-        .gte("scheduled_at", now.toISOString())
-        .lte("scheduled_at", hourFromNow.toISOString()),
+        .gte("scheduled_at", nowIso)
+        .lte("scheduled_at", hourFromNow),
     ]);
 
   return {
