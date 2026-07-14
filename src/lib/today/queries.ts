@@ -52,6 +52,26 @@ function yesterdayWindow(): { from: string; to: string } {
   return { from: etDayRangeUtc(y).startUtc, to: endOfEtDayUtcIso(y) };
 }
 
+const CALLS_PAGE = 1000;
+
+/** Page through a `calls` filter past PostgREST's 1,000-row response cap.
+ *  Without this the hero counts (calls, connect rate, appointments, spend)
+ *  silently undercount on days with >1,000 calls — the exact scale this
+ *  dashboard is built for. */
+async function fetchAllCalls<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += CALLS_PAGE) {
+    const { data } = await build(offset, offset + CALLS_PAGE - 1);
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < CALLS_PAGE) break;
+    if (offset > 500_000) break; // safety backstop
+  }
+  return rows;
+}
+
 export async function fetchHeroCounts(
   supabase: SupabaseClient,
   opts: { isAdmin: boolean; ownerId: string },
@@ -59,27 +79,43 @@ export async function fetchHeroCounts(
   const start = todayStart();
   const yWindow = yesterdayWindow();
 
-  // Today's calls — RLS scopes for members; admins see everything.
-  const callsTodayQuery = supabase
-    .from("calls")
-    .select("id, outcome, goal_met, cost_breakdown")
-    .gte("created_at", start.toISOString());
-  const callsYestQuery = supabase
-    .from("calls")
-    .select("id, outcome, goal_met")
-    .gte("created_at", yWindow.from)
-    .lte("created_at", yWindow.to);
-
+  // Today's + yesterday's calls — RLS scopes for members; admins see
+  // everything. Paginated so busy days (>1,000 calls) don't silently
+  // undercount every metric derived below.
   const callbacksQuery = supabase
     .from("callbacks")
     .select("id, scheduled_at")
     .eq("status", "pending");
 
-  const [{ data: callsToday }, { data: callsYest }, { data: callbacks }] =
-    await Promise.all([callsTodayQuery, callsYestQuery, callbacksQuery]);
-
-  const rowsToday = callsToday ?? [];
-  const rowsYest = callsYest ?? [];
+  const [rowsToday, rowsYest, { data: callbacks }] = await Promise.all([
+    fetchAllCalls<{
+      id: string;
+      outcome: string | null;
+      goal_met: boolean | null;
+      cost_breakdown: unknown;
+    }>((from, to) =>
+      supabase
+        .from("calls")
+        .select("id, outcome, goal_met, cost_breakdown")
+        .gte("created_at", start.toISOString())
+        .order("created_at", { ascending: true })
+        .range(from, to),
+    ),
+    fetchAllCalls<{
+      id: string;
+      outcome: string | null;
+      goal_met: boolean | null;
+    }>((from, to) =>
+      supabase
+        .from("calls")
+        .select("id, outcome, goal_met")
+        .gte("created_at", yWindow.from)
+        .lte("created_at", yWindow.to)
+        .order("created_at", { ascending: true })
+        .range(from, to),
+    ),
+    callbacksQuery,
+  ]);
 
   const apptsToday = rowsToday.filter((r) => r.goal_met).length;
   const apptsYest = rowsYest.filter((r) => r.goal_met).length;

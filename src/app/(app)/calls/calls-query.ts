@@ -11,9 +11,14 @@ const UUID_RE = /^[0-9a-f-]{36}$/i;
  * The select string shared by every Calls page read. Single literal so
  * Supabase can infer the row type. Pulls the joined lead / campaign / agent
  * names in one round trip.
+ *
+ * `extracted_data` (a per-call JSON blob) is deliberately NOT selected here —
+ * the list rows never render it, and pulling it for every row on every load
+ * (and every auto-refresh tick) is wasted egress. The per-call detail view
+ * fetches it separately.
  */
 export const CALLS_SELECT =
-  "id, direction, call_mode, status, outcome, goal_met, started_at, answered_at, ended_at, duration_seconds, talk_time_seconds, recording_path, score, cost_breakdown, extracted_data, summary, dialed_target, created_at, lead:leads(id, company, business_phone, owner_id, decision_maker_reached), campaign:campaigns(id, name), agent:agents(id, name)";
+  "id, direction, call_mode, status, outcome, goal_met, started_at, answered_at, ended_at, duration_seconds, talk_time_seconds, recording_path, score, cost_breakdown, summary, dialed_target, created_at, lead:leads(id, company, business_phone, owner_id, decision_maker_reached), campaign:campaigns(id, name), agent:agents(id, name)";
 
 /** Columns the table allows sorting by. */
 export const SORT_KEYS = new Set<string>([
