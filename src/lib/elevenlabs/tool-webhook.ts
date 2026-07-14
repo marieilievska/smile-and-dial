@@ -489,6 +489,7 @@ async function sendEmail(
   if (plan.action === "note_only") {
     await logToolEvent(ctx, "tool_send_email", {
       email,
+      note,
       template_id: tmpl.id,
       sent: false,
       reason: plan.reason,

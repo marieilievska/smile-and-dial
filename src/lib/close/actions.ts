@@ -184,12 +184,13 @@ export async function sendEmail(input: {
         (leadRecord.business_phone as string | null | undefined) ?? null,
     });
     if (!delivered.ok) {
-      return {
-        error:
-          delivered.error === "no_connected_sending_email"
-            ? "Your Close account has no connected email to send from. Connect an email account in Close, then try again."
-            : `Couldn't send the email through Close. ${delivered.error}`.trim(),
-      };
+      const error =
+        delivered.error === "no_connected_sending_email"
+          ? "Your Close account has no connected email to send from. Connect an email account in Close, then try again."
+          : delivered.error === "could_not_create_contact"
+            ? "Could not create the contact in Close."
+            : "Couldn't send the email through Close.";
+      return { error };
     }
     closeMessageId = delivered.closeMessageId;
     fromAddress = delivered.fromAddress;
