@@ -67,7 +67,7 @@ export default async function SettingsOverviewPage() {
     { count: fieldsCountRaw },
     { count: numbersCountRaw },
     { count: apiKeysCountRaw },
-    { data: appSettings },
+    { data: integration },
   ] = await Promise.all([
     supabase.from("lists").select("id", { count: "exact", head: true }),
     supabase.from("goals").select("id", { count: "exact", head: true }),
@@ -90,10 +90,13 @@ export default async function SettingsOverviewPage() {
       .from("api_keys")
       .select("id", { count: "exact", head: true })
       .is("revoked_at", null),
+    // Close/Calendly connection state is per-user and lives in
+    // user_integrations (the app_settings copies were dead and dropped). RLS
+    // scopes this to the current user's own row.
     supabase
-      .from("app_settings")
+      .from("user_integrations")
       .select("close_connected_at, calendly_connected_at")
-      .eq("id", 1)
+      .eq("user_id", user.id)
       .maybeSingle(),
   ]);
 
@@ -109,8 +112,8 @@ export default async function SettingsOverviewPage() {
   // Voice is the must-have integration to place calls. Close/Calendly
   // are optional, so the Integrations card's "configured" tracks voice.
   const elevenLabsConnected = Boolean(process.env.ELEVENLABS_API_KEY?.trim());
-  const closeConnected = Boolean(appSettings?.close_connected_at);
-  const calendlyConnected = Boolean(appSettings?.calendly_connected_at);
+  const closeConnected = Boolean(integration?.close_connected_at);
+  const calendlyConnected = Boolean(integration?.calendly_connected_at);
   const extraIntegrations = [closeConnected, calendlyConnected].filter(
     Boolean,
   ).length;
