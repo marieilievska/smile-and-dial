@@ -2048,6 +2048,24 @@ export type Database = {
           },
         ];
       };
+      twilio_recording_events: {
+        Row: {
+          call_sid: string | null;
+          received_at: string;
+          recording_sid: string;
+        };
+        Insert: {
+          call_sid?: string | null;
+          received_at?: string;
+          recording_sid: string;
+        };
+        Update: {
+          call_sid?: string | null;
+          received_at?: string;
+          recording_sid?: string;
+        };
+        Relationships: [];
+      };
       twilio_status_events: {
         Row: {
           call_sid: string;
