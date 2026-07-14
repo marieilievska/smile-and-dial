@@ -30,34 +30,41 @@ export type DeliverEmailResult =
 export async function deliverEmailViaClose(
   input: DeliverEmailInput,
 ): Promise<DeliverEmailResult> {
-  const senderEmail = await closeSenderEmail(input.closeKey);
-  if (!senderEmail) return { ok: false, error: "no_connected_sending_email" };
+  try {
+    const senderEmail = await closeSenderEmail(input.closeKey);
+    if (!senderEmail) return { ok: false, error: "no_connected_sending_email" };
 
-  const fromAddress = input.senderName
-    ? `${input.senderName} <${senderEmail}>`
-    : senderEmail;
+    const fromAddress = input.senderName
+      ? `${input.senderName} <${senderEmail}>`
+      : senderEmail;
 
-  let ref = await findCloseLeadByEmail(input.closeKey, input.toAddress);
-  if (!ref) {
-    ref = await createCloseLead(input.closeKey, {
-      companyName: input.company,
-      contactName: input.contactName,
-      email: input.toAddress,
-      phone: input.businessPhone,
+    let ref = await findCloseLeadByEmail(input.closeKey, input.toAddress);
+    if (!ref) {
+      ref = await createCloseLead(input.closeKey, {
+        companyName: input.company,
+        contactName: input.contactName,
+        email: input.toAddress,
+        phone: input.businessPhone,
+      });
+    }
+    if (!ref) return { ok: false, error: "could_not_create_contact" };
+
+    const sent = await sendCloseEmail(input.closeKey, {
+      leadId: ref.leadId,
+      contactId: ref.contactId,
+      to: input.toAddress,
+      subject: input.subject,
+      bodyText: input.body,
+      sender: fromAddress,
     });
+    if (sent.error || !sent.id) {
+      return { ok: false, error: sent.error ?? "close_send_failed" };
+    }
+    return { ok: true, closeMessageId: sent.id, fromAddress };
+  } catch {
+    // A Close fetch rejected (DNS/TLS/socket/outage). Honor the "never throws"
+    // contract so the caller's honest fallback fires ("I've noted to send
+    // that") instead of an unhandled 500 mid-call.
+    return { ok: false, error: "close_exception" };
   }
-  if (!ref) return { ok: false, error: "could_not_create_contact" };
-
-  const sent = await sendCloseEmail(input.closeKey, {
-    leadId: ref.leadId,
-    contactId: ref.contactId,
-    to: input.toAddress,
-    subject: input.subject,
-    bodyText: input.body,
-    sender: fromAddress,
-  });
-  if (sent.error || !sent.id) {
-    return { ok: false, error: sent.error ?? "close_send_failed" };
-  }
-  return { ok: true, closeMessageId: sent.id, fromAddress };
 }
