@@ -6,6 +6,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { chunk } from "./chunk";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient<Database>>;
 
@@ -107,25 +108,84 @@ export async function getCallReview(
   };
 }
 
-/** Mark (or unmark) a call as human-reviewed. Admin-only. Stamps reviewed_by/at
- *  so the bucket "unreviewed" counts drop. */
+/** Mark (or unmark) many calls as human-reviewed in one go. Admin-only. Stamps
+ *  reviewed_by/at (or clears them on reopen) so bucket "unreviewed" counts drop.
+ *  Chunked so a big bucket (or a whole-set select-all) never blows the URI /
+ *  1,000-row limits. Returns how many review rows were updated. */
+export async function markCallsReviewed(input: {
+  callIds: string[];
+  reviewed: boolean;
+}): Promise<{ error: string | null; updated: number }> {
+  const adminId = await currentAdminId();
+  if (!adminId) return { error: "Admins only.", updated: 0 };
+  const ids = [...new Set(input.callIds)].filter(Boolean);
+  if (ids.length === 0) return { error: null, updated: 0 };
+
+  const db = adminClient();
+  const patch = {
+    reviewed_by: input.reviewed ? adminId : null,
+    reviewed_at: input.reviewed ? new Date().toISOString() : null,
+  };
+  let updated = 0;
+  for (const batch of chunk(ids)) {
+    const { data, error } = await db
+      .from("call_reviews")
+      .update(patch)
+      .in("call_id", batch)
+      .select("call_id");
+    if (error) return { error: "Could not update review state.", updated };
+    updated += data?.length ?? 0;
+  }
+  revalidatePath("/calls");
+  revalidatePath("/reporting");
+  return { error: null, updated };
+}
+
+/** Mark (or unmark) a single call reviewed. Admin-only. Thin wrapper over the
+ *  bulk path so there's one code path to reason about. */
 export async function markCallReviewed(input: {
   callId: string;
   reviewed: boolean;
 }): Promise<{ error: string | null }> {
-  const adminId = await currentAdminId();
-  if (!adminId) return { error: "Admins only." };
-  const { error } = await adminClient()
-    .from("call_reviews")
-    .update({
-      reviewed_by: input.reviewed ? adminId : null,
-      reviewed_at: input.reviewed ? new Date().toISOString() : null,
-    })
-    .eq("call_id", input.callId);
-  if (error) return { error: "Could not update review state." };
-  revalidatePath("/calls");
-  revalidatePath("/reporting");
-  return { error: null };
+  const { error } = await markCallsReviewed({
+    callIds: [input.callId],
+    reviewed: input.reviewed,
+  });
+  return { error };
+}
+
+/** Mark every call in a bucket reviewed — i.e. every call carrying `flagKey` as
+ *  confirmed or needs_review. Admin-only. Backs the Call Review tab's per-bucket
+ *  "Mark all reviewed" button. Resolves the ids PK-ordered + paginated (a bucket
+ *  can exceed 1,000 rows), then delegates to the chunked bulk update. */
+export async function markBucketReviewed(input: {
+  flagKey: string;
+  reviewed?: boolean;
+}): Promise<{ error: string | null; updated: number }> {
+  if (!(await currentAdminId())) return { error: "Admins only.", updated: 0 };
+  const key = input.flagKey.trim();
+  if (!key) return { error: "No bucket specified.", updated: 0 };
+
+  const db = adminClient();
+  const ids: string[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from("call_review_flags")
+      .select("call_id")
+      .eq("flag_key", key)
+      .in("status", ["confirmed", "needs_review"])
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) return { error: "Could not load the bucket.", updated: 0 };
+    const rows = data ?? [];
+    for (const r of rows) if (r.call_id) ids.push(r.call_id);
+    if (rows.length < PAGE) break;
+  }
+  return markCallsReviewed({
+    callIds: ids,
+    reviewed: input.reviewed ?? true,
+  });
 }
 
 /** Confirm or reject a single AI flag. Admin-only. Rejecting drops it out of its

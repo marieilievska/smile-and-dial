@@ -58,6 +58,9 @@ export type DisplayCall = {
     evidenceQuote: string | null;
     status: "confirmed" | "needs_review" | "rejected";
   }[];
+  /** Whether this call has been marked reviewed (review context only). Drives
+   *  the per-row reviewed toggle in the sticky actions cell. */
+  reviewed: boolean;
 };
 
 export type CallColumn = {

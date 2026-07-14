@@ -1,5 +1,6 @@
 import "server-only";
 import type { createClient } from "@/lib/supabase/server";
+import { chunk } from "./chunk";
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -21,10 +22,16 @@ export type CallEvidence = {
  * flag key: calls with that flag in confirmed OR needs_review. For the
  * NEEDS_REVIEW_BUCKET sentinel: calls with ANY needs_review flag. Rejected flags
  * never select a call. Paginates so it isn't capped at 1000 ids.
+ *
+ * With `{ unreviewedOnly: true }` the result is narrowed to calls not yet marked
+ * reviewed (`call_reviews.reviewed_at is null`) — the "clear the queue" default
+ * when arriving from a bucket. An empty array (every call reviewed) is returned
+ * as-is; the caller's sentinel guard turns it into a no-match.
  */
 export async function resolveReviewFlagCallIds(
   supabase: ServerClient,
   reviewFlag: string,
+  opts: { unreviewedOnly?: boolean } = {},
 ): Promise<string[] | null> {
   const key = reviewFlag.trim();
   if (!key) return null;
@@ -53,7 +60,21 @@ export async function resolveReviewFlagCallIds(
     if (rows.length < PAGE) break;
   }
   // De-dupe (a call can appear once per flag; needs-review sentinel is 1/call).
-  return [...new Set(ids)];
+  const unique = [...new Set(ids)];
+  if (!opts.unreviewedOnly || unique.length === 0) return unique;
+
+  // Drop the already-reviewed calls. Look up reviewed_at in chunks so a big
+  // bucket's `.in(...)` never exceeds the URI-length / 1000-row limits.
+  const reviewed = new Set<string>();
+  for (const batch of chunk(unique, 500)) {
+    const { data } = await supabase
+      .from("call_reviews")
+      .select("call_id")
+      .in("call_id", batch)
+      .not("reviewed_at", "is", null);
+    for (const r of data ?? []) if (r.call_id) reviewed.add(r.call_id);
+  }
+  return unique.filter((id) => !reviewed.has(id));
 }
 
 /**

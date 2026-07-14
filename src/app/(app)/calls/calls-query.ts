@@ -30,6 +30,14 @@ export function str(value: string | string[] | undefined): string {
   return typeof value === "string" ? value : "";
 }
 
+/** Whether the calls view should show only not-yet-reviewed calls. True when a
+ *  review-bucket filter is active and the operator hasn't switched to "show
+ *  all" (`reviewed=all`). Shared by the table page and the select-all sweep so
+ *  a bulk "mark reviewed" acts on exactly the rows shown. */
+export function isUnreviewedOnly(params: SearchParams): boolean {
+  return Boolean(str(params.review_flag)) && str(params.reviewed) !== "all";
+}
+
 /** Resolve the sort column and direction from search params. */
 export function parseSort(params: SearchParams): {
   sort: string;
