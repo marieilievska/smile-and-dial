@@ -55,11 +55,13 @@ export async function POST(request: NextRequest) {
     const { error: claimError } = await supabase
       .from("twilio_recording_events")
       .insert({ recording_sid: recordingSid, call_sid: callSid || null });
-    if (claimError) {
-      // 23505 = unique_violation → already processed this recording. Any other
-      // logging error: don't risk a paid duplicate either — skip.
+    if (claimError && (claimError as { code?: string }).code === "23505") {
+      // 23505 = unique_violation → we've already processed this recording.
       return new Response("", { status: 204 });
     }
+    // Any OTHER claim error (a transient DB issue, or the table not yet present
+    // if this ever runs pre-migration) falls through and processes anyway: a
+    // rare duplicate charge is better than silently dropping the transcript.
   }
 
   // Correlate STRICTLY by the parent CallSid the dial route stamped. We do NOT
