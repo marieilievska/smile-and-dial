@@ -15,6 +15,7 @@ import {
 import {
   fetchCostRows,
   fetchLookupChargeTotal,
+  fetchRollupRows,
   resolveDatePreset,
   rollupByCampaign,
   rollupByGoalMet,
@@ -22,6 +23,7 @@ import {
   rollupByTime,
   rollupByUser,
   rollupByVendor,
+  type RollupRow,
   type Slicers,
 } from "@/lib/analytics/costs";
 import { createClient } from "@/lib/supabase/server";
@@ -134,11 +136,11 @@ export default async function CostsPage({
     importLookupCost,
     prevImportLookupCost,
   ] = await Promise.all([
-    fetchCostRows(supabase, slicers),
+    fetchRollupRows(supabase, slicers),
     supabase.from("campaigns").select("id, name").order("name"),
     supabase.from("lists").select("id, name").order("name"),
     fetchCostsHeadlineStats(supabase),
-    fetchCostRows(supabase, prevSlicers),
+    fetchRollupRows(supabase, prevSlicers),
     fetchCampaignCaps(supabase),
     // Active (un-released) phone numbers carry a flat monthly rental that's
     // billed separately from per-call spend — surfaced on its own line.
@@ -194,9 +196,13 @@ export default async function CostsPage({
   const listName = new Map((lists ?? []).map((l) => [l.id, l.name] as const));
 
   const summary = rollupByVendor(rows);
-  const totalCalls = rows.length;
-  const totalGoalMet = rows.filter((r) => r.goal_met).length;
+  const totalCalls = rows.reduce((a, r) => a + r.calls, 0);
+  const totalGoalMet = rows.reduce((a, r) => a + r.goal_met, 0);
   const dailyBuckets = rollupByTime(rows, slicers);
+  // The per-call view needs actual call rows (the rollup is aggregated), so
+  // fetch the most recent 100 only when that view is active.
+  const perCallRows =
+    view === "per_call" ? await fetchCostRows(supabase, slicers) : [];
   const dailySpend = dailyBuckets.map((b) => b.spend);
   const mockMode = isMockMode();
   const rangeLabel = fmtRangeLabel(from, to);
@@ -397,7 +403,7 @@ export default async function CostsPage({
 
       {view === "per_call" ? (
         <PerCallTable
-          rows={rows.slice(0, 100)}
+          rows={perCallRows.slice(0, 100)}
           campaignName={campaignName}
           now={new Date().toISOString()}
         />
@@ -414,7 +420,6 @@ export default async function CostsPage({
         <PerListView
           rows={rows}
           listName={listName}
-          supabase={supabase}
           totalSpend={summary.total}
         />
       ) : null}
@@ -422,7 +427,7 @@ export default async function CostsPage({
         <PerGoalView rows={rows} campaignName={campaignName} />
       ) : null}
       {view === "per_user" ? (
-        <PerUserView rows={rows} ownerName={ownerName} supabase={supabase} />
+        <PerUserView rows={rows} ownerName={ownerName} />
       ) : null}
       {view === "per_time" ? <PerTimeChart data={dailyBuckets} /> : null}
     </div>
@@ -444,7 +449,7 @@ function PerCampaignView({
   campaignCaps,
   totalSpend,
 }: {
-  rows: Awaited<ReturnType<typeof fetchCostRows>>;
+  rows: RollupRow[];
   campaignName: Map<string, string>;
   campaignCaps: Awaited<ReturnType<typeof fetchCampaignCaps>>;
   totalSpend: number;
@@ -565,7 +570,7 @@ function PerGoalView({
   rows,
   campaignName,
 }: {
-  rows: Awaited<ReturnType<typeof fetchCostRows>>;
+  rows: RollupRow[];
   campaignName: Map<string, string>;
 }) {
   const data = rollupByGoalMet(rows);
@@ -654,16 +659,14 @@ function PerGoalView({
   );
 }
 
-async function PerUserView({
+function PerUserView({
   rows,
   ownerName,
-  supabase,
 }: {
-  rows: Awaited<ReturnType<typeof fetchCostRows>>;
+  rows: RollupRow[];
   ownerName: Map<string, string>;
-  supabase: Awaited<ReturnType<typeof createClient>>;
 }) {
-  const data = await rollupByUser(supabase, rows);
+  const data = rollupByUser(rows);
   if (data.length === 0) {
     return (
       <EmptyState
@@ -745,18 +748,16 @@ async function PerUserView({
   );
 }
 
-async function PerListView({
+function PerListView({
   rows,
   listName,
-  supabase,
   totalSpend,
 }: {
-  rows: Awaited<ReturnType<typeof fetchCostRows>>;
+  rows: RollupRow[];
   listName: Map<string, string>;
-  supabase: Awaited<ReturnType<typeof createClient>>;
   totalSpend: number;
 }) {
-  const data = await rollupByList(supabase, rows);
+  const data = rollupByList(rows);
   if (data.length === 0) {
     return (
       <EmptyState

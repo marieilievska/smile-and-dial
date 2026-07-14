@@ -1,6 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { pickBreakdown } from "@/lib/analytics/costs";
 import {
   etDayString,
   etMidnightUtcIso,
@@ -53,17 +52,18 @@ export async function fetchCostsHeadlineStats(
   // server's UTC midnight (~7-8pm ET).
   const todayEt = etDayString(now);
   const [cy, cm] = todayEt.split("-").map(Number);
-  const startOfMonthIso = etMidnightUtcIso(
-    `${cy}-${String(cm).padStart(2, "0")}-01`,
-  );
+  const monthStartEt = `${cy}-${String(cm).padStart(2, "0")}-01`;
+  const startOfMonthIso = etMidnightUtcIso(monthStartEt);
 
-  const [data, lookupRows] = await Promise.all([
-    fetchAllRows<{ cost_breakdown: unknown; created_at: string }>((from, to) =>
+  const [rollup, lookupRows] = await Promise.all([
+    // Pre-aggregated call spend for this ET month, by ET day (fast path — reads
+    // the cost_rollup_daily table instead of scanning every call).
+    fetchAllRows<{ et_day: string; total: number }>((from, to) =>
       supabase
-        .from("calls")
-        .select("cost_breakdown, created_at")
-        .gte("created_at", startOfMonthIso)
-        .order("created_at", { ascending: false })
+        .from("cost_rollup_daily")
+        .select("et_day, total")
+        .gte("et_day", monthStartEt)
+        .order("et_day", { ascending: false })
         .range(from, to),
     ),
     // Import-lookup charges this month (billed outside calls).
@@ -79,14 +79,12 @@ export async function fetchCostsHeadlineStats(
 
   let todaySpend = 0;
   let mtdSpend = 0;
-  const todayIso = startOfTodayEtIso(now);
-  for (const row of data) {
-    const breakdown = pickBreakdown(row.cost_breakdown);
-    mtdSpend += breakdown.total;
-    if (row.created_at >= todayIso) {
-      todaySpend += breakdown.total;
-    }
+  for (const row of rollup) {
+    const total = Number(row.total) || 0;
+    mtdSpend += total;
+    if (row.et_day === todayEt) todaySpend += total;
   }
+  const todayIso = startOfTodayEtIso(now);
   for (const row of lookupRows) {
     const cost = Number(row.cost) || 0;
     mtdSpend += cost;
@@ -124,37 +122,30 @@ export async function fetchCampaignCaps(
   const now = new Date();
   const todayEt = etDayString(now);
   const [cy, cm] = todayEt.split("-").map(Number);
-  const startOfMonthIso = etMidnightUtcIso(
-    `${cy}-${String(cm).padStart(2, "0")}-01`,
-  );
-  const [{ data: campaigns }, calls] = await Promise.all([
+  const monthStartEt = `${cy}-${String(cm).padStart(2, "0")}-01`;
+  const [{ data: campaigns }, rollup] = await Promise.all([
     supabase
       .from("campaigns")
       .select("id, name, status, daily_spend_cap, monthly_spend_cap"),
-    // Page past the 1,000-row cap so a busy month doesn't undercount each
-    // campaign's month spend (and its progress against the monthly cap).
-    fetchAllRows<{
-      campaign_id: string;
-      cost_breakdown: unknown;
-      created_at: string;
-    }>((from, to) =>
-      supabase
-        .from("calls")
-        .select("campaign_id, cost_breakdown, created_at")
-        .gte("created_at", startOfMonthIso)
-        .order("created_at", { ascending: false })
-        .range(from, to),
+    // Pre-aggregated per-campaign spend for this ET month (fast path — reads
+    // cost_rollup_daily instead of scanning every call).
+    fetchAllRows<{ campaign_id: string; et_day: string; total: number }>(
+      (from, to) =>
+        supabase
+          .from("cost_rollup_daily")
+          .select("campaign_id, et_day, total")
+          .gte("et_day", monthStartEt)
+          .order("et_day", { ascending: false })
+          .range(from, to),
     ),
   ]);
 
-  const dayIso = startOfTodayEtIso(now);
-
   const spendDay = new Map<string, number>();
   const spendMonth = new Map<string, number>();
-  for (const r of calls) {
-    const total = pickBreakdown(r.cost_breakdown).total;
+  for (const r of rollup) {
+    const total = Number(r.total) || 0;
     spendMonth.set(r.campaign_id, (spendMonth.get(r.campaign_id) ?? 0) + total);
-    if (r.created_at >= dayIso) {
+    if (r.et_day === todayEt) {
       spendDay.set(r.campaign_id, (spendDay.get(r.campaign_id) ?? 0) + total);
     }
   }

@@ -845,6 +845,66 @@ export type Database = {
           },
         ];
       };
+      cost_rollup_daily: {
+        Row: {
+          calls: number;
+          campaign_id: string;
+          elevenlabs: number;
+          elevenlabs_credits: number;
+          elevenlabs_llm: number;
+          elevenlabs_llm_credits: number;
+          elevenlabs_voice: number;
+          elevenlabs_voice_credits: number;
+          et_day: string;
+          goal_met: number;
+          list_id: string;
+          lookup: number;
+          openai: number;
+          owner_id: string;
+          refreshed_at: string;
+          total: number;
+          twilio: number;
+        };
+        Insert: {
+          calls?: number;
+          campaign_id: string;
+          elevenlabs?: number;
+          elevenlabs_credits?: number;
+          elevenlabs_llm?: number;
+          elevenlabs_llm_credits?: number;
+          elevenlabs_voice?: number;
+          elevenlabs_voice_credits?: number;
+          et_day: string;
+          goal_met?: number;
+          list_id: string;
+          lookup?: number;
+          openai?: number;
+          owner_id: string;
+          refreshed_at?: string;
+          total?: number;
+          twilio?: number;
+        };
+        Update: {
+          calls?: number;
+          campaign_id?: string;
+          elevenlabs?: number;
+          elevenlabs_credits?: number;
+          elevenlabs_llm?: number;
+          elevenlabs_llm_credits?: number;
+          elevenlabs_voice?: number;
+          elevenlabs_voice_credits?: number;
+          et_day?: string;
+          goal_met?: number;
+          list_id?: string;
+          lookup?: number;
+          openai?: number;
+          owner_id?: string;
+          refreshed_at?: string;
+          total?: number;
+          twilio?: number;
+        };
+        Relationships: [];
+      };
       custom_field_defs: {
         Row: {
           created_at: string;
