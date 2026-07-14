@@ -256,12 +256,18 @@ export async function rollupByUser(
 ): Promise<PerUser[]> {
   if (rows.length === 0) return [];
   const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
-  const { data: leads } = await supabase
-    .from("leads")
-    .select("id, owner_id")
-    .in("id", leadIds);
+  // Chunk the lookup so a window with >1,000 distinct leads doesn't hit the
+  // PostgREST row cap — an un-chunked .in() would drop owners past the first
+  // 1,000 and undercount their spend (and sends one oversized query).
   const owner = new Map<string, string>();
-  for (const l of leads ?? []) owner.set(l.id, l.owner_id);
+  for (let i = 0; i < leadIds.length; i += COSTS_PAGE) {
+    const idChunk = leadIds.slice(i, i + COSTS_PAGE);
+    const { data: leads } = await supabase
+      .from("leads")
+      .select("id, owner_id")
+      .in("id", idChunk);
+    for (const l of leads ?? []) owner.set(l.id, l.owner_id);
+  }
   const acc = new Map<string, { calls: number; spend: number }>();
   for (const r of rows) {
     const oid = owner.get(r.lead_id);
