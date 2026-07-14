@@ -1,9 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Eye } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useTransition } from "react";
+import { AlertTriangle, ArrowRight, CheckCheck, Eye } from "lucide-react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { markBucketReviewed } from "@/lib/review/actions";
 import type { ReviewBucket, ReviewSummary } from "@/lib/review/buckets";
 
 /** Sentinel value for the cross-cutting "needs your eyes" filter on /calls. No
@@ -103,40 +108,87 @@ export function CallReviewTable({
           </h3>
           <div className="border-border overflow-hidden rounded-xl border">
             {byLens.get(lens)!.map((b, i) => (
-              <Link
-                key={b.key}
-                href={`/calls?review_flag=${b.key}`}
-                className={`hover:bg-muted/40 flex items-center justify-between gap-3 px-4 py-3 transition-colors ${
-                  i > 0 ? "border-border border-t" : ""
-                }`}
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="text-foreground truncate text-sm font-medium">
-                    {b.label}
-                  </span>
-                  {b.needsReview > 0 ? (
-                    <Badge
-                      variant="outline"
-                      className="border-amber-300 text-amber-700"
-                    >
-                      {b.needsReview} needs eyes
-                    </Badge>
-                  ) : null}
-                  {b.unreviewed > 0 ? (
-                    <Badge variant="secondary">{b.unreviewed} unreviewed</Badge>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-foreground text-base font-bold tabular-nums">
-                    {b.total}
-                  </span>
-                  <ArrowRight className="text-muted-foreground size-4" />
-                </div>
-              </Link>
+              <BucketRow key={b.key} bucket={b} topBorder={i > 0} />
             ))}
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** One bucket row: the label + counts deep-link into the filtered calls list,
+ *  and (when anything is still unreviewed) a "Mark all reviewed" button clears
+ *  the whole bucket in place without opening the list. */
+function BucketRow({
+  bucket,
+  topBorder,
+}: {
+  bucket: ReviewBucket;
+  topBorder: boolean;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const href = `/calls?review_flag=${bucket.key}`;
+
+  function markAll() {
+    start(async () => {
+      const r = await markBucketReviewed({ flagKey: bucket.key });
+      if (r.error) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(
+        `Marked ${r.updated} call${r.updated === 1 ? "" : "s"} reviewed.`,
+      );
+      router.refresh();
+    });
+  }
+
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 px-4 py-3 ${
+        topBorder ? "border-border border-t" : ""
+      }`}
+    >
+      <Link
+        href={href}
+        className="hover:text-primary flex min-w-0 flex-1 items-center gap-2 underline-offset-2 hover:underline"
+      >
+        <span className="text-foreground truncate text-sm font-medium">
+          {bucket.label}
+        </span>
+        {bucket.needsReview > 0 ? (
+          <Badge variant="outline" className="border-amber-300 text-amber-700">
+            {bucket.needsReview} needs eyes
+          </Badge>
+        ) : null}
+        {bucket.unreviewed > 0 ? (
+          <Badge variant="secondary">{bucket.unreviewed} unreviewed</Badge>
+        ) : null}
+      </Link>
+      <div className="flex shrink-0 items-center gap-2">
+        {bucket.unreviewed > 0 ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            onClick={markAll}
+            className="h-8"
+            title={`Mark all ${bucket.unreviewed} unreviewed calls in this bucket reviewed`}
+          >
+            <CheckCheck className="size-3.5" />
+            Mark all reviewed
+          </Button>
+        ) : null}
+        <span className="text-foreground text-base font-bold tabular-nums">
+          {bucket.total}
+        </span>
+        <Link href={href} aria-label={`Open ${bucket.label}`}>
+          <ArrowRight className="text-muted-foreground hover:text-foreground size-4" />
+        </Link>
+      </div>
     </div>
   );
 }

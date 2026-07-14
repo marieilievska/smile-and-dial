@@ -1,6 +1,6 @@
 "use client";
 
-import { PhoneCall, Play, Trash2 } from "lucide-react";
+import { Check, PhoneCall, Play, Trash2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { deleteCalls } from "@/lib/calls/actions";
+import { markCallReviewed } from "@/lib/review/actions";
 
 /** Hover-only action cluster at the right edge of every call row.
  *
@@ -36,11 +37,17 @@ export function CallRowActions({
   leadId,
   hasRecording,
   isAdmin = false,
+  reviewContext = false,
+  reviewed = false,
 }: {
   callId: string;
   leadId: string | null;
   hasRecording: boolean;
   isAdmin?: boolean;
+  /** Rendered inside a review-bucket view — surfaces the reviewed toggle. */
+  reviewContext?: boolean;
+  /** Whether this call is already marked reviewed (drives the toggle). */
+  reviewed?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -56,6 +63,18 @@ export function CallRowActions({
       if (r.error) toast.error(r.error);
       else {
         toast.success("Call deleted.");
+        router.refresh();
+      }
+    });
+  }
+
+  function onToggleReviewed(event: React.MouseEvent) {
+    event.stopPropagation();
+    startTransition(async () => {
+      const r = await markCallReviewed({ callId, reviewed: !reviewed });
+      if (r.error) toast.error(r.error);
+      else {
+        toast.success(reviewed ? "Reopened." : "Marked reviewed.");
         router.refresh();
       }
     });
@@ -81,6 +100,21 @@ export function CallRowActions({
       onKeyDown={stop}
       className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
     >
+      {reviewContext ? (
+        <Button
+          type="button"
+          size="sm"
+          variant={reviewed ? "ghost" : "outline"}
+          disabled={pending}
+          onClick={onToggleReviewed}
+          className="h-7 px-2"
+          title={reviewed ? "Reopen this call" : "Mark this call reviewed"}
+          data-testid="call-row-reviewed"
+        >
+          <Check className="size-3.5" />
+          {reviewed ? "Reviewed" : "Mark reviewed"}
+        </Button>
+      ) : null}
       {hasRecording ? (
         <Button
           type="button"

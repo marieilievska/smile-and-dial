@@ -2,9 +2,12 @@ import type { createClient } from "@/lib/supabase/server";
 
 import {
   applyCallFilters,
+  isUnreviewedOnly,
   resolveLeadFilterIds,
+  str,
 } from "@/app/(app)/calls/calls-query";
 import type { SearchParams } from "@/app/(app)/calls/calls-url";
+import { resolveReviewFlagCallIds } from "@/lib/review/calls-filter";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -37,6 +40,17 @@ export async function fetchAllMatchingCallIds(
   // Search + owner are pre-resolved to lead ids the same way the page does it.
   const leadFilterIds = await resolveLeadFilterIds(supabase, params);
 
+  // Review-bucket filter: scope the sweep to the same calls the table shows so
+  // "select all N matching" (and any bulk action on it) stays inside the bucket
+  // — and honours the unreviewed-only default. Without this the sweep would
+  // ignore review_flag and select the whole (unfiltered) result set.
+  const reviewFlag = str(params.review_flag);
+  const reviewCallIds = reviewFlag
+    ? await resolveReviewFlagCallIds(supabase, reviewFlag, {
+        unreviewedOnly: isUnreviewedOnly(params),
+      })
+    : null;
+
   const ids: string[] = [];
   let lastId: string | null = null;
 
@@ -45,6 +59,7 @@ export async function fetchAllMatchingCallIds(
       supabase.from("calls").select("id"),
       params,
       leadFilterIds ?? undefined,
+      reviewCallIds ?? undefined,
     ).order("id", { ascending: true });
     if (lastId !== null) query = query.gt("id", lastId);
 

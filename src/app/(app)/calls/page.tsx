@@ -33,6 +33,7 @@ import {
 import { CallsFilters } from "./calls-filters";
 import {
   buildCallsQuery,
+  isUnreviewedOnly,
   parseSort,
   resolveLeadFilterIds,
   str,
@@ -114,10 +115,13 @@ export default async function CallsPage({
   // `review_flag` param; resolve it to the set of call ids to intersect on.
   // Members have no RLS access to call_review_flags, so skip entirely for them.
   const reviewFlag = str(params.review_flag);
-  const reviewCallIds =
-    isAdmin && reviewFlag
-      ? await resolveReviewFlagCallIds(supabase, reviewFlag)
-      : null;
+  const inReviewContext = isAdmin && Boolean(reviewFlag);
+  // In review context, default to the "clear the queue" view: only calls not yet
+  // marked reviewed, unless the operator switched to "show all" (reviewed=all).
+  const unreviewedOnly = isUnreviewedOnly(params);
+  const reviewCallIds = inReviewContext
+    ? await resolveReviewFlagCallIds(supabase, reviewFlag, { unreviewedOnly })
+    : null;
   const offset = (page - 1) * pageSize;
   const { data, count } = await buildCallsQuery(
     supabase,
@@ -173,6 +177,20 @@ export default async function CallsPage({
       ? await fetchCallEvidence(supabase, reviewFlag, callIds)
       : new Map();
 
+  // Per-call reviewed state (review context only) so each row can show its
+  // reviewed toggle without opening the call.
+  const reviewedCallIds = new Set<string>();
+  if (inReviewContext && callIds.length > 0) {
+    const { data: reviewRows } = await supabase
+      .from("call_reviews")
+      .select("call_id")
+      .in("call_id", callIds)
+      .not("reviewed_at", "is", null);
+    for (const r of reviewRows ?? []) {
+      if (r.call_id) reviewedCallIds.add(r.call_id);
+    }
+  }
+
   const calls: DisplayCall[] = rawCalls.map((c) => ({
     id: c.id,
     direction: c.direction as DisplayCall["direction"],
@@ -204,6 +222,7 @@ export default async function CallsPage({
     dialedTarget:
       (c.dialed_target as DisplayCall["dialedTarget"] | undefined) ?? null,
     reviewEvidence: evidenceByCall.get(c.id) ?? [],
+    reviewed: reviewedCallIds.has(c.id),
   }));
 
   // Visible columns (URL param `cols` overrides the default set).
@@ -240,6 +259,21 @@ export default async function CallsPage({
     );
 
   const anyLiveCall = await hasActiveCalls(supabase);
+
+  // Toggle between "unreviewed only" (default) and "show all" in review context,
+  // preserving every other filter and resetting to page 1 (the set changes).
+  function reviewToggleHref(next: "all" | "unreviewed"): string {
+    const sp = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      const s = str(v);
+      if (s) sp.set(k, s);
+    }
+    if (next === "all") sp.set("reviewed", "all");
+    else sp.delete("reviewed");
+    sp.delete("page");
+    const qs = sp.toString();
+    return qs ? `/calls?${qs}` : "/calls";
+  }
 
   return (
     <div className="flex flex-col gap-5 p-6">
@@ -303,6 +337,30 @@ export default async function CallsPage({
           agents={agentOptions}
           owners={ownerOptions}
         />
+        {inReviewContext ? (
+          <div className="border-border bg-muted/20 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-sm">
+            <span className="text-muted-foreground">
+              {unreviewedOnly
+                ? "Showing calls that still need review."
+                : "Showing all calls in this bucket, reviewed or not."}
+            </span>
+            {unreviewedOnly ? (
+              <Link
+                href={reviewToggleHref("all")}
+                className="text-foreground font-medium underline-offset-2 hover:underline"
+              >
+                Show all
+              </Link>
+            ) : (
+              <Link
+                href={reviewToggleHref("unreviewed")}
+                className="text-foreground font-medium underline-offset-2 hover:underline"
+              >
+                Only unreviewed
+              </Link>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {calls.length > 0 ? (
@@ -375,6 +433,8 @@ export default async function CallsPage({
                           leadId={c.leadId}
                           hasRecording={Boolean(c.recording_path)}
                           isAdmin={isAdmin}
+                          reviewContext={inReviewContext}
+                          reviewed={c.reviewed}
                         />
                       </TableCell>
                     </CallRow>
@@ -383,7 +443,9 @@ export default async function CallsPage({
               </Table>
             </div>
 
-            {isAdmin ? <CallsBulkBar /> : null}
+            {isAdmin ? (
+              <CallsBulkBar reviewFlag={inReviewContext ? reviewFlag : ""} />
+            ) : null}
 
             <SmartPagination
               page={page}
