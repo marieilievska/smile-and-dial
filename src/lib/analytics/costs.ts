@@ -160,6 +160,77 @@ export async function fetchCostRows(
   return rows;
 }
 
+/** A pre-aggregated row from cost_rollup_daily: spend + counts for one ET day ×
+ *  campaign × list × owner. The Costs page reads these instead of scanning
+ *  every call (see migration 20260714150000_cost_rollup_daily). */
+export type RollupRow = {
+  et_day: string;
+  campaign_id: string;
+  list_id: string;
+  owner_id: string;
+  calls: number;
+  goal_met: number;
+  twilio: number;
+  elevenlabs: number;
+  elevenlabs_llm: number;
+  elevenlabs_voice: number;
+  elevenlabs_credits: number;
+  elevenlabs_llm_credits: number;
+  elevenlabs_voice_credits: number;
+  openai: number;
+  lookup: number;
+  total: number;
+};
+
+const ROLLUP_SELECT =
+  "et_day, campaign_id, list_id, owner_id, calls, goal_met, twilio, elevenlabs, elevenlabs_llm, elevenlabs_voice, elevenlabs_credits, elevenlabs_llm_credits, elevenlabs_voice_credits, openai, lookup, total";
+
+/** Turn a rollup row's numeric spend columns into a Breakdown. */
+function rowBreakdown(r: RollupRow): Breakdown {
+  return {
+    twilio: Number(r.twilio),
+    elevenlabs: Number(r.elevenlabs),
+    elevenlabsLlm: Number(r.elevenlabs_llm),
+    elevenlabsVoice: Number(r.elevenlabs_voice),
+    elevenlabsCredits: Number(r.elevenlabs_credits),
+    elevenlabsLlmCredits: Number(r.elevenlabs_llm_credits),
+    elevenlabsVoiceCredits: Number(r.elevenlabs_voice_credits),
+    openai: Number(r.openai),
+    lookup: Number(r.lookup),
+    total: Number(r.total),
+  };
+}
+
+/** Read pre-aggregated rollup rows for the window + slicers — the fast path that
+ *  replaces the per-call fetchCostRows for every page aggregation
+ *  (vendor/campaign/list/user/goal/time). The rollup is small (days × campaigns
+ *  × lists × owners) but we paginate for safety. RLS scopes rows to the owner;
+ *  admins see all — matching the old lead-ownership filtering. */
+export async function fetchRollupRows(
+  supabase: SupabaseClient,
+  slicers: Slicers,
+): Promise<RollupRow[]> {
+  const rows: RollupRow[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    let query = supabase
+      .from("cost_rollup_daily")
+      .select(ROLLUP_SELECT)
+      .gte("et_day", slicers.from)
+      .lte("et_day", slicers.to)
+      .order("et_day", { ascending: true })
+      .range(offset, offset + 999);
+    if (slicers.campaignId) query = query.eq("campaign_id", slicers.campaignId);
+    if (slicers.listId) query = query.eq("list_id", slicers.listId);
+    if (slicers.ownerId) query = query.eq("owner_id", slicers.ownerId);
+    const { data } = await query;
+    const batch = (data ?? []) as unknown as RollupRow[];
+    rows.push(...batch);
+    if (batch.length < 1000) break;
+    if (offset > 500_000) break; // safety backstop
+  }
+  return rows;
+}
+
 /** Total Twilio Lookup spend recorded outside calls (lead-import lookups)
  *  within the window. Optionally scoped to one owner; campaign/list slicers
  *  don't apply since these charges aren't tied to a call. */
@@ -189,7 +260,7 @@ export type PerCampaign = {
   costPerGoalMet: number;
 };
 
-export function rollupByCampaign(rows: CostsRow[]): PerCampaign[] {
+export function rollupByCampaign(rows: RollupRow[]): PerCampaign[] {
   const acc = new Map<
     string,
     { calls: number; goalMet: number; spend: Breakdown }
@@ -200,9 +271,9 @@ export function rollupByCampaign(rows: CostsRow[]): PerCampaign[] {
       goalMet: 0,
       spend: { ...ZERO },
     };
-    cur.calls += 1;
-    if (r.goal_met) cur.goalMet += 1;
-    addInto(cur.spend, pickBreakdown(r.cost_breakdown));
+    cur.calls += r.calls;
+    cur.goalMet += r.goal_met;
+    addInto(cur.spend, rowBreakdown(r));
     acc.set(r.campaign_id, cur);
   }
   return [...acc.entries()]
@@ -224,12 +295,12 @@ export type PerGoal = {
   costPerGoalMet: number;
 };
 
-export function rollupByGoalMet(rows: CostsRow[]): PerGoal[] {
+export function rollupByGoalMet(rows: RollupRow[]): PerGoal[] {
   const acc = new Map<string, { goalMet: number; spend: number }>();
   for (const r of rows) {
     const cur = acc.get(r.campaign_id) ?? { goalMet: 0, spend: 0 };
-    if (r.goal_met) cur.goalMet += 1;
-    cur.spend += pickBreakdown(r.cost_breakdown).total;
+    cur.goalMet += r.goal_met;
+    cur.spend += Number(r.total);
     acc.set(r.campaign_id, cur);
   }
   return [...acc.entries()]
@@ -249,33 +320,15 @@ export type PerUser = {
   spend: number;
 };
 
-/** Per-user requires a lead lookup since calls don't carry owner_id. */
-export async function rollupByUser(
-  supabase: SupabaseClient,
-  rows: CostsRow[],
-): Promise<PerUser[]> {
-  if (rows.length === 0) return [];
-  const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
-  // Chunk the lookup so a window with >1,000 distinct leads doesn't hit the
-  // PostgREST row cap — an un-chunked .in() would drop owners past the first
-  // 1,000 and undercount their spend (and sends one oversized query).
-  const owner = new Map<string, string>();
-  for (let i = 0; i < leadIds.length; i += COSTS_PAGE) {
-    const idChunk = leadIds.slice(i, i + COSTS_PAGE);
-    const { data: leads } = await supabase
-      .from("leads")
-      .select("id, owner_id")
-      .in("id", idChunk);
-    for (const l of leads ?? []) owner.set(l.id, l.owner_id);
-  }
+/** Per-user rollup — the rollup row already carries owner_id, so no lead
+ *  lookup is needed (and the RLS on cost_rollup_daily already scoped rows). */
+export function rollupByUser(rows: RollupRow[]): PerUser[] {
   const acc = new Map<string, { calls: number; spend: number }>();
   for (const r of rows) {
-    const oid = owner.get(r.lead_id);
-    if (!oid) continue;
-    const cur = acc.get(oid) ?? { calls: 0, spend: 0 };
-    cur.calls += 1;
-    cur.spend += pickBreakdown(r.cost_breakdown).total;
-    acc.set(oid, cur);
+    const cur = acc.get(r.owner_id) ?? { calls: 0, spend: 0 };
+    cur.calls += r.calls;
+    cur.spend += Number(r.total);
+    acc.set(r.owner_id, cur);
   }
   return [...acc.entries()]
     .map(([ownerId, v]) => ({
@@ -293,34 +346,19 @@ export type PerList = {
   spend: number;
 };
 
-/** Per-list rollup. Mirrors rollupByUser — calls don't carry list_id
- *  directly, so we look up each call's lead to get its list. */
-export async function rollupByList(
-  supabase: SupabaseClient,
-  rows: CostsRow[],
-): Promise<PerList[]> {
-  if (rows.length === 0) return [];
-  const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
-  const { data: leads } = await supabase
-    .from("leads")
-    .select("id, list_id")
-    .in("id", leadIds);
-  const listOf = new Map<string, string>();
-  for (const l of leads ?? []) {
-    listOf.set((l as { id: string }).id, (l as { list_id: string }).list_id);
-  }
+/** Per-list rollup — the rollup row already carries list_id, so no lead
+ *  lookup is needed. */
+export function rollupByList(rows: RollupRow[]): PerList[] {
   const acc = new Map<
     string,
     { calls: number; goalMet: number; spend: number }
   >();
   for (const r of rows) {
-    const lid = listOf.get(r.lead_id);
-    if (!lid) continue;
-    const cur = acc.get(lid) ?? { calls: 0, goalMet: 0, spend: 0 };
-    cur.calls += 1;
-    if (r.goal_met) cur.goalMet += 1;
-    cur.spend += pickBreakdown(r.cost_breakdown).total;
-    acc.set(lid, cur);
+    const cur = acc.get(r.list_id) ?? { calls: 0, goalMet: 0, spend: 0 };
+    cur.calls += r.calls;
+    cur.goalMet += r.goal_met;
+    cur.spend += Number(r.total);
+    acc.set(r.list_id, cur);
   }
   return [...acc.entries()]
     .map(([listId, v]) => ({
@@ -334,7 +372,7 @@ export async function rollupByList(
 
 export type PerTime = { day: string; spend: number; calls: number };
 
-export function rollupByTime(rows: CostsRow[], slicers: Slicers): PerTime[] {
+export function rollupByTime(rows: RollupRow[], slicers: Slicers): PerTime[] {
   const buckets = new Map<string, { spend: number; calls: number }>();
   const start = new Date(`${slicers.from}T00:00:00Z`);
   const end = new Date(`${slicers.to}T00:00:00Z`);
@@ -342,20 +380,19 @@ export function rollupByTime(rows: CostsRow[], slicers: Slicers): PerTime[] {
     buckets.set(d.toISOString().slice(0, 10), { spend: 0, calls: 0 });
   }
   for (const r of rows) {
-    const day = etDayString(new Date(r.created_at));
-    const cur = buckets.get(day) ?? { spend: 0, calls: 0 };
-    cur.spend += pickBreakdown(r.cost_breakdown).total;
-    cur.calls += 1;
-    buckets.set(day, cur);
+    const cur = buckets.get(r.et_day) ?? { spend: 0, calls: 0 };
+    cur.spend += Number(r.total);
+    cur.calls += r.calls;
+    buckets.set(r.et_day, cur);
   }
   return [...buckets.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([day, v]) => ({ day, spend: v.spend, calls: v.calls }));
 }
 
-export function rollupByVendor(rows: CostsRow[]): Breakdown {
+export function rollupByVendor(rows: RollupRow[]): Breakdown {
   const acc: Breakdown = { ...ZERO };
-  for (const r of rows) addInto(acc, pickBreakdown(r.cost_breakdown));
+  for (const r of rows) addInto(acc, rowBreakdown(r));
   return acc;
 }
 
