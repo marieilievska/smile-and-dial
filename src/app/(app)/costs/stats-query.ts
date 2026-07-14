@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { pickBreakdown } from "@/lib/analytics/costs";
+import {
+  etDayString,
+  etMidnightUtcIso,
+  startOfTodayEtIso,
+} from "@/lib/time/eastern";
 
 const PAGE = 1000;
 
@@ -43,12 +48,14 @@ export async function fetchCostsHeadlineStats(
   supabase: SupabaseClient,
 ): Promise<CostsHeadlineStats> {
   const now = new Date();
-  const startOfDay = new Date(now);
-  startOfDay.setUTCHours(0, 0, 0, 0);
-  const startOfMonth = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0),
+  // Eastern calendar-day / month boundaries (the app-wide convention) so the
+  // "today" and month-to-date spend match the rest of the app rather than the
+  // server's UTC midnight (~7-8pm ET).
+  const todayEt = etDayString(now);
+  const [cy, cm] = todayEt.split("-").map(Number);
+  const startOfMonthIso = etMidnightUtcIso(
+    `${cy}-${String(cm).padStart(2, "0")}-01`,
   );
-  const startOfMonthIso = startOfMonth.toISOString();
 
   const [data, lookupRows] = await Promise.all([
     fetchAllRows<{ cost_breakdown: unknown; created_at: string }>((from, to) =>
@@ -72,7 +79,7 @@ export async function fetchCostsHeadlineStats(
 
   let todaySpend = 0;
   let mtdSpend = 0;
-  const todayIso = startOfDay.toISOString();
+  const todayIso = startOfTodayEtIso(now);
   for (const row of data) {
     const breakdown = pickBreakdown(row.cost_breakdown);
     mtdSpend += breakdown.total;
@@ -88,10 +95,8 @@ export async function fetchCostsHeadlineStats(
 
   // Linear month-end projection. dayOfMonth counts today as elapsed so
   // the first of the month doesn't divide by zero.
-  const dayOfMonth = now.getUTCDate();
-  const daysInMonth = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0),
-  ).getUTCDate();
+  const dayOfMonth = Number(todayEt.split("-")[2]);
+  const daysInMonth = new Date(Date.UTC(cy, cm, 0)).getUTCDate();
   const projectedMonthSpend =
     dayOfMonth > 0 ? (mtdSpend / dayOfMonth) * daysInMonth : mtdSpend;
 
@@ -115,10 +120,13 @@ export async function fetchCampaignCaps(
   supabase: SupabaseClient,
 ): Promise<Map<string, CampaignCap>> {
   const out = new Map<string, CampaignCap>();
-  const startOfMonth = new Date();
-  startOfMonth.setUTCDate(1);
-  startOfMonth.setUTCHours(0, 0, 0, 0);
-  const startOfMonthIso = startOfMonth.toISOString();
+  // Eastern month/day boundaries (app-wide convention), matching the headline.
+  const now = new Date();
+  const todayEt = etDayString(now);
+  const [cy, cm] = todayEt.split("-").map(Number);
+  const startOfMonthIso = etMidnightUtcIso(
+    `${cy}-${String(cm).padStart(2, "0")}-01`,
+  );
   const [{ data: campaigns }, calls] = await Promise.all([
     supabase
       .from("campaigns")
@@ -139,9 +147,7 @@ export async function fetchCampaignCaps(
     ),
   ]);
 
-  const dayStart = new Date();
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const dayIso = dayStart.toISOString();
+  const dayIso = startOfTodayEtIso(now);
 
   const spendDay = new Map<string, number>();
   const spendMonth = new Map<string, number>();

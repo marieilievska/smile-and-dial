@@ -1,5 +1,11 @@
 import type { createClient } from "@/lib/supabase/server";
 
+import {
+  etDateDaysAgo,
+  etDayString,
+  etMidnightUtcIso,
+} from "@/lib/time/eastern";
+
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
 export type LeadStats = {
@@ -24,12 +30,15 @@ export async function fetchLeadStats(
 ): Promise<LeadStats> {
   const now = new Date();
 
-  // Start of "this week" — Monday 00:00. Most operators think weeks
-  // start on Monday; if you live in a Sunday-first culture, swap below.
-  const startOfWeek = new Date(now);
-  const dow = (now.getDay() + 6) % 7; // 0 = Monday, 6 = Sunday
-  startOfWeek.setDate(now.getDate() - dow);
-  startOfWeek.setHours(0, 0, 0, 0);
+  // Start of "this week" — Monday 00:00 Eastern (the app-wide day convention),
+  // so this tile and its Calls-list destination agree instead of drifting to
+  // the server's UTC midnight. Day-of-week comes from the ET calendar date;
+  // back up to Monday and take that ET date's UTC midnight.
+  const todayEt = etDayString(now); // YYYY-MM-DD
+  const [ty, tm, td] = todayEt.split("-").map(Number);
+  const dow = (new Date(Date.UTC(ty, tm - 1, td)).getUTCDay() + 6) % 7; // 0=Mon
+  const weekStartDate = etDateDaysAgo(dow, now); // Monday's ET date (YYYY-MM-DD)
+  const startOfWeekIso = etMidnightUtcIso(weekStartDate);
 
   const [readyResult, callbackResult, goalsMetResult] = await Promise.all([
     supabase
@@ -52,16 +61,8 @@ export async function fetchLeadStats(
       .from("calls")
       .select("*", { count: "exact", head: true })
       .eq("goal_met", true)
-      .gte("ended_at", startOfWeek.toISOString()),
+      .gte("ended_at", startOfWeekIso),
   ]);
-
-  // YYYY-MM-DD for the Calls list's `from` date filter (it expects a plain
-  // date). Built from local parts to match the local-midnight startOfWeek
-  // above rather than risk a UTC date shift from toISOString().
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const weekStartDate = `${startOfWeek.getFullYear()}-${pad(
-    startOfWeek.getMonth() + 1,
-  )}-${pad(startOfWeek.getDate())}`;
 
   return {
     readyToCall: readyResult.count ?? 0,
