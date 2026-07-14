@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 import { constantTimeEqual, hashApiKey } from "@/lib/api-keys/generator";
+import { toE164UsCa } from "@/lib/leads/twilio-lookup";
 
 /** POST /api/v1/leads — Public lead-creation endpoint (Step 41 / §14).
  *
@@ -102,11 +103,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const phone =
+  const rawPhone =
     typeof body.business_phone === "string" ? body.business_phone : "";
-  if (!phone) {
+  if (!rawPhone.trim()) {
     return NextResponse.json(
       { error: "business_phone is required" },
+      { status: 400 },
+    );
+  }
+  // Normalize to E.164 (+1XXXXXXXXXX). DNC suppression and the dialer both
+  // match on this exact format, so a raw partner-supplied number like
+  // "(857) 555-1234" would silently bypass the DNC list and fail to dial.
+  // Reject anything that isn't a valid US/CA number rather than store an
+  // un-dialable, un-suppressable row.
+  const phone = toE164UsCa(rawPhone);
+  if (!phone) {
+    return NextResponse.json(
+      { error: "business_phone must be a valid US/CA phone number" },
       { status: 400 },
     );
   }
