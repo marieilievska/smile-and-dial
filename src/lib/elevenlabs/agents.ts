@@ -25,6 +25,7 @@ import {
   isOwnServerTool,
   toolIdsForEnabled,
 } from "@/lib/elevenlabs/server-tools";
+import { DYNAMIC_VARIABLE_PLACEHOLDERS } from "@/lib/elevenlabs/conversation-init";
 import { appBaseUrl } from "@/lib/app-url";
 
 export type AgentSyncPayload = {
@@ -471,26 +472,6 @@ export type FetchedAgent = {
   aiModel: string | null;
 };
 
-/** The dynamic-variable placeholders our webhooks fill per call. Declared on
- *  every agent so its prompt can reference {{var}} and so the tools receive
- *  {{call_id}}. MUST stay in lockstep with the conversation-init webhook. */
-const DYNAMIC_VAR_PLACEHOLDERS = {
-  call_type: "",
-  last_callback_notes: "",
-  last_call_summary: "",
-  transfer_number: "",
-  owner_name: "",
-  city: "",
-  category: "",
-  google_rating: "",
-  google_reviews: "",
-  call_id: "",
-  // Imported CRM/booking software (booking_crm_software custom field), so the
-  // prompt can reference {{booking_crm_software}}. Filled per-call by the
-  // conversation-init webhook from the lead's custom value.
-  booking_crm_software: "",
-} as const;
-
 /** Our post-call webhook block (when a webhook id is configured). Requests
  *  the audio event too (send_audio) so completed calls get their recording
  *  stored, not just the transcript. */
@@ -648,7 +629,7 @@ export async function applyConnectedAgentIntegration(
           ...dv,
           dynamic_variable_placeholders: {
             ...dvp,
-            ...DYNAMIC_VAR_PLACEHOLDERS,
+            ...DYNAMIC_VARIABLE_PLACEHOLDERS,
           },
         },
         prompt: promptPatch,
@@ -904,7 +885,7 @@ async function liveSync(
         // response keys. Values come per-call from the lead/campaign; the ""
         // here are just the declared defaults when a field is empty.
         dynamic_variables: {
-          dynamic_variable_placeholders: DYNAMIC_VAR_PLACEHOLDERS,
+          dynamic_variable_placeholders: DYNAMIC_VARIABLE_PLACEHOLDERS,
         },
         prompt: {
           prompt: payload.systemPrompt,

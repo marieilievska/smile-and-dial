@@ -89,6 +89,42 @@ export type ConversationInitResponse = {
   };
 };
 
+/**
+ * The complete set of dynamic-variable keys this webhook returns, as an
+ * all-blank placeholder map. SINGLE SOURCE OF TRUTH: the agent sync imports
+ * this to declare each agent's `dynamic_variable_placeholders` (see
+ * lib/elevenlabs/agents), so the variables an agent is allowed to reference in
+ * its prompt can never drift from the ones we actually send here.
+ * `buildVarsForCall` / `emptyVariables` fill these with real per-call values;
+ * the "" here are the declared defaults used when a field is empty.
+ *
+ * The `satisfies` clause makes the compiler enforce the lockstep: add a key to
+ * the response type above and this constant fails to build until it's added
+ * here too — which in turn declares it on every agent.
+ */
+export const DYNAMIC_VARIABLE_PLACEHOLDERS = {
+  call_type: "",
+  last_call_summary: "",
+  last_callback_notes: "",
+  last_contact: "",
+  transfer_number: "",
+  call_id: "",
+  business_name: "",
+  owner_name: "",
+  manager_name: "",
+  employee_name: "",
+  city: "",
+  category: "",
+  google_rating: "",
+  google_reviews: "",
+  current_date: "",
+  lead_timezone: "",
+  booking_crm_software: "",
+} as const satisfies Record<
+  keyof ConversationInitResponse["dynamic_variables"],
+  string
+>;
+
 /** Today's date spelled out (e.g. "Thursday, June 12, 2026") in the given
  *  timezone, for the agent's callback-time reasoning. */
 function todayInTimezone(timeZone: string): string {
@@ -179,23 +215,12 @@ export async function getConversationInitSecret(): Promise<string | null> {
  *  The agent still starts; its prompt just sees blank placeholders. */
 function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
   return {
+    ...DYNAMIC_VARIABLE_PLACEHOLDERS,
+    // The only two fields that aren't blank even on an unresolved call: default
+    // to a cold call_type, and always give the agent today's date (in the
+    // default timezone) so its callback-time reasoning has an anchor.
     call_type: "cold",
-    last_call_summary: "",
-    last_callback_notes: "",
-    last_contact: "",
-    transfer_number: "",
-    call_id: "",
-    business_name: "",
-    owner_name: "",
-    manager_name: "",
-    employee_name: "",
-    city: "",
-    category: "",
-    google_rating: "",
-    google_reviews: "",
     current_date: todayInTimezone("America/New_York"),
-    lead_timezone: "",
-    booking_crm_software: "",
   };
 }
 
