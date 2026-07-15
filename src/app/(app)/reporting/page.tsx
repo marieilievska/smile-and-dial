@@ -21,10 +21,14 @@ import {
   serializeScope,
   type ReportScope,
 } from "@/lib/agent-analytics/scope";
-import { fetchReviewBuckets, fetchCandidateFlags } from "@/lib/review/buckets";
+import {
+  fetchReviewBuckets,
+  fetchCandidateFlags,
+  fetchChecklistFlags,
+} from "@/lib/review/buckets";
 
 import { CallReviewTable } from "./call-review-table";
-import { SuggestedFlagsPanel } from "./suggested-flags-panel";
+import { AiChecklistPanel } from "./ai-checklist-panel";
 import { ChangelogTable } from "./changelog-table";
 import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
@@ -212,14 +216,22 @@ async function DashboardTab({
 
 async function CallReviewTab() {
   const supabase = await createClient();
-  const [{ summary, buckets }, candidates] = await Promise.all([
+  const [{ summary, buckets }, candidates, checklist] = await Promise.all([
     fetchReviewBuckets(supabase),
     fetchCandidateFlags(supabase),
+    fetchChecklistFlags(supabase),
   ]);
   return (
-    <div className="flex flex-col gap-5">
-      <SuggestedFlagsPanel candidates={candidates} />
-      <CallReviewTable summary={summary} buckets={buckets} />
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-3">
+        <h2 className="text-foreground text-base font-semibold">
+          Review flagged calls
+        </h2>
+        <CallReviewTable summary={summary} buckets={buckets} />
+      </section>
+      <section className="flex flex-col gap-3">
+        <AiChecklistPanel flags={checklist} candidates={candidates} />
+      </section>
     </div>
   );
 }

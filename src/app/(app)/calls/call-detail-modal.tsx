@@ -270,6 +270,11 @@ function CallReviewPanel({ callId }: { callId: string }) {
           {review.reviewedAt ? "Reviewed ✓ — reopen" : "Mark reviewed"}
         </Button>
       </div>
+      <p className="text-muted-foreground -mt-1 text-xs">
+        Tell the AI if each flag is right — a false alarm removes it and counts
+        against that flag&apos;s accuracy, which sharpens future reviews.
+        &ldquo;Mark reviewed&rdquo; just means you&apos;ve handled this call.
+      </p>
 
       {review.flags.length === 0 ? (
         <p className="text-muted-foreground text-xs">No flags on this call.</p>
@@ -293,9 +298,9 @@ function CallReviewPanel({ callId }: { callId: string }) {
                       needs eyes
                     </Badge>
                   ) : f.status === "rejected" ? (
-                    <Badge variant="secondary">rejected</Badge>
+                    <Badge variant="secondary">false alarm</Badge>
                   ) : (
-                    <Badge variant="outline">confirmed</Badge>
+                    <Badge variant="outline">looks right</Badge>
                   )}
                 </div>
                 {f.evidenceQuote ? (
@@ -310,16 +315,18 @@ function CallReviewPanel({ callId }: { callId: string }) {
                   variant="outline"
                   disabled={pending || f.status === "confirmed"}
                   onClick={() => updateFlag(f.id, "confirmed")}
+                  title="This flag is correct"
                 >
-                  Confirm
+                  Looks right
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
                   disabled={pending || f.status === "rejected"}
                   onClick={() => updateFlag(f.id, "rejected")}
+                  title="False alarm — removes it from this bucket and counts against this flag's accuracy"
                 >
-                  Reject
+                  False alarm
                 </Button>
               </div>
             </div>
