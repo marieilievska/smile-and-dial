@@ -3,8 +3,10 @@ import type { ReviewFlagDef } from "./types";
 /** The built-in flag for "agent didn't follow its own instructions". */
 export const OFF_SCRIPT_KEY = "off_script";
 
-/** Max chars of agent instructions fed to the reviewer (bounds token cost). */
-export const INSTRUCTIONS_CAP = 6000;
+/** Max chars of agent instructions fed to the reviewer. Real agent playbooks run
+ *  ~14k chars, so this must cover a whole prompt (not truncate half of it); it's
+ *  a backstop against a pathologically huge prompt, not a cost knob. */
+export const INSTRUCTIONS_CAP = 20000;
 
 /** The rubric defs the reviewer should use: off_script only makes sense when we
  *  actually have the agent's instructions to judge against. */
