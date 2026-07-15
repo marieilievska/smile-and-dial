@@ -88,7 +88,7 @@ export async function runReviewTick(
     try {
       const { data: call } = await db
         .from("calls")
-        .select("agent_id, transcript_json, extracted_data")
+        .select("agent_id, transcript_json, extracted_data, cost_breakdown")
         .eq("id", row.call_id)
         .maybeSingle();
       const transcript = transcriptToText(call?.transcript_json);
@@ -128,6 +128,32 @@ export async function runReviewTick(
           analyzed_at: new Date().toISOString(),
         })
         .eq("call_id", row.call_id);
+
+      // Record the reviewer's OpenAI spend on the CALL itself so the Costs page
+      // counts it. It lives in its own `openai_review` sub-field (kept apart
+      // from the call-time `openai`) and is SET, not added, so a re-queued
+      // re-review never double-counts. total is recomputed from the itemized
+      // components (mirrors pickBreakdown in lib/analytics/costs.ts).
+      if (cost > 0) {
+        const cb = (call?.cost_breakdown ?? {}) as Record<string, number>;
+        const nextCost = {
+          ...cb,
+          openai_review: cost,
+          total:
+            (Number(cb.twilio) || 0) +
+            (Number(cb.elevenlabs) || 0) +
+            (Number(cb.openai) || 0) +
+            (Number(cb.lookup) || 0) +
+            cost,
+        };
+        await db
+          .from("calls")
+          .update({
+            cost_breakdown:
+              nextCost as unknown as Database["public"]["Tables"]["calls"]["Update"]["cost_breakdown"],
+          })
+          .eq("id", row.call_id);
+      }
       summary.analyzed++;
     } catch (e) {
       summary.errors++;
