@@ -41,6 +41,8 @@ function toolFunctionName(key: ServerToolKey): string {
 const TOOL_DESCRIPTIONS: Record<ServerToolKey, string> = {
   send_email:
     "Send the lead the information they asked for by email. Confirm the email address with the caller first.",
+  send_text:
+    "Text the lead the information they asked for by SMS. Confirm their MOBILE number and that they're OK to receive a text first.",
   schedule_callback:
     "Schedule a callback for the lead at a specific date and time they request.",
   get_available_times:
@@ -100,6 +102,14 @@ function bodySchemaFor(
       add(
         "email",
         "The lead's email in standard format, e.g. 'jane@business.com'. Read it back to confirm first.",
+        true,
+      );
+      add("note", "Short note on what information the lead asked for.", false);
+      break;
+    case "send_text":
+      add(
+        "mobile",
+        "The lead's MOBILE number in E.164 format, e.g. '+17545551234'. Read it back to confirm first — a text can't reach a landline.",
         true,
       );
       add("note", "Short note on what information the lead asked for.", false);

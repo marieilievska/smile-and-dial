@@ -17,6 +17,8 @@ import {
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
 import { deliverEmailViaClose } from "@/lib/close/send-email";
 import { planEmailSend } from "@/lib/close/email-send-plan";
+import { deliverSmsViaClose } from "@/lib/close/send-sms";
+import { planTextSend } from "@/lib/close/text-send-plan";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
 /**
@@ -45,6 +47,7 @@ type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
 /** The five custom server tools, in the order the wizard lists them. */
 export const SERVER_TOOL_KEYS = [
   "send_email",
+  "send_text",
   "schedule_callback",
   "get_available_times",
   "book_appointment",
@@ -130,6 +133,7 @@ type CallContext = {
     owner_id: string;
     company: string | null;
     business_phone: string | null;
+    mobile_phone: string | null;
     owner_phone: string | null;
     business_email: string | null;
     owner_name: string | null;
@@ -155,7 +159,7 @@ async function resolveCallContext(
   const { data: lead } = await supabase
     .from("leads")
     .select(
-      "id, owner_id, company, business_phone, owner_phone, business_email, owner_name, manager_name, employee_name, timezone, status",
+      "id, owner_id, company, business_phone, mobile_phone, owner_phone, business_email, owner_name, manager_name, employee_name, timezone, status",
     )
     .eq("id", call.lead_id)
     .maybeSingle();
@@ -269,6 +273,8 @@ export async function executeServerTool(
   switch (tool) {
     case "send_email":
       return sendEmail(ctx, body);
+    case "send_text":
+      return sendText(ctx, body);
     case "schedule_callback":
       return scheduleCallback(ctx, body);
     case "book_appointment":
@@ -522,6 +528,196 @@ async function sendEmail(
     email,
     template_id: tmpl.id,
     email_id: emailId,
+    sent: true,
+    mock: !isReal,
+  });
+
+  return { success: true, message: sentMessage };
+}
+
+// ---------------------------------------------------------------------------
+// send_text
+// ---------------------------------------------------------------------------
+/** The fixed SMS template attached to the campaign (campaigns.sms_template_id).
+ *  The send_text tool sends THIS template verbatim (+ an opt-out line). Null
+ *  when the campaign has no SMS template configured. */
+async function resolveCampaignSmsTemplate(
+  supabase: SupabaseAdmin,
+  campaignId: string,
+): Promise<{ id: string; name: string; body: string } | null> {
+  const { data: campaign } = await supabase
+    .from("campaigns")
+    .select("sms_template_id")
+    .eq("id", campaignId)
+    .maybeSingle();
+  if (!campaign?.sms_template_id) return null;
+  const { data: tmpl } = await supabase
+    .from("sms_templates")
+    .select("id, name, body")
+    .eq("id", campaign.sms_template_id)
+    .maybeSingle();
+  return tmpl ?? null;
+}
+
+/** Normalize a mobile the AI read back into E.164 (defensive — the tool already
+ *  asks for E.164). US country code assumed when none is present. */
+function normalizeMobile(raw: string): string {
+  const s = raw.replace(/[^\d+]/g, "");
+  if (!s) return "";
+  if (s.startsWith("+")) return s;
+  if (s.length === 10) return `+1${s}`;
+  if (s.length === 11 && s.startsWith("1")) return `+${s}`;
+  return `+${s}`;
+}
+
+/** Insert the sent `texts` row + bump the template's last_used_at. Shared by the
+ *  real-delivery and mock paths (they differ only in from/message id). */
+async function recordSentText(
+  ctx: CallContext,
+  args: {
+    templateId: string;
+    body: string;
+    toNumber: string;
+    fromNumber: string;
+    closeMessageId: string;
+  },
+): Promise<string | null> {
+  const { data: inserted } = await ctx.supabase
+    .from("texts")
+    .insert({
+      lead_id: ctx.lead.id,
+      owner_id: ctx.lead.owner_id,
+      campaign_id: ctx.campaignId,
+      call_id: ctx.callId,
+      direction: "sent",
+      body: args.body,
+      to_number: args.toNumber,
+      from_number: args.fromNumber,
+      close_message_id: args.closeMessageId,
+      status: "sent",
+      template_id: args.templateId,
+    })
+    .select("id")
+    .maybeSingle();
+  await ctx.supabase
+    .from("sms_templates")
+    .update({ last_used_at: new Date().toISOString() })
+    .eq("id", args.templateId);
+  return inserted?.id ?? null;
+}
+
+const SMS_OPT_OUT_LINE = "Reply STOP to opt out.";
+
+async function sendText(
+  ctx: CallContext,
+  body: Record<string, unknown>,
+): Promise<ToolWebhookResult> {
+  // A text needs a MOBILE. The dialed business_phone is usually a landline, so
+  // we use the mobile the AI confirmed on the call (or one stored earlier).
+  const mobile =
+    normalizeMobile(str(body.mobile)) || ctx.lead.mobile_phone || "";
+  const note = str(body.note);
+  if (!mobile) {
+    return {
+      success: false,
+      message:
+        "I don't have a mobile number to text — what's the best cell number to send it to?",
+    };
+  }
+
+  // Capture the confirmed mobile onto the lead if we didn't have one.
+  if (!ctx.lead.mobile_phone) {
+    await ctx.supabase
+      .from("leads")
+      .update({ mobile_phone: mobile })
+      .eq("id", ctx.lead.id);
+  }
+
+  // Send the campaign's FIXED SMS template. No template → record the intent only.
+  const tmpl = await resolveCampaignSmsTemplate(ctx.supabase, ctx.campaignId);
+  if (!tmpl) {
+    await logToolEvent(ctx, "tool_send_text", {
+      mobile,
+      note,
+      template_id: null,
+      sent: false,
+      reason: "no_template_on_campaign",
+    });
+    return {
+      success: true,
+      message: "Got it — I've noted to text that to you.",
+    };
+  }
+
+  const renderCtx = await buildEmailContext(ctx);
+  const rendered = renderTemplate(tmpl.body, renderCtx);
+  const text = `${rendered}\n\n${SMS_OPT_OUT_LINE}`;
+
+  const live = process.env.ELEVENLABS_LIVE === "live";
+  const sentMessage =
+    "Done — I've texted that to you. You should see it shortly.";
+  const notedMessage = "Got it — I've noted to text that to you.";
+
+  // Live: deliver via Close from the owner's configured send-from number. We only
+  // claim "sent" on real success; otherwise we record the intent, no fake row.
+  let hasCloseKey = false;
+  let hasFromNumber = false;
+  let fromNumber: string | null = null;
+  let delivered: Awaited<ReturnType<typeof deliverSmsViaClose>> | null = null;
+  if (live) {
+    const { data: integ } = await ctx.supabase
+      .from("user_integrations")
+      .select("close_api_key, close_sms_from_number")
+      .eq("user_id", ctx.lead.owner_id)
+      .maybeSingle();
+    const closeKey = integ?.close_api_key?.trim() || null;
+    fromNumber = integ?.close_sms_from_number?.trim() || null;
+    hasCloseKey = Boolean(closeKey);
+    hasFromNumber = Boolean(fromNumber);
+    if (closeKey && fromNumber) {
+      delivered = await deliverSmsViaClose({
+        closeKey,
+        fromNumber,
+        toMobile: mobile,
+        text,
+        company: ctx.lead.company,
+        contactName: ctx.lead.owner_name || ctx.lead.manager_name || null,
+      });
+    }
+  }
+
+  const plan = planTextSend({ live, hasCloseKey, hasFromNumber, delivered });
+
+  if (plan.action === "note_only") {
+    await logToolEvent(ctx, "tool_send_text", {
+      mobile,
+      note,
+      template_id: tmpl.id,
+      sent: false,
+      reason: plan.reason,
+    });
+    return { success: true, message: notedMessage };
+  }
+
+  const isReal = plan.action === "record_real";
+  const fromRecorded = isReal && fromNumber ? fromNumber : "Close mock";
+  const closeMessageId =
+    isReal && delivered?.ok
+      ? delivered.closeMessageId
+      : `mock-sms-${Date.now()}`;
+
+  const textId = await recordSentText(ctx, {
+    templateId: tmpl.id,
+    body: text,
+    toNumber: mobile,
+    fromNumber: fromRecorded,
+    closeMessageId,
+  });
+
+  await logToolEvent(ctx, "tool_send_text", {
+    mobile,
+    template_id: tmpl.id,
+    text_id: textId,
     sent: true,
     mock: !isReal,
   });

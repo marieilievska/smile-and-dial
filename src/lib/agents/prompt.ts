@@ -5,6 +5,7 @@
 
 export const ALL_TOOLS = [
   "send_email",
+  "send_text",
   "schedule_callback",
   "get_available_times",
   "book_appointment",
@@ -28,6 +29,7 @@ export const SERVER_TOOL_FUNCTION_PREFIX = "smiledial_";
 
 export const TOOL_LABELS: Record<ToolKey, string> = {
   send_email: "Send email",
+  send_text: "Send text (SMS)",
   schedule_callback: "Schedule a callback",
   get_available_times: "Get available times (Calendly)",
   book_appointment: "Book an appointment (Calendly)",
@@ -42,6 +44,13 @@ const TOOL_BLOCKS: Record<ToolKey, string> = {
 1. Confirm the lead's email address by reading it back to them.
 2. Call the tool with their confirmed email.
 3. Tell them "I've sent that over — you should see it within a minute."`,
+  send_text: `## smiledial_send_text
+**When to use:** When the lead asks you to text them the information, or agrees when you offer to text it to their phone.
+**How to use:**
+1. Ask for and read back their MOBILE number to confirm it — a text can't reach a landline, so don't use the number you called unless they say it's a cell.
+2. Only send if they've agreed to receive a text.
+3. Call the tool with their confirmed mobile number.
+4. Tell them "I've texted that to you — you should see it shortly." Every text includes a way to opt out.`,
   schedule_callback: `## smiledial_schedule_callback
 **When to use:** When the lead says they're busy now and asks to be called back at a specific time.
 **How to use:**
