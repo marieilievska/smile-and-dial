@@ -119,7 +119,7 @@ export async function analyzeCall(input: {
         "true FROM THE TRANSCRIPT. Default to agree=false when the evidence is weak or ambiguous.",
       user:
         (input.instructions
-          ? `Agent's instructions (playbook): ${input.instructions.slice(0, 2000)}\n` +
+          ? `Agent's instructions (playbook): ${input.instructions}\n` +
             `A flag is INVALID if it describes behavior the instructions call for. ` +
             `"${OFF_SCRIPT_KEY}" is valid only if the agent genuinely failed to follow a specific instruction.\n\n`
           : "") +
