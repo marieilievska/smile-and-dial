@@ -13,6 +13,14 @@ const VALID_STATUSES = new Set(Object.keys(LEAD_STATUS_LABELS));
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 
+/** How long a lead rests when an operator picks "Resting" by hand.
+ *  The automatic retry engine always stamps a `resting_until` when it rests
+ *  a lead (30d for not-interested, 15d for the shorter cases); the nightly
+ *  `expire_resting_leads()` job then wakes any lead whose date has passed.
+ *  A manual rest with NO date is invisible to that job, so the lead would
+ *  rest forever. 15 days mirrors the engine's shorter default. */
+const MANUAL_RESTING_DAYS = 15;
+
 /** Inline-edit a single lead's status from the Leads table. Mirrors
  *  the contract of `updateLeadField` (per-call RLS) but adds:
  *
@@ -55,10 +63,29 @@ export async function setLeadStatus(input: {
 
   // When the chosen stage is "dnc", also clear the next-call slot so the
   // lead drops out of the dialer queue, matching bulkAddLeadsToDnc.
-  const update: { status: string; next_call_at?: null } = {
+  const update: {
+    status: string;
+    next_call_at?: string | null;
+    resting_until?: string;
+  } = {
     status: input.status,
   };
   if (input.status === "dnc") update.next_call_at = null;
+
+  // A manual move to "resting" must carry a wake-up date, or the lead is
+  // stranded: the nightly expire_resting_leads() job only revives leads whose
+  // resting_until is set and past, so a null date means it rests forever.
+  // Mirror the retry engine's resting shape — resting_until AND next_call_at
+  // both point at the wake time — so the lead auto-returns to ready_to_call
+  // when the rest elapses. (A resting lead is already excluded from the
+  // dial_queue by status, so the future next_call_at can't trigger a dial.)
+  if (input.status === "resting") {
+    const restingUntil = new Date(
+      Date.now() + MANUAL_RESTING_DAYS * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    update.resting_until = restingUntil;
+    update.next_call_at = restingUntil;
+  }
 
   const { error: writeErr } = await supabase
     .from("leads")
