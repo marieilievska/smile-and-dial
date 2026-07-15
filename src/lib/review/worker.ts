@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { loadActiveFlagDefs } from "./rubric";
 import { analyzeCall } from "./analyze";
+import { resolveAgentReviewPrompt } from "./agent-prompt";
 import { PASS1_MODEL, PASS2_MODEL } from "./openai";
 
 type Admin = ReturnType<typeof createClient<Database>>;
@@ -62,6 +63,18 @@ export async function runReviewTick(
 
   const defs = await loadActiveFlagDefs(db);
 
+  // Resolve each agent's playbook once per tick (many calls share an agent).
+  const promptCache = new Map<string, string | null>();
+  async function instructionsFor(
+    agentId: string | null,
+  ): Promise<string | null> {
+    const keyId = agentId ?? "";
+    if (promptCache.has(keyId)) return promptCache.get(keyId) ?? null;
+    const p = await resolveAgentReviewPrompt(db, agentId);
+    promptCache.set(keyId, p);
+    return p;
+  }
+
   for (const row of pending) {
     const { data: claimed } = await db
       .from("call_reviews")
@@ -75,7 +88,7 @@ export async function runReviewTick(
     try {
       const { data: call } = await db
         .from("calls")
-        .select("transcript_json, extracted_data")
+        .select("agent_id, transcript_json, extracted_data")
         .eq("id", row.call_id)
         .maybeSingle();
       const transcript = transcriptToText(call?.transcript_json);
@@ -90,20 +103,19 @@ export async function runReviewTick(
         transcript,
         extracted: JSON.stringify(call?.extracted_data ?? {}),
         defs,
+        instructions: await instructionsFor(call?.agent_id ?? null),
       });
       for (const f of flags) {
-        await db
-          .from("call_review_flags")
-          .upsert(
-            {
-              call_id: row.call_id,
-              flag_key: f.flag_key,
-              evidence_quote: f.evidence_quote,
-              confidence: f.confidence,
-              status: f.status,
-            },
-            { onConflict: "call_id,flag_key" },
-          );
+        await db.from("call_review_flags").upsert(
+          {
+            call_id: row.call_id,
+            flag_key: f.flag_key,
+            evidence_quote: f.evidence_quote,
+            confidence: f.confidence,
+            status: f.status,
+          },
+          { onConflict: "call_id,flag_key" },
+        );
       }
       await db
         .from("call_reviews")

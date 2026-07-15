@@ -745,6 +745,34 @@ export async function fetchElevenLabsAgent(
   }
 }
 
+/** Fetch an externally-managed agent's SYSTEM PROMPT text from ElevenLabs
+ *  (conversation_config.agent.prompt.prompt). Returns null when not live, the
+ *  key is missing, the request fails, or the prompt is empty — callers fall back
+ *  to no-playbook review. Never throws. */
+export async function fetchElevenLabsAgentPrompt(
+  agentId: string,
+): Promise<string | null> {
+  if (!isLive()) return null;
+  const apiKey = fetchApiKey();
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `${ELEVENLABS_API}/${encodeURIComponent(agentId)}`,
+      {
+        headers: { "xi-api-key": apiKey },
+      },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      conversation_config?: { agent?: { prompt?: { prompt?: string } } };
+    };
+    const prompt = data.conversation_config?.agent?.prompt?.prompt?.trim();
+    return prompt && prompt.length > 0 ? prompt : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Create or update an ElevenLabs agent from our wizard inputs. When
  * `existingId` is null, a new agent is created; otherwise the existing

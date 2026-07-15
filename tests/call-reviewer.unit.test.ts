@@ -75,6 +75,7 @@ test.skipIf(!process.env.OPENAI_API_KEY)(
             "Said a time was unavailable, then booked the same slot anyway.",
         },
       ],
+      instructions: null,
     });
     expect(flags.map((f) => f.flag_key)).toContain(GOLDEN.expectFlag);
   },
