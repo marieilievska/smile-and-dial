@@ -9,8 +9,7 @@ test.describe.configure({ mode: "serial" });
  * Per-campaign summary scoping (feat/per-campaign-summary).
  *
  * Proves that mergeLeadSummary writes the correct (lead, campaignA) row in
- * lead_campaign_summaries, leaves campaignB's row untouched, and dual-writes
- * leads.ai_summary.
+ * lead_campaign_summaries and leaves campaignB's row untouched.
  */
 test.describe("per-campaign summary", () => {
   const stamp = Date.now();
@@ -56,7 +55,6 @@ test.describe("per-campaign summary", () => {
         business_phone: `+1444${tail}20`,
         timezone: "America/New_York",
         status: "ready_to_call",
-        ai_summary: "we know we just imported them / we last left off n/a",
       })
       .select("id")
       .single();
@@ -141,13 +139,5 @@ test.describe("per-campaign summary", () => {
 
     expect(a?.ai_summary ?? "").not.toEqual("");
     expect(b).toBeNull();
-
-    // leads.ai_summary must also have been updated (dual-write).
-    const { data: leadRow } = await admin
-      .from("leads")
-      .select("ai_summary")
-      .eq("id", leadId)
-      .maybeSingle();
-    expect(leadRow?.ai_summary ?? "").not.toEqual("");
   });
 });

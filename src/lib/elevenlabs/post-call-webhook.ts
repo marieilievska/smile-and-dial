@@ -217,6 +217,33 @@ function transcriptLooksLikeMachine(transcript: unknown): boolean {
   return true;
 }
 
+/** Turn the post-call transcript payload into plain "Agent:/Lead:" text for the
+ *  rolling-summary generator. Mirrors the Call Reviewer's formatter — accepts a
+ *  bare array of turns or an object wrapping a `transcript` array, and reads
+ *  either `message` or `text` off each turn. */
+function transcriptToText(raw: unknown): string {
+  const turns = Array.isArray(raw)
+    ? raw
+    : raw &&
+        typeof raw === "object" &&
+        Array.isArray((raw as { transcript?: unknown }).transcript)
+      ? (raw as { transcript: unknown[] }).transcript
+      : [];
+  return (turns as Record<string, unknown>[])
+    .map((t) => {
+      const role = t.role === "user" ? "Lead" : "Agent";
+      const msg =
+        typeof t.message === "string"
+          ? t.message
+          : typeof t.text === "string"
+            ? t.text
+            : "";
+      return msg ? `${role}: ${msg}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
 /** Map an ElevenLabs termination reason to an UNAMBIGUOUS telephony outcome.
  *  Only the clear-cut carrier states are inferred here; a conversational
  *  "remote party ended" is intentionally left to the agent's disposition. */
@@ -1123,26 +1150,29 @@ async function processTranscription(
         : null,
   });
 
-  // Step 39: roll the per-call summary into the lead's per-campaign rolling
-  // summary (lead_campaign_summaries). Mock by default; OPENAI_LIVE=live calls
-  // gpt-4o-mini. The merger logs its own cost into cost_breakdown.openai on the
-  // call.
-  // Use the SAME real summary written to the call row (transcript_summary, with
-  // the legacy `summary` fallback) — NOT the legacy-only `analysis.summary`,
-  // which real ElevenLabs payloads never send (that left the summary blank and
-  // follow-up calls running with no memory). Only merge a real, non-empty
-  // summary string.
-  // Same gate as the call's summary above: never roll a non-connected call's
-  // "summary" into the per-campaign rolling summary (a voicemail / no-answer /
-  // hang-up has no real content, only the agent's own words).
+  // Step 39: roll this connected call into the lead's per-campaign rolling
+  // summary (lead_campaign_summaries) AND generate this call's callback pickup
+  // note (calls.callback_notes). Both come from ONE gpt-5.4-mini pass over the
+  // TRANSCRIPT — richer than ElevenLabs' terse recap, so the who/role/anchor
+  // detail actually lands in the note. Mock without an OpenAI key. The merger
+  // logs its own cost into cost_breakdown.openai on the call.
+  // Same gate as the call's summary above: only a connected call has real
+  // content worth summarizing (a voicemail / no-answer / hang-up is just the
+  // agent's own words). We feed the transcript, falling back to the terse recap
+  // (transcript_summary, legacy `summary`) when a transcript isn't present.
+  const transcriptText = reachedHuman
+    ? transcriptToText(payload.transcript)
+    : "";
   const latestSummary =
     reachedHuman && typeof callSummary === "string" && callSummary.trim()
       ? callSummary
       : null;
-  if (latestSummary && call.campaign_id) {
+  if (call.campaign_id && (transcriptText || latestSummary)) {
     const { cost } = await mergeLeadSummary({
       leadId: call.lead_id,
       campaignId: call.campaign_id,
+      callId: call.id,
+      transcript: transcriptText || null,
       latestSummary,
     });
     if (cost > 0) {
