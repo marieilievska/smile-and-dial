@@ -140,3 +140,70 @@ export async function fetchCandidateFlags(
     proposedAt: d.proposed_at,
   }));
 }
+
+/** An active (or retired) rubric flag + its human track record, for the checklist. */
+export type ChecklistDef = Pick<
+  ReviewFlagDef,
+  "key" | "label" | "lens" | "severity" | "guidance"
+> & { active: boolean };
+
+export type ChecklistFlag = ChecklistDef & {
+  confirmed: number;
+  rejected: number;
+};
+
+/** Join non-candidate defs to their confirmed/rejected tallies. Pure. Active
+ *  flags first (both groups keep def order), so the running checklist leads and
+ *  retired flags trail. Flag rows with no matching def are ignored. */
+export function shapeChecklist(
+  defs: ChecklistDef[],
+  rows: { flag_key: string | null; status: string }[],
+): ChecklistFlag[] {
+  const conf = new Map<string, number>();
+  const rej = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.flag_key) continue;
+    if (r.status === "confirmed")
+      conf.set(r.flag_key, (conf.get(r.flag_key) ?? 0) + 1);
+    else if (r.status === "rejected")
+      rej.set(r.flag_key, (rej.get(r.flag_key) ?? 0) + 1);
+  }
+  const shaped = defs.map((d) => ({
+    ...d,
+    confirmed: conf.get(d.key) ?? 0,
+    rejected: rej.get(d.key) ?? 0,
+  }));
+  return [
+    ...shaped.filter((f) => f.active),
+    ...shaped.filter((f) => !f.active),
+  ];
+}
+
+/** Load the checklist: every non-candidate flag + its confirm/reject tallies.
+ *  Paginates call_review_flags (PostgREST 1000-row cap) and tallies in JS — no
+ *  group-by view needed. Admin-gated via the caller's RLS client. */
+export async function fetchChecklistFlags(
+  client: ServerClient,
+): Promise<ChecklistFlag[]> {
+  const { data: defs } = await client
+    .from("review_flag_defs")
+    .select("key, label, lens, severity, guidance, active")
+    .eq("is_candidate", false)
+    .order("severity", { ascending: true })
+    .order("label", { ascending: true });
+
+  const rows: { flag_key: string | null; status: string }[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await client
+      .from("call_review_flags")
+      .select("flag_key, status")
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) break;
+    const page = data ?? [];
+    for (const r of page) rows.push({ flag_key: r.flag_key, status: r.status });
+    if (page.length < PAGE) break;
+  }
+  return shapeChecklist((defs ?? []) as ChecklistDef[], rows);
+}

@@ -236,3 +236,46 @@ export async function dismissCandidate(input: {
   revalidatePath("/reporting");
   return { error: null };
 }
+
+/** Turn an active flag off (retire — Pass 1 stops checking it, its bucket
+ *  disappears) or back on. Admin-only. Scoped to non-candidate defs so it can
+ *  never flip a discovery candidate. */
+export async function setFlagActive(input: {
+  key: string;
+  active: boolean;
+}): Promise<{ error: string | null }> {
+  if (!(await currentAdminId())) return { error: "Admins only." };
+  const { error } = await adminClient()
+    .from("review_flag_defs")
+    .update({ active: input.active })
+    .eq("key", input.key)
+    .eq("is_candidate", false);
+  if (error) return { error: "Could not update the flag." };
+  revalidatePath("/reporting");
+  return { error: null };
+}
+
+/** Edit an active flag's wording/severity so it fires more precisely. Admin-only.
+ *  Empty fields are left unchanged; severity clamps to 1-4. */
+export async function updateFlagDef(input: {
+  key: string;
+  label?: string;
+  guidance?: string;
+  severity?: number;
+}): Promise<{ error: string | null }> {
+  if (!(await currentAdminId())) return { error: "Admins only." };
+  const patch: Database["public"]["Tables"]["review_flag_defs"]["Update"] = {};
+  if (input.label?.trim()) patch.label = input.label.trim();
+  if (input.guidance?.trim()) patch.guidance = input.guidance.trim();
+  if (typeof input.severity === "number")
+    patch.severity = Math.min(4, Math.max(1, Math.round(input.severity)));
+  if (Object.keys(patch).length === 0) return { error: null };
+  const { error } = await adminClient()
+    .from("review_flag_defs")
+    .update(patch)
+    .eq("key", input.key)
+    .eq("is_candidate", false);
+  if (error) return { error: "Could not save the flag." };
+  revalidatePath("/reporting");
+  return { error: null };
+}
