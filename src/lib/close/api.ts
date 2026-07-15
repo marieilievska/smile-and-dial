@@ -47,6 +47,36 @@ export async function findCloseLeadByEmail(
   return { leadId: lead.id, contactId: contact?.id ?? null };
 }
 
+/** Find a Close lead by a contact phone number (E.164). Returns the lead id +
+ *  the matching contact id (or the lead's first contact), or null. Used to
+ *  attach an SMS activity to the right Close lead. */
+export async function findCloseLeadByPhone(
+  apiKey: string,
+  phone: string,
+): Promise<CloseLeadRef | null> {
+  const q = `phone_number:"${phone.replace(/"/g, "")}"`;
+  const res = await fetch(
+    `${BASE}/lead/?query=${encodeURIComponent(q)}&_limit=1`,
+    { headers: { Authorization: authHeader(apiKey) } },
+  );
+  if (!res.ok) return null;
+  const json = (await res.json()) as {
+    data?: {
+      id: string;
+      contacts?: { id: string; phones?: { phone?: string }[] }[];
+    }[];
+  };
+  const lead = json.data?.[0];
+  if (!lead) return null;
+  const contact =
+    lead.contacts?.find((c) =>
+      (c.phones ?? []).some((p) => p.phone === phone),
+    ) ??
+    lead.contacts?.[0] ??
+    null;
+  return { leadId: lead.id, contactId: contact?.id ?? null };
+}
+
 /** Create a Close lead with a single contact + optional email (and phone if known).
  *  Returns the new lead/contact ids, or null on failure. */
 export async function createCloseLead(
@@ -152,6 +182,51 @@ export async function sendCloseEmail(
     status: "outbox",
   };
   const res = await fetch(`${BASE}/activity/email/`, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(apiKey),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = JSON.stringify(await res.json()).slice(0, 200);
+    } catch {
+      /* non-JSON error body */
+    }
+    return {
+      id: null,
+      error: `Close returned ${res.status}. ${detail}`.trim(),
+    };
+  }
+  const json = (await res.json()) as { id?: string };
+  return { id: json.id ?? null, error: null };
+}
+
+/** Send an SMS through Close (`POST /activity/sms/`, `status:"outbox"` → Close
+ *  delivers it). `localPhone` must be a Close SMS-enabled "internal" number.
+ *  Returns the new activity id, or an error string the caller can surface. */
+export async function sendCloseSms(
+  apiKey: string,
+  input: {
+    leadId: string;
+    contactId: string | null;
+    localPhone: string;
+    remotePhone: string;
+    text: string;
+  },
+): Promise<{ id: string | null; error: string | null }> {
+  const body = {
+    lead_id: input.leadId,
+    contact_id: input.contactId ?? undefined,
+    local_phone: input.localPhone,
+    remote_phone: input.remotePhone,
+    text: input.text,
+    status: "outbox",
+  };
+  const res = await fetch(`${BASE}/activity/sms/`, {
     method: "POST",
     headers: {
       Authorization: authHeader(apiKey),
