@@ -42,7 +42,7 @@ const TOOL_DESCRIPTIONS: Record<ServerToolKey, string> = {
   send_email:
     "Send the lead the information they asked for by email. Confirm the email address with the caller first.",
   send_text:
-    "Text the lead the information they asked for by SMS. Confirm their MOBILE number and that they're OK to receive a text first.",
+    "Text the lead information by SMS — ONLY when the lead explicitly asks to be texted. Never offer texting on your own. Confirm their MOBILE number first.",
   schedule_callback:
     "Schedule a callback for the lead at a specific date and time they request.",
   get_available_times:
