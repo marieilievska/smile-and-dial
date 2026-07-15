@@ -78,6 +78,7 @@ export default async function CampaignsPage({
     { data: rawLists },
     { data: rawCalendlyEvents },
     { data: rawEmailTemplates },
+    { data: rawSmsTemplates },
     { data: rawAttachments },
     { data: rawSmartLists },
     stats,
@@ -90,7 +91,7 @@ export default async function CampaignsPage({
     supabase
       .from("campaigns")
       .select(
-        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, dial_interval_seconds, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, calendly_event_id, email_template_id, audience_search, smart_list_id, inbound_greeting, created_at, agent:agents(name), goal:goals(name)",
+        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, dial_interval_seconds, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, calendly_event_id, email_template_id, sms_template_id, audience_search, smart_list_id, inbound_greeting, created_at, agent:agents(name), goal:goals(name)",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -117,6 +118,11 @@ export default async function CampaignsPage({
     // send_email template selector.
     supabase
       .from("email_templates")
+      .select("id, name")
+      .eq("owner_id", user.id)
+      .order("name"),
+    supabase
+      .from("sms_templates")
       .select("id, name")
       .eq("owner_id", user.id)
       .order("name"),
@@ -255,6 +261,7 @@ export default async function CampaignsPage({
       (c as { smart_scheduling?: boolean }).smart_scheduling ?? false,
     calendly_event_id: c.calendly_event_id ?? null,
     email_template_id: c.email_template_id ?? null,
+    sms_template_id: c.sms_template_id ?? null,
     audience_search: c.audience_search ?? null,
     smart_list_id: c.smart_list_id ?? null,
     inbound_greeting: c.inbound_greeting ?? null,
@@ -268,6 +275,10 @@ export default async function CampaignsPage({
     name: e.name,
   }));
   const emailTemplateOptions: Option[] = (rawEmailTemplates ?? []).map((t) => ({
+    id: t.id,
+    name: t.name,
+  }));
+  const smsTemplateOptions: Option[] = (rawSmsTemplates ?? []).map((t) => ({
     id: t.id,
     name: t.name,
   }));
@@ -312,6 +323,7 @@ export default async function CampaignsPage({
       smart_scheduling: campaign.smart_scheduling,
       calendly_event_id: campaign.calendly_event_id,
       email_template_id: campaign.email_template_id,
+      sms_template_id: campaign.sms_template_id,
       audience_search: campaign.audience_search,
       smart_list_id: campaign.smart_list_id,
       inbound_greeting: campaign.inbound_greeting,
@@ -367,6 +379,7 @@ export default async function CampaignsPage({
           smartLists={smartListOptions}
           calendlyEvents={calendlyEventOptions}
           emailTemplates={emailTemplateOptions}
+          smsTemplates={smsTemplateOptions}
         />
       </div>
 
@@ -392,6 +405,7 @@ export default async function CampaignsPage({
             smartLists={smartListOptions}
             calendlyEvents={calendlyEventOptions}
             emailTemplates={emailTemplateOptions}
+            smsTemplates={smsTemplateOptions}
           />
         ) : (
           <div className="border-border overflow-x-auto rounded-2xl border shadow-sm">
@@ -443,6 +457,7 @@ export default async function CampaignsPage({
                             smartLists={smartListOptions}
                             calendlyEvents={calendlyEventOptions}
                             emailTemplates={emailTemplateOptions}
+                            smsTemplates={smsTemplateOptions}
                           />
                           {c.twilioPhone || c.description ? (
                             <span className="text-muted-foreground truncate text-[11px]">

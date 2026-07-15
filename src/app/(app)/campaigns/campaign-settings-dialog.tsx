@@ -74,6 +74,7 @@ export type CampaignData = {
   smart_scheduling: boolean;
   calendly_event_id: string | null;
   email_template_id: string | null;
+  sms_template_id: string | null;
   audience_search: string | null;
   smart_list_id: string | null;
   inbound_greeting: string | null;
@@ -120,6 +121,7 @@ export function CampaignSettingsDialog({
   smartLists,
   calendlyEvents,
   emailTemplates,
+  smsTemplates,
   trigger,
 }: {
   mode: "create" | "edit";
@@ -137,6 +139,8 @@ export function CampaignSettingsDialog({
   calendlyEvents: Option[];
   /** The owner's email templates; the send_email tool sends the one chosen. */
   emailTemplates: Option[];
+  /** The owner's SMS templates; the send_text tool sends the one chosen. */
+  smsTemplates: Option[];
   /** Override the default Edit / New campaign trigger. Lets the
    *  campaigns table use the campaign name itself as the click
    *  target so opening settings doesn't require hunting for an
@@ -199,6 +203,9 @@ export function CampaignSettingsDialog({
   );
   const [emailTemplateId, setEmailTemplateId] = useState(
     campaign?.email_template_id ?? NO_TEMPLATE,
+  );
+  const [smsTemplateId, setSmsTemplateId] = useState(
+    campaign?.sms_template_id ?? NO_TEMPLATE,
   );
   const [selectedListIds, setSelectedListIds] =
     useState<string[]>(currentListIds);
@@ -302,6 +309,7 @@ export function CampaignSettingsDialog({
         smartSchedulingEnabled,
         calendlyEventId: calendlyEventId === NO_EVENT ? "" : calendlyEventId,
         emailTemplateId: emailTemplateId === NO_TEMPLATE ? "" : emailTemplateId,
+        smsTemplateId: smsTemplateId === NO_TEMPLATE ? "" : smsTemplateId,
         audienceSearch,
         smartListId:
           selectedSmartListId === NO_SMART_LIST ? "" : selectedSmartListId,
@@ -342,6 +350,7 @@ export function CampaignSettingsDialog({
         setSmartSchedulingEnabled(false);
         setCalendlyEventId(NO_EVENT);
         setEmailTemplateId(NO_TEMPLATE);
+        setSmsTemplateId(NO_TEMPLATE);
         setSelectedListIds([]);
         setAudienceSearch("");
         setSelectedSmartListId(NO_SMART_LIST);
@@ -893,6 +902,37 @@ export function CampaignSettingsDialog({
                 The exact email the agent sends when it uses &ldquo;send
                 email&rdquo; (variables like {"{{lead.company}}"} are filled in
                 per lead).
+              </p>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2">
+              <Label htmlFor="campaign-sms-template">Text template</Label>
+              {smsTemplates.length > 0 ? (
+                <Select value={smsTemplateId} onValueChange={setSmsTemplateId}>
+                  <SelectTrigger id="campaign-sms-template">
+                    <SelectValue placeholder="Choose a text template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_TEMPLATE}>
+                      None (don&apos;t send text)
+                    </SelectItem>
+                    {smsTemplates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No text templates yet. Create one on Settings → Text templates
+                  first.
+                </p>
+              )}
+              <p className="text-muted-foreground text-xs">
+                The text the agent sends when it uses &ldquo;send text&rdquo;
+                (to a confirmed mobile; an opt-out line is always appended).
+                Needs the agent&apos;s &ldquo;Send text&rdquo; tool enabled.
               </p>
             </div>
           </CampaignSection>
