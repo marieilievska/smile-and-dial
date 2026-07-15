@@ -585,6 +585,7 @@ export type Database = {
           agent_id: string | null;
           answered_at: string | null;
           call_mode: string;
+          callback_notes: string | null;
           campaign_id: string | null;
           cost_breakdown: Json | null;
           created_at: string;
@@ -617,6 +618,7 @@ export type Database = {
           agent_id?: string | null;
           answered_at?: string | null;
           call_mode?: string;
+          callback_notes?: string | null;
           campaign_id?: string | null;
           cost_breakdown?: Json | null;
           created_at?: string;
@@ -649,6 +651,7 @@ export type Database = {
           agent_id?: string | null;
           answered_at?: string | null;
           call_mode?: string;
+          callback_notes?: string | null;
           campaign_id?: string | null;
           cost_breakdown?: Json | null;
           created_at?: string;

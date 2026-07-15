@@ -281,14 +281,19 @@ async function buildVarsForCall(
   if (pendingCallback?.originating_call_id) {
     const { data: originating } = await supabase
       .from("calls")
-      .select("summary, campaign_id")
+      .select("summary, callback_notes, campaign_id")
       .eq("id", pendingCallback.originating_call_id)
       .maybeSingle();
     // Require a real campaign on both sides — never treat two campaign-less
     // (null) calls as a match, matching the summary read's `if (call.campaign_id)`
-    // guard above.
+    // guard above. Prefer the structured pickup note we now generate per call;
+    // fall back to the raw per-call recap for callbacks whose originating call
+    // predates calls.callback_notes.
     if (call.campaign_id && originating?.campaign_id === call.campaign_id) {
-      lastCallbackNotes = originating?.summary?.trim() ?? "";
+      lastCallbackNotes =
+        originating?.callback_notes?.trim() ||
+        originating?.summary?.trim() ||
+        "";
     }
   }
 

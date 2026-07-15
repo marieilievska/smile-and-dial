@@ -55,7 +55,6 @@ test.describe("OpenAI summary merger (mock)", () => {
         business_phone: `+1333${tail}10`,
         timezone: "America/New_York",
         status: "ready_to_call",
-        ai_summary: "we know we just imported them / we last left off n/a",
       })
       .select("id")
       .single();
@@ -86,6 +85,11 @@ test.describe("OpenAI summary merger (mock)", () => {
   });
 
   test.afterAll(async () => {
+    if (leadId)
+      await admin
+        .from("lead_campaign_summaries")
+        .delete()
+        .eq("lead_id", leadId);
     if (campaignId) await admin.from("campaigns").delete().eq("id", campaignId);
     if (leadId) await admin.from("leads").delete().eq("id", leadId);
     if (listId) await admin.from("lists").delete().eq("id", listId);
@@ -100,7 +104,7 @@ test.describe("OpenAI summary merger (mock)", () => {
     expect(merged.toLowerCase()).toContain("we last left off");
   });
 
-  test("mergeLeadSummary writes the new summary onto the lead", async () => {
+  test("mergeLeadSummary writes the new summary to the per-campaign row", async () => {
     const result = await mergeLeadSummary({
       leadId,
       campaignId,
@@ -110,17 +114,18 @@ test.describe("OpenAI summary merger (mock)", () => {
     expect(result.cost).toBe(0);
     expect(result.newSummary).toBeTruthy();
 
-    const { data: lead } = await admin
-      .from("leads")
+    // The rolling note lives per-campaign in lead_campaign_summaries
+    // (leads.ai_summary was dropped 2026-07-02).
+    const { data: row } = await admin
+      .from("lead_campaign_summaries")
       .select("ai_summary")
-      .eq("id", leadId)
-      .single();
-    expect(lead?.ai_summary).toContain("Thursday discovery call");
+      .eq("lead_id", leadId)
+      .eq("campaign_id", campaignId)
+      .maybeSingle();
+    expect(row?.ai_summary).toContain("Thursday discovery call");
   });
 
-  test("with no latest summary and no recent calls, nothing is written", async () => {
-    // Wipe the existing ai_summary first so we can tell the difference.
-    await admin.from("leads").update({ ai_summary: null }).eq("id", leadId);
+  test("with no transcript and no latest summary, nothing is written", async () => {
     const result = await mergeLeadSummary({
       leadId,
       campaignId,

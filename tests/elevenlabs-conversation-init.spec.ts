@@ -11,7 +11,8 @@ test.describe.configure({ mode: "serial" });
  *    conversation_initiation_client_data event whose dynamic_variables
  *    carry call_type, last_call_summary, and the campaign transfer number.
  *  - A pending callback flips call_type to "callback" and surfaces the
- *    originating call's summary as last_callback_notes.
+ *    originating call's pickup note as last_callback_notes — preferring the
+ *    structured callback_notes, falling back to the raw summary for old rows.
  *  - An unknown call_sid still returns 200 with a complete blank set.
  *  - For INBOUND (keyed on called_number), the response carries a
  *    conversation_config_override.agent.first_message — the dialed number's
@@ -259,6 +260,70 @@ test.describe("ElevenLabs conversation-init webhook", () => {
       expect(body.dynamic_variables.call_type).toBe("callback");
       expect(body.dynamic_variables.last_callback_notes).toContain(
         "call back Tuesday",
+      );
+      await api.dispose();
+    } finally {
+      await admin.from("callbacks").delete().eq("lead_id", leadId);
+      await admin.from("calls").delete().eq("id", call!.id);
+      await admin.from("calls").delete().eq("id", origCall!.id);
+    }
+  });
+
+  test("a pending callback prefers the originating call's callback_notes over its raw summary", async ({
+    baseURL,
+  }) => {
+    // The originating call now carries a structured pickup note — the agent
+    // should get THAT, not the raw ElevenLabs recap.
+    const { data: origCall } = await admin
+      .from("calls")
+      .insert({
+        lead_id: leadId,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "completed",
+        outcome: "callback",
+        summary: "Raw recap that must not be surfaced.",
+        callback_notes:
+          "Agreed: call back Wednesday 9am to reach owner Dana. Don't re-ask their scheduling software.",
+      })
+      .select("id")
+      .single();
+    await admin.from("callbacks").insert({
+      lead_id: leadId,
+      campaign_id: campaignId,
+      originating_call_id: origCall!.id,
+      scheduled_at: new Date().toISOString(),
+      status: "pending",
+    });
+
+    const sid = `CAinit${tail}cb2`;
+    const { data: call } = await admin
+      .from("calls")
+      .insert({
+        lead_id: leadId,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "in_progress",
+        twilio_call_sid: sid,
+      })
+      .select("id")
+      .single();
+    try {
+      const api = await playwrightRequest.newContext({ baseURL });
+      const r = await api.post("/api/elevenlabs/conversation-init", {
+        data: { call_sid: sid },
+      });
+      expect(r.status()).toBe(200);
+      const body = await r.json();
+      expect(body.dynamic_variables.last_callback_notes).toContain(
+        "call back Wednesday",
+      );
+      expect(body.dynamic_variables.last_callback_notes).not.toContain(
+        "must not be surfaced",
       );
       await api.dispose();
     } finally {
