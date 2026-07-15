@@ -76,6 +76,8 @@ export type Database = {
           prompt_personality: string | null;
           prompt_tone: string | null;
           system_prompt: string | null;
+          review_prompt: string | null;
+          review_prompt_at: string | null;
           tools_enabled: Json;
           updated_at: string;
           voice_id: string | null;
@@ -97,6 +99,8 @@ export type Database = {
           prompt_personality?: string | null;
           prompt_tone?: string | null;
           system_prompt?: string | null;
+          review_prompt?: string | null;
+          review_prompt_at?: string | null;
           tools_enabled?: Json;
           updated_at?: string;
           voice_id?: string | null;
@@ -118,6 +122,8 @@ export type Database = {
           prompt_personality?: string | null;
           prompt_tone?: string | null;
           system_prompt?: string | null;
+          review_prompt?: string | null;
+          review_prompt_at?: string | null;
           tools_enabled?: Json;
           updated_at?: string;
           voice_id?: string | null;
