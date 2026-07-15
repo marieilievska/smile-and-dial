@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 /** Close inbound webhook (Step 38 / BUILD_PLAN §12).
  *
@@ -54,9 +54,15 @@ export async function POST(request: NextRequest) {
       body_html?: string;
       in_reply_to?: string; // close_message_id of the parent
       date_received?: string;
+      remote_phone?: string; // SMS: the other party (inbound = the lead)
+      local_phone?: string; // SMS: our Close number
+      text?: string; // SMS body
     };
   };
   const p = body as ClosePayload;
+  if ((p.event ?? "") === "sms.received") {
+    return handleInboundSms(supabase, p.data ?? {});
+  }
   if ((p.event ?? "") !== "email.received") {
     // We only care about replies; ignore everything else.
     return NextResponse.json({ ok: true, status: "ignored" });
@@ -164,4 +170,155 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ ok: true, status: "applied", lead_id: leadId });
+}
+
+type InboundSmsData = {
+  id?: string;
+  remote_phone?: string;
+  local_phone?: string;
+  text?: string;
+};
+
+// Carrier-standard opt-out keywords. Carriers also block further SMS to a STOP'd
+// number at the network level; catching it here additionally stops CALLS and
+// records the opt-out.
+const STOP_RE = /^\s*(stop|stopall|unsubscribe|cancel|end|quit)\s*$/i;
+
+/** Handle a Close `sms.received` webhook: match the lead by the sender's number,
+ *  log a received `texts` row, and honor STOP as a FULL do-not-contact (DNC every
+ *  number we have for the lead + terminalize it, so calls and texts both stop). */
+async function handleInboundSms(
+  supabase: SupabaseClient,
+  data: InboundSmsData,
+) {
+  const closeMessageId = data.id;
+  const fromNumber = data.remote_phone ?? null;
+  const textBody = data.text ?? "";
+  if (!closeMessageId) {
+    return NextResponse.json(
+      { ok: false, status: "missing_close_message_id" },
+      { status: 400 },
+    );
+  }
+  if (!fromNumber) {
+    return NextResponse.json({ ok: true, status: "ignored_no_sender" });
+  }
+
+  // Match the lead by the mobile we text, then by the business number.
+  let lead: {
+    id: string;
+    owner_id: string;
+    business_phone: string | null;
+    mobile_phone: string | null;
+    company: string | null;
+  } | null = null;
+  for (const col of ["mobile_phone", "business_phone"] as const) {
+    const { data: rows } = await supabase
+      .from("leads")
+      .select("id, owner_id, business_phone, mobile_phone, company")
+      .eq(col, fromNumber)
+      .is("deleted_at", null)
+      .limit(1);
+    if (rows && rows.length > 0) {
+      lead = rows[0];
+      break;
+    }
+  }
+  if (!lead) {
+    await supabase.from("system_events").insert({
+      kind: "close_unmatched_reply",
+      ref_table: "texts",
+      payload: { close_message_id: closeMessageId, from: fromNumber },
+    });
+    return NextResponse.json({ ok: true, status: "unmatched" });
+  }
+
+  // Trailing punctuation stripped so "STOP." / "STOP!" still opt out. Carrier
+  // exact-match keywords only — a plain-language "please stop texting" is left to
+  // the human who sees the text_replied notification.
+  const isStop = STOP_RE.test(textBody.trim().replace(/[.!?]+$/, ""));
+
+  // Honor STOP FIRST — before the dedup short-circuit below — so the opt-out is
+  // enforced even if a later step fails and Close retries the webhook. Every
+  // operation here is idempotent (dnc_entries tolerates 23505; the status set is
+  // a no-op when already dnc), so re-running on a retry is safe.
+  if (isStop) {
+    const numbers = [lead.business_phone, lead.mobile_phone].filter(
+      (n): n is string => Boolean(n),
+    );
+    for (const phone of numbers) {
+      const { error } = await supabase.from("dnc_entries").insert({
+        phone,
+        company_snapshot: lead.company,
+        reason: "dnc_requested",
+        added_by_user_id: lead.owner_id,
+      });
+      // 23505 = already on the list; the goal is met either way.
+      if (error && (error as { code?: string }).code !== "23505") {
+        await supabase.from("system_events").insert({
+          kind: "sms_stop_dnc_error",
+          ref_table: "leads",
+          ref_id: lead.id,
+          payload: { phone, error: error.message },
+        });
+      }
+    }
+    await supabase
+      .from("leads")
+      .update({ status: "dnc", next_call_at: null })
+      .eq("id", lead.id);
+  }
+
+  // Record the inbound text. The partial unique index on close_message_id makes
+  // this the atomic dedup point: a Close retry hits 23505 and returns early —
+  // AFTER the idempotent STOP handling above, so an opt-out is never dropped.
+  const { error: insertErr } = await supabase.from("texts").insert({
+    lead_id: lead.id,
+    owner_id: lead.owner_id,
+    direction: "received",
+    body: textBody,
+    from_number: fromNumber,
+    to_number: data.local_phone ?? null,
+    close_message_id: closeMessageId,
+    status: "received",
+    raw: data,
+  });
+  if (insertErr) {
+    if ((insertErr as { code?: string }).code === "23505") {
+      return NextResponse.json({ ok: true, status: "duplicate" });
+    }
+    await supabase.from("system_events").insert({
+      kind: "close_webhook_error",
+      ref_table: "texts",
+      payload: { close_message_id: closeMessageId, error: insertErr.message },
+    });
+    return NextResponse.json({ ok: false, status: "insert_failed" });
+  }
+
+  await supabase.from("notifications").insert(
+    isStop
+      ? {
+          user_id: lead.owner_id,
+          kind: "sms_opt_out",
+          message: "Lead replied STOP — added to do-not-call (calls + texts).",
+          ref_table: "leads",
+          ref_id: lead.id,
+        }
+      : {
+          user_id: lead.owner_id,
+          kind: "text_replied",
+          message: `Lead replied by text${textBody ? `: ${textBody.slice(0, 80)}` : "."}`,
+          ref_table: "leads",
+          ref_id: lead.id,
+        },
+  );
+
+  await supabase.from("system_events").insert({
+    kind: isStop ? "sms_opt_out" : "close_sms_received",
+    ref_table: "leads",
+    ref_id: lead.id,
+    payload: { close_message_id: closeMessageId },
+  });
+
+  return NextResponse.json({ ok: true, status: "applied", lead_id: lead.id });
 }

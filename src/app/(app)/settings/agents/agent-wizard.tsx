@@ -81,6 +81,8 @@ const AI_MODELS: { value: string; helper: string }[] = [
  *  operator knows what each tool actually does at call time. */
 const TOOL_HELPERS: Record<ToolKey, string> = {
   send_email: "Mid-call: send a follow-up email to the lead's address.",
+  send_text:
+    "Mid-call: text the lead a follow-up SMS to their confirmed mobile.",
   schedule_callback: "Records a callback request for human follow-up later.",
   get_available_times:
     "Fetches the user's Calendly availability so the agent can offer slots.",

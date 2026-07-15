@@ -740,6 +740,7 @@ export type Database = {
           description: string | null;
           email_template_id: string | null;
           ended_at: string | null;
+          sms_template_id: string | null;
           goal_id: string;
           id: string;
           inbound_greeting: string | null;
@@ -770,6 +771,7 @@ export type Database = {
           description?: string | null;
           email_template_id?: string | null;
           ended_at?: string | null;
+          sms_template_id?: string | null;
           goal_id: string;
           id?: string;
           inbound_greeting?: string | null;
@@ -800,6 +802,7 @@ export type Database = {
           description?: string | null;
           email_template_id?: string | null;
           ended_at?: string | null;
+          sms_template_id?: string | null;
           goal_id?: string;
           id?: string;
           inbound_greeting?: string | null;
@@ -1186,6 +1189,134 @@ export type Database = {
             columns: ["template_id"];
             isOneToOne: false;
             referencedRelation: "email_templates";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      sms_templates: {
+        Row: {
+          body: string;
+          created_at: string;
+          id: string;
+          last_used_at: string | null;
+          name: string;
+          owner_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          body: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          name: string;
+          owner_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          name?: string;
+          owner_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sms_templates_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      texts: {
+        Row: {
+          body: string | null;
+          call_id: string | null;
+          campaign_id: string | null;
+          close_message_id: string | null;
+          created_at: string;
+          direction: string;
+          from_number: string | null;
+          id: string;
+          lead_id: string;
+          owner_id: string;
+          raw: Json | null;
+          status: string;
+          template_id: string | null;
+          to_number: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          body?: string | null;
+          call_id?: string | null;
+          campaign_id?: string | null;
+          close_message_id?: string | null;
+          created_at?: string;
+          direction: string;
+          from_number?: string | null;
+          id?: string;
+          lead_id: string;
+          owner_id: string;
+          raw?: Json | null;
+          status?: string;
+          template_id?: string | null;
+          to_number?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string | null;
+          call_id?: string | null;
+          campaign_id?: string | null;
+          close_message_id?: string | null;
+          created_at?: string;
+          direction?: string;
+          from_number?: string | null;
+          id?: string;
+          lead_id?: string;
+          owner_id?: string;
+          raw?: Json | null;
+          status?: string;
+          template_id?: string | null;
+          to_number?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "texts_call_id_fkey";
+            columns: ["call_id"];
+            isOneToOne: false;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "texts_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "texts_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "texts_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "texts_template_id_fkey";
+            columns: ["template_id"];
+            isOneToOne: false;
+            referencedRelation: "sms_templates";
             referencedColumns: ["id"];
           },
         ];
@@ -1622,6 +1753,7 @@ export type Database = {
           last_call_at: string | null;
           line_type: string | null;
           list_id: string;
+          mobile_phone: string | null;
           manager_name: string | null;
           meta_synced_at: string | null;
           next_call_at: string | null;
@@ -1659,6 +1791,7 @@ export type Database = {
           last_call_at?: string | null;
           line_type?: string | null;
           list_id: string;
+          mobile_phone?: string | null;
           manager_name?: string | null;
           meta_synced_at?: string | null;
           next_call_at?: string | null;
@@ -1696,6 +1829,7 @@ export type Database = {
           last_call_at?: string | null;
           line_type?: string | null;
           list_id?: string;
+          mobile_phone?: string | null;
           manager_name?: string | null;
           meta_synced_at?: string | null;
           next_call_at?: string | null;
@@ -2156,6 +2290,7 @@ export type Database = {
           calendly_user_uri: string | null;
           close_api_key: string | null;
           close_connected_at: string | null;
+          close_sms_from_number: string | null;
           meta_access_token: string | null;
           meta_ad_account_id: string | null;
           meta_audience_terms_accepted_at: string | null;
@@ -2175,6 +2310,7 @@ export type Database = {
           calendly_user_uri?: string | null;
           close_api_key?: string | null;
           close_connected_at?: string | null;
+          close_sms_from_number?: string | null;
           meta_access_token?: string | null;
           meta_ad_account_id?: string | null;
           meta_audience_terms_accepted_at?: string | null;
@@ -2194,6 +2330,7 @@ export type Database = {
           calendly_user_uri?: string | null;
           close_api_key?: string | null;
           close_connected_at?: string | null;
+          close_sms_from_number?: string | null;
           meta_access_token?: string | null;
           meta_ad_account_id?: string | null;
           meta_audience_terms_accepted_at?: string | null;

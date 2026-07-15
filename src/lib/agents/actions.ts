@@ -134,10 +134,13 @@ export async function connectAgent(input: {
   const fetched = await fetchElevenLabsAgent(id);
   if (!fetched.ok) return { error: fetched.error };
 
-  // Connected agents get all five server tools by default so the agent can
-  // act on calls; the owner can trim these by editing the agent.
+  // Connected agents get the core server tools on by default so the agent can
+  // act on calls; the owner can trim these by editing the agent. send_text is
+  // OFF by default — texting needs a configured send-from number + SMS template
+  // (and 10DLC registration) first, so it's opt-in per agent.
   const toolsEnabled: ToolsEnabled = {
     send_email: true,
+    send_text: false,
     schedule_callback: true,
     get_available_times: true,
     book_appointment: true,
