@@ -136,11 +136,12 @@ export async function connectAgent(input: {
 
   // Connected agents get the core server tools on by default so the agent can
   // act on calls; the owner can trim these by editing the agent. send_text is
-  // OFF by default — texting needs a configured send-from number + SMS template
-  // (and 10DLC registration) first, so it's opt-in per agent.
+  // safe on by default: the agent never offers texting — it only fires when the
+  // lead explicitly asks — and it stays inert until a campaign has an SMS
+  // template + the owner has a configured (10DLC-registered) send-from number.
   const toolsEnabled: ToolsEnabled = {
     send_email: true,
-    send_text: false,
+    send_text: true,
     schedule_callback: true,
     get_available_times: true,
     book_appointment: true,
