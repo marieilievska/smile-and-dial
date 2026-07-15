@@ -2,6 +2,7 @@ import "server-only";
 import { buildRubricText } from "./rubric";
 import { callOpenAiJson, PASS1_MODEL, PASS2_MODEL } from "./openai";
 import type { ProposedFlag, ReviewFlagDef, VerifiedFlag } from "./types";
+import { OFF_SCRIPT_KEY, rubricDefsForReview } from "./instructions";
 
 const CONFIDENCE_FLOOR = 0.6; // below this (or on disagreement) -> needs_review
 
@@ -68,9 +69,21 @@ export async function analyzeCall(input: {
   transcript: string;
   extracted: string;
   defs: ReviewFlagDef[];
+  instructions: string | null;
 }): Promise<{ flags: VerifiedFlag[]; cost: number }> {
-  const rubric = buildRubricText(input.defs);
-  const validKeys = new Set(input.defs.map((d) => d.key));
+  const usableDefs = rubricDefsForReview(
+    input.defs,
+    Boolean(input.instructions),
+  );
+  const rubric = buildRubricText(usableDefs);
+  const validKeys = new Set(usableDefs.map((d) => d.key));
+
+  const playbook = input.instructions
+    ? `AGENT INSTRUCTIONS (the agent's playbook for this call):\n${input.instructions}\n\n` +
+      `Using these instructions:\n` +
+      `- Do NOT flag behavior the instructions explicitly call for — it's intended, not a defect.\n` +
+      `- Propose the "${OFF_SCRIPT_KEY}" flag when the agent failed to follow a specific instruction, quoting the transcript moment.\n\n`
+    : "";
 
   const p1 = await callOpenAiJson<{ flags: ProposedFlag[] }>({
     model: PASS1_MODEL,
@@ -81,6 +94,7 @@ export async function analyzeCall(input: {
       "Flag ONLY things the transcript clearly supports, and quote the exact line as evidence. Never invent. " +
       "Attribution matters: the agent's pitch is NOT the lead's view.",
     user:
+      playbook +
       `Rubric (flag_key (lens): meaning):\n${rubric}\n\n` +
       `Extracted call data: ${input.extracted}\n\n` +
       `Transcript:\n${input.transcript}\n\n` +
@@ -104,6 +118,11 @@ export async function analyzeCall(input: {
         "You are a strict verifier. Given a call transcript and a claimed flag, decide if the flag is genuinely " +
         "true FROM THE TRANSCRIPT. Default to agree=false when the evidence is weak or ambiguous.",
       user:
+        (input.instructions
+          ? `Agent's instructions (playbook): ${input.instructions.slice(0, 2000)}\n` +
+            `A flag is INVALID if it describes behavior the instructions call for. ` +
+            `"${OFF_SCRIPT_KEY}" is valid only if the agent genuinely failed to follow a specific instruction.\n\n`
+          : "") +
         `Flag: ${f.flag_key} — ${def?.label}. Meaning: ${def?.guidance}\n` +
         `Claimed evidence: "${f.evidence_quote}"\n\n` +
         `Transcript:\n${input.transcript}\n\n` +
