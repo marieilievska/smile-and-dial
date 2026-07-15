@@ -37,13 +37,13 @@ export function SuggestedFlagsPanel({
       <div className="mb-3 flex items-center gap-2">
         <Lightbulb className="size-5 text-indigo-600" />
         <h3 className="text-foreground text-sm font-semibold">
-          Suggested new flags
+          New flags the AI suggests
         </h3>
         <Badge variant="secondary">{candidates.length}</Badge>
       </div>
       <p className="text-muted-foreground mb-3 text-xs">
-        The reviewer spotted these recurring situations the current flags don’t
-        cover. Approve one to add it to the rubric, or dismiss it.
+        The reviewer spotted recurring situations the checklist doesn’t cover
+        yet. Add one to the checklist, or dismiss it.
       </p>
       <div className="flex flex-col gap-2">
         {candidates.map((c) => (
@@ -77,7 +77,7 @@ export function SuggestedFlagsPanel({
                 size="sm"
                 disabled={pending}
                 onClick={() =>
-                  act(c.key, approveCandidate, "Added to the rubric")
+                  act(c.key, approveCandidate, "Added to the checklist")
                 }
               >
                 Approve
