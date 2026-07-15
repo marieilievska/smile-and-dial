@@ -85,7 +85,7 @@ export function CostsVendorBreakdown({
     },
     {
       label: "OpenAI",
-      note: "summaries & transcription",
+      note: "summaries, transcription & call review",
       key: "openai",
       value: summary.openai,
       credits: undefined as number | undefined,

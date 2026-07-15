@@ -112,7 +112,11 @@ export async function mergeLeadSummary(input: {
     });
     newSummary = result.rollingSummary;
     callbackNotes = result.callbackNotes;
-    cost = priceOpenAiTokens(result.promptTokens, result.completionTokens);
+    cost = priceOpenAiTokens(
+      result.promptTokens,
+      result.completionTokens,
+      SUMMARY_MODEL,
+    );
   } else {
     newSummary = mockMerge(existing, latest || transcript);
     callbackNotes = "";

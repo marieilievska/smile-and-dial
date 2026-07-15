@@ -56,6 +56,7 @@ export async function callOpenAiJson<T>(args: {
     const cost = priceOpenAiTokens(
       body.usage?.prompt_tokens ?? 0,
       body.usage?.completion_tokens ?? 0,
+      args.model,
     );
     if (!content) return { data: null, cost, live: true };
     try {

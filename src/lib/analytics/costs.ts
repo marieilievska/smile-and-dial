@@ -66,7 +66,11 @@ export function pickBreakdown(value: unknown): Breakdown {
       : 0;
   const twilio = n("twilio");
   const elevenlabs = n("elevenlabs");
-  const openai = n("openai");
+  // The "OpenAI" line is the sum of two sources: call-time work (summaries +
+  // transcription, under `openai`) and the async Call Reviewer (under
+  // `openai_review`, written when the review finishes). Both roll into one
+  // OpenAI figure — the reviewer's spend would otherwise be invisible here.
+  const openai = n("openai") + n("openai_review");
   const lookup = n("lookup");
   // Derive total from the itemized vendor components rather than trusting
   // the stored `total`, which can be missing or stale relative to the parts
