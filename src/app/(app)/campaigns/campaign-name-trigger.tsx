@@ -25,6 +25,7 @@ export function CampaignNameTrigger({
   smartLists,
   calendlyEvents,
   emailTemplates,
+  smsTemplates,
 }: {
   name: string;
   campaign: CampaignData;
@@ -37,6 +38,7 @@ export function CampaignNameTrigger({
   smartLists: Option[];
   calendlyEvents: Option[];
   emailTemplates: Option[];
+  smsTemplates: Option[];
 }) {
   return (
     <CampaignSettingsDialog
@@ -51,6 +53,7 @@ export function CampaignNameTrigger({
       smartLists={smartLists}
       calendlyEvents={calendlyEvents}
       emailTemplates={emailTemplates}
+      smsTemplates={smsTemplates}
       trigger={
         <button
           type="button"

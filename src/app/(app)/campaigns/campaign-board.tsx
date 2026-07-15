@@ -58,6 +58,7 @@ export function CampaignBoard({
   smartLists,
   calendlyEvents,
   emailTemplates,
+  smsTemplates,
 }: {
   campaigns: CampaignCardItem[];
   agents: Option[];
@@ -66,6 +67,7 @@ export function CampaignBoard({
   smartLists: Option[];
   calendlyEvents: Option[];
   emailTemplates: Option[];
+  smsTemplates: Option[];
 }) {
   return (
     <div
@@ -112,6 +114,7 @@ export function CampaignBoard({
                 smartLists={smartLists}
                 calendlyEvents={calendlyEvents}
                 emailTemplates={emailTemplates}
+                smsTemplates={smsTemplates}
               />
               {c.twilioPhone || c.description ? (
                 <span className="text-muted-foreground truncate text-[11px]">

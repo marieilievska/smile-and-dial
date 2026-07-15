@@ -96,6 +96,9 @@ export type CampaignInput = {
   /** Email template (email_templates.id) the send_email tool sends. Empty =
    *  no template, the tool only records intent. */
   emailTemplateId?: string;
+  /** SMS template (sms_templates.id) the send_text tool sends. Empty = no
+   *  template, the tool only records intent. */
+  smsTemplateId?: string;
   /** Optional company-name "contains" filter. When set, the campaign also
    *  targets every lead (same owner) whose company name contains this text,
    *  regardless of list. Empty = list-only targeting. */
@@ -149,6 +152,7 @@ function buildUpdate(input: CampaignInput) {
     smart_scheduling: input.smartSchedulingEnabled ?? false,
     calendly_event_id: input.calendlyEventId?.trim() || null,
     email_template_id: input.emailTemplateId?.trim() || null,
+    sms_template_id: input.smsTemplateId?.trim() || null,
     audience_search: sanitizeAudienceSearch(input.audienceSearch ?? "") || null,
     smart_list_id: input.smartListId?.trim() || null,
     inbound_greeting: input.inboundGreeting?.trim() || null,
