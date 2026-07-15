@@ -625,12 +625,39 @@ async function sendText(
     };
   }
 
-  // Capture the confirmed mobile onto the lead if we didn't have one.
-  if (!ctx.lead.mobile_phone) {
+  // Persist the confirmed mobile (last-texted wins) so a future inbound STOP
+  // from this number matches the lead and is honored.
+  if (ctx.lead.mobile_phone !== mobile) {
     await ctx.supabase
       .from("leads")
       .update({ mobile_phone: mobile })
       .eq("id", ctx.lead.id);
+  }
+
+  // Never text an opted-out number — defense-in-depth beyond the dialer's DNC
+  // skip, in case a STOP landed while a call to this lead was already in flight.
+  if (ctx.lead.status === "dnc") {
+    await logToolEvent(ctx, "tool_send_text", {
+      mobile,
+      note,
+      sent: false,
+      reason: "lead_on_dnc",
+    });
+    return { success: true, message: "Got it — I've made a note." };
+  }
+  const { data: dncHit } = await ctx.supabase
+    .from("dnc_entries")
+    .select("phone")
+    .eq("phone", mobile)
+    .maybeSingle();
+  if (dncHit) {
+    await logToolEvent(ctx, "tool_send_text", {
+      mobile,
+      note,
+      sent: false,
+      reason: "mobile_on_dnc",
+    });
+    return { success: true, message: "Got it — I've made a note." };
   }
 
   // Send the campaign's FIXED SMS template. No template → record the intent only.

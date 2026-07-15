@@ -233,27 +233,15 @@ async function handleInboundSms(
     return NextResponse.json({ ok: true, status: "unmatched" });
   }
 
-  // Idempotency: Close can retry, and texts has no unique index on the id.
-  const { data: dupe } = await supabase
-    .from("texts")
-    .select("id")
-    .eq("close_message_id", closeMessageId)
-    .maybeSingle();
-  if (dupe) return NextResponse.json({ ok: true, status: "duplicate" });
+  // Trailing punctuation stripped so "STOP." / "STOP!" still opt out. Carrier
+  // exact-match keywords only — a plain-language "please stop texting" is left to
+  // the human who sees the text_replied notification.
+  const isStop = STOP_RE.test(textBody.trim().replace(/[.!?]+$/, ""));
 
-  await supabase.from("texts").insert({
-    lead_id: lead.id,
-    owner_id: lead.owner_id,
-    direction: "received",
-    body: textBody,
-    from_number: fromNumber,
-    to_number: data.local_phone ?? null,
-    close_message_id: closeMessageId,
-    status: "received",
-    raw: data,
-  });
-
-  const isStop = STOP_RE.test(textBody);
+  // Honor STOP FIRST — before the dedup short-circuit below — so the opt-out is
+  // enforced even if a later step fails and Close retries the webhook. Every
+  // operation here is idempotent (dnc_entries tolerates 23505; the status set is
+  // a no-op when already dnc), so re-running on a retry is safe.
   if (isStop) {
     const numbers = [lead.business_phone, lead.mobile_phone].filter(
       (n): n is string => Boolean(n),
@@ -279,22 +267,51 @@ async function handleInboundSms(
       .from("leads")
       .update({ status: "dnc", next_call_at: null })
       .eq("id", lead.id);
-    await supabase.from("notifications").insert({
-      user_id: lead.owner_id,
-      kind: "sms_opt_out",
-      message: "Lead replied STOP — added to do-not-call (calls + texts).",
-      ref_table: "leads",
-      ref_id: lead.id,
-    });
-  } else {
-    await supabase.from("notifications").insert({
-      user_id: lead.owner_id,
-      kind: "text_replied",
-      message: `Lead replied by text${textBody ? `: ${textBody.slice(0, 80)}` : "."}`,
-      ref_table: "leads",
-      ref_id: lead.id,
-    });
   }
+
+  // Record the inbound text. The partial unique index on close_message_id makes
+  // this the atomic dedup point: a Close retry hits 23505 and returns early —
+  // AFTER the idempotent STOP handling above, so an opt-out is never dropped.
+  const { error: insertErr } = await supabase.from("texts").insert({
+    lead_id: lead.id,
+    owner_id: lead.owner_id,
+    direction: "received",
+    body: textBody,
+    from_number: fromNumber,
+    to_number: data.local_phone ?? null,
+    close_message_id: closeMessageId,
+    status: "received",
+    raw: data,
+  });
+  if (insertErr) {
+    if ((insertErr as { code?: string }).code === "23505") {
+      return NextResponse.json({ ok: true, status: "duplicate" });
+    }
+    await supabase.from("system_events").insert({
+      kind: "close_webhook_error",
+      ref_table: "texts",
+      payload: { close_message_id: closeMessageId, error: insertErr.message },
+    });
+    return NextResponse.json({ ok: false, status: "insert_failed" });
+  }
+
+  await supabase.from("notifications").insert(
+    isStop
+      ? {
+          user_id: lead.owner_id,
+          kind: "sms_opt_out",
+          message: "Lead replied STOP — added to do-not-call (calls + texts).",
+          ref_table: "leads",
+          ref_id: lead.id,
+        }
+      : {
+          user_id: lead.owner_id,
+          kind: "text_replied",
+          message: `Lead replied by text${textBody ? `: ${textBody.slice(0, 80)}` : "."}`,
+          ref_table: "leads",
+          ref_id: lead.id,
+        },
+  );
 
   await supabase.from("system_events").insert({
     kind: isStop ? "sms_opt_out" : "close_sms_received",
