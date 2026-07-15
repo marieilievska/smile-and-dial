@@ -271,7 +271,8 @@ function CallReviewPanel({ callId }: { callId: string }) {
         </Button>
       </div>
       <p className="text-muted-foreground -mt-1 text-xs">
-        Tell the AI if each flag is right — it sharpens future reviews.
+        Tell the AI if each flag is right — a false alarm removes it and counts
+        against that flag&apos;s accuracy, which sharpens future reviews.
         &ldquo;Mark reviewed&rdquo; just means you&apos;ve handled this call.
       </p>
 
@@ -297,9 +298,9 @@ function CallReviewPanel({ callId }: { callId: string }) {
                       needs eyes
                     </Badge>
                   ) : f.status === "rejected" ? (
-                    <Badge variant="secondary">rejected</Badge>
+                    <Badge variant="secondary">false alarm</Badge>
                   ) : (
-                    <Badge variant="outline">confirmed</Badge>
+                    <Badge variant="outline">looks right</Badge>
                   )}
                 </div>
                 {f.evidenceQuote ? (
