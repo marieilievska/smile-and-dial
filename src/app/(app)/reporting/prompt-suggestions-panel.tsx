@@ -68,18 +68,30 @@ function SuggestionCard({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [acting, setActing] = useState<"apply" | "dismiss" | "revert" | null>(
+    null,
+  );
   const [texts, setTexts] = useState(() => s.edits.map((e) => e.text));
   const proposed = s.status === "proposed";
 
-  function run(action: () => Promise<{ error: string | null }>, done: string) {
+  function run(
+    kind: "apply" | "dismiss" | "revert",
+    action: () => Promise<{ error: string | null }>,
+    done: string,
+  ) {
+    setActing(kind);
     start(async () => {
-      const r = await action();
-      if (r.error) {
-        toast.error(r.error);
-        return;
+      try {
+        const r = await action();
+        if (r.error) {
+          toast.error(r.error);
+          return;
+        }
+        toast.success(done);
+        router.refresh();
+      } finally {
+        setActing(null);
       }
-      toast.success(done);
-      router.refresh();
     });
   }
 
@@ -111,7 +123,7 @@ function SuggestionCard({
                 <p className="text-muted-foreground text-xs font-medium">
                   Replace this part:
                 </p>
-                <pre className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs whitespace-pre-wrap text-red-900">
+                <pre className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs whitespace-pre-wrap text-red-900 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
                   {e.anchor}
                 </pre>
                 <p className="text-muted-foreground text-xs font-medium">
@@ -139,13 +151,15 @@ function SuggestionCard({
               <Textarea
                 rows={3}
                 value={texts[i]}
+                disabled={pending}
+                aria-label={`New text for edit ${i + 1}`}
                 onChange={(ev) =>
                   setTexts(texts.map((t, j) => (j === i ? ev.target.value : t)))
                 }
-                className="border-emerald-200 bg-emerald-50/60 text-sm"
+                className="border-emerald-200 bg-emerald-50/60 text-sm dark:border-emerald-900/40 dark:bg-emerald-950/30"
               />
             ) : (
-              <pre className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs whitespace-pre-wrap text-emerald-900">
+              <pre className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs whitespace-pre-wrap text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
                 {e.text}
               </pre>
             )}
@@ -179,9 +193,10 @@ function SuggestionCard({
         <div className="flex items-center gap-2">
           <Button
             size="sm"
-            disabled={pending}
+            disabled={pending || texts.some((t) => !t.trim())}
             onClick={() =>
               run(
+                "apply",
                 () =>
                   applyPromptSuggestion({
                     suggestionId: s.id,
@@ -192,7 +207,7 @@ function SuggestionCard({
             }
           >
             <Check className="size-3.5" />
-            {pending ? "Working…" : "Approve & apply"}
+            {acting === "apply" ? "Working…" : "Approve & apply"}
           </Button>
           <Button
             size="sm"
@@ -200,6 +215,7 @@ function SuggestionCard({
             disabled={pending}
             onClick={() =>
               run(
+                "dismiss",
                 () => dismissPromptSuggestion({ suggestionId: s.id }),
                 "Dismissed — those examples are available again.",
               )
@@ -222,13 +238,14 @@ function SuggestionCard({
             disabled={pending}
             onClick={() =>
               run(
+                "revert",
                 () => revertPromptSuggestion({ suggestionId: s.id }),
                 "Previous prompt restored.",
               )
             }
           >
             <Undo2 className="size-3.5" />
-            {pending ? "Working…" : "Revert"}
+            {acting === "revert" ? "Working…" : "Revert"}
           </Button>
         </div>
       ) : null}

@@ -75,7 +75,8 @@ export function SuggestFixDialog({
           {bucketLabel}&rdquo; examples and drafts one targeted edit. Nothing
           changes until you approve it.
         </p>
-        <div className="flex flex-col gap-2">
+        <fieldset className="flex flex-col gap-2">
+          <legend className="sr-only">Which agent&apos;s prompt to fix</legend>
           {options.map((o) => (
             <label
               key={o.agentId}
@@ -95,7 +96,7 @@ export function SuggestFixDialog({
               </span>
             </label>
           ))}
-        </div>
+        </fieldset>
         <DialogFooter>
           <Button
             variant="ghost"
