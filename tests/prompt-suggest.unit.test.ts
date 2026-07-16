@@ -1,5 +1,8 @@
 import { test, expect } from "vitest";
-import { applyPromptEdits } from "../src/lib/review/suggest";
+import {
+  applyPromptEdits,
+  draftPromptSuggestion,
+} from "../src/lib/review/suggest";
 import type { PromptEdit } from "../src/lib/review/types";
 
 const PROMPT = [
@@ -124,5 +127,60 @@ test("zero edits and too many edits are rejected", () => {
     anchor: "",
     text: "x",
   }));
-  expect(applyPromptEdits(PROMPT, five).error).toContain("more than");
+  expect(applyPromptEdits(PROMPT, five).error).toContain("No more than 4");
+});
+
+test("an unknown edit type is rejected", () => {
+  const bad = [
+    { type: "delete", anchor: "Say hi.", text: "x" },
+  ] as unknown as PromptEdit[];
+  const r = applyPromptEdits("Say hi.\nBye.", bad);
+  expect(r.result).toBeNull();
+  expect(r.error).toContain("Unknown edit type");
+});
+
+test("an anchor covering the whole prompt is rejected (no full rewrites)", () => {
+  const r = applyPromptEdits(PROMPT, [
+    { type: "replace", anchor: PROMPT, text: "Entirely new prompt." },
+  ]);
+  expect(r.result).toBeNull();
+  expect(r.error).toContain("whole prompt");
+});
+
+test("a verbatim CRLF anchor matches; an LF-normalized one does not", () => {
+  const crlf = "Line one.\r\nLine two.\r\nLine three.";
+  const ok = applyPromptEdits(crlf, [
+    { type: "replace", anchor: "Line one.\r\nLine two.", text: "Line 1+2." },
+  ]);
+  expect(ok.error).toBeNull();
+  expect(ok.result).toBe("Line 1+2.\r\nLine three.");
+  const bad = applyPromptEdits(crlf, [
+    { type: "replace", anchor: "Line one.\nLine two.", text: "x" },
+  ]);
+  expect(bad.result).toBeNull();
+  expect(bad.error).toContain("not found");
+});
+
+// Mock-path shape test (callOpenAiJson returns its mock when no OPENAI_API_KEY).
+// Guarded like the golden test in call-reviewer.unit.test.ts so a shell with a
+// real key doesn't spend money on a unit run.
+test("draftPromptSuggestion returns a validated draft in mock mode", async () => {
+  if (process.env.OPENAI_API_KEY) return;
+  const r = await draftPromptSuggestion({
+    prompt: "You are Sam.\nAlways be polite.",
+    bucket: {
+      key: "talked_over",
+      label: "Talked over the lead",
+      guidance: "Agent interrupts.",
+    },
+    examples: [{ evidenceQuote: "Agent: —sorry, go ahead" }],
+  });
+  expect(r.error).toBeNull();
+  expect(r.draft).not.toBeNull();
+  expect(r.draft!.edits.length).toBeGreaterThan(0);
+  // The mock is an append, so the proposed prompt keeps the original intact.
+  expect(r.draft!.proposedPrompt.startsWith("You are Sam.")).toBe(true);
+  expect(r.draft!.proposedPrompt.length).toBeGreaterThan(
+    "You are Sam.\nAlways be polite.".length,
+  );
 });
