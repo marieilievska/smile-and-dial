@@ -189,15 +189,23 @@ export async function markBucketReviewed(input: {
 }
 
 /** Confirm or reject a single AI flag. Admin-only. Rejecting drops it out of its
- *  bucket (buckets only count confirmed + needs_review). */
+ *  bucket (buckets only count confirmed + needs_review). Also stamps WHO decided
+ *  and WHEN — the AI writes status='confirmed' on its own, so curated_at is what
+ *  marks a HUMAN decision (only human-approved flags may feed prompt
+ *  suggestions). */
 export async function setFlagStatus(input: {
   flagId: string;
   status: "confirmed" | "rejected";
 }): Promise<{ error: string | null }> {
-  if (!(await currentAdminId())) return { error: "Admins only." };
+  const adminId = await currentAdminId();
+  if (!adminId) return { error: "Admins only." };
   const { error } = await adminClient()
     .from("call_review_flags")
-    .update({ status: input.status })
+    .update({
+      status: input.status,
+      curated_by: adminId,
+      curated_at: new Date().toISOString(),
+    })
     .eq("id", input.flagId);
   if (error) return { error: "Could not update the flag." };
   revalidatePath("/calls");
