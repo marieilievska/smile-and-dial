@@ -147,6 +147,19 @@ test("an anchor covering the whole prompt is rejected (no full rewrites)", () =>
   expect(r.error).toContain("whole prompt");
 });
 
+test("a full rewrite via a 2-edit chain is rejected", () => {
+  const r = applyPromptEdits("A. B. C.", [
+    { type: "insert_after", anchor: "A.", text: "X." },
+    {
+      type: "replace",
+      anchor: "A.\nX. B. C.",
+      text: "Completely different content.",
+    },
+  ]);
+  expect(r.result).toBeNull();
+  expect(r.error).toContain("whole prompt");
+});
+
 test("a verbatim CRLF anchor matches; an LF-normalized one does not", () => {
   const crlf = "Line one.\r\nLine two.\r\nLine three.";
   const ok = applyPromptEdits(crlf, [
