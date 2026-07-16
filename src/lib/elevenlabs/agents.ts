@@ -773,6 +773,74 @@ export async function fetchElevenLabsAgentPrompt(
   }
 }
 
+/** Update ONLY an agent's system-prompt text on ElevenLabs. Read-modify-write:
+ *  GET the full config, swap conversation_config.agent.prompt.prompt, PATCH the
+ *  full conversation_config back (platform_settings untouched by omission) so
+ *  voice/tools/webhooks are preserved byte-for-byte. Backs the Reporting
+ *  "Prompt improvements" apply/revert. Mocked (no-op) unless ELEVENLABS_LIVE.
+ */
+export async function updateElevenLabsAgentPrompt(
+  agentId: string,
+  newPrompt: string,
+): Promise<{ error: string | null }> {
+  if (!isLive()) return { error: null };
+  const apiKey = fetchApiKey();
+  if (!apiKey) return { error: "ElevenLabs API key isn't set." };
+  if (!newPrompt.trim()) return { error: "Prompt can't be empty." };
+
+  let current: { conversation_config?: Record<string, unknown> };
+  try {
+    const res = await fetch(
+      `${ELEVENLABS_API}/${encodeURIComponent(agentId)}`,
+      { headers: { "xi-api-key": apiKey } },
+    );
+    if (!res.ok) return { error: `ElevenLabs lookup failed (${res.status}).` };
+    current = (await res.json()) as typeof current;
+  } catch {
+    return { error: "ElevenLabs lookup failed." };
+  }
+
+  if (!current.conversation_config?.agent) {
+    return { error: "ElevenLabs response was missing conversation_config." };
+  }
+
+  const cc = (current.conversation_config ?? {}) as Record<string, unknown>;
+  const agent = (cc.agent ?? {}) as Record<string, unknown>;
+  const prompt = { ...(agent.prompt ?? {}) } as Record<string, unknown>;
+  prompt.prompt = newPrompt;
+  // The API rejects a body carrying BOTH the legacy inline `tools` array and
+  // `tool_ids`. Echoing the GET body back can trip that on some agents — keep
+  // whichever is actually populated.
+  // Narrower than applyConnectedAgentIntegration's unconditional salvage on
+  // purpose: for a legacy inline-tools agent we'd rather echo its config back
+  // (worst case a clean 4xx no-op) than silently drop its only tool config.
+  if (
+    Array.isArray(prompt.tool_ids) &&
+    (prompt.tool_ids as unknown[]).length > 0 &&
+    "tools" in prompt
+  ) {
+    delete prompt.tools;
+  }
+
+  try {
+    const res = await fetch(
+      `${ELEVENLABS_API}/${encodeURIComponent(agentId)}`,
+      {
+        method: "PATCH",
+        headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversation_config: { ...cc, agent: { ...agent, prompt } },
+        }),
+      },
+    );
+    if (!res.ok)
+      return { error: `ElevenLabs prompt update failed (${res.status}).` };
+    return { error: null };
+  } catch {
+    return { error: "ElevenLabs prompt update failed." };
+  }
+}
+
 /**
  * Create or update an ElevenLabs agent from our wizard inputs. When
  * `existingId` is null, a new agent is created; otherwise the existing

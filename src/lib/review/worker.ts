@@ -105,7 +105,18 @@ export async function runReviewTick(
         defs,
         instructions: await instructionsFor(call?.agent_id ?? null),
       });
+      // Human decisions are sticky: a re-queued analysis must never overwrite
+      // a flag a human already curated ("Looks right" / "False alarm") — else
+      // a re-review could resurrect a rejected flag into the prompt-suggestion
+      // example pool, or silently drop an approved one. Skip curated rows.
+      const { data: curatedRows } = await db
+        .from("call_review_flags")
+        .select("flag_key")
+        .eq("call_id", row.call_id)
+        .not("curated_at", "is", null);
+      const curatedKeys = new Set((curatedRows ?? []).map((r) => r.flag_key));
       for (const f of flags) {
+        if (curatedKeys.has(f.flag_key)) continue;
         await db.from("call_review_flags").upsert(
           {
             call_id: row.call_id,
@@ -121,7 +132,9 @@ export async function runReviewTick(
         .from("call_reviews")
         .update({
           status: "done",
-          needs_review: flags.some((f) => f.status === "needs_review"),
+          needs_review: flags.some(
+            (f) => !curatedKeys.has(f.flag_key) && f.status === "needs_review",
+          ),
           pass1_model: PASS1_MODEL,
           pass2_model: PASS2_MODEL,
           cost,
