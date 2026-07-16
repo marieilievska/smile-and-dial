@@ -63,6 +63,23 @@ test("multiple edits apply in order against the working text", () => {
   expect(r.result?.endsWith("Always confirm the callback time.")).toBe(true);
 });
 
+test("a later edit's anchor is validated against the working text", () => {
+  const r = applyPromptEdits(PROMPT, [
+    {
+      type: "replace",
+      anchor: "friendly caller",
+      text: "warm, patient caller",
+    },
+    {
+      type: "replace",
+      anchor: "warm, patient caller",
+      text: "warm, patient rep",
+    },
+  ]);
+  expect(r.error).toBeNull();
+  expect(r.result).toContain("You are Sam, a warm, patient rep.");
+});
+
 test("an anchor that is not found is rejected", () => {
   const r = applyPromptEdits(PROMPT, [
     { type: "replace", anchor: "This text is not in the prompt", text: "x" },
