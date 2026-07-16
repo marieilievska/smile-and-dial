@@ -26,7 +26,10 @@ import {
   fetchCandidateFlags,
   fetchChecklistFlags,
 } from "@/lib/review/buckets";
-import { fetchSuggestOptions } from "@/lib/review/suggestions-data";
+import {
+  fetchPromptSuggestions,
+  fetchSuggestOptions,
+} from "@/lib/review/suggestions-data";
 
 import { CallReviewTable } from "./call-review-table";
 import { AiChecklistPanel } from "./ai-checklist-panel";
@@ -35,6 +38,7 @@ import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
 import { HotLeadsTable } from "./hot-leads-table";
 import { PromptLogTable } from "./prompt-log-table";
+import { PromptSuggestionsPanel } from "./prompt-suggestions-panel";
 import { ReportingTabs, reportingTabsFor } from "./reporting-tabs";
 import { ScopePicker } from "./scope-picker";
 import { VoiceTable } from "./voice-table";
@@ -217,13 +221,19 @@ async function DashboardTab({
 
 async function CallReviewTab() {
   const supabase = await createClient();
-  const [{ summary, buckets }, candidates, checklist, suggestOptions] =
-    await Promise.all([
-      fetchReviewBuckets(supabase),
-      fetchCandidateFlags(supabase),
-      fetchChecklistFlags(supabase),
-      fetchSuggestOptions(supabase),
-    ]);
+  const [
+    { summary, buckets },
+    candidates,
+    checklist,
+    suggestOptions,
+    suggestions,
+  ] = await Promise.all([
+    fetchReviewBuckets(supabase),
+    fetchCandidateFlags(supabase),
+    fetchChecklistFlags(supabase),
+    fetchSuggestOptions(supabase),
+    fetchPromptSuggestions(supabase),
+  ]);
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
@@ -238,6 +248,9 @@ async function CallReviewTab() {
       </section>
       <section className="flex flex-col gap-3">
         <AiChecklistPanel flags={checklist} candidates={candidates} />
+      </section>
+      <section className="flex flex-col gap-3">
+        <PromptSuggestionsPanel suggestions={suggestions} />
       </section>
     </div>
   );
