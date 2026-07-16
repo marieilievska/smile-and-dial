@@ -162,10 +162,20 @@ test.describe("Prompt suggestions", () => {
     await signIn(page);
     await page.goto("/reporting?tab=call-review");
     // The seeded bucket (unique label) is on the page, and its row carries the
-    // suggest button with the available-example count.
+    // suggest button with the available-example count. Scope to the bucket
+    // ROW — the innermost div carrying BOTH the stamped label and the button.
+    // (A label-only filter is ambiguous: the label also renders in the
+    // checklist and the suggestion card further down the page.)
     await expect(page.getByText(FLAG_LABEL).first()).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Suggest prompt fix (1)" }).first(),
+      page
+        .locator("div")
+        .filter({ hasText: FLAG_LABEL })
+        .filter({
+          has: page.getByRole("button", { name: "Suggest prompt fix (1)" }),
+        })
+        .last()
+        .getByRole("button", { name: "Suggest prompt fix (1)" }),
     ).toBeVisible();
   });
 
@@ -177,21 +187,33 @@ test.describe("Prompt suggestions", () => {
     await expect(
       page.getByText(`E2E rationale ${stamp}`, { exact: false }),
     ).toBeVisible();
-    await expect(page.getByText("Awaiting your review").first()).toBeVisible();
+    // Everything else is asserted INSIDE the seeded card — real production
+    // suggestions may render alongside it. The card's own div is the only
+    // rounded-xl element containing the stamped rationale.
+    const card = page
+      .locator("div.rounded-xl")
+      .filter({ hasText: `E2E rationale ${stamp}` });
+    await expect(card.getByText("Awaiting your review")).toBeVisible();
     // The new text is editable before approval, prefilled from the edit.
-    await expect(page.locator("textarea").first()).toHaveValue(
+    await expect(card.locator("textarea").first()).toHaveValue(
       new RegExp(`E2E RULE ${stamp}`),
     );
     await expect(
-      page.getByRole("button", { name: "Approve & apply" }),
+      card.getByRole("button", { name: "Approve & apply" }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Dismiss" })).toBeVisible();
+    await expect(card.getByRole("button", { name: "Dismiss" })).toBeVisible();
   });
 
   test("dismiss archives the suggestion", async ({ page }) => {
     await signIn(page);
     await page.goto("/reporting?tab=call-review");
-    await page.getByRole("button", { name: "Dismiss" }).first().click();
+    // Click Dismiss ONLY inside the seeded card — an unscoped Dismiss could
+    // hit a real production suggestion.
+    await page
+      .locator("div.rounded-xl")
+      .filter({ hasText: `E2E rationale ${stamp}` })
+      .getByRole("button", { name: "Dismiss" })
+      .click();
     await expect(page.getByText("Dismissed —", { exact: false })).toBeVisible();
     // DB-level assertion: the row is dismissed.
     await expect
