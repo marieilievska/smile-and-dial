@@ -1,6 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+test.use({ storageState: "playwright/.auth/user.json" });
+
 test.describe.configure({ mode: "serial" });
 
 /**
@@ -123,7 +125,6 @@ test.describe("Reporting scope filter", () => {
           lead_id: leadId,
           agent_id: agentId,
           campaign_id: campaignId,
-          goal_id: goalId,
           direction: "outbound",
           status: "completed",
           outcome: "completed",
