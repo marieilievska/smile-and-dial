@@ -1408,6 +1408,66 @@ export type Database = {
         };
         Relationships: [];
       };
+      review_prompt_suggestions: {
+        Row: {
+          agent_id: string;
+          applied_at: string | null;
+          based_on_prompt: string;
+          cost: number;
+          created_at: string;
+          decided_at: string | null;
+          decided_by: string | null;
+          edits: Json;
+          example_count: number;
+          flag_key: string;
+          id: string;
+          model: string | null;
+          proposed_prompt: string;
+          rationale: string;
+          reverted_at: string | null;
+          status: string;
+          summary: string;
+        };
+        Insert: {
+          agent_id: string;
+          applied_at?: string | null;
+          based_on_prompt: string;
+          cost?: number;
+          created_at?: string;
+          decided_at?: string | null;
+          decided_by?: string | null;
+          edits: Json;
+          example_count?: number;
+          flag_key: string;
+          id?: string;
+          model?: string | null;
+          proposed_prompt: string;
+          rationale: string;
+          reverted_at?: string | null;
+          status?: string;
+          summary: string;
+        };
+        Update: {
+          agent_id?: string;
+          applied_at?: string | null;
+          based_on_prompt?: string;
+          cost?: number;
+          created_at?: string;
+          decided_at?: string | null;
+          decided_by?: string | null;
+          edits?: Json;
+          example_count?: number;
+          flag_key?: string;
+          id?: string;
+          model?: string | null;
+          proposed_prompt?: string;
+          rationale?: string;
+          reverted_at?: string | null;
+          status?: string;
+          summary?: string;
+        };
+        Relationships: [];
+      };
       call_reviews: {
         Row: {
           analyzed_at: string | null;
@@ -1458,28 +1518,37 @@ export type Database = {
           call_id: string;
           confidence: number | null;
           created_at: string;
+          curated_at: string | null;
+          curated_by: string | null;
           evidence_quote: string | null;
           flag_key: string;
           id: string;
           status: string;
+          suggestion_id: string | null;
         };
         Insert: {
           call_id: string;
           confidence?: number | null;
           created_at?: string;
+          curated_at?: string | null;
+          curated_by?: string | null;
           evidence_quote?: string | null;
           flag_key: string;
           id?: string;
           status?: string;
+          suggestion_id?: string | null;
         };
         Update: {
           call_id?: string;
           confidence?: number | null;
           created_at?: string;
+          curated_at?: string | null;
+          curated_by?: string | null;
           evidence_quote?: string | null;
           flag_key?: string;
           id?: string;
           status?: string;
+          suggestion_id?: string | null;
         };
         Relationships: [];
       };
