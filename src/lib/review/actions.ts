@@ -397,6 +397,17 @@ export async function applyPromptSuggestion(input: {
   }
 
   let edits = s.edits as unknown as PromptEdit[];
+  if (
+    !Array.isArray(edits) ||
+    edits.some(
+      (e) => !e || typeof e.anchor !== "string" || typeof e.text !== "string",
+    )
+  ) {
+    return {
+      error:
+        "This suggestion's data is unreadable — dismiss it and generate a fresh one.",
+    };
+  }
   if (input.editedTexts) {
     if (input.editedTexts.length !== edits.length) {
       return { error: "Edited texts don't match the suggestion." };

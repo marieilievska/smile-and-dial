@@ -344,7 +344,7 @@ export async function writeAgentPrompt(
     .eq("id", agent.id);
   return {
     error: error
-      ? "Applied to ElevenLabs, but saving the local copy failed — try applying again."
+      ? "Applied to ElevenLabs, but saving the local copy failed — try again."
       : null,
   };
 }
