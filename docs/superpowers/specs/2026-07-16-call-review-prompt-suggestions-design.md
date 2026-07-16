@@ -234,6 +234,17 @@ in bucket <label>."`, `full_prompt = proposed_prompt`); mark the suggestion
 - Anchor-validation unit coverage if a natural spot exists (pure function in
   `suggest.ts`).
 
+## Known limitations (v1, accepted)
+
+- **Wizard agents: a later wizard edit can drop an applied suggestion.** The
+  agent editor reassembles `system_prompt` from its section fields
+  (personality/environment/tone/goal/guardrails), so editing a wizard agent
+  through the wizard after a suggestion was applied silently rebuilds the
+  prompt without that edit. Fails safe (revert then refuses via the freshness
+  check; the Agent Prompt Log keeps the full applied text for manual
+  recovery). The primary production agent is externally-managed and
+  unaffected. A future editor-side warning could close this.
+
 ## Out of scope (v1, deliberate)
 
 - Scheduled/automatic suggestion generation.
