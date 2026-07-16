@@ -1,7 +1,22 @@
 import "server-only";
 
+import { createClient } from "@supabase/supabase-js";
+
+import {
+  normalizeDataCollection,
+  normalizeEvaluation,
+} from "@/lib/agents/data-collection";
+import type { ToolsEnabled } from "@/lib/agents/prompt";
+import {
+  fetchElevenLabsAgentPrompt,
+  syncAgentToElevenLabs,
+  updateElevenLabsAgentPrompt,
+} from "@/lib/elevenlabs/agents";
+import type { Database } from "@/lib/supabase/database.types";
+
 import type { PromptEdit } from "./types";
 import { callOpenAiJson, PASS2_MODEL } from "./openai";
+import { chunk } from "./chunk";
 
 /** Never more than this many anchored edits per suggestion — one targeted
  *  change may need a couple of operations, but a long list means the model is
@@ -225,4 +240,152 @@ export async function draftPromptSuggestion(input: {
 
 function clipQuote(s: string): string {
   return s.length > 300 ? `${s.slice(0, 300)}…` : s;
+}
+
+type Admin = ReturnType<typeof createClient<Database>>;
+
+/** Everything the prompt read/write paths need about an agent, in one select.
+ *  Kept as ONE string literal (no concatenation) so supabase-js can parse it
+ *  and type the result — a computed string degrades the row typing. */
+export const AGENT_PROMPT_COLUMNS =
+  "id, name, externally_managed, elevenlabs_agent_id, system_prompt, voice_id, ai_model, prompt_goal, extra_data_collection, extra_evaluation, tools_enabled";
+
+export type AgentPromptRow = Pick<
+  Database["public"]["Tables"]["agents"]["Row"],
+  | "id"
+  | "name"
+  | "externally_managed"
+  | "elevenlabs_agent_id"
+  | "system_prompt"
+  | "voice_id"
+  | "ai_model"
+  | "prompt_goal"
+  | "extra_data_collection"
+  | "extra_evaluation"
+  | "tools_enabled"
+>;
+
+/** The agent's CURRENT full prompt, trimmed — live from ElevenLabs for
+ *  externally-managed agents (cache deliberately bypassed: suggestions and
+ *  freshness checks must see the real text, and resolveAgentReviewPrompt's
+ *  INSTRUCTIONS_CAP truncation must NOT apply — anchors need the full prompt),
+ *  or the local system_prompt for wizard agents. */
+export async function resolveCurrentAgentPrompt(
+  agent: AgentPromptRow,
+): Promise<{ prompt: string | null; error: string | null }> {
+  if (!agent.externally_managed) {
+    const p = agent.system_prompt?.trim() || null;
+    return p
+      ? { prompt: p, error: null }
+      : { prompt: null, error: "This agent has no system prompt saved." };
+  }
+  if (!agent.elevenlabs_agent_id) {
+    return { prompt: null, error: "This agent has no ElevenLabs id." };
+  }
+  const p = await fetchElevenLabsAgentPrompt(agent.elevenlabs_agent_id);
+  return p
+    ? { prompt: p, error: null }
+    : { prompt: null, error: "Couldn't read the live prompt from ElevenLabs." };
+}
+
+/** Write a new prompt to the agent — ElevenLabs FIRST, local bookkeeping only
+ *  after it succeeds (a failed write changes nothing anywhere). Externally
+ *  managed: prompt-only PATCH + refresh the reviewer's playbook cache. Wizard:
+ *  full re-sync with the new prompt (same pipeline as the agent editor), then
+ *  save system_prompt locally (the reviewer reads it directly). */
+export async function writeAgentPrompt(
+  admin: Admin,
+  agent: AgentPromptRow,
+  newPrompt: string,
+): Promise<{ error: string | null }> {
+  if (agent.externally_managed) {
+    if (!agent.elevenlabs_agent_id) {
+      return { error: "This agent has no ElevenLabs id." };
+    }
+    const r = await updateElevenLabsAgentPrompt(
+      agent.elevenlabs_agent_id,
+      newPrompt,
+    );
+    if (r.error) return r;
+    await admin
+      .from("agents")
+      .update({
+        review_prompt: newPrompt,
+        review_prompt_at: new Date().toISOString(),
+      })
+      .eq("id", agent.id);
+    return { error: null };
+  }
+  const sync = await syncAgentToElevenLabs(
+    {
+      name: agent.name,
+      systemPrompt: newPrompt,
+      voiceId: agent.voice_id,
+      aiModel: agent.ai_model,
+      goal: agent.prompt_goal,
+      extraDataCollection: normalizeDataCollection(agent.extra_data_collection),
+      extraEvaluation: normalizeEvaluation(agent.extra_evaluation),
+      toolsEnabled: (agent.tools_enabled ?? undefined) as
+        | ToolsEnabled
+        | undefined,
+    },
+    agent.elevenlabs_agent_id,
+  );
+  if (sync.error) return { error: sync.error };
+  const { error } = await admin
+    .from("agents")
+    .update({
+      system_prompt: newPrompt,
+      ...(sync.elevenlabsAgentId &&
+      sync.elevenlabsAgentId !== agent.elevenlabs_agent_id
+        ? { elevenlabs_agent_id: sync.elevenlabsAgentId }
+        : {}),
+    })
+    .eq("id", agent.id);
+  return {
+    error: error
+      ? "Applied to ElevenLabs, but saving the local copy failed — open the agent editor and save it once to re-sync."
+      : null,
+  };
+}
+
+/** The available example pool for one (bucket, agent): human-approved
+ *  ("Looks right" → status confirmed + curated_at) and not yet consumed by a
+ *  suggestion. Newest first, capped at MAX_SUGGESTION_EXAMPLES. Flags don't
+ *  carry agent_id, so pages of flags are joined to calls in chunks. */
+export async function loadApprovedFlags(
+  db: Admin,
+  flagKey: string,
+  agentId: string,
+): Promise<{ id: string; call_id: string; evidence_quote: string | null }[]> {
+  const out: { id: string; call_id: string; evidence_quote: string | null }[] =
+    [];
+  const PAGE = 500;
+  for (let from = 0; out.length < MAX_SUGGESTION_EXAMPLES; from += PAGE) {
+    const { data, error } = await db
+      .from("call_review_flags")
+      .select("id, call_id, evidence_quote")
+      .eq("flag_key", flagKey)
+      .eq("status", "confirmed")
+      .not("curated_at", "is", null)
+      .is("suggestion_id", null)
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    const agentByCall = new Map<string, string | null>();
+    for (const ids of chunk([...new Set(data.map((f) => f.call_id))])) {
+      const { data: calls } = await db
+        .from("calls")
+        .select("id, agent_id")
+        .in("id", ids);
+      for (const c of calls ?? []) agentByCall.set(c.id, c.agent_id);
+    }
+    for (const f of data) {
+      if (agentByCall.get(f.call_id) !== agentId) continue;
+      out.push(f);
+      if (out.length >= MAX_SUGGESTION_EXAMPLES) break;
+    }
+    if (data.length < PAGE) break;
+  }
+  return out;
 }
