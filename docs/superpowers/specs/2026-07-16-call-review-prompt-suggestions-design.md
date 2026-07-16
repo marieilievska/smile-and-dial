@@ -226,10 +226,11 @@ in bucket <label>."`, `full_prompt = proposed_prompt`); mark the suggestion
 ## Testing
 
 - Playwright contract spec (`tests/`): suggest button only with approved
-  examples; suggestion card renders diff + rationale; approve/dismiss/revert
-  state transitions. (Specs run against the live environment per project
-  practice — no CI gate; local `npx tsc --noEmit`, `npx eslint`, `npm run
-build` must be clean.)
+  examples; suggestion card renders diff + rationale; the dismiss transition.
+  Apply/revert are deliberately NOT exercised e2e — specs run against the live
+  environment, and those paths would spend real OpenAI money / write to real
+  ElevenLabs agents; their engine is unit-tested instead. (No CI gate; local
+  `npx tsc --noEmit`, `npx eslint`, `npm run build` must be clean.)
 - Anchor-validation unit coverage if a natural spot exists (pure function in
   `suggest.ts`).
 
