@@ -438,6 +438,12 @@ export async function applyPromptSuggestion(input: {
     why: `${s.rationale} — based on ${s.example_count} approved example(s) in "${def?.label ?? s.flag_key}".`,
     full_prompt: finalPrompt,
   });
+  // Consciously unguarded on status: a dismiss landing during the ElevenLabs
+  // round-trip above could flip the row first, and this write would re-mark it
+  // applied (which is TRUE — the prompt did change) while the dismiss already
+  // released the flags back to the pool. Two admins racing the same suggestion
+  // within one network round-trip is the only trigger; worst case is those
+  // examples feeding one future duplicate suggestion, never a wrong prompt.
   await db
     .from("review_prompt_suggestions")
     .update({
