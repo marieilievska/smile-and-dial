@@ -32,7 +32,9 @@ export function SuggestFixDialog({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [agentId, setAgentId] = useState(options[0]?.agentId ?? "");
+  const [agentId, setAgentId] = useState(
+    options.length === 1 ? options[0].agentId : "",
+  );
   const [pending, start] = useTransition();
   const total = options.reduce((n, o) => n + o.available, 0);
   if (total === 0) return null;
