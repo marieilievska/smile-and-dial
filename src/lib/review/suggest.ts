@@ -344,7 +344,7 @@ export async function writeAgentPrompt(
     .eq("id", agent.id);
   return {
     error: error
-      ? "Applied to ElevenLabs, but saving the local copy failed — open the agent editor and save it once to re-sync."
+      ? "Applied to ElevenLabs, but saving the local copy failed — try applying again."
       : null,
   };
 }
@@ -360,6 +360,7 @@ export async function loadApprovedFlags(
 ): Promise<{ id: string; call_id: string; evidence_quote: string | null }[]> {
   const out: { id: string; call_id: string; evidence_quote: string | null }[] =
     [];
+  const seen = new Set<string>();
   const PAGE = 500;
   for (let from = 0; out.length < MAX_SUGGESTION_EXAMPLES; from += PAGE) {
     const { data, error } = await db
@@ -370,6 +371,7 @@ export async function loadApprovedFlags(
       .not("curated_at", "is", null)
       .is("suggestion_id", null)
       .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error || !data || data.length === 0) break;
     const agentByCall = new Map<string, string | null>();
@@ -382,6 +384,8 @@ export async function loadApprovedFlags(
     }
     for (const f of data) {
       if (agentByCall.get(f.call_id) !== agentId) continue;
+      if (seen.has(f.id)) continue;
+      seen.add(f.id);
       out.push(f);
       if (out.length >= MAX_SUGGESTION_EXAMPLES) break;
     }

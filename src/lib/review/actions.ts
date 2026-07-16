@@ -4,9 +4,20 @@ import { revalidatePath } from "next/cache";
 
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database, Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import { chunk } from "./chunk";
+import { PASS2_MODEL } from "./openai";
+import {
+  AGENT_PROMPT_COLUMNS,
+  applyPromptEdits,
+  draftPromptSuggestion,
+  loadApprovedFlags,
+  resolveCurrentAgentPrompt,
+  writeAgentPrompt,
+  type AgentPromptRow,
+} from "./suggest";
+import type { PromptEdit } from "./types";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient<Database>>;
 
@@ -284,6 +295,250 @@ export async function updateFlagDef(input: {
     .eq("key", input.key)
     .eq("is_candidate", false);
   if (error) return { error: "Could not save the flag." };
+  revalidatePath("/reporting");
+  return { error: null };
+}
+
+/** Draft a prompt-improvement suggestion for one (bucket, agent) from the
+ *  human-approved examples. On success the contributing flags are stamped with
+ *  the suggestion id so the same example never feeds two suggestions. */
+export async function generatePromptSuggestion(input: {
+  flagKey: string;
+  agentId: string;
+}): Promise<{ error: string | null }> {
+  const adminId = await currentAdminId();
+  if (!adminId) return { error: "Admins only." };
+  const key = input.flagKey.trim();
+  if (!key || !input.agentId) return { error: "Missing bucket or agent." };
+  const db = adminClient();
+
+  const { data: def } = await db
+    .from("review_flag_defs")
+    .select("key, label, guidance")
+    .eq("key", key)
+    .eq("is_candidate", false)
+    .maybeSingle();
+  if (!def) return { error: "That flag no longer exists." };
+
+  const { data: agent } = await db
+    .from("agents")
+    .select(AGENT_PROMPT_COLUMNS)
+    .eq("id", input.agentId)
+    .maybeSingle();
+  if (!agent) return { error: "That agent no longer exists." };
+
+  const cur = await resolveCurrentAgentPrompt(agent as AgentPromptRow);
+  if (!cur.prompt) return { error: cur.error };
+
+  const flags = await loadApprovedFlags(db, key, input.agentId);
+  if (flags.length === 0) {
+    return {
+      error:
+        "No approved examples are available for this bucket and agent — confirm findings with “Looks right” first.",
+    };
+  }
+
+  const drafted = await draftPromptSuggestion({
+    prompt: cur.prompt,
+    bucket: def,
+    examples: flags.map((f) => ({ evidenceQuote: f.evidence_quote })),
+  });
+  if (!drafted.draft) return { error: drafted.error };
+
+  const { data: created, error: insErr } = await db
+    .from("review_prompt_suggestions")
+    .insert({
+      agent_id: input.agentId,
+      flag_key: key,
+      based_on_prompt: cur.prompt,
+      proposed_prompt: drafted.draft.proposedPrompt,
+      edits: drafted.draft.edits as unknown as Json,
+      rationale: drafted.draft.rationale,
+      summary: drafted.draft.summary,
+      example_count: flags.length,
+      model: PASS2_MODEL,
+      cost: drafted.cost,
+    })
+    .select("id")
+    .single();
+  if (insErr || !created) return { error: "Could not save the suggestion." };
+
+  await db
+    .from("call_review_flags")
+    .update({ suggestion_id: created.id })
+    .in(
+      "id",
+      flags.map((f) => f.id),
+    );
+  revalidatePath("/reporting");
+  return { error: null };
+}
+
+/** Apply an approved suggestion to the live agent. Marija may have reworded the
+ *  new text (editedTexts, aligned with the stored edits) — anchors are fixed.
+ *  Refuses when the live prompt no longer matches what the suggestion was
+ *  drafted against. ElevenLabs first; log + statuses only after success. */
+export async function applyPromptSuggestion(input: {
+  suggestionId: string;
+  editedTexts?: string[];
+}): Promise<{ error: string | null }> {
+  const adminId = await currentAdminId();
+  if (!adminId) return { error: "Admins only." };
+  const db = adminClient();
+
+  const { data: s } = await db
+    .from("review_prompt_suggestions")
+    .select("*")
+    .eq("id", input.suggestionId)
+    .maybeSingle();
+  if (!s) return { error: "That suggestion no longer exists." };
+  if (s.status !== "proposed") {
+    return { error: "This suggestion was already decided." };
+  }
+
+  let edits = s.edits as unknown as PromptEdit[];
+  if (input.editedTexts) {
+    if (input.editedTexts.length !== edits.length) {
+      return { error: "Edited texts don't match the suggestion." };
+    }
+    edits = edits.map((e, i) => ({ ...e, text: input.editedTexts![i] }));
+  }
+  const applied = applyPromptEdits(s.based_on_prompt, edits);
+  if (!applied.result) return { error: applied.error };
+  const finalPrompt = applied.result.trim();
+
+  const { data: agent } = await db
+    .from("agents")
+    .select(AGENT_PROMPT_COLUMNS)
+    .eq("id", s.agent_id)
+    .maybeSingle();
+  if (!agent) return { error: "That agent no longer exists." };
+
+  const cur = await resolveCurrentAgentPrompt(agent as AgentPromptRow);
+  if (!cur.prompt) return { error: cur.error };
+  if (cur.prompt !== s.based_on_prompt) {
+    return {
+      error:
+        "The agent's prompt changed since this suggestion was drafted. Dismiss it and generate a fresh one.",
+    };
+  }
+
+  const w = await writeAgentPrompt(db, agent as AgentPromptRow, finalPrompt);
+  if (w.error) return { error: w.error };
+
+  const { data: def } = await db
+    .from("review_flag_defs")
+    .select("label")
+    .eq("key", s.flag_key)
+    .maybeSingle();
+  await db.from("agent_prompt_log").insert({
+    agent_id: s.agent_id,
+    changed: "Changed",
+    what_changed: s.summary,
+    why: `${s.rationale} — based on ${s.example_count} approved example(s) in "${def?.label ?? s.flag_key}".`,
+    full_prompt: finalPrompt,
+  });
+  await db
+    .from("review_prompt_suggestions")
+    .update({
+      status: "applied",
+      edits: edits as unknown as Json,
+      proposed_prompt: finalPrompt,
+      decided_by: adminId,
+      decided_at: new Date().toISOString(),
+      applied_at: new Date().toISOString(),
+    })
+    .eq("id", s.id);
+  revalidatePath("/reporting");
+  return { error: null };
+}
+
+/** Dismiss a proposed suggestion. Its examples return to the available pool. */
+export async function dismissPromptSuggestion(input: {
+  suggestionId: string;
+}): Promise<{ error: string | null }> {
+  const adminId = await currentAdminId();
+  if (!adminId) return { error: "Admins only." };
+  const db = adminClient();
+  const { data, error } = await db
+    .from("review_prompt_suggestions")
+    .update({
+      status: "dismissed",
+      decided_by: adminId,
+      decided_at: new Date().toISOString(),
+    })
+    .eq("id", input.suggestionId)
+    .eq("status", "proposed")
+    .select("id");
+  if (error || !data || data.length === 0) {
+    return { error: "Could not dismiss the suggestion." };
+  }
+  await db
+    .from("call_review_flags")
+    .update({ suggestion_id: null })
+    .eq("suggestion_id", input.suggestionId);
+  revalidatePath("/reporting");
+  return { error: null };
+}
+
+/** Restore the pre-suggestion prompt. Only valid while the live prompt still
+ *  equals what this suggestion produced (nothing else changed it since) — the
+ *  same never-overwrite-unseen-state rule as apply. Its examples return to the
+ *  available pool. */
+export async function revertPromptSuggestion(input: {
+  suggestionId: string;
+}): Promise<{ error: string | null }> {
+  const adminId = await currentAdminId();
+  if (!adminId) return { error: "Admins only." };
+  const db = adminClient();
+
+  const { data: s } = await db
+    .from("review_prompt_suggestions")
+    .select("*")
+    .eq("id", input.suggestionId)
+    .maybeSingle();
+  if (!s) return { error: "That suggestion no longer exists." };
+  if (s.status !== "applied")
+    return { error: "Only applied changes can be reverted." };
+
+  const { data: agent } = await db
+    .from("agents")
+    .select(AGENT_PROMPT_COLUMNS)
+    .eq("id", s.agent_id)
+    .maybeSingle();
+  if (!agent) return { error: "That agent no longer exists." };
+
+  const cur = await resolveCurrentAgentPrompt(agent as AgentPromptRow);
+  if (!cur.prompt) return { error: cur.error };
+  if (cur.prompt !== s.proposed_prompt) {
+    return {
+      error:
+        "The prompt has changed again since this was applied — revert it manually in the agent editor instead.",
+    };
+  }
+
+  const w = await writeAgentPrompt(
+    db,
+    agent as AgentPromptRow,
+    s.based_on_prompt,
+  );
+  if (w.error) return { error: w.error };
+
+  await db.from("agent_prompt_log").insert({
+    agent_id: s.agent_id,
+    changed: "Changed",
+    what_changed: `Reverted: ${s.summary}`,
+    why: "Manual revert from Reporting → Prompt improvements.",
+    full_prompt: s.based_on_prompt,
+  });
+  await db
+    .from("review_prompt_suggestions")
+    .update({ status: "reverted", reverted_at: new Date().toISOString() })
+    .eq("id", s.id);
+  await db
+    .from("call_review_flags")
+    .update({ suggestion_id: null })
+    .eq("suggestion_id", s.id);
   revalidatePath("/reporting");
   return { error: null };
 }
