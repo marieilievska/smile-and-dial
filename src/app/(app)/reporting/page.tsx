@@ -26,6 +26,7 @@ import {
   fetchCandidateFlags,
   fetchChecklistFlags,
 } from "@/lib/review/buckets";
+import { fetchSuggestOptions } from "@/lib/review/suggestions-data";
 
 import { CallReviewTable } from "./call-review-table";
 import { AiChecklistPanel } from "./ai-checklist-panel";
@@ -216,18 +217,24 @@ async function DashboardTab({
 
 async function CallReviewTab() {
   const supabase = await createClient();
-  const [{ summary, buckets }, candidates, checklist] = await Promise.all([
-    fetchReviewBuckets(supabase),
-    fetchCandidateFlags(supabase),
-    fetchChecklistFlags(supabase),
-  ]);
+  const [{ summary, buckets }, candidates, checklist, suggestOptions] =
+    await Promise.all([
+      fetchReviewBuckets(supabase),
+      fetchCandidateFlags(supabase),
+      fetchChecklistFlags(supabase),
+      fetchSuggestOptions(supabase),
+    ]);
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
         <h2 className="text-foreground text-base font-semibold">
           Review flagged calls
         </h2>
-        <CallReviewTable summary={summary} buckets={buckets} />
+        <CallReviewTable
+          summary={summary}
+          buckets={buckets}
+          suggestOptions={suggestOptions}
+        />
       </section>
       <section className="flex flex-col gap-3">
         <AiChecklistPanel flags={checklist} candidates={candidates} />

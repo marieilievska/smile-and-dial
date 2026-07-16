@@ -10,6 +10,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { markBucketReviewed } from "@/lib/review/actions";
 import type { ReviewBucket, ReviewSummary } from "@/lib/review/buckets";
+import type {
+  SuggestOption,
+  SuggestOptionsByBucket,
+} from "@/lib/review/suggestions-data";
+
+import { SuggestFixDialog } from "./suggest-fix-dialog";
 
 /** Sentinel value for the cross-cutting "needs your eyes" filter on /calls. No
  *  real flag_key uses a hyphen, so it can't collide with one. Kept in sync with
@@ -35,9 +41,11 @@ const LENS_ORDER: ReviewBucket["lens"][] = [
 export function CallReviewTable({
   summary,
   buckets,
+  suggestOptions,
 }: {
   summary: ReviewSummary;
   buckets: ReviewBucket[];
+  suggestOptions: SuggestOptionsByBucket;
 }) {
   if (buckets.length === 0) {
     return (
@@ -108,7 +116,12 @@ export function CallReviewTable({
           </h3>
           <div className="border-border overflow-hidden rounded-xl border">
             {byLens.get(lens)!.map((b, i) => (
-              <BucketRow key={b.key} bucket={b} topBorder={i > 0} />
+              <BucketRow
+                key={b.key}
+                bucket={b}
+                topBorder={i > 0}
+                suggestOptions={suggestOptions[b.key] ?? []}
+              />
             ))}
           </div>
         </div>
@@ -123,9 +136,11 @@ export function CallReviewTable({
 function BucketRow({
   bucket,
   topBorder,
+  suggestOptions,
 }: {
   bucket: ReviewBucket;
   topBorder: boolean;
+  suggestOptions: SuggestOption[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -168,6 +183,13 @@ function BucketRow({
         ) : null}
       </Link>
       <div className="flex shrink-0 items-center gap-2">
+        {suggestOptions.length > 0 ? (
+          <SuggestFixDialog
+            bucketKey={bucket.key}
+            bucketLabel={bucket.label}
+            options={suggestOptions}
+          />
+        ) : null}
         {bucket.unreviewed > 0 ? (
           <Button
             type="button"
