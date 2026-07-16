@@ -2272,6 +2272,16 @@ git commit -m "test(review): prompt suggestions UI contract spec"
 
 ## Task 13: Verify, PR, ship
 
+- [ ] **Step 0: Live ElevenLabs smoke test of the prompt-only PATCH (BEFORE any production use)**
+
+`updateElevenLabsAgentPrompt` relies on one assumption with no codebase precedent: omitting `platform_settings` from the PATCH body leaves it untouched server-side. Verify empirically against a SCRATCH agent (never the real one), via a temporary script run with the prod env (`ELEVENLABS_LIVE=live`):
+
+1. Create a scratch agent (`syncAgentToElevenLabs` with a dummy payload) — also cover a second shape with `tool_ids: []` (no server tools enabled).
+2. GET and save its FULL config (both `conversation_config` and `platform_settings`).
+3. Call `updateElevenLabsAgentPrompt` with a new prompt text.
+4. GET again and diff: `conversation_config.agent.prompt.prompt` changed; EVERYTHING else — especially all of `platform_settings` (data_collection, evaluation, guardrails, workspace_overrides) — byte-identical.
+5. Delete the scratch agent(s) (`deleteAgentOnElevenLabs`). Report the diff result before proceeding.
+
 - [ ] **Step 1: Full local verification**
 
 ```bash
