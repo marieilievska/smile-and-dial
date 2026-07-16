@@ -786,6 +786,7 @@ export async function updateElevenLabsAgentPrompt(
   if (!isLive()) return { error: null };
   const apiKey = fetchApiKey();
   if (!apiKey) return { error: "ElevenLabs API key isn't set." };
+  if (!newPrompt.trim()) return { error: "Prompt can't be empty." };
 
   let current: { conversation_config?: Record<string, unknown> };
   try {
@@ -799,6 +800,10 @@ export async function updateElevenLabsAgentPrompt(
     return { error: "ElevenLabs lookup failed." };
   }
 
+  if (!current.conversation_config?.agent) {
+    return { error: "ElevenLabs response was missing conversation_config." };
+  }
+
   const cc = (current.conversation_config ?? {}) as Record<string, unknown>;
   const agent = (cc.agent ?? {}) as Record<string, unknown>;
   const prompt = { ...(agent.prompt ?? {}) } as Record<string, unknown>;
@@ -806,6 +811,9 @@ export async function updateElevenLabsAgentPrompt(
   // The API rejects a body carrying BOTH the legacy inline `tools` array and
   // `tool_ids`. Echoing the GET body back can trip that on some agents — keep
   // whichever is actually populated.
+  // Narrower than applyConnectedAgentIntegration's unconditional salvage on
+  // purpose: for a legacy inline-tools agent we'd rather echo its config back
+  // (worst case a clean 4xx no-op) than silently drop its only tool config.
   if (
     Array.isArray(prompt.tool_ids) &&
     (prompt.tool_ids as unknown[]).length > 0 &&
