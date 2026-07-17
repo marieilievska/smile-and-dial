@@ -190,6 +190,17 @@ export async function callNow(input: {
     return { error: "This lead already has a call in progress." };
   }
 
+  // Claim ownership for this campaign BEFORE placing the call (guarded so it
+  // never steals an already-owned lead). Doing this pre-dial is what lets a
+  // concurrent autopilot tick's claim_lead_for_dial see the owner and refuse —
+  // stamping after the dial would leave a window for a cross-campaign double
+  // call. Rolled back below if a live placement fails.
+  await admin
+    .from("leads")
+    .update({ owner_campaign_id: input.campaignId })
+    .eq("id", input.leadId)
+    .is("owner_campaign_id", null);
+
   // Fork: live calling (ElevenLabs places + runs the call) vs. mock synthetic.
   if (liveCalling) {
     if (!dialNumber) {
@@ -233,6 +244,13 @@ export async function callNow(input: {
         .from("calls")
         .update({ status: "failed", outcome: "failed" })
         .eq("id", pending.id);
+      // The dial didn't go out — release the ownership we optimistically stamped
+      // (only if it's still ours), so a failed manual dial doesn't lock the lead.
+      await admin
+        .from("leads")
+        .update({ owner_campaign_id: null })
+        .eq("id", input.leadId)
+        .eq("owner_campaign_id", input.campaignId);
       return { error: result.error };
     }
 
@@ -254,14 +272,6 @@ export async function callNow(input: {
         next_call_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
       })
       .eq("id", input.leadId);
-
-    // Claim ownership for this campaign if the lead is still un-owned, so a
-    // shared-list autopilot tick for another campaign won't also dial it.
-    await admin
-      .from("leads")
-      .update({ owner_campaign_id: input.campaignId })
-      .eq("id", input.leadId)
-      .is("owner_campaign_id", null);
 
     await admin.from("system_events").insert({
       kind: "call_now",
@@ -325,14 +335,6 @@ export async function callNow(input: {
       next_call_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     })
     .eq("id", input.leadId);
-
-  // Claim ownership for this campaign if the lead is still un-owned, so a
-  // shared-list autopilot tick for another campaign won't also dial it.
-  await admin
-    .from("leads")
-    .update({ owner_campaign_id: input.campaignId })
-    .eq("id", input.leadId)
-    .is("owner_campaign_id", null);
 
   await admin.from("system_events").insert({
     kind: "call_now",
