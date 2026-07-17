@@ -255,6 +255,14 @@ export async function callNow(input: {
       })
       .eq("id", input.leadId);
 
+    // Claim ownership for this campaign if the lead is still un-owned, so a
+    // shared-list autopilot tick for another campaign won't also dial it.
+    await admin
+      .from("leads")
+      .update({ owner_campaign_id: input.campaignId })
+      .eq("id", input.leadId)
+      .is("owner_campaign_id", null);
+
     await admin.from("system_events").insert({
       kind: "call_now",
       actor_user_id: user.id,
@@ -318,6 +326,14 @@ export async function callNow(input: {
     })
     .eq("id", input.leadId);
 
+  // Claim ownership for this campaign if the lead is still un-owned, so a
+  // shared-list autopilot tick for another campaign won't also dial it.
+  await admin
+    .from("leads")
+    .update({ owner_campaign_id: input.campaignId })
+    .eq("id", input.leadId)
+    .is("owner_campaign_id", null);
+
   await admin.from("system_events").insert({
     kind: "call_now",
     actor_user_id: user.id,
@@ -359,11 +375,17 @@ export async function callNowFromLead(
 
   const { data: lead } = await userClient
     .from("leads")
-    .select("id, list_id")
+    .select("id, list_id, owner_campaign_id")
     .eq("id", leadId)
     .is("deleted_at", null)
     .maybeSingle();
   if (!lead) return { error: "Lead not found." };
+
+  // If this lead is already owned, it belongs to that campaign — dial under it
+  // (ownership is released on detach/delete, so a set owner is always valid).
+  if (lead.owner_campaign_id) {
+    return callNow({ leadId, campaignId: lead.owner_campaign_id, target });
+  }
 
   // Active campaigns attached to this lead's list (same query the detail page
   // uses to populate the Call dialog).
