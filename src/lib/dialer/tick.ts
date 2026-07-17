@@ -181,31 +181,25 @@ async function placeMockCall(
 }
 
 /**
- * Atomically claim a lead for dialing by pushing its `next_call_at` into the
- * future, but ONLY if it's still due right now. Two racing ticks both read
- * the queue and pass pre_call_check, but only one UPDATE can match the
- * "still due" predicate — Postgres serializes the row write, the first
- * commits a future next_call_at, and the second's predicate no longer
- * matches so it returns zero rows. Returns true iff this caller won the claim.
- *
- * The 2-minute hold is a short lease: long enough that the dial completes and
- * sets its own real next_call_at, short enough that a crash mid-dial doesn't
- * strand the lead for long.
+ * Atomically claim a lead for dialing AND stamp its owning campaign, via the
+ * `claim_lead_for_dial` SQL function. It leases `next_call_at` 2 minutes into
+ * the future only if the lead is still due, and only if the lead is un-owned or
+ * already owned by THIS campaign — stamping ownership on a first win. Postgres
+ * serializes the row write, so two campaigns (or two ticks) racing on the same
+ * un-owned lead resolve to exactly one owner; the loser gets `false` and skips.
+ * This single statement is the whole cross-campaign double-call guarantee.
  */
 async function claimLeadForDial(
   supabase: SupabaseAdmin,
   leadId: string,
+  campaignId: string,
 ): Promise<boolean> {
-  const lease = new Date(Date.now() + 2 * 60 * 1000).toISOString();
-  const nowIso = new Date().toISOString();
-  const { data, error } = await supabase
-    .from("leads")
-    .update({ next_call_at: lease })
-    .eq("id", leadId)
-    .or(`next_call_at.is.null,next_call_at.lte.${nowIso}`)
-    .select("id");
+  const { data, error } = await supabase.rpc("claim_lead_for_dial", {
+    in_lead_id: leadId,
+    in_campaign_id: campaignId,
+  });
   if (error) return false;
-  return (data?.length ?? 0) > 0;
+  return data === true;
 }
 
 async function currentAttempts(
@@ -365,13 +359,15 @@ export async function runDialerTick(
       continue;
     }
 
-    // Atomically CLAIM the lead before dialing. Bumping next_call_at with a
-    // guard on its current value means two overlapping ticks (or a tick +
-    // Call-Now) racing on the same lead can't both proceed — only the first
-    // UPDATE matches the `due` predicate; the loser gets 0 rows and skips.
-    // This closes the double-dial-the-same-person window that existed when
-    // next_call_at was only bumped AFTER the call was placed.
-    const claimed = await claimLeadForDial(supabase, c.lead_id);
+    // Atomically CLAIM the lead before dialing — and stamp its owning campaign.
+    // claim_lead_for_dial leases next_call_at with a guard on its current value
+    // AND only succeeds if the lead is un-owned or already owned by THIS
+    // campaign, so two overlapping ticks racing on the same lead — including
+    // ticks for two different campaigns that share the list — can't both
+    // proceed: exactly one wins and becomes owner; the loser gets false and
+    // skips. (Call-Now has its own in-flight guard and is made ownership-aware
+    // separately; see the manual-dial path.)
+    const claimed = await claimLeadForDial(supabase, c.lead_id, c.campaign_id);
     if (!claimed) {
       summary.blocked++;
       summary.blockedReasons["already_claimed"] =
