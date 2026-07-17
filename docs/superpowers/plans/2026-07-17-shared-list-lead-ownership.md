@@ -176,17 +176,43 @@ order by q.dial_priority, q.next_call_at nulls first;
 -- 5. One-time backfill: every already-dialed lead is owned by the campaign of
 --    its most recent call, so in-progress leads stay glued to the campaign
 --    already working them and can't be scooped when a list is later shared.
---    Guarded to only-null owners; idempotent.
+--    GUARD: only stamp when that campaign STILL currently targets the lead
+--    (active list attachment / audience_search / smart list) — a lead whose
+--    list was moved to another campaign since its last call is left un-owned so
+--    its current campaign claims it fresh, never stranded. Guarded to only-null
+--    owners; idempotent. Stable tiebreak (id desc) so re-runs are deterministic.
 update public.leads l
    set owner_campaign_id = mr.campaign_id
   from (
     select distinct on (lead_id) lead_id, campaign_id
       from public.calls
      where campaign_id is not null
-     order by lead_id, created_at desc
+     order by lead_id, created_at desc, id desc
   ) mr
+  join public.campaigns c on c.id = mr.campaign_id
  where mr.lead_id = l.id
-   and l.owner_campaign_id is null;
+   and l.owner_campaign_id is null
+   and (
+     exists (
+       select 1 from public.list_campaign_attachments lca
+       where lca.campaign_id = c.id
+         and lca.list_id = l.list_id
+         and lca.detached_at is null
+     )
+     or (
+       c.audience_search is not null
+       and l.company is not null
+       and l.company ilike '%' || c.audience_search || '%'
+     )
+     or (
+       c.smart_list_id is not null
+       and exists (
+         select 1 from public.smart_list_members slm
+         where slm.smart_list_id = c.smart_list_id
+           and slm.lead_id = l.id
+       )
+     )
+   );
 ```
 
 - [ ] **Step 2: Commit**

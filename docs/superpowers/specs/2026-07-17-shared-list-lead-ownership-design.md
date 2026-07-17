@@ -163,8 +163,12 @@ enhancement, not v1.
 ## One-time backfill
 
 Every lead that has already been dialed gets its owner set to the campaign of
-its **most recent** call, so in-progress leads stay glued to the campaign
-already working them and can't be scooped when a list is later shared:
+its **most recent** call — **but only when that campaign still currently targets
+the lead** (an active list attachment, or its `audience_search` / `smart_list`).
+A lead whose list was moved to another campaign since its last call is left
+un-owned so its _current_ campaign claims it fresh rather than being stranded
+under a campaign that can no longer reach it. So in-progress leads stay glued to
+the campaign already working them, and moved leads flow to their real owner:
 
 ```sql
 update leads l
