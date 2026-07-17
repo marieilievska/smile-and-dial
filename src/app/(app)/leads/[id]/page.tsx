@@ -128,9 +128,35 @@ export default async function LeadDetailPage({
     )
     .map((c) => ({ id: c.id, name: c.name }));
 
+  // The campaign that currently owns this lead (shared-list ownership), if
+  // any. Resolved once from the leads row so both the "Owned by" indicator
+  // and the Call dialog restriction below can use it.
+  const ownerId = lead.owner_campaign_id;
+  let ownerCampaignName: string | null = null;
+  if (ownerId) {
+    const { data: ownerCampaign } = await supabase
+      .from("campaigns")
+      .select("name")
+      .eq("id", ownerId)
+      .maybeSingle();
+    ownerCampaignName = ownerCampaign?.name ?? null;
+  }
+
+  // When the lead is already owned, the Call dialog must only offer its
+  // owner — a manual dial under a different campaign would be a
+  // cross-campaign call. Un-owned leads see the full attached-campaign list,
+  // unchanged from before.
+  const dialCampaigns = ownerId
+    ? availableCampaigns.filter((c) => c.id === ownerId)
+    : availableCampaigns;
+
   // Round 27 — the user's "active campaign" preference. The CallNow
   // dialog pre-selects it when it's a valid pick for this lead's list,
-  // skipping the campaign picker step.
+  // skipping the campaign picker step. Validated against dialCampaigns (not
+  // the unfiltered availableCampaigns) so an owned lead never pre-selects a
+  // campaign other than its owner — the Select's options are restricted to
+  // dialCampaigns too, so a stale preference would otherwise silently
+  // dial under the wrong campaign.
   const { data: profileWithActive } = await supabase
     .from("profiles")
     .select("active_campaign_id, role")
@@ -139,9 +165,7 @@ export default async function LeadDetailPage({
   const isAdmin = profileWithActive?.role === "admin";
   const activeCampaignId =
     profileWithActive?.active_campaign_id &&
-    availableCampaigns.some(
-      (c) => c.id === profileWithActive.active_campaign_id,
-    )
+    dialCampaigns.some((c) => c.id === profileWithActive.active_campaign_id)
       ? profileWithActive.active_campaign_id
       : undefined;
 
@@ -304,7 +328,8 @@ export default async function LeadDetailPage({
         customFields={customFields}
         customValues={customValues}
         meta={meta}
-        availableCampaigns={availableCampaigns}
+        availableCampaigns={dialCampaigns}
+        ownerCampaignName={ownerCampaignName}
         activeCampaignId={activeCampaignId}
         activityFeed={<LeadActivityFeed items={feedItems} leadId={lead.id} />}
         feedItemsForChip={feedItemsForChip}

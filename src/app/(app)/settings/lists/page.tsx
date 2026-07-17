@@ -40,13 +40,16 @@ export default async function ListsPage() {
         .is("detached_at", null),
     ]);
 
-  const campaignByList = new Map<string, { id: string; name: string }>();
+  // A list can now be attached to more than one active campaign (shared
+  // lists), so collect ALL of a list's active attachments rather than
+  // collapsing to one — a single-campaign Map here would silently keep only
+  // the last attachment row for a shared list and hide the rest.
+  const campaignsByList = new Map<string, { id: string; name: string }[]>();
   (attachments ?? []).forEach((row) => {
     if (row.campaign) {
-      campaignByList.set(row.list_id, {
-        id: row.campaign.id,
-        name: row.campaign.name,
-      });
+      const existing = campaignsByList.get(row.list_id) ?? [];
+      existing.push({ id: row.campaign.id, name: row.campaign.name });
+      campaignsByList.set(row.list_id, existing);
     }
   });
 
@@ -92,7 +95,7 @@ export default async function ListsPage() {
               </TableHeader>
               <TableBody>
                 {(lists ?? []).map((list) => {
-                  const attached = campaignByList.get(list.id) ?? null;
+                  const attached = campaignsByList.get(list.id) ?? [];
                   return (
                     <TableRow key={list.id} className="group">
                       <TableCell className="font-medium">{list.name}</TableCell>
@@ -100,7 +103,9 @@ export default async function ListsPage() {
                         {list.description || "—"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {attached ? attached.name : "—"}
+                        {attached.length > 0
+                          ? attached.map((c) => c.name).join(", ")
+                          : "—"}
                       </TableCell>
                       <TableCell
                         className="text-muted-foreground tabular-nums"
@@ -112,7 +117,7 @@ export default async function ListsPage() {
                         <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                           <ListAttachmentControls
                             list={{ id: list.id, name: list.name }}
-                            attachedCampaign={attached}
+                            attachedCampaigns={attached}
                             campaigns={activeCampaigns}
                           />
                           <ListFormDialog mode="edit" list={list} />
