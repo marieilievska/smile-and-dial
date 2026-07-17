@@ -814,12 +814,13 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
-## Task 7: Lead-detail "Owned by" indicator (light UI)
+## Task 7: Lead-detail "Owned by" indicator + Lists-page shared-awareness
 
 **Files:**
 
 - Modify: `src/app/(app)/leads/[id]/page.tsx` (server component — fetch the owner name)
 - Modify: the lead-detail client view it renders (thread + render the indicator)
+- Modify: `src/app/(app)/settings/lists/page.tsx` + `src/app/(app)/settings/lists/list-attachment-controls.tsx` (shared-list awareness — Step 5)
 
 - [ ] **Step 1: Read the render wiring**
 
@@ -862,9 +863,25 @@ Pass `ownerCampaignName={ownerCampaignName}` to the client view alongside `avail
 Run: `npx tsc --noEmit`, `npx eslint "src/app/(app)/leads/[id]"`, `npm run build`
 Expected: clean.
 
+- [ ] **Step 5: Make the Lists settings page shared-aware** (closes a code-review finding on Task 4)
+
+Now that a list can be attached to multiple active campaigns, the Lists settings page must stop implying single ownership. Read `src/app/(app)/settings/lists/page.tsx` and `src/app/(app)/settings/lists/list-attachment-controls.tsx` first. Currently the page collapses each list to ONE campaign (a `Map<listId, campaign>` that silently overwrites when a list has 2+ attachments), and the row's "Detach" button calls `detachList`, which detaches the list from **every** attached campaign and releases all its leads — so an admin can detach-all while believing they're detaching one hidden campaign.
+
+Two required changes (keep them minimal):
+
+1. In `page.tsx`, build the attachments as `Map<listId, campaign[]>` (all active attachments per list, not just the last), and pass the full array to the controls.
+2. In `list-attachment-controls.tsx`, when a list has ≥2 attached campaigns: show all their names (e.g. "Shared: A, B"), and make the detach button's label + confirmation explicit that it detaches from ALL of them and returns the leads to the pool (e.g. confirm "Detach this list from all N campaigns? Their un-finished leads go back to the shared pool." and toast "Detached from N campaigns."). A single-campaign list keeps today's wording.
+
+Match the file's existing component/toast/confirmation patterns. If the current confirmation is a plain `confirm()` or a dialog, follow whichever is there.
+
+- [ ] **Step 6: Verify + commit**
+
+Run: `npx tsc --noEmit`, `npx eslint "src/app/(app)/leads/[id]" "src/app/(app)/settings/lists"`, `npm run build`
+Expected: clean.
+
 ```bash
-git add "src/app/(app)/leads/[id]"
-git commit -m "feat(leads): show which campaign owns a lead
+git add "src/app/(app)/leads/[id]" "src/app/(app)/settings/lists"
+git commit -m "feat(leads,lists): owned-by indicator + shared-list awareness
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
