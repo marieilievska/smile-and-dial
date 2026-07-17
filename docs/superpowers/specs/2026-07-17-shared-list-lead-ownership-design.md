@@ -160,6 +160,18 @@ is manually reassigned. This is a rare admin action; a self-healing "release
 ownership when the owner no longer matches" pass is a possible later
 enhancement, not v1.
 
+**Known limitation 3 (human browser-dial doesn't claim ownership — accepted for v1):**
+the "Call Now" AI path (`callNow`) stamps ownership, but the separate _human_
+browser-dial path (`resolveHumanCallTarget` → `voice-browser-dial`) only
+_prefers_ the owning campaign when one exists — it doesn't _stamp_ ownership on
+an un-owned lead. So a human browser-dial of an un-owned lead on a shared list
+leaves it un-owned (a later autopilot tick for another campaign could then work
+it), and opens the same narrow concurrent cross-campaign window as limitation 2.
+This matches the spec's stated browser-dial scope ("out of scope beyond making
+it respect ownership"). It only matters if human browser-dialing is used on a
+list that is actually shared; the fast-follow (stamp ownership in the
+browser-dial route + the `calls(lead_id)` partial unique index) closes it.
+
 **Known limitation 2 (manual dial, narrow race — accepted for v1):** the manual
 "Call Now" path stamps ownership _before_ placing the call (so a concurrent
 autopilot tick's atomic claim sees the owner and refuses), which closes the
