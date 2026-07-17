@@ -194,12 +194,16 @@ export async function callNow(input: {
   // never steals an already-owned lead). Doing this pre-dial is what lets a
   // concurrent autopilot tick's claim_lead_for_dial see the owner and refuse —
   // stamping after the dial would leave a window for a cross-campaign double
-  // call. Rolled back below if a live placement fails.
-  await admin
+  // call. `stampedHere` records whether WE actually claimed it, so a failed
+  // live placement below only rolls back ownership we set (never a lead that
+  // was already owned by this campaign).
+  const { data: stampedRows } = await admin
     .from("leads")
     .update({ owner_campaign_id: input.campaignId })
     .eq("id", input.leadId)
-    .is("owner_campaign_id", null);
+    .is("owner_campaign_id", null)
+    .select("id");
+  const stampedHere = (stampedRows?.length ?? 0) > 0;
 
   // Fork: live calling (ElevenLabs places + runs the call) vs. mock synthetic.
   if (liveCalling) {
@@ -244,13 +248,15 @@ export async function callNow(input: {
         .from("calls")
         .update({ status: "failed", outcome: "failed" })
         .eq("id", pending.id);
-      // The dial didn't go out — release the ownership we optimistically stamped
-      // (only if it's still ours), so a failed manual dial doesn't lock the lead.
-      await admin
-        .from("leads")
-        .update({ owner_campaign_id: null })
-        .eq("id", input.leadId)
-        .eq("owner_campaign_id", input.campaignId);
+      // Only release ownership if WE stamped it here — never clear a
+      // pre-existing owner (e.g. a failed re-dial of an already-owned lead).
+      if (stampedHere) {
+        await admin
+          .from("leads")
+          .update({ owner_campaign_id: null })
+          .eq("id", input.leadId)
+          .eq("owner_campaign_id", input.campaignId);
+      }
       return { error: result.error };
     }
 
