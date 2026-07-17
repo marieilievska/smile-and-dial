@@ -193,4 +193,31 @@ test.describe("Single active dial index", () => {
       .single();
     expect(human.error).toBeNull();
   });
+
+  test("a new active call is allowed once the prior one terminalizes", async () => {
+    // Terminalize the active outbound-AI row seeded in the first test so it
+    // leaves the partial index predicate.
+    await admin
+      .from("calls")
+      .update({ status: "completed", outcome: "no_answer" })
+      .eq("lead_id", leadId)
+      .eq("direction", "outbound")
+      .eq("call_mode", "ai")
+      .eq("status", "dialing");
+
+    // A fresh in-flight AI outbound dial for the same lead now succeeds — the
+    // index blocks only WHILE a call is active, never permanently.
+    const next = await admin
+      .from("calls")
+      .insert({
+        lead_id: leadId,
+        campaign_id: campaignId,
+        direction: "outbound",
+        status: "queued",
+        call_mode: "ai",
+      })
+      .select("id")
+      .single();
+    expect(next.error).toBeNull();
+  });
 });

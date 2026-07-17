@@ -21,6 +21,11 @@ export type TickSummary = {
   liveMode: { twilio: boolean; elevenlabs: boolean };
 };
 
+/** Result of one live placement: a dialed call id, a graceful skip because the
+ *  lead already has an in-flight AI outbound call (the calls(lead_id) active-dial
+ *  index rejected our insert), or a genuine error (both null/false). */
+type LivePlaceResult = { callId: string | null; inFlight?: boolean };
+
 type MockOutcome = {
   outcome:
     | "voicemail"
@@ -420,11 +425,6 @@ export async function runDialerTick(
  *  campaign's Twilio number (the queue row only has its id), inserts
  *  a `calls` row with status='queued', calls Twilio, and stamps the
  *  returned CallSid. Status callbacks drive everything from here. */
-/** Result of one live placement: a dialed call id, a graceful skip because the
- *  lead already has an in-flight AI outbound call (the calls(lead_id) active-dial
- *  index rejected our insert), or a genuine error (both null/false). */
-type LivePlaceResult = { callId: string | null; inFlight?: boolean };
-
 async function placeLiveDialerCall(
   supabase: SupabaseAdmin,
   c: {

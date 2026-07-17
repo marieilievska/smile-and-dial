@@ -361,6 +361,17 @@ export async function callNow(input: {
     .select("id")
     .single();
   if (callError || !call) {
+    // Symmetry with the live path: release ownership we optimistically stamped
+    // so a failed mock insert doesn't leave the lead owned by a campaign that
+    // never dialed it. (Mock rows are 'completed', so this never trips the
+    // active-dial index — only a genuine DB error reaches here.)
+    if (stampedHere) {
+      await admin
+        .from("leads")
+        .update({ owner_campaign_id: null })
+        .eq("id", input.leadId)
+        .eq("owner_campaign_id", input.campaignId);
+    }
     return { error: "Could not place the call." };
   }
 
