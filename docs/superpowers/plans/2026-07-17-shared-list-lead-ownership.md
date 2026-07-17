@@ -858,10 +858,21 @@ Pass `ownerCampaignName={ownerCampaignName}` to the client view alongside `avail
 }
 ```
 
-- [ ] **Step 4: Verify + commit**
+- [ ] **Step 4: Make the Call dialog offer only the owner when a lead is owned** (closes a code-review finding on Task 5)
 
-Run: `npx tsc --noEmit`, `npx eslint "src/app/(app)/leads/[id]"`, `npm run build`
-Expected: clean.
+The lead-detail Call dialog (`src/app/(app)/leads/call-now-dialog.tsx`) picks a campaign from `availableCampaigns`, which `page.tsx` builds from every active attachment of the lead's list — with no ownership awareness. So an operator could pick a non-owning campaign B for a lead owned by A and place a call under B (the pre-dial `.is(null)` guard keeps ownership with A, but the call still goes out cross-campaign). Fix it at the source: in `page.tsx`, when the lead is owned, narrow `availableCampaigns` to just the owning campaign so the dialog can only dial under the owner (mirroring `callNowFromLead`'s one-click behavior). After the `availableCampaigns` block, add:
+
+```ts
+// When the lead is already owned, the Call dialog must only offer its owner —
+// a manual dial under a different campaign would be a cross-campaign call.
+const ownerId = (lead as { owner_campaign_id?: string | null })
+  .owner_campaign_id;
+const dialCampaigns = ownerId
+  ? availableCampaigns.filter((c) => c.id === ownerId)
+  : availableCampaigns;
+```
+
+Then pass `dialCampaigns` (instead of `availableCampaigns`) to whatever prop currently feeds the Call dialog's campaign picker. Leave the rest of `availableCampaigns`'s uses (if any) alone. If the owning campaign isn't in `availableCampaigns` (owner reachable only via audience/smart-list, not a list attachment), `dialCampaigns` is empty and the dialog shows no pickable campaign — acceptable for v1 (that lead is dialed by autopilot; a manual dial from the dialog isn't the path). Verify the picker still renders sensibly in that case (falls back to its existing empty/needs-attachment message).
 
 - [ ] **Step 5: Make the Lists settings page shared-aware** (closes a code-review finding on Task 4)
 
@@ -876,11 +887,11 @@ Match the file's existing component/toast/confirmation patterns. If the current 
 
 - [ ] **Step 6: Verify + commit**
 
-Run: `npx tsc --noEmit`, `npx eslint "src/app/(app)/leads/[id]" "src/app/(app)/settings/lists"`, `npm run build`
+Run: `npx tsc --noEmit`, `npx eslint "src/app/(app)/leads" "src/app/(app)/settings/lists"`, `npm run build`
 Expected: clean.
 
 ```bash
-git add "src/app/(app)/leads/[id]" "src/app/(app)/settings/lists"
+git add "src/app/(app)/leads" "src/app/(app)/settings/lists"
 git commit -m "feat(leads,lists): owned-by indicator + shared-list awareness
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"

@@ -151,7 +151,7 @@ calls by `owner_id`), and each keeps its own hourly/daily pace caps.
   path — no `pre_call_check`, `.find()` campaign resolution — are out of scope
   beyond making it respect ownership.)
 
-**Known limitation (accepted for v1):** ownership is released on **detach** and
+**Known limitation 1 (accepted for v1):** ownership is released on **detach** and
 **campaign delete**. If an admin instead edits a campaign's `audience_search` or
 `smart_list_id` so it no longer matches a lead the campaign already owns, that
 lead can be left owned-but-idle (its owner no longer surfaces it, and the
@@ -159,6 +159,20 @@ ownership predicate keeps others out) until the campaign is deleted or the lead
 is manually reassigned. This is a rare admin action; a self-healing "release
 ownership when the owner no longer matches" pass is a possible later
 enhancement, not v1.
+
+**Known limitation 2 (manual dial, narrow race — accepted for v1):** the manual
+"Call Now" path stamps ownership _before_ placing the call (so a concurrent
+autopilot tick's atomic claim sees the owner and refuses), which closes the
+common cross-campaign double-call window. A tiny residual remains: if an
+autopilot tick's `claim_lead_for_dial` for a different campaign lands in the
+few-millisecond gap between Call Now's in-flight re-check and its ownership
+stamp, both could dial. This is the same TOCTOU class as the pre-existing
+Call-Now-vs-tick `calls`-row race the code already documents, now merely
+cross-campaign instead of same-campaign, and it only exists once a list is
+actually shared. The complete fix is the partial unique index on
+`calls(lead_id)` for active statuses that the codebase already contemplates
+(`call-now.ts`) — deferred as a fast-follow because creating it on the live
+`calls` table must first reconcile any existing duplicate active rows.
 
 ## One-time backfill
 
