@@ -36,22 +36,31 @@ export default async function ListsPage() {
         .order("name"),
       supabase
         .from("list_campaign_attachments")
-        .select("list_id, campaign:campaigns(id, name)")
+        .select("list_id, campaign:campaigns(id, name, status)")
         .is("detached_at", null),
     ]);
 
   // A list can now be attached to more than one active campaign (shared
   // lists), so collect ALL of a list's active attachments rather than
   // collapsing to one — a single-campaign Map here would silently keep only
-  // the last attachment row for a shared list and hide the rest.
+  // the last attachment row for a shared list and hide the rest. Skip ended
+  // campaigns: a campaign can be ended without detaching its list, and a dead
+  // campaign shouldn't inflate the "Shared" / "Detach all" count (the sibling
+  // activeCampaigns query already excludes ended). status is dropped here — the
+  // controls only need id + name.
   const campaignsByList = new Map<string, { id: string; name: string }[]>();
   (attachments ?? []).forEach((row) => {
-    if (row.campaign) {
+    if (row.campaign && row.campaign.status !== "ended") {
       const existing = campaignsByList.get(row.list_id) ?? [];
       existing.push({ id: row.campaign.id, name: row.campaign.name });
       campaignsByList.set(row.list_id, existing);
     }
   });
+  // Stable, name-sorted order so "Shared: A, B" (here and in the controls)
+  // doesn't reshuffle between loads on the same underlying attachments.
+  for (const arr of campaignsByList.values()) {
+    arr.sort((a, b) => a.name.localeCompare(b.name));
+  }
 
   const activeCampaigns = (campaigns ?? []).map((c) => ({
     id: c.id,
@@ -88,7 +97,7 @@ export default async function ListsPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead>Campaign</TableHead>
+                  <TableHead>Campaigns</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="w-56" />
                 </TableRow>

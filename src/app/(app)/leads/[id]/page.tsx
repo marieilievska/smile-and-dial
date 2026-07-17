@@ -129,17 +129,24 @@ export default async function LeadDetailPage({
     .map((c) => ({ id: c.id, name: c.name }));
 
   // The campaign that currently owns this lead (shared-list ownership), if
-  // any. Resolved once from the leads row so both the "Owned by" indicator
-  // and the Call dialog restriction below can use it.
+  // any. Resolved once from the leads row and reused below. The name comes
+  // from availableCampaigns when the owner is among them (the common case —
+  // an owned lead's list is attached to its owner); we only hit the DB when
+  // the owner is reachable via audience/smart-list rather than a list
+  // attachment, so its name isn't already in hand.
   const ownerId = lead.owner_campaign_id;
   let ownerCampaignName: string | null = null;
   if (ownerId) {
-    const { data: ownerCampaign } = await supabase
-      .from("campaigns")
-      .select("name")
-      .eq("id", ownerId)
-      .maybeSingle();
-    ownerCampaignName = ownerCampaign?.name ?? null;
+    ownerCampaignName =
+      availableCampaigns.find((c) => c.id === ownerId)?.name ?? null;
+    if (!ownerCampaignName) {
+      const { data: ownerCampaign } = await supabase
+        .from("campaigns")
+        .select("name")
+        .eq("id", ownerId)
+        .maybeSingle();
+      ownerCampaignName = ownerCampaign?.name ?? null;
+    }
   }
 
   // When the lead is already owned, the Call dialog must only offer its
