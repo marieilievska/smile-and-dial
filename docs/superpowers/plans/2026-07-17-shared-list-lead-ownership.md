@@ -931,7 +931,7 @@ Before pushing the migration, read and show Marija the current state (per the pr
 # backfill stamp, and across how many campaigns. Show these to Marija first.
 ```
 
-Query via the prod PostgREST (see `reference_supabase_access`): count of leads with at least one campaign-attributed call (the backfill's target set) and the distinct owning-campaign count. Report the numbers, then:
+Query via the prod PostgREST (see `reference_supabase_access`): count of leads with at least one campaign-attributed call (the backfill's target set) and the distinct owning-campaign count. Also spot-check the one known narrow edge: any non-terminal lead whose most-recent-call campaign is **paused** while a **different active** campaign also currently targets it (only reachable via an audience/smart-list overlap). At the platform's ~single-active-campaign scale this should be zero; if it isn't, decide whether to add `and c.status = 'active'` to the backfill guard before pushing. Report the numbers, then:
 
 ```bash
 supabase db push --linked
