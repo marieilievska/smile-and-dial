@@ -85,11 +85,22 @@ export async function callNow(input: {
   // dial; mock mode never used it, but the live placeCall helper does.
   const { data: lead } = await userClient
     .from("leads")
-    .select("id, list_id, owner_id, business_phone, owner_phone")
+    .select(
+      "id, list_id, owner_id, business_phone, owner_phone, owner_campaign_id",
+    )
     .eq("id", input.leadId)
     .is("deleted_at", null)
     .maybeSingle();
   if (!lead) return { error: "Lead not found." };
+
+  // Sticky ownership (shared lists): if this lead already belongs to a DIFFERENT
+  // campaign, refuse to dial it under the one we were handed. callNowFromLead
+  // already routes owned leads to their owner; this guards DIRECT callers (e.g.
+  // the lead-detail Call dialog passing an explicit campaign) that the UI only
+  // hides. Un-owned (null) and same-owner both pass.
+  if (lead.owner_campaign_id && lead.owner_campaign_id !== input.campaignId) {
+    return { error: "This lead is owned by another campaign." };
+  }
 
   // Which number to dial. Default is the business line; "owner" dials the
   // owner's direct line. Validate the owner number exists up front so the
@@ -234,7 +245,27 @@ export async function callNow(input: {
       .select("id")
       .single();
     if (pendingError || !pending) {
-      return { error: "Could not record the call before dialing." };
+      // Release ownership if WE optimistically stamped it above — a failed insert
+      // must not leave the lead owned by a campaign that never actually dialed it.
+      // Guarded to only clear an owner we set (never a pre-existing one).
+      if (stampedHere) {
+        await admin
+          .from("leads")
+          .update({ owner_campaign_id: null })
+          .eq("id", input.leadId)
+          .eq("owner_campaign_id", input.campaignId);
+      }
+      // A unique-violation (23505) means another AI outbound dial for this lead
+      // won the race at the DB level (calls_one_active_ai_outbound_dial_per_lead).
+      // Surface it as the same "already in progress" copy the pre-call re-check
+      // uses, not a generic failure.
+      const code = (pendingError as { code?: string } | null)?.code;
+      return {
+        error:
+          code === "23505"
+            ? "This lead already has a call in progress."
+            : "Could not record the call before dialing.",
+      };
     }
 
     const result = await resolveAndPlaceAgentCall(admin, {
@@ -330,6 +361,17 @@ export async function callNow(input: {
     .select("id")
     .single();
   if (callError || !call) {
+    // Symmetry with the live path: release ownership we optimistically stamped
+    // so a failed mock insert doesn't leave the lead owned by a campaign that
+    // never dialed it. (Mock rows are 'completed', so this never trips the
+    // active-dial index — only a genuine DB error reaches here.)
+    if (stampedHere) {
+      await admin
+        .from("leads")
+        .update({ owner_campaign_id: null })
+        .eq("id", input.leadId)
+        .eq("owner_campaign_id", input.campaignId);
+    }
     return { error: "Could not place the call." };
   }
 

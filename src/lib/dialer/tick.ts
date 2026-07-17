@@ -21,6 +21,11 @@ export type TickSummary = {
   liveMode: { twilio: boolean; elevenlabs: boolean };
 };
 
+/** Result of one live placement: a dialed call id, a graceful skip because the
+ *  lead already has an in-flight AI outbound call (the calls(lead_id) active-dial
+ *  index rejected our insert), or a genuine error (both null/false). */
+type LivePlaceResult = { callId: string | null; inFlight?: boolean };
+
 type MockOutcome = {
   outcome:
     | "voicemail"
@@ -383,15 +388,24 @@ export async function runDialerTick(
       // TS doesn't carry the lead_id / campaign_id null narrow from
       // the guard above into this scope, so re-bind into a typed
       // object the helper can take directly.
-      const callId = await placeLiveDialerCall(supabase, {
+      const res = await placeLiveDialerCall(supabase, {
         lead_id: c.lead_id,
         campaign_id: c.campaign_id,
         agent_id: c.agent_id,
         twilio_number_id: c.twilio_number_id,
         business_phone: c.business_phone,
       });
-      if (callId) summary.dialed++;
-      else summary.errors++;
+      if (res.callId) {
+        summary.dialed++;
+      } else if (res.inFlight) {
+        // The DB active-dial index rejected the insert: another dialer already
+        // has this lead in flight. Count it as blocked, not an error.
+        summary.blocked++;
+        summary.blockedReasons["already_in_flight"] =
+          (summary.blockedReasons["already_in_flight"] ?? 0) + 1;
+      } else {
+        summary.errors++;
+      }
     } else {
       const callId = await placeMockCall(supabase, {
         lead_id: c.lead_id,
@@ -420,9 +434,9 @@ async function placeLiveDialerCall(
     twilio_number_id: string | null;
     business_phone: string | null;
   },
-): Promise<string | null> {
-  if (!c.business_phone) return null;
-  if (!c.twilio_number_id) return null;
+): Promise<LivePlaceResult> {
+  if (!c.business_phone) return { callId: null };
+  if (!c.twilio_number_id) return { callId: null };
 
   const { data: pending, error: pendingError } = await supabase
     .from("calls")
@@ -438,7 +452,18 @@ async function placeLiveDialerCall(
     })
     .select("id")
     .single();
-  if (pendingError || !pending) return null;
+  if (pendingError || !pending) {
+    // A unique-violation means another AI outbound dial for this lead won the
+    // race at the DB level (calls_one_active_ai_outbound_dial_per_lead). Not an
+    // error: the lead already has a live call and its next_call_at stays leased
+    // (claim_lead_for_dial set it 2 min out), so it is not re-dialed immediately.
+    // Ownership is already consistent (a successful claim is the gate), so no
+    // rollback is needed here.
+    if ((pendingError as { code?: string } | null)?.code === "23505") {
+      return { callId: null, inFlight: true };
+    }
+    return { callId: null };
+  }
 
   const startedAt = new Date();
   const result = await resolveAndPlaceAgentCall(supabase, {
@@ -479,7 +504,7 @@ async function placeLiveDialerCall(
     // so the retry engine's next_call_at write isn't clobbered by the
     // call_attempts update above.
     await finalizeFailedCall(supabase, pending.id);
-    return null;
+    return { callId: null };
   }
 
   await supabase
@@ -501,5 +526,5 @@ async function placeLiveDialerCall(
     })
     .eq("id", c.lead_id);
 
-  return pending.id;
+  return { callId: pending.id };
 }

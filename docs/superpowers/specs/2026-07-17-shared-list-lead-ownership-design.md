@@ -172,6 +172,10 @@ it respect ownership"). It only matters if human browser-dialing is used on a
 list that is actually shared; the fast-follow (stamp ownership in the
 browser-dial route + the `calls(lead_id)` partial unique index) closes it.
 
+**Update (2026-07-17):** the fast-follow index is scoped to `call_mode='ai'`, so
+the human browser-dial path is intentionally NOT covered — this limitation remains
+open and accepted. Revisit only if human browser-dialing is used on a shared list.
+
 **Known limitation 2 (manual dial, narrow race — accepted for v1):** the manual
 "Call Now" path stamps ownership _before_ placing the call (so a concurrent
 autopilot tick's atomic claim sees the owner and refuses), which closes the
@@ -185,6 +189,12 @@ actually shared. The complete fix is the partial unique index on
 `calls(lead_id)` for active statuses that the codebase already contemplates
 (`call-now.ts`) — deferred as a fast-follow because creating it on the live
 `calls` table must first reconcile any existing duplicate active rows.
+
+**Update (2026-07-17, fast-follow shipped):** the partial unique index
+`calls_one_active_ai_outbound_dial_per_lead` (`direction='outbound' AND
+call_mode='ai' AND status in active`, migration `20260717130000`) is now live,
+closing this window and the pre-existing same-campaign Call-Now-vs-tick TOCTOU at
+the DB level. See `docs/superpowers/specs/2026-07-17-single-active-dial-index-design.md`.
 
 ## One-time backfill
 
