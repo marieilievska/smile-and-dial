@@ -24,9 +24,39 @@ const ACTIVE_STATUSES = [
   "in_progress",
 ] as const;
 
+const PAGE = 1000;
+
+/** Page past PostgREST's 1,000-row response cap. A bare `.limit(5000)` is
+ *  silently clamped to 1,000 rows by the server, so on any day with >1,000
+ *  calls the strip froze at exactly 1,000 and the connect/goal rates were
+ *  computed from an arbitrary 1,000-row slice. Mirrors the pagination the
+ *  Today, Campaigns, and Analytics pages already use. */
+async function fetchTodayStatRows(
+  supabase: SupabaseServerClient,
+  isoStart: string,
+): Promise<{ outcome: string | null; goal_met: boolean | null }[]> {
+  const rows: { outcome: string | null; goal_met: boolean | null }[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const { data } = await supabase
+      .from("calls")
+      .select("outcome, goal_met")
+      .gte("started_at", isoStart)
+      .order("started_at", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    const batch = (data ?? []) as {
+      outcome: string | null;
+      goal_met: boolean | null;
+    }[];
+    rows.push(...batch);
+    if (batch.length < PAGE) break;
+    if (offset > 500_000) break; // safety backstop
+  }
+  return rows;
+}
+
 /** Compute the 3-stat strip shown under the /calls page header.
  *  Read-only — every stat is "today so far" against the server clock.
- *  Heavy lifting is one query (today's calls), then map+reduce in JS.
+ *  Today's calls are paginated (see fetchTodayStatRows), then reduced in JS.
  *
  *  Round 30 — dropped the spend column (D3, 4→3). The /costs page is
  *  the proper home for financial signals; mirroring it here was
@@ -38,12 +68,8 @@ export async function fetchCallStats(
   // calendar, so a 9pm-ET call still counts as today (not tomorrow).
   const startOfToday = startOfTodayEtIso();
 
-  const [{ data, error }, { count: inProgressCount }] = await Promise.all([
-    supabase
-      .from("calls")
-      .select("outcome, goal_met")
-      .gte("started_at", startOfToday)
-      .limit(5000),
+  const [rows, { count: inProgressCount }] = await Promise.all([
+    fetchTodayStatRows(supabase, startOfToday),
     // Live count is status-driven, not date-bound: a call queued
     // yesterday that's still ringing should count. `head: true` makes
     // this a cheap count-only query.
@@ -53,22 +79,13 @@ export async function fetchCallStats(
       .in("status", ACTIVE_STATUSES as unknown as string[]),
   ]);
 
-  if (error || !data) {
-    return {
-      callsToday: 0,
-      connectRateToday: 0,
-      goalMetToday: 0,
-      inProgressNow: inProgressCount ?? 0,
-    };
-  }
-
   let connected = 0;
   let goalMet = 0;
-  for (const row of data) {
+  for (const row of rows) {
     if (row.outcome && CONNECTED_OUTCOMES.has(row.outcome)) connected++;
     if (row.goal_met) goalMet++;
   }
-  const callsToday = data.length;
+  const callsToday = rows.length;
   const connectRateToday = callsToday > 0 ? connected / callsToday : 0;
 
   return {
