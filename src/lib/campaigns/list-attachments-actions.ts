@@ -50,30 +50,58 @@ export async function setCampaignLists(input: {
       })),
     );
     if (error) {
-      // Most likely cause: list already attached to another active campaign.
-      // Nothing has been detached yet, so the campaign's list set is
-      // unchanged and the user can correct the selection and retry.
-      return {
-        error:
-          "One of those lists is already attached to another active campaign.",
-      };
+      // Nothing has been detached yet, so the campaign's list set is unchanged
+      // and the user can retry. (Sharing a list across campaigns is allowed;
+      // this only fires on a genuine insert failure.)
+      return { error: "Could not attach those lists. Please try again." };
     }
   }
 
-  // Detach the ones no longer wanted. Detach can't hit the unique index, so
-  // by this point the operation is safe to complete.
+  // Detach the ones no longer wanted. Detach can't hit a unique index, so by
+  // this point the operation is safe to complete.
   const toDetach = (currentAttachments ?? []).filter(
     (row) => !nextListIds.has(row.list_id),
   );
   if (toDetach.length > 0) {
+    const detachIds = toDetach.map((row) => row.id);
     const { error } = await supabase
       .from("list_campaign_attachments")
       .update({ detached_at: new Date().toISOString() })
-      .in(
-        "id",
-        toDetach.map((row) => row.id),
-      );
+      .in("id", detachIds);
     if (error) return { error: "Could not detach those lists." };
+
+    // Release this campaign's ownership of the detached lists' still-dialable
+    // leads back to the shared pool so other sharing campaigns can finish them.
+    // Terminal leads keep their owner for history. Detach ran FIRST on purpose:
+    // once detached the campaign no longer matches these leads, so no tick can
+    // re-claim them mid-release. We DO check this error — a silent failure here
+    // would strand the leads under a campaign that no longer targets them; on
+    // failure the admin retries (detach is a harmless no-op the second time and
+    // the release then completes).
+    const detachedListIds = toDetach.map((row) => row.list_id);
+    const { error: releaseError } = await supabase
+      .from("leads")
+      .update({ owner_campaign_id: null })
+      .eq("owner_campaign_id", input.campaignId)
+      .in("list_id", detachedListIds)
+      .in("status", ["ready_to_call", "callback", "resting"]);
+    if (releaseError) {
+      // Roll the detach back so the whole operation is all-or-nothing. Without
+      // this, a committed detach drops these lists out of the active set, so a
+      // retry recomputes an empty toDetach and never re-runs the release — the
+      // leads stay stranded under a campaign that no longer targets them. Undo
+      // is safe: nothing was released, so re-attaching can't strand anything,
+      // and the next Save recomputes toDetach with these lists present and
+      // re-drives both the detach and the release.
+      await supabase
+        .from("list_campaign_attachments")
+        .update({ detached_at: null })
+        .in("id", detachIds);
+      return {
+        error:
+          "Couldn't update those lists — nothing was changed. Please retry.",
+      };
+    }
   }
 
   revalidatePath(CAMPAIGNS_PATH);
@@ -97,10 +125,7 @@ export async function attachListToCampaign(input: {
     campaign_id: input.campaignId,
   });
   if (error) {
-    return {
-      error:
-        "Could not attach the list. It may already be attached to another active campaign.",
-    };
+    return { error: "Could not attach the list. Please try again." };
   }
 
   revalidatePath(CAMPAIGNS_PATH);
@@ -108,7 +133,7 @@ export async function attachListToCampaign(input: {
   return { error: null };
 }
 
-/** Detach a list from whichever campaign currently has it. */
+/** Detach a list from every campaign currently attached to it, releasing its leads. */
 export async function detachList(listId: string): Promise<AttachmentResult> {
   const supabase = await createClient();
   const {
@@ -122,6 +147,19 @@ export async function detachList(listId: string): Promise<AttachmentResult> {
     .eq("list_id", listId)
     .is("detached_at", null);
   if (error) return { error: "Could not detach the list." };
+
+  // Release ownership of this list's still-dialable leads back to the pool.
+  // Detach ran first (race-safe, see setCampaignLists); error-checked so a
+  // failed release surfaces for retry instead of silently stranding leads.
+  const { error: releaseError } = await supabase
+    .from("leads")
+    .update({ owner_campaign_id: null })
+    .eq("list_id", listId)
+    .in("status", ["ready_to_call", "callback", "resting"])
+    .not("owner_campaign_id", "is", null);
+  if (releaseError) {
+    return { error: "Detached, but couldn't release its leads. Please retry." };
+  }
 
   revalidatePath(CAMPAIGNS_PATH);
   revalidatePath(LISTS_PATH);

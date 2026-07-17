@@ -190,6 +190,21 @@ export async function callNow(input: {
     return { error: "This lead already has a call in progress." };
   }
 
+  // Claim ownership for this campaign BEFORE placing the call (guarded so it
+  // never steals an already-owned lead). Doing this pre-dial is what lets a
+  // concurrent autopilot tick's claim_lead_for_dial see the owner and refuse —
+  // stamping after the dial would leave a window for a cross-campaign double
+  // call. `stampedHere` records whether WE actually claimed it, so a failed
+  // live placement below only rolls back ownership we set (never a lead that
+  // was already owned by this campaign).
+  const { data: stampedRows } = await admin
+    .from("leads")
+    .update({ owner_campaign_id: input.campaignId })
+    .eq("id", input.leadId)
+    .is("owner_campaign_id", null)
+    .select("id");
+  const stampedHere = (stampedRows?.length ?? 0) > 0;
+
   // Fork: live calling (ElevenLabs places + runs the call) vs. mock synthetic.
   if (liveCalling) {
     if (!dialNumber) {
@@ -233,6 +248,15 @@ export async function callNow(input: {
         .from("calls")
         .update({ status: "failed", outcome: "failed" })
         .eq("id", pending.id);
+      // Only release ownership if WE stamped it here — never clear a
+      // pre-existing owner (e.g. a failed re-dial of an already-owned lead).
+      if (stampedHere) {
+        await admin
+          .from("leads")
+          .update({ owner_campaign_id: null })
+          .eq("id", input.leadId)
+          .eq("owner_campaign_id", input.campaignId);
+      }
       return { error: result.error };
     }
 
@@ -359,11 +383,17 @@ export async function callNowFromLead(
 
   const { data: lead } = await userClient
     .from("leads")
-    .select("id, list_id")
+    .select("id, list_id, owner_campaign_id")
     .eq("id", leadId)
     .is("deleted_at", null)
     .maybeSingle();
   if (!lead) return { error: "Lead not found." };
+
+  // If this lead is already owned, it belongs to that campaign — dial under it
+  // (ownership is released on detach/delete, so a set owner is always valid).
+  if (lead.owner_campaign_id) {
+    return callNow({ leadId, campaignId: lead.owner_campaign_id, target });
+  }
 
   // Active campaigns attached to this lead's list (same query the detail page
   // uses to populate the Call dialog).

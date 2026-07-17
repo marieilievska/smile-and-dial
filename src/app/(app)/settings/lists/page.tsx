@@ -36,19 +36,31 @@ export default async function ListsPage() {
         .order("name"),
       supabase
         .from("list_campaign_attachments")
-        .select("list_id, campaign:campaigns(id, name)")
+        .select("list_id, campaign:campaigns(id, name, status)")
         .is("detached_at", null),
     ]);
 
-  const campaignByList = new Map<string, { id: string; name: string }>();
+  // A list can now be attached to more than one active campaign (shared
+  // lists), so collect ALL of a list's active attachments rather than
+  // collapsing to one — a single-campaign Map here would silently keep only
+  // the last attachment row for a shared list and hide the rest. Skip ended
+  // campaigns: a campaign can be ended without detaching its list, and a dead
+  // campaign shouldn't inflate the "Shared" / "Detach all" count (the sibling
+  // activeCampaigns query already excludes ended). status is dropped here — the
+  // controls only need id + name.
+  const campaignsByList = new Map<string, { id: string; name: string }[]>();
   (attachments ?? []).forEach((row) => {
-    if (row.campaign) {
-      campaignByList.set(row.list_id, {
-        id: row.campaign.id,
-        name: row.campaign.name,
-      });
+    if (row.campaign && row.campaign.status !== "ended") {
+      const existing = campaignsByList.get(row.list_id) ?? [];
+      existing.push({ id: row.campaign.id, name: row.campaign.name });
+      campaignsByList.set(row.list_id, existing);
     }
   });
+  // Stable, name-sorted order so "Shared: A, B" (here and in the controls)
+  // doesn't reshuffle between loads on the same underlying attachments.
+  for (const arr of campaignsByList.values()) {
+    arr.sort((a, b) => a.name.localeCompare(b.name));
+  }
 
   const activeCampaigns = (campaigns ?? []).map((c) => ({
     id: c.id,
@@ -85,14 +97,14 @@ export default async function ListsPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead>Campaign</TableHead>
+                  <TableHead>Campaigns</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="w-56" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(lists ?? []).map((list) => {
-                  const attached = campaignByList.get(list.id) ?? null;
+                  const attached = campaignsByList.get(list.id) ?? [];
                   return (
                     <TableRow key={list.id} className="group">
                       <TableCell className="font-medium">{list.name}</TableCell>
@@ -100,7 +112,9 @@ export default async function ListsPage() {
                         {list.description || "—"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {attached ? attached.name : "—"}
+                        {attached.length > 0
+                          ? attached.map((c) => c.name).join(", ")
+                          : "—"}
                       </TableCell>
                       <TableCell
                         className="text-muted-foreground tabular-nums"
@@ -112,7 +126,7 @@ export default async function ListsPage() {
                         <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                           <ListAttachmentControls
                             list={{ id: list.id, name: list.name }}
-                            attachedCampaign={attached}
+                            attachedCampaigns={attached}
                             campaigns={activeCampaigns}
                           />
                           <ListFormDialog mode="edit" list={list} />

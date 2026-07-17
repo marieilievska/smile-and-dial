@@ -1835,6 +1835,7 @@ export type Database = {
           manager_name: string | null;
           meta_synced_at: string | null;
           next_call_at: string | null;
+          owner_campaign_id: string | null;
           owner_id: string;
           owner_name: string | null;
           owner_phone: string | null;
@@ -1873,6 +1874,7 @@ export type Database = {
           manager_name?: string | null;
           meta_synced_at?: string | null;
           next_call_at?: string | null;
+          owner_campaign_id?: string | null;
           owner_id: string;
           owner_name?: string | null;
           owner_phone?: string | null;
@@ -1911,6 +1913,7 @@ export type Database = {
           manager_name?: string | null;
           meta_synced_at?: string | null;
           next_call_at?: string | null;
+          owner_campaign_id?: string | null;
           owner_id?: string;
           owner_name?: string | null;
           owner_phone?: string | null;
@@ -2499,6 +2502,10 @@ export type Database = {
       bump_api_rate_limit: {
         Args: { in_api_key_id: string; in_window_seconds: number };
         Returns: number;
+      };
+      claim_lead_for_dial: {
+        Args: { in_campaign_id: string; in_lead_id: string };
+        Returns: boolean;
       };
       elevenlabs_voice_ids: { Args: never; Returns: string };
       expire_resting_leads: { Args: never; Returns: number };

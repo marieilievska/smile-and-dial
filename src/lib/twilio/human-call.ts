@@ -63,7 +63,7 @@ export async function resolveHumanCallTarget(
 ): Promise<HumanCallTarget | null> {
   const { data: lead } = await supabase
     .from("leads")
-    .select("business_phone, owner_phone, list_id")
+    .select("business_phone, owner_phone, list_id, owner_campaign_id")
     .eq("id", leadId)
     .maybeSingle();
   if (!lead?.list_id) return null;
@@ -85,7 +85,11 @@ export async function resolveHumanCallTarget(
     .in("id", campaignIds)
     .eq("status", "active")
     .not("twilio_number_id", "is", null);
-  const campaign = (campaigns ?? []).find((c) => c.twilio_number_id !== null);
+  // Prefer the lead's owning campaign when it's among the active-with-number
+  // set; otherwise fall back to the first available one.
+  const usable = (campaigns ?? []).filter((c) => c.twilio_number_id !== null);
+  const campaign =
+    usable.find((c) => c.id === lead.owner_campaign_id) ?? usable[0];
   if (!campaign?.twilio_number_id) return null;
 
   const { data: num } = await supabase

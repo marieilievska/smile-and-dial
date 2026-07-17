@@ -56,6 +56,7 @@ export function LeadPageClient({
   customValues,
   meta,
   availableCampaigns,
+  ownerCampaignName,
   activeCampaignId,
   activityFeed,
   feedItemsForChip,
@@ -73,6 +74,10 @@ export function LeadPageClient({
   customValues: Record<string, unknown>;
   meta: LeadMeta;
   availableCampaigns: { id: string; name: string }[];
+  /** The campaign that currently owns this lead (shared-list ownership), when
+   *  set. Display-only here — availableCampaigns is already restricted to
+   *  just the owner upstream, so this only drives the "Owned by" caption. */
+  ownerCampaignName?: string | null;
   activeCampaignId?: string;
   activityFeed: React.ReactNode;
   feedItemsForChip: { at: string; description: string }[];
@@ -239,6 +244,13 @@ export function LeadPageClient({
               />
             </div>
           </div>
+          {/* Shared-list ownership (Round SL7) — once a campaign has claimed this
+              lead, it's the only one the Call dialog above will offer. */}
+          {ownerCampaignName ? (
+            <p className="text-muted-foreground text-xs">
+              Owned by {ownerCampaignName}
+            </p>
+          ) : null}
           {/* Quick-stats — the at-a-glance "where does this lead stand" row. */}
           <div className="border-border/60 flex flex-wrap gap-x-6 gap-y-2 border-t pt-3">
             <HeroStat label="List" value={meta.listName} />
