@@ -4,6 +4,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { loadActiveFlagDefs } from "./rubric";
 import { analyzeCall } from "./analyze";
 import { resolveAgentReviewPrompt } from "./agent-prompt";
+import { ensureStandardRubric } from "./rubric-seed";
 import { PASS1_MODEL, PASS2_MODEL } from "./openai";
 
 type Admin = ReturnType<typeof createClient<Database>>;
@@ -61,6 +62,10 @@ export async function runReviewTick(
     .limit(opts.limit ?? 25);
   if (!pending || pending.length === 0) return summary;
 
+  // Self-heal the rubric before loading it: if a data reset wiped
+  // review_flag_defs while these rows were queued, analyzing against an empty
+  // rubric would store zero flags. Cheap no-op when the rubric is present.
+  await ensureStandardRubric(db);
   const defs = await loadActiveFlagDefs(db);
 
   // Resolve each agent's playbook once per tick (many calls share an agent).
