@@ -11,6 +11,8 @@ export type AgentCallRow = {
   outcome: string | null;
   duration_seconds: number | null;
   extracted_data: unknown;
+  /** Used to count goals per BUSINESS (distinct lead) rather than per call. */
+  lead_id: string | null;
 };
 
 const TZ = "America/New_York";
@@ -85,6 +87,10 @@ export function computeDailyKpis(
   sentimentKey?: string | null,
 ): DailyKpi[] {
   const byDay = new Map<string, DailyKpi>();
+  // Goals are per BUSINESS: distinct leads per day, so a lead with two goal-met
+  // calls the same day (or a same-day merge) counts once. Tallied into k.goals
+  // after the loop.
+  const goalLeadsByDay = new Map<string, Set<string>>();
   for (const r of rows) {
     if (!r.started_at) continue;
     const day = etDay(r.started_at);
@@ -100,7 +106,14 @@ export function computeDailyKpis(
     if (dmReached(r)) k.dms++;
     if (o === "callback") k.callbacks++;
     if (o === "call_back_later") k.callbackLater++;
-    if (o === "goal_met") k.goals++;
+    if (o === "goal_met" && r.lead_id) {
+      let s = goalLeadsByDay.get(day);
+      if (!s) {
+        s = new Set();
+        goalLeadsByDay.set(day, s);
+      }
+      s.add(r.lead_id);
+    }
     if (o === "not_interested") k.notInterested++;
     if (o === "gatekeeper") k.gatekeeper++;
     if (o === "hung_up_immediately") k.hungUp++;
@@ -118,6 +131,7 @@ export function computeDailyKpis(
     }
   }
   for (const k of byDay.values()) {
+    k.goals = goalLeadsByDay.get(k.day)?.size ?? 0;
     const entries = Object.entries(k.sentimentCounts);
     const total = entries.reduce((s, [, n]) => s + n, 0);
     const warm = entries.reduce((s, [v, n]) => s + (isWarm(v) ? n : 0), 0);

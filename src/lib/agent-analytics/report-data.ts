@@ -137,7 +137,7 @@ export async function fetchDashboardKpis(
   for (let offset = 0; ; offset += PAGE) {
     let q = supabase
       .from("calls")
-      .select("started_at, outcome, duration_seconds, extracted_data")
+      .select("started_at, outcome, duration_seconds, extracted_data, lead_id")
       .eq("direction", "outbound")
       .gte("started_at", since)
       .order("started_at", { ascending: false })
