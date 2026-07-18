@@ -8,9 +8,12 @@ const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** Mapping from our display row index (0=Mon) back to heatmap[dayOfWeek] index (0=Sun). */
 const DAY_DOW = [1, 2, 3, 4, 5, 6, 0] as const;
 
-/** Calling window: 7am–8pm keeps the grid compact and cuts empty night cells. */
-const HOUR_START = 7;
-const HOUR_END = 20; // exclusive, so last column is 19 (7p)
+/** Calling window: 8am–9pm. Matches when campaigns actually dial (earliest
+ *  calling-hours start is 8am, latest end is 9pm), so it drops the always-empty
+ *  7am column and shows the evening through the final 8–9pm slot. 9pm itself is
+ *  the calling cutoff (no dials land at/after it), so there's no 9pm column. */
+const HOUR_START = 8;
+const HOUR_END = 21; // exclusive, so last column is 20 (8p = the 8–9pm slot)
 
 /** Format an hour (0-23) as "7a", "12p", "1p" etc. */
 function fmtHour(h: number): string {
