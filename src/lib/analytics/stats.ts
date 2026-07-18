@@ -174,7 +174,9 @@ export function computeKpis(rows: CallRow[]): Kpis {
   let conversations = 0;
   let dmsReached = 0;
   let connected = 0;
-  let goalMet = 0;
+  // Goals are counted per BUSINESS, not per call: a lead with two goal-met calls
+  // (called twice, or two leads merged into one) is ONE win. Dedupe by lead_id.
+  const goalLeadIds = new Set<string>();
   let durationSum = 0;
   let durationCount = 0;
   let spend = 0;
@@ -182,13 +184,14 @@ export function computeKpis(rows: CallRow[]): Kpis {
     if (r.outcome && CONNECTED_OUTCOMES.has(r.outcome)) connected += 1;
     if (r.outcome && CONVERSATION_OUTCOMES.has(r.outcome)) conversations += 1;
     if (rowReachedDm(r)) dmsReached += 1;
-    if (r.goal_met) goalMet += 1;
+    if (r.goal_met) goalLeadIds.add(r.lead_id);
     if (r.duration_seconds != null) {
       durationSum += r.duration_seconds;
       durationCount += 1;
     }
     spend += pickCostTotal(r.cost_breakdown);
   }
+  const goalMet = goalLeadIds.size;
   return {
     totalCalls,
     conversations,
@@ -262,24 +265,31 @@ export function buildLeadFunnel(rows: CallRow[]): FunnelStep[] {
   ];
 }
 
-/** Daily count of `goal_met=true` calls — the trend series for the
- *  Appointments Booked hero chart and sparkline. Same date-pre-seeding
- *  trick as callsByDay so the chart never has gaps. */
+/** Daily count of businesses that met the goal — the trend series for the
+ *  Appointments Booked hero chart and sparkline. Counts DISTINCT leads per day
+ *  (a lead with two goal-met calls the same day is one win), matching the
+ *  per-business KPI. Same date-pre-seeding trick as callsByDay so the chart
+ *  never has gaps. */
 export function bookingsByDay(rows: CallRow[], slicers: Slicers): number[] {
-  const buckets = new Map<string, number>();
+  const buckets = new Map<string, Set<string>>();
   const start = new Date(`${slicers.from}T00:00:00Z`);
   const end = new Date(`${slicers.to}T00:00:00Z`);
   for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-    buckets.set(d.toISOString().slice(0, 10), 0);
+    buckets.set(d.toISOString().slice(0, 10), new Set());
   }
   for (const r of rows) {
     if (!r.goal_met) continue;
     const day = etDayString(new Date(r.created_at));
-    buckets.set(day, (buckets.get(day) ?? 0) + 1);
+    let leads = buckets.get(day);
+    if (!leads) {
+      leads = new Set();
+      buckets.set(day, leads);
+    }
+    leads.add(r.lead_id);
   }
   return [...buckets.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, v]) => v);
+    .map(([, leads]) => leads.size);
 }
 
 export function callsByDay(rows: CallRow[], slicers: Slicers): TimeBucket[] {
@@ -314,21 +324,28 @@ export function rankCampaigns(
   rows: CallRow[],
   names: Map<string, string>,
 ): CampaignRank[] {
-  const acc = new Map<string, { goalMet: number; spend: number }>();
+  // goalMet is DISTINCT leads per campaign — a business that converted counts
+  // once for its campaign, even with multiple goal-met calls. A business that
+  // hit its goal under two campaigns is credited to EACH (once), so the per-
+  // campaign rows can sum higher than the global distinct-business total.
+  const acc = new Map<string, { goalLeads: Set<string>; spend: number }>();
   for (const r of rows) {
-    const v = acc.get(r.campaign_id) ?? { goalMet: 0, spend: 0 };
-    if (r.goal_met) v.goalMet += 1;
+    const v = acc.get(r.campaign_id) ?? { goalLeads: new Set(), spend: 0 };
+    if (r.goal_met) v.goalLeads.add(r.lead_id);
     v.spend += pickCostTotal(r.cost_breakdown);
     acc.set(r.campaign_id, v);
   }
   return [...acc.entries()]
-    .map(([campaignId, v]) => ({
-      campaignId,
-      campaignName: names.get(campaignId) ?? "—",
-      goalMet: v.goalMet,
-      spend: v.spend,
-      costPerGoalMet: v.goalMet === 0 ? 0 : v.spend / v.goalMet,
-    }))
+    .map(([campaignId, v]) => {
+      const goalMet = v.goalLeads.size;
+      return {
+        campaignId,
+        campaignName: names.get(campaignId) ?? "—",
+        goalMet,
+        spend: v.spend,
+        costPerGoalMet: goalMet === 0 ? 0 : v.spend / goalMet,
+      };
+    })
     .sort((a, b) => b.goalMet - a.goalMet);
 }
 

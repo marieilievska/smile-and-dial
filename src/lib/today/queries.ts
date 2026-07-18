@@ -90,25 +90,27 @@ export async function fetchHeroCounts(
   const [rowsToday, rowsYest, { data: callbacks }] = await Promise.all([
     fetchAllCalls<{
       id: string;
+      lead_id: string;
       outcome: string | null;
       goal_met: boolean | null;
       cost_breakdown: unknown;
     }>((from, to) =>
       supabase
         .from("calls")
-        .select("id, outcome, goal_met, cost_breakdown")
+        .select("id, lead_id, outcome, goal_met, cost_breakdown")
         .gte("created_at", start.toISOString())
         .order("created_at", { ascending: true })
         .range(from, to),
     ),
     fetchAllCalls<{
       id: string;
+      lead_id: string;
       outcome: string | null;
       goal_met: boolean | null;
     }>((from, to) =>
       supabase
         .from("calls")
-        .select("id, outcome, goal_met")
+        .select("id, lead_id, outcome, goal_met")
         .gte("created_at", yWindow.from)
         .lte("created_at", yWindow.to)
         .order("created_at", { ascending: true })
@@ -117,8 +119,13 @@ export async function fetchHeroCounts(
     callbacksQuery,
   ]);
 
-  const apptsToday = rowsToday.filter((r) => r.goal_met).length;
-  const apptsYest = rowsYest.filter((r) => r.goal_met).length;
+  // Appointments = DISTINCT businesses that met the goal, not goal-met calls, so
+  // a lead with two goal-met calls (or two leads merged into one) counts once.
+  const distinctGoalLeads = (
+    rows: { lead_id: string; goal_met: boolean | null }[],
+  ) => new Set(rows.filter((r) => r.goal_met).map((r) => r.lead_id)).size;
+  const apptsToday = distinctGoalLeads(rowsToday);
+  const apptsYest = distinctGoalLeads(rowsYest);
 
   const connectedToday = rowsToday.filter(
     (r) => r.outcome && CONNECTED_OUTCOMES.has(r.outcome),
