@@ -18,7 +18,11 @@ import {
   setCloseLeadCustomFields,
 } from "./api";
 import { deliverEmailViaClose } from "./send-email";
-import { buildHandoffNote, buildHandoffTaskText } from "./handoff";
+import {
+  buildHandoffNote,
+  buildHandoffTaskText,
+  pickKeyAnswers,
+} from "./handoff";
 import { renderTemplate, type TemplateContext } from "./templates";
 
 function makeServiceClient() {
@@ -295,7 +299,7 @@ export async function handoffLeadToClose(
   const { data: callRows } = await admin
     .from("calls")
     .select(
-      "id, summary, extracted_data, started_at, outcome, " +
+      "id, campaign_id, summary, extracted_data, started_at, outcome, " +
         "elevenlabs_conversation_id, agent:agents(elevenlabs_agent_id), " +
         "campaign:campaigns(name)",
     )
@@ -304,6 +308,7 @@ export async function handoffLeadToClose(
     .limit(20);
   const calls = (callRows ?? []) as unknown as {
     id: string;
+    campaign_id: string | null;
     summary: string | null;
     extracted_data: Record<string, unknown> | null;
     started_at: string | null;
@@ -372,15 +377,37 @@ export async function handoffLeadToClose(
     )
     .map((f) => ({ label: f.label, value: f.value }));
 
-  const extracted = primary?.extracted_data ?? {};
-  const leadResponseTime =
-    typeof extracted.lead_response_time === "string"
-      ? extracted.lead_response_time
-      : null;
-  const decisionMakerReached =
-    typeof extracted.decision_maker_reached === "string"
-      ? extracted.decision_maker_reached
-      : null;
+  // Key answers are drawn from ALL of the lead's calls, not just the newest one
+  // that carries extracted data. A short follow-up call's extraction can be
+  // noisy (e.g. it reports the decision-maker as NOT reached because it only got
+  // a gatekeeper), which previously overwrote an earlier call that did reach the
+  // owner. pickKeyAnswers takes the truthful signal across calls.
+  const { decisionMakerReached, leadResponseTime } = pickKeyAnswers(
+    calls.map((c) => ({ extractedData: c.extracted_data })),
+  );
+
+  // Rolling per-campaign summary — the richest "what the lead said / is
+  // interested in" digest we have (facts-only, cross-call). Prefer the summary
+  // for the packaged call's campaign; else the most recently updated one. Strip
+  // the trailing "Already answered — don't re-ask…" list, which is guidance for
+  // the next AI caller, not for the closer.
+  const primaryCampaignId = primary?.campaign_id ?? null;
+  const { data: summaryRows } = await admin
+    .from("lead_campaign_summaries")
+    .select("campaign_id, ai_summary, updated_at")
+    .eq("lead_id", leadId)
+    .order("updated_at", { ascending: false });
+  const summaryRow =
+    (primaryCampaignId
+      ? (summaryRows ?? []).find((s) => s.campaign_id === primaryCampaignId)
+      : undefined) ??
+    (summaryRows ?? [])[0] ??
+    null;
+  const rawSummary =
+    typeof summaryRow?.ai_summary === "string" ? summaryRow.ai_summary : null;
+  const contextSummary = rawSummary
+    ? rawSummary.split(/\bAlready answered\b/)[0].trim() || null
+    : null;
 
   // Build per-call history (oldest→newest; DB query was desc, so reverse).
   const callHistory = [...calls].reverse().map((c) => {
@@ -417,6 +444,7 @@ export async function handoffLeadToClose(
         // link, so the note shows the time only.
         { scheduledAt: appt.scheduled_at, eventLink: null }
       : null,
+    contextSummary,
     customFields,
   });
 

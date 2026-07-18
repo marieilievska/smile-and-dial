@@ -7,6 +7,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   buildHandoffNote,
   buildHandoffTaskText,
+  pickKeyAnswers,
 } from "../src/lib/close/handoff";
 
 test.describe("buildHandoffNote", () => {
@@ -40,6 +41,8 @@ test.describe("buildHandoffNote", () => {
       leadResponseTime: "within a couple hours",
       decisionMakerReached: "unknown",
       appointment: { scheduledAt: "2026-06-30T19:00:00.000Z", eventLink: null }, // 3 PM ET
+      contextSummary:
+        "Reached Jessica, the GM. She's interested in the AI intake tool and asked about pricing.",
       customFields: [{ label: "Current ai tools", value: "None" }],
     });
 
@@ -55,6 +58,10 @@ test.describe("buildHandoffNote", () => {
     // Lead response time appears exactly once (the caller dedups custom fields).
     expect(note.match(/Lead response time/g)?.length).toBe(1);
     expect(note).toContain("Current ai tools: None");
+    // The rolling summary renders under its own heading, above the raw history.
+    expect(note).toContain("SUMMARY:");
+    expect(note).toContain("interested in the AI intake tool");
+    expect(note.indexOf("SUMMARY:")).toBeLessThan(note.indexOf("CALL HISTORY"));
   });
 
   test("omits sections with no data", () => {
@@ -74,12 +81,14 @@ test.describe("buildHandoffNote", () => {
       leadResponseTime: null,
       decisionMakerReached: null,
       appointment: null,
+      contextSummary: null,
       customFields: [],
     });
     expect(note).toContain("COMPANY: Solo Co");
     expect(note).not.toContain("CALL HISTORY");
     expect(note).not.toContain("BOOKED APPOINTMENT");
     expect(note).not.toContain("KEY ANSWERS");
+    expect(note).not.toContain("SUMMARY:");
   });
 
   test("a malformed timezone does not throw (falls back)", () => {
@@ -103,9 +112,54 @@ test.describe("buildHandoffNote", () => {
           scheduledAt: "2026-07-01T16:30:00.000Z",
           eventLink: null,
         },
+        contextSummary: null,
         customFields: [],
       }),
     ).not.toThrow();
+  });
+});
+
+test.describe("pickKeyAnswers", () => {
+  test("a 'reached = yes' on any call wins over a newer noisy 'no'", () => {
+    // Body Magic Co.: the newest call was a short follow-up whose extraction
+    // wrongly said the decision-maker was NOT reached; the real appointment call
+    // (earlier) reached the owner. Calls are passed newest-first.
+    const answers = pickKeyAnswers([
+      {
+        extractedData: {
+          decision_maker_reached: "no",
+          lead_response_time: null,
+        },
+      },
+      {
+        extractedData: {
+          decision_maker_reached: "yes",
+          lead_response_time: "An hour or two at most, usually quicker.",
+        },
+      },
+    ]);
+    expect(answers.decisionMakerReached).toBe("yes");
+    expect(answers.leadResponseTime).toBe(
+      "An hour or two at most, usually quicker.",
+    );
+  });
+
+  test("free-text answers use the most recent non-empty call", () => {
+    const answers = pickKeyAnswers([
+      { extractedData: { lead_response_time: "  " } }, // newest, blank
+      { extractedData: { lead_response_time: "same day" } },
+      { extractedData: { lead_response_time: "next week" } },
+    ]);
+    expect(answers.leadResponseTime).toBe("same day");
+  });
+
+  test("returns nulls when no call carries the answers", () => {
+    const answers = pickKeyAnswers([
+      { extractedData: null },
+      { extractedData: {} },
+    ]);
+    expect(answers.decisionMakerReached).toBeNull();
+    expect(answers.leadResponseTime).toBeNull();
   });
 });
 

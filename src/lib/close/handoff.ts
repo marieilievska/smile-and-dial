@@ -25,8 +25,45 @@ export type HandoffNoteInput = {
   leadResponseTime: string | null;
   decisionMakerReached: string | null;
   appointment: { scheduledAt: string | null; eventLink: string | null } | null;
+  /** The rolling, cross-call digest of what the lead actually said / wants (from
+   *  lead_campaign_summaries.ai_summary), already trimmed of any AI-facing tail.
+   *  Null when we have no summary. This is the closer's main context. */
+  contextSummary: string | null;
   customFields: { label: string; value: string }[];
 };
+
+export type CallKeyAnswerSource = {
+  extractedData: Record<string, unknown> | null;
+};
+
+/**
+ * Choose the handoff note's KEY ANSWERS from ALL of a lead's calls (passed
+ * NEWEST-FIRST), rather than trusting the single newest call that happens to
+ * carry extracted data. A short follow-up call's extraction is often noisy —
+ * e.g. it reports `decision_maker_reached: "no"` because that call only reached
+ * a gatekeeper — and previously that overwrote an earlier call that DID reach
+ * the owner, so the note told the closer the decision-maker wasn't reached when
+ * they were. Rules: a "reached = yes" on ANY call wins (you don't un-reach a
+ * decision-maker on a later call); each free-text answer is the most recent
+ * non-empty value.
+ */
+export function pickKeyAnswers(callsNewestFirst: CallKeyAnswerSource[]): {
+  decisionMakerReached: string | null;
+  leadResponseTime: string | null;
+} {
+  const values = (key: string): string[] =>
+    callsNewestFirst
+      .map((c) => {
+        const v = c.extractedData?.[key];
+        return typeof v === "string" ? v.trim() : "";
+      })
+      .filter((v) => v.length > 0);
+  const dm = values("decision_maker_reached");
+  const decisionMakerReached =
+    dm.find((v) => /^(yes|y|true|reached)\b/i.test(v)) ?? dm[0] ?? null;
+  const lrt = values("lead_response_time");
+  return { decisionMakerReached, leadResponseTime: lrt[0] ?? null };
+}
 
 function fmtInZone(iso: string, tz: string | null): string {
   const d = new Date(iso);
@@ -87,6 +124,7 @@ export function buildHandoffNote(input: HandoffNoteInput): string {
     leadResponseTime,
     decisionMakerReached,
     appointment,
+    contextSummary,
     customFields,
   } = input;
   const lines: string[] = ["Handed off from Smile & Dial.", ""];
@@ -116,6 +154,12 @@ export function buildHandoffNote(input: HandoffNoteInput): string {
       ? `   [Calendly: ${appointment.eventLink}]`
       : "";
     lines.push("", `BOOKED APPOINTMENT: ${when} (${tz})${link}`);
+  }
+
+  // The rolling digest of what the lead said / is interested in — the context a
+  // closer needs to pick up the deal. Sits above the raw per-call history.
+  if (contextSummary && contextSummary.trim()) {
+    lines.push("", "SUMMARY:", contextSummary.trim());
   }
 
   // CALL HISTORY — one entry per call (the caller passes them oldest→newest).
