@@ -29,6 +29,7 @@ import { CampaignRowActions } from "./campaign-row-actions";
 import {
   CampaignSettingsDialog,
   type CampaignData,
+  type PoolNumber,
 } from "./campaign-settings-dialog";
 import { CampaignViewToggle } from "./campaign-view-toggle";
 import {
@@ -101,7 +102,9 @@ export default async function CampaignsPage({
     supabase.from("goals").select("id, name").order("name"),
     supabase
       .from("twilio_numbers")
-      .select("id, phone_number, friendly_name, attached_campaign_id")
+      .select(
+        "id, phone_number, friendly_name, attached_campaign_id, area_code, pool_status, rested_until, flagged_for_rotation",
+      )
       .is("released_at", null)
       .order("phone_number"),
     supabase.from("knowledge_bases").select("id, name"),
@@ -211,24 +214,23 @@ export default async function CampaignsPage({
   }
 
   const allNumbers = rawNumbers ?? [];
-  const unattachedNumbers = allNumbers.filter((n) => !n.attached_campaign_id);
-  function numbersForCampaign(twilioNumberId: string | null) {
-    const list = unattachedNumbers.map((n) => ({
+
+  // A campaign's number pool = the twilio_numbers rows currently attached
+  // to it. Attachment is managed exclusively on the Twilio numbers page now
+  // — this is a read-only view for the settings dialog.
+  const poolByCampaign = new Map<string, PoolNumber[]>();
+  for (const n of allNumbers) {
+    if (!n.attached_campaign_id) continue;
+    const arr = poolByCampaign.get(n.attached_campaign_id) ?? [];
+    arr.push({
       id: n.id,
       phone_number: n.phone_number,
-      friendly_name: n.friendly_name,
-    }));
-    if (twilioNumberId) {
-      const current = allNumbers.find((n) => n.id === twilioNumberId);
-      if (current && !list.find((n) => n.id === current.id)) {
-        list.push({
-          id: current.id,
-          phone_number: current.phone_number,
-          friendly_name: current.friendly_name,
-        });
-      }
-    }
-    return list;
+      area_code: n.area_code,
+      pool_status: n.pool_status,
+      rested_until: n.rested_until,
+      flagged_for_rotation: n.flagged_for_rotation,
+    });
+    poolByCampaign.set(n.attached_campaign_id, arr);
   }
 
   // Look up phone number per campaign via the rawNumbers query.
@@ -329,6 +331,7 @@ export default async function CampaignsPage({
       inbound_greeting: campaign.inbound_greeting,
     };
     const today = perCampaignSpend.get(campaign.id);
+    const pool = poolByCampaign.get(campaign.id) ?? [];
     return {
       data,
       status: campaign.status,
@@ -350,7 +353,8 @@ export default async function CampaignsPage({
       autopilotEnabled: campaign.autopilot_enabled,
       callingHoursStart: campaign.calling_hours_start,
       callingHoursEnd: campaign.calling_hours_end,
-      twilioNumbers: numbersForCampaign(campaign.twilio_number_id),
+      poolNumbers: pool,
+      poolCount: pool.length,
       eligibleLists: eligibleListsFor(campaign.id),
       currentListIds: campaignToListIds.get(campaign.id) ?? [],
     };
@@ -364,7 +368,7 @@ export default async function CampaignsPage({
             Campaigns
           </h1>
           <p className="text-muted-foreground text-sm">
-            Each campaign ties leads to an agent, a goal, a Twilio number, and
+            Each campaign ties leads to an agent, a goal, a pool of numbers, and
             calling caps. Pause anytime; ended is permanent.
           </p>
         </div>
@@ -372,7 +376,7 @@ export default async function CampaignsPage({
           mode="create"
           agents={agentOptions}
           goals={goalOptions}
-          twilioNumbers={numbersForCampaign(null)}
+          poolNumbers={[]}
           kbsByAgent={kbsByAgent}
           eligibleLists={eligibleListsFor(null)}
           currentListIds={[]}
@@ -450,7 +454,7 @@ export default async function CampaignsPage({
                             campaign={c.data}
                             agents={agentOptions}
                             goals={goalOptions}
-                            twilioNumbers={c.twilioNumbers}
+                            poolNumbers={c.poolNumbers}
                             kbsByAgent={kbsByAgent}
                             eligibleLists={c.eligibleLists}
                             currentListIds={c.currentListIds}
@@ -459,14 +463,14 @@ export default async function CampaignsPage({
                             emailTemplates={emailTemplateOptions}
                             smsTemplates={smsTemplateOptions}
                           />
-                          {c.twilioPhone || c.description ? (
+                          {c.poolCount > 0 || c.description ? (
                             <span className="text-muted-foreground truncate text-[11px]">
-                              {c.twilioPhone ? (
-                                <span className="font-mono">
-                                  {c.twilioPhone}
-                                </span>
-                              ) : null}
-                              {c.twilioPhone && c.description ? " · " : ""}
+                              {c.poolCount > 0
+                                ? `${c.poolCount} number${
+                                    c.poolCount === 1 ? "" : "s"
+                                  }`
+                                : null}
+                              {c.poolCount > 0 && c.description ? " · " : ""}
                               {c.description ?? ""}
                             </span>
                           ) : null}

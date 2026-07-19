@@ -14,7 +14,7 @@ import {
 } from "./campaign-cells";
 import { CampaignNameTrigger } from "./campaign-name-trigger";
 import { CampaignRowActions } from "./campaign-row-actions";
-import type { CampaignData, TwilioOption } from "./campaign-settings-dialog";
+import type { CampaignData, PoolNumber } from "./campaign-settings-dialog";
 import { DeleteCampaignDialog } from "./delete-campaign-dialog";
 
 type Option = { id: string; name: string };
@@ -38,7 +38,8 @@ export type CampaignCardItem = {
   autopilotEnabled: boolean;
   callingHoursStart: string | null;
   callingHoursEnd: string | null;
-  twilioNumbers: TwilioOption[];
+  poolNumbers: PoolNumber[];
+  poolCount: number;
   eligibleLists: Option[];
   currentListIds: string[];
 };
@@ -107,7 +108,7 @@ export function CampaignBoard({
                 campaign={c.data}
                 agents={agents}
                 goals={goals}
-                twilioNumbers={c.twilioNumbers}
+                poolNumbers={c.poolNumbers}
                 kbsByAgent={kbsByAgent}
                 eligibleLists={c.eligibleLists}
                 currentListIds={c.currentListIds}
