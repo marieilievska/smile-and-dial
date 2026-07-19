@@ -1,7 +1,14 @@
 -- Number pool: gate the auto-dial queue on the campaign having >=1 usable POOL
--- number, and stop projecting a single number (the specific number is now chosen
--- at placement by selectPoolNumber). Re-creates dial_queue from
--- 20260611090000_dial_queue_callback_priority.sql with those two changes.
+-- number (the specific number is chosen at placement by selectPoolNumber).
+-- Re-creates dial_queue from 20260611090000_dial_queue_callback_priority.sql,
+-- changing ONLY the number filter (single-number -> pool-existence).
+--
+-- We deliberately KEEP c.twilio_number_id in the projection for now: the
+-- currently-deployed dialer still selects it, so dropping it here would break
+-- live dialing during the deploy window. The new code simply ignores it. A later
+-- phase can drop the column once every deploy reads from the pool. (See
+-- feedback_migration_sequencing: never drop a projected column before the code
+-- that stopped reading it has shipped.)
 
 create or replace view public.dial_queue
 with (security_invoker = true)
@@ -14,6 +21,7 @@ select
   l.next_call_at,
   c.id as campaign_id,
   c.agent_id,
+  c.twilio_number_id,
   c.calling_hours_start,
   c.calling_hours_end,
   c.calls_per_hour_cap,
