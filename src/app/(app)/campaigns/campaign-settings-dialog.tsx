@@ -15,6 +15,7 @@ import { useEffect, useState, useTransition } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,15 +44,21 @@ import {
   countSmartListMatches,
 } from "@/lib/campaigns/audience-actions";
 import { setCampaignLists } from "@/lib/campaigns/list-attachments-actions";
+import { stateForAreaCode } from "@/lib/dialer/nanp-states";
 
 import { TestCallTab } from "./test-call-tab";
 
 type Option = { id: string; name: string };
 
-export type TwilioOption = {
+/** A number pool row for this campaign — read-only here. Attachment /
+ *  detachment now happens exclusively on the Twilio numbers page. */
+export type PoolNumber = {
   id: string;
   phone_number: string;
-  friendly_name: string | null;
+  area_code: string | null;
+  pool_status: string;
+  rested_until: string | null;
+  flagged_for_rotation: boolean;
 };
 
 export type CampaignData = {
@@ -114,7 +121,7 @@ export function CampaignSettingsDialog({
   campaign,
   agents,
   goals,
-  twilioNumbers,
+  poolNumbers,
   kbsByAgent,
   eligibleLists,
   currentListIds,
@@ -128,7 +135,10 @@ export function CampaignSettingsDialog({
   campaign?: CampaignData;
   agents: Option[];
   goals: Option[];
-  twilioNumbers: TwilioOption[];
+  /** This campaign's number pool — the `twilio_numbers` rows currently
+   *  attached to it. Read-only here; attach/detach on Settings → Twilio
+   *  numbers. */
+  poolNumbers: PoolNumber[];
   kbsByAgent: Record<string, Option[]>;
   eligibleLists: Option[];
   currentListIds: string[];
@@ -157,9 +167,12 @@ export function CampaignSettingsDialog({
     campaign?.agent_id ?? agents[0]?.id ?? "",
   );
   const [goalId, setGoalId] = useState(campaign?.goal_id ?? goals[0]?.id ?? "");
-  const [twilioNumberId, setTwilioNumberId] = useState(
-    campaign?.twilio_number_id ?? NO_NUMBER,
-  );
+  // Frozen: the single-number picker is gone (replaced by the read-only
+  // pool view below), so this value can never change post-mount. No
+  // setter — keeping it as state (not a plain const) so its initial
+  // value still comes from `campaign` exactly as before. Still sent
+  // unchanged in submit()'s payload; see the CRITICAL SAFETY note there.
+  const [twilioNumberId] = useState(campaign?.twilio_number_id ?? NO_NUMBER);
   const [callingHoursStart, setCallingHoursStart] = useState(
     timeForInput(campaign?.calling_hours_start ?? "09:00"),
   );
@@ -218,10 +231,6 @@ export function CampaignSettingsDialog({
   );
   const [smartListCount, setSmartListCount] = useState<number | null>(null);
 
-  // Numbers eligible for THIS campaign: include this campaign's current
-  // number even if it's flagged as attached.
-  const eligibleNumbers = twilioNumbers;
-
   const agentKbs = kbsByAgent[agentId] ?? [];
 
   // Collapsed-section summary lines, recomputed from live state so the header
@@ -231,11 +240,10 @@ export function CampaignSettingsDialog({
   )} · ${callsPerHourCap}/hr · ${callsPerDayCap}/day · Autopilot ${
     autopilotEnabled ? "on" : "off"
   }`;
-  const selectedNumber = eligibleNumbers.find((n) => n.id === twilioNumberId);
   const numberSummary =
-    twilioNumberId === NO_NUMBER || !selectedNumber
-      ? "No number"
-      : selectedNumber.friendly_name || selectedNumber.phone_number;
+    poolNumbers.length === 0
+      ? "No numbers"
+      : `${poolNumbers.length} number${poolNumbers.length === 1 ? "" : "s"}`;
   const bookingSummary = `${
     calendlyEventId === NO_EVENT ? "No meeting" : "Books meeting"
   } · ${emailTemplateId === NO_TEMPLATE ? "No email" : "Sends email"}`;
@@ -342,7 +350,6 @@ export function CampaignSettingsDialog({
       if (!isEdit) {
         setName("");
         setDescription("");
-        setTwilioNumberId(NO_NUMBER);
         setTransferDestinationPhone("");
         setDailySpendCap("");
         setMonthlySpendCap("");
@@ -764,37 +771,57 @@ export function CampaignSettingsDialog({
           </CampaignSection>
 
           <CampaignSection
-            title="Number & transfer"
+            title="Numbers & transfer"
             icon={<PhoneCall className="size-4" />}
             summary={numberSummary}
           >
             <div className="flex flex-col gap-2">
-              <Label htmlFor="campaign-twilio">Twilio number</Label>
-              {eligibleNumbers.length > 0 ? (
-                <Select
-                  value={twilioNumberId}
-                  onValueChange={setTwilioNumberId}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-foreground text-sm font-semibold">
+                  Number pool{" "}
+                  <span className="text-muted-foreground font-normal">
+                    ({poolNumbers.length})
+                  </span>
+                </span>
+                <a
+                  href="/settings/twilio-numbers"
+                  className="text-primary text-xs font-medium hover:underline"
                 >
-                  <SelectTrigger id="campaign-twilio">
-                    <SelectValue placeholder="Choose a number" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_NUMBER}>
-                      No number attached
-                    </SelectItem>
-                    {eligibleNumbers.map((number) => (
-                      <SelectItem key={number.id} value={number.id}>
-                        {number.friendly_name || number.phone_number}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
+                  Manage numbers →
+                </a>
+              </div>
+              {poolNumbers.length === 0 ? (
                 <p className="text-muted-foreground text-sm">
-                  No numbers available. An admin can buy or release one on
-                  Settings → Twilio numbers.
+                  No numbers in this campaign&apos;s pool yet. Buy local numbers
+                  into it from Settings → Twilio numbers.
                 </p>
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {poolNumbers.map((number) => (
+                    <li
+                      key={number.id}
+                      className="border-border flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
+                    >
+                      <span className="text-foreground truncate">
+                        {number.area_code
+                          ? `${number.area_code} · ${
+                              stateForAreaCode(number.area_code) ?? "—"
+                            }`
+                          : "—"}{" "}
+                        <span className="text-muted-foreground">
+                          {number.phone_number}
+                        </span>
+                      </span>
+                      {poolNumberBadge(number)}
+                    </li>
+                  ))}
+                </ul>
               )}
+              <p className="text-muted-foreground text-xs">
+                These are the numbers this campaign dials from — local presence
+                first, then same state. Add or manage them on the Twilio numbers
+                page.
+              </p>
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-transfer">
@@ -1029,5 +1056,30 @@ function CampaignSection({
         {children}
       </div>
     </details>
+  );
+}
+
+/** Small status pill for a pool number, shown in the read-only pool list.
+ *  Simplified sibling of the Twilio numbers page's `poolStateBadge` — no
+ *  warm-up state here, this view is about "is this number in rotation?"
+ *  Checked in priority order: retired > flagged > rested > active. */
+function poolNumberBadge(number: {
+  pool_status: string;
+  flagged_for_rotation: boolean;
+  rested_until: string | null;
+}): React.ReactNode {
+  if (number.pool_status === "retired") {
+    return <Badge variant="ghost">Retired</Badge>;
+  }
+  if (number.flagged_for_rotation) {
+    return <Badge variant="warning">Flagged</Badge>;
+  }
+  if (number.rested_until && new Date(number.rested_until) > new Date()) {
+    return <Badge variant="secondary">Rested</Badge>;
+  }
+  return (
+    <Badge variant="success" dot>
+      Active
+    </Badge>
   );
 }

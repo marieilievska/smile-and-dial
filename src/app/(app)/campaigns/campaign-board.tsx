@@ -1,7 +1,5 @@
 import { Phone } from "lucide-react";
 
-import { formatPhone } from "@/lib/format-phone";
-
 import {
   attentionRail,
   CampaignStatusBadge,
@@ -14,7 +12,7 @@ import {
 } from "./campaign-cells";
 import { CampaignNameTrigger } from "./campaign-name-trigger";
 import { CampaignRowActions } from "./campaign-row-actions";
-import type { CampaignData, TwilioOption } from "./campaign-settings-dialog";
+import type { CampaignData, PoolNumber } from "./campaign-settings-dialog";
 import { DeleteCampaignDialog } from "./delete-campaign-dialog";
 
 type Option = { id: string; name: string };
@@ -27,7 +25,6 @@ export type CampaignCardItem = {
   status: string;
   agentName: string;
   goalName: string;
-  twilioPhone: string | null;
   description: string | null;
   listCount: number;
   callsToday: number;
@@ -38,7 +35,8 @@ export type CampaignCardItem = {
   autopilotEnabled: boolean;
   callingHoursStart: string | null;
   callingHoursEnd: string | null;
-  twilioNumbers: TwilioOption[];
+  poolNumbers: PoolNumber[];
+  poolCount: number;
   eligibleLists: Option[];
   currentListIds: string[];
 };
@@ -107,7 +105,7 @@ export function CampaignBoard({
                 campaign={c.data}
                 agents={agents}
                 goals={goals}
-                twilioNumbers={c.twilioNumbers}
+                poolNumbers={c.poolNumbers}
                 kbsByAgent={kbsByAgent}
                 eligibleLists={c.eligibleLists}
                 currentListIds={c.currentListIds}
@@ -116,14 +114,12 @@ export function CampaignBoard({
                 emailTemplates={emailTemplates}
                 smsTemplates={smsTemplates}
               />
-              {c.twilioPhone || c.description ? (
+              {c.poolCount > 0 || c.description ? (
                 <span className="text-muted-foreground truncate text-[11px]">
-                  {c.twilioPhone ? (
-                    <span className="font-mono">
-                      {formatPhone(c.twilioPhone)}
-                    </span>
-                  ) : null}
-                  {c.twilioPhone && c.description ? " · " : ""}
+                  {c.poolCount > 0
+                    ? `${c.poolCount} number${c.poolCount === 1 ? "" : "s"}`
+                    : null}
+                  {c.poolCount > 0 && c.description ? " · " : ""}
                   {c.description ?? ""}
                 </span>
               ) : null}

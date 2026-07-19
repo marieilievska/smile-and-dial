@@ -1,7 +1,7 @@
 "use client";
 
 import { CampaignSettingsDialog } from "./campaign-settings-dialog";
-import type { CampaignData, TwilioOption } from "./campaign-settings-dialog";
+import type { CampaignData, PoolNumber } from "./campaign-settings-dialog";
 
 type Option = { id: string; name: string };
 
@@ -18,7 +18,7 @@ export function CampaignNameTrigger({
   campaign,
   agents,
   goals,
-  twilioNumbers,
+  poolNumbers,
   kbsByAgent,
   eligibleLists,
   currentListIds,
@@ -31,7 +31,7 @@ export function CampaignNameTrigger({
   campaign: CampaignData;
   agents: Option[];
   goals: Option[];
-  twilioNumbers: TwilioOption[];
+  poolNumbers: PoolNumber[];
   kbsByAgent: Record<string, Option[]>;
   eligibleLists: Option[];
   currentListIds: string[];
@@ -46,7 +46,7 @@ export function CampaignNameTrigger({
       campaign={campaign}
       agents={agents}
       goals={goals}
-      twilioNumbers={twilioNumbers}
+      poolNumbers={poolNumbers}
       kbsByAgent={kbsByAgent}
       eligibleLists={eligibleLists}
       currentListIds={currentListIds}
