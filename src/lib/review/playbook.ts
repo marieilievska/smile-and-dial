@@ -206,6 +206,7 @@ export async function resolveAgentPrompt(
 export async function resolveAgentPlaybook(
   admin: Admin,
   agentId: string | null,
+  opts: { force?: boolean } = {},
 ): Promise<{ playbook: AgentPlaybook | null; cost: number }> {
   const prompt = await resolveAgentPrompt(admin, agentId);
   if (!prompt || !agentId) return { playbook: null, cost: 0 };
@@ -219,6 +220,7 @@ export async function resolveAgentPlaybook(
 
   const cached = agent?.review_playbook as PlaybookStep[] | null | undefined;
   if (
+    !opts.force &&
     agent?.review_playbook_hash === hash &&
     Array.isArray(cached) &&
     cached.length

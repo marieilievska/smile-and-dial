@@ -7,6 +7,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import { chunk } from "./chunk";
+import { resolveAgentPlaybook } from "./playbook";
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient<Database>>;
 
@@ -290,4 +291,35 @@ export async function updateFlagDef(input: {
   if (error) return { error: "Could not save the flag." };
   revalidatePath("/reporting");
   return { error: null };
+}
+
+/**
+ * Re-sync one agent's review checklist from its live system prompt. Admin-only.
+ *
+ * The worker already refetches the prompt on every review, so this exists for
+ * the two cases that doesn't cover: seeing the effect of a prompt edit straight
+ * away instead of waiting for the next call, and re-deriving when the checklist
+ * itself looks wrong (`force`), which the hash check would otherwise skip.
+ */
+export async function refreshAgentPlaybook(input: {
+  agentId: string;
+  force?: boolean;
+}): Promise<{ error: string | null; steps: number }> {
+  if (!(await currentAdminId())) return { error: "Admins only.", steps: 0 };
+  const { playbook } = await resolveAgentPlaybook(
+    adminClient(),
+    input.agentId,
+    {
+      force: input.force === true,
+    },
+  );
+  revalidatePath("/reporting");
+  if (!playbook) {
+    return {
+      error:
+        "Couldn't read that agent's prompt from ElevenLabs. Check the agent is still connected.",
+      steps: 0,
+    };
+  }
+  return { error: null, steps: playbook.steps.length };
 }
