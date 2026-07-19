@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  ArrowRightLeft,
   Ban,
+  Check,
   Flag,
   Loader2,
   MoreVertical,
@@ -17,10 +19,15 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   activatePoolNumber,
+  movePoolNumberToCampaign,
   retirePoolNumber,
   setPoolNumberFlag,
   setPoolNumberRest,
@@ -34,13 +41,17 @@ import {
  *  since it pulls the number out of dial selection. */
 export function PoolActionsMenu({
   number,
+  campaigns,
 }: {
   number: {
     id: string;
     pool_status: string;
     flagged_for_rotation: boolean;
     rested_until: string | null;
+    attached_campaign_id: string | null;
   };
+  /** Every campaign, so the number can be moved to any of them. */
+  campaigns: { id: string; name: string }[];
 }) {
   const [pending, startTransition] = useTransition();
   const isResting = Boolean(
@@ -145,6 +156,45 @@ export function PoolActionsMenu({
             <Ban /> Retire from pool
           </DropdownMenuItem>
         )}
+        {campaigns.some((c) => c.id !== number.attached_campaign_id) ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={pending}>
+                <ArrowRightLeft /> Move to campaign
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {campaigns.map((c) => {
+                  const current = c.id === number.attached_campaign_id;
+                  return (
+                    <DropdownMenuItem
+                      key={c.id}
+                      disabled={pending || current}
+                      onSelect={() =>
+                        run(
+                          () => movePoolNumberToCampaign(number.id, c.id),
+                          `Moved to ${c.name}.`,
+                        )
+                      }
+                    >
+                      {current ? (
+                        <Check />
+                      ) : (
+                        <span className="size-4" aria-hidden />
+                      )}
+                      {c.name}
+                      {current ? (
+                        <span className="text-muted-foreground ml-auto text-xs">
+                          current
+                        </span>
+                      ) : null}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

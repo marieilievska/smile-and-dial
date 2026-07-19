@@ -227,6 +227,73 @@ export async function setPoolNumberRest(
   return { error: null };
 }
 
+/**
+ * Move a pool number from whatever campaign it's on to `campaignId`. Re-stamps
+ * attached_campaign_id and re-points the number's ElevenLabs agent so INBOUND
+ * callbacks reach the destination campaign's agent (OUTBOUND follows on its own —
+ * the from-number is chosen per call by selectPoolNumber). Also severs any legacy
+ * single-number pointer (campaigns.twilio_number_id) to this number so a later
+ * campaign-settings save can't silently re-claim it. Warm-up / health state is
+ * preserved — it's the same physical number. EL side is best-effort; the DB move
+ * never fails on an EL hiccup (the numbers page has repair buttons).
+ */
+export async function movePoolNumberToCampaign(
+  numberId: string,
+  campaignId: string,
+): Promise<ActionResult> {
+  const { supabase, error: adminError } = await requireAdmin();
+  if (adminError) return { error: adminError };
+
+  const { data: number } = await supabase
+    .from("twilio_numbers")
+    .select("id, released_at")
+    .eq("id", numberId)
+    .maybeSingle();
+  if (!number) return { error: "Number not found." };
+  if (number.released_at) {
+    return { error: "This number is released — re-add it before moving." };
+  }
+
+  // Destination campaign + its ElevenLabs agent (for the inbound re-assignment).
+  const { data: campaign } = await supabase
+    .from("campaigns")
+    .select("id, agent:agents(elevenlabs_agent_id)")
+    .eq("id", campaignId)
+    .maybeSingle();
+  if (!campaign) return { error: "Campaign not found." };
+  const agentElId =
+    (campaign.agent as { elevenlabs_agent_id: string | null } | null)
+      ?.elevenlabs_agent_id ?? null;
+
+  const { error: updErr } = await supabase
+    .from("twilio_numbers")
+    .update({ attached_campaign_id: campaignId })
+    .eq("id", numberId);
+  if (updErr) return { error: "Could not move the number." };
+
+  // Sever any legacy single-number pointer so a later campaign-settings save
+  // can't re-claim this number (the field is otherwise unused by the dialer).
+  await supabase
+    .from("campaigns")
+    .update({ twilio_number_id: null })
+    .eq("twilio_number_id", numberId);
+
+  // Re-point INBOUND to the destination campaign's agent. Import is idempotent
+  // (returns the existing EL phone-number id if already imported).
+  const imported = await ensureNumberImportedToElevenLabs(supabase, numberId);
+  if (imported.ok && agentElId) {
+    try {
+      await assignAgentToNumber(imported.phoneNumberId, agentElId);
+    } catch {
+      /* inbound assignment is best-effort */
+    }
+  }
+
+  revalidatePath(NUMBERS_PATH);
+  revalidatePath(CAMPAIGNS_PATH);
+  return { error: null };
+}
+
 /** Suggest how many numbers to buy per area code so a campaign's leads are dialed
  *  locally, based on the campaign's lead geography vs. what its pool already owns.
  *  Read-only. */
