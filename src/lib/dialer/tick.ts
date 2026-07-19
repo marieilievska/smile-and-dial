@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { resolveDueCallbacksForLead } from "@/lib/callbacks/sync-next-call";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
+import { selectPoolNumber } from "@/lib/dialer/number-pool";
 import { finalizeFailedCall } from "@/lib/dialer/retry-engine";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 
@@ -22,9 +23,13 @@ export type TickSummary = {
 };
 
 /** Result of one live placement: a dialed call id, a graceful skip because the
- *  lead already has an in-flight AI outbound call (the calls(lead_id) active-dial
- *  index rejected our insert), or a genuine error (both null/false). */
-type LivePlaceResult = { callId: string | null; inFlight?: boolean };
+ *  lead already has an in-flight AI outbound call, a pool-exhausted skip (no
+ *  usable number right now), or a genuine error (all null/false). */
+type LivePlaceResult = {
+  callId: string | null;
+  inFlight?: boolean;
+  poolExhausted?: boolean;
+};
 
 type MockOutcome = {
   outcome:
@@ -403,6 +408,13 @@ export async function runDialerTick(
         summary.blocked++;
         summary.blockedReasons["already_in_flight"] =
           (summary.blockedReasons["already_in_flight"] ?? 0) + 1;
+      } else if (res.poolExhausted) {
+        // Every pool number for this campaign is capped/rested right now.
+        // Count it as blocked, not an error — the lead retries off its claim
+        // lease and volume self-throttles to what the pool can support.
+        summary.blocked++;
+        summary.blockedReasons["pool_exhausted"] =
+          (summary.blockedReasons["pool_exhausted"] ?? 0) + 1;
       } else {
         summary.errors++;
       }
@@ -436,7 +448,27 @@ async function placeLiveDialerCall(
   },
 ): Promise<LivePlaceResult> {
   if (!c.business_phone) return { callId: null };
-  if (!c.twilio_number_id) return { callId: null };
+
+  // Pick a healthy, under-cap, area-matched number from the campaign's pool.
+  // Null → the whole pool is capped/rested right now: skip WITHOUT inserting a
+  // call; the claim lease (2 min) makes the lead retry, and volume self-throttles
+  // to what the pool can safely support.
+  const picked = await selectPoolNumber(
+    supabase,
+    c.campaign_id,
+    c.business_phone,
+    c.lead_id, // stable spread key
+  );
+  if (!picked) {
+    await supabase.from("system_events").insert({
+      kind: "pool_exhausted",
+      actor_user_id: null,
+      ref_table: "campaigns",
+      ref_id: c.campaign_id,
+      payload: { campaign_id: c.campaign_id, lead_id: c.lead_id },
+    });
+    return { callId: null, poolExhausted: true };
+  }
 
   const { data: pending, error: pendingError } = await supabase
     .from("calls")
@@ -444,7 +476,7 @@ async function placeLiveDialerCall(
       lead_id: c.lead_id,
       campaign_id: c.campaign_id,
       agent_id: c.agent_id,
-      twilio_number_id: c.twilio_number_id,
+      twilio_number_id: picked.numberId,
       direction: "outbound",
       status: "queued",
       outcome: null,
@@ -469,7 +501,7 @@ async function placeLiveDialerCall(
   const result = await resolveAndPlaceAgentCall(supabase, {
     callId: pending.id,
     agentId: c.agent_id,
-    twilioNumberId: c.twilio_number_id,
+    twilioNumberId: picked.numberId,
     toNumber: c.business_phone,
   });
   if (!result.ok) {
