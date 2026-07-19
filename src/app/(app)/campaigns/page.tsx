@@ -233,11 +233,6 @@ export default async function CampaignsPage({
     poolByCampaign.set(n.attached_campaign_id, arr);
   }
 
-  // Look up phone number per campaign via the rawNumbers query.
-  const phoneByNumberId = new Map<string, string>();
-  for (const n of allNumbers) {
-    phoneByNumberId.set(n.id, n.phone_number);
-  }
   const allCampaigns = (rawCampaigns ?? []).map((c) => ({
     id: c.id,
     name: c.name,
@@ -246,9 +241,6 @@ export default async function CampaignsPage({
     agent_id: c.agent_id,
     goal_id: c.goal_id,
     twilio_number_id: c.twilio_number_id,
-    twilio_phone: c.twilio_number_id
-      ? (phoneByNumberId.get(c.twilio_number_id) ?? null)
-      : null,
     calling_hours_start: c.calling_hours_start,
     calling_hours_end: c.calling_hours_end,
     calls_per_hour_cap: c.calls_per_hour_cap,
@@ -337,7 +329,6 @@ export default async function CampaignsPage({
       status: campaign.status,
       agentName: campaign.agent_name,
       goalName: campaign.goal_name,
-      twilioPhone: campaign.twilio_phone,
       description: campaign.description,
       listCount: (campaignToListIds.get(campaign.id) ?? []).length,
       callsToday: today?.callsToday ?? 0,

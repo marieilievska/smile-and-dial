@@ -1,7 +1,5 @@
 import { Phone } from "lucide-react";
 
-import { formatPhone } from "@/lib/format-phone";
-
 import {
   attentionRail,
   CampaignStatusBadge,
@@ -27,7 +25,6 @@ export type CampaignCardItem = {
   status: string;
   agentName: string;
   goalName: string;
-  twilioPhone: string | null;
   description: string | null;
   listCount: number;
   callsToday: number;
@@ -117,14 +114,12 @@ export function CampaignBoard({
                 emailTemplates={emailTemplates}
                 smsTemplates={smsTemplates}
               />
-              {c.twilioPhone || c.description ? (
+              {c.poolCount > 0 || c.description ? (
                 <span className="text-muted-foreground truncate text-[11px]">
-                  {c.twilioPhone ? (
-                    <span className="font-mono">
-                      {formatPhone(c.twilioPhone)}
-                    </span>
-                  ) : null}
-                  {c.twilioPhone && c.description ? " · " : ""}
+                  {c.poolCount > 0
+                    ? `${c.poolCount} number${c.poolCount === 1 ? "" : "s"}`
+                    : null}
+                  {c.poolCount > 0 && c.description ? " · " : ""}
                   {c.description ?? ""}
                 </span>
               ) : null}
