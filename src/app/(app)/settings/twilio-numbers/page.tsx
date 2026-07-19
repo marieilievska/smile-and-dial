@@ -260,12 +260,15 @@ export default async function TwilioNumbersPage({
                         <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                           {!number.released_at ? (
                             <PoolActionsMenu
+                              campaigns={campaigns}
                               number={{
                                 id: number.id,
                                 pool_status: number.pool_status,
                                 flagged_for_rotation:
                                   number.flagged_for_rotation,
                                 rested_until: number.rested_until,
+                                attached_campaign_id:
+                                  number.attached_campaign_id,
                               }}
                             />
                           ) : null}
