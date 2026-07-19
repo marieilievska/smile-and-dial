@@ -117,4 +117,29 @@ describe("pickPoolNumber", () => {
     );
     expect(chosen?.id).toBe("high");
   });
+  it("prefers a same-state number over a less-used out-of-state number when no exact area-code match", () => {
+    // Lead is in 954 (FL). No 954 number is under cap, but a 754 (also FL)
+    // and a 212 (NY) both are. Same-state (754) must win over out-of-state
+    // (212) even though 212 is less-used.
+    const chosen = pickPoolNumber(
+      [
+        cand({ id: "ny", areaCode: "212", calls24h: 0 }),
+        cand({ id: "fl-other", areaCode: "754", calls24h: 30 }),
+      ],
+      "954",
+      "leadA",
+    );
+    expect(chosen?.id).toBe("fl-other");
+  });
+  it("still prefers exact area-code match over a same-state match", () => {
+    const chosen = pickPoolNumber(
+      [
+        cand({ id: "fl-exact", areaCode: "954", calls24h: 30 }),
+        cand({ id: "fl-other", areaCode: "754", calls24h: 0 }),
+      ],
+      "954",
+      "leadA",
+    );
+    expect(chosen?.id).toBe("fl-exact");
+  });
 });

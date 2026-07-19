@@ -2,6 +2,7 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
+import { stateForAreaCode } from "@/lib/dialer/nanp-states";
 
 type Admin = ReturnType<typeof createClient<Database>>;
 
@@ -51,8 +52,11 @@ export type PoolCandidate = {
   connectRate: number | null;
 };
 
-/** Choose the best number to dial from. Exact-area-code matches win; within the
- *  chosen tier, least-used-today, tie-broken by higher connect rate then a stable
+/** Choose the best number to dial from, in three tiers: (A) exact area-code
+ *  match (local presence), (B) same US state as the lead's area code (still
+ *  not a robocall-looking out-of-state number), (C) any under-cap number as
+ *  the final fallback. The first non-empty tier wins. Within the chosen
+ *  tier: least-used-today, tie-broken by higher connect rate then a stable
  *  spread key (so equal numbers share load evenly). Returns null when every
  *  candidate is at/over its cap (pool exhausted). Pure. */
 export function pickPoolNumber(
@@ -62,10 +66,21 @@ export function pickPoolNumber(
 ): PoolCandidate | null {
   const underCap = candidates.filter((c) => c.calls24h < c.effectiveCap);
   if (underCap.length === 0) return null;
-  const local = leadAreaCode
+
+  const leadState = stateForAreaCode(leadAreaCode);
+  const exact = leadAreaCode
     ? underCap.filter((c) => c.areaCode === leadAreaCode)
     : [];
-  const tier = local.length > 0 ? local : underCap;
+  const sameState = leadState
+    ? underCap.filter(
+        (c) =>
+          c.areaCode !== leadAreaCode &&
+          stateForAreaCode(c.areaCode) === leadState,
+      )
+    : [];
+  const tier =
+    exact.length > 0 ? exact : sameState.length > 0 ? sameState : underCap;
+
   const hash = (s: string): number =>
     s.split("").reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
   return [...tier].sort(
