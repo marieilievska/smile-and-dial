@@ -271,9 +271,7 @@ export async function runDialerTick(
   // tick), narrow the queue to just those rows.
   let query = supabase
     .from("dial_queue")
-    .select(
-      "lead_id, owner_id, business_phone, campaign_id, agent_id, twilio_number_id",
-    )
+    .select("lead_id, owner_id, business_phone, campaign_id, agent_id")
     // Scheduled callbacks (dial_priority = 0) jump ahead of cold leads
     // (dial_priority = 1) so an agreed appointment is never buried behind a
     // large import. Within each priority band, soonest-due dials first.
@@ -397,7 +395,7 @@ export async function runDialerTick(
         lead_id: c.lead_id,
         campaign_id: c.campaign_id,
         agent_id: c.agent_id,
-        twilio_number_id: c.twilio_number_id,
+        twilio_number_id: null,
         business_phone: c.business_phone,
       });
       if (res.callId) {
@@ -423,7 +421,7 @@ export async function runDialerTick(
         lead_id: c.lead_id,
         campaign_id: c.campaign_id,
         agent_id: c.agent_id,
-        twilio_number_id: c.twilio_number_id,
+        twilio_number_id: null,
       });
       if (callId) summary.dialed++;
       else summary.errors++;
