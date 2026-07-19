@@ -1,10 +1,12 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
-import { loadActiveFlagDefs } from "./rubric";
+import { defsForAnalysis, loadActiveFlagDefs } from "./rubric";
 import { analyzeCall } from "./analyze";
-import { resolveAgentReviewPrompt } from "./agent-prompt";
+import { resolveAgentPlaybook, type PlaybookStep } from "./playbook";
 import { ensureStandardRubric } from "./rubric-seed";
+import { loadRejectedExamples } from "./rejected";
+import type { RejectedExample } from "./prompts";
 import { PASS1_MODEL, PASS2_MODEL } from "./openai";
 
 type Admin = ReturnType<typeof createClient<Database>>;
@@ -66,18 +68,25 @@ export async function runReviewTick(
   // review_flag_defs while these rows were queued, analyzing against an empty
   // rubric would store zero flags. Cheap no-op when the rubric is present.
   await ensureStandardRubric(db);
-  const defs = await loadActiveFlagDefs(db);
+  const defs = defsForAnalysis(await loadActiveFlagDefs(db));
 
-  // Resolve each agent's playbook once per tick (many calls share an agent).
-  const promptCache = new Map<string, string | null>();
-  async function instructionsFor(
-    agentId: string | null,
-  ): Promise<string | null> {
+  // Resolve each agent's checklist and past false alarms once per tick (many
+  // calls share an agent, and the checklist costs an ElevenLabs fetch).
+  type AgentContext = { steps: PlaybookStep[]; rejected: RejectedExample[] };
+  const contextCache = new Map<string, AgentContext>();
+  let derivationCost = 0;
+  async function contextFor(agentId: string | null): Promise<AgentContext> {
     const keyId = agentId ?? "";
-    if (promptCache.has(keyId)) return promptCache.get(keyId) ?? null;
-    const p = await resolveAgentReviewPrompt(db, agentId);
-    promptCache.set(keyId, p);
-    return p;
+    const hit = contextCache.get(keyId);
+    if (hit) return hit;
+    const [{ playbook, cost }, rejected] = await Promise.all([
+      resolveAgentPlaybook(db, agentId),
+      loadRejectedExamples(db, agentId),
+    ]);
+    derivationCost += cost;
+    const ctx: AgentContext = { steps: playbook?.steps ?? [], rejected };
+    contextCache.set(keyId, ctx);
+    return ctx;
   }
 
   for (const row of pending) {
@@ -104,41 +113,57 @@ export async function runReviewTick(
           .eq("call_id", row.call_id);
         continue;
       }
-      const { flags, cost } = await analyzeCall({
+      const ctx = await contextFor(call?.agent_id ?? null);
+      const { findings, cost: analyzeCost } = await analyzeCall({
         transcript,
         extracted: JSON.stringify(call?.extracted_data ?? {}),
         defs,
-        instructions: await instructionsFor(call?.agent_id ?? null),
+        steps: ctx.steps,
+        rejected: ctx.rejected,
       });
+      // Charge this call for its own analysis plus any checklist derivation
+      // triggered on its behalf; the derivation is banked so the next call in
+      // the tick isn't billed again for the same agent.
+      const cost = analyzeCost + derivationCost;
+      derivationCost = 0;
+      const stepTitle = new Map(ctx.steps.map((s) => [s.key, s.title]));
       // Human decisions are sticky: a re-queued analysis must never overwrite
       // a flag a human already curated ("Looks right" / "False alarm") — else
       // a re-review could resurrect a rejected flag into the prompt-suggestion
       // example pool, or silently drop an approved one. Skip curated rows.
       const { data: curatedRows } = await db
         .from("call_review_flags")
-        .select("flag_key")
+        .select("flag_key, step_key")
         .eq("call_id", row.call_id)
         .not("curated_at", "is", null);
-      const curatedKeys = new Set((curatedRows ?? []).map((r) => r.flag_key));
-      for (const f of flags) {
-        if (curatedKeys.has(f.flag_key)) continue;
+      // Curation is per finding, and a playbook finding is identified by its
+      // step — so rejecting one missed step must not protect the others.
+      const curatedKeys = new Set(
+        (curatedRows ?? []).map((r) => `${r.flag_key}:${r.step_key ?? ""}`),
+      );
+      const isCurated = (f: { flag_key: string; step_key: string | null }) =>
+        curatedKeys.has(`${f.flag_key}:${f.step_key ?? ""}`);
+      for (const f of findings) {
+        if (isCurated(f)) continue;
         await db.from("call_review_flags").upsert(
           {
             call_id: row.call_id,
             flag_key: f.flag_key,
+            step_key: f.step_key ?? "",
+            step_title: f.step_key ? (stepTitle.get(f.step_key) ?? null) : null,
             evidence_quote: f.evidence_quote,
             confidence: f.confidence,
             status: f.status,
           },
-          { onConflict: "call_id,flag_key" },
+          { onConflict: "call_id,flag_key,step_key" },
         );
       }
       await db
         .from("call_reviews")
         .update({
           status: "done",
-          needs_review: flags.some(
-            (f) => !curatedKeys.has(f.flag_key) && f.status === "needs_review",
+          needs_review: findings.some(
+            (f) => !isCurated(f) && f.status === "needs_review",
           ),
           pass1_model: PASS1_MODEL,
           pass2_model: PASS2_MODEL,

@@ -83,7 +83,7 @@ export async function getCallReview(
 
   const { data: flagRows } = await admin
     .from("call_review_flags")
-    .select("id, flag_key, evidence_quote, confidence, status")
+    .select("id, flag_key, step_title, evidence_quote, confidence, status")
     .eq("call_id", callId);
 
   const keys = [...new Set((flagRows ?? []).map((f) => f.flag_key))];
@@ -100,7 +100,11 @@ export async function getCallReview(
   const flags: CallReviewFlag[] = (flagRows ?? []).map((f) => ({
     id: f.id,
     flagKey: f.flag_key,
-    label: defByKey.get(f.flag_key)?.label ?? f.flag_key,
+    // A playbook finding is only meaningful with the step named, so the step's
+    // own title is the label — "Skipped a required step" alone tells you nothing.
+    label: f.step_title?.trim()
+      ? f.step_title
+      : (defByKey.get(f.flag_key)?.label ?? f.flag_key),
     lens: defByKey.get(f.flag_key)?.lens ?? "",
     evidenceQuote: f.evidence_quote,
     confidence: f.confidence,

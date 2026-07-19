@@ -78,6 +78,9 @@ export type Database = {
           system_prompt: string | null;
           review_prompt: string | null;
           review_prompt_at: string | null;
+          review_playbook: Json | null;
+          review_playbook_hash: string | null;
+          review_playbook_at: string | null;
           tools_enabled: Json;
           updated_at: string;
           voice_id: string | null;
@@ -101,6 +104,9 @@ export type Database = {
           system_prompt?: string | null;
           review_prompt?: string | null;
           review_prompt_at?: string | null;
+          review_playbook?: Json | null;
+          review_playbook_hash?: string | null;
+          review_playbook_at?: string | null;
           tools_enabled?: Json;
           updated_at?: string;
           voice_id?: string | null;
@@ -124,6 +130,9 @@ export type Database = {
           system_prompt?: string | null;
           review_prompt?: string | null;
           review_prompt_at?: string | null;
+          review_playbook?: Json | null;
+          review_playbook_hash?: string | null;
+          review_playbook_at?: string | null;
           tools_enabled?: Json;
           updated_at?: string;
           voice_id?: string | null;
@@ -1527,6 +1536,8 @@ export type Database = {
           flag_key: string;
           id: string;
           status: string;
+          step_key: string;
+          step_title: string | null;
           suggestion_id: string | null;
         };
         Insert: {
@@ -1539,6 +1550,8 @@ export type Database = {
           flag_key: string;
           id?: string;
           status?: string;
+          step_key?: string;
+          step_title?: string | null;
           suggestion_id?: string | null;
         };
         Update: {
@@ -1551,6 +1564,8 @@ export type Database = {
           flag_key?: string;
           id?: string;
           status?: string;
+          step_key?: string;
+          step_title?: string | null;
           suggestion_id?: string | null;
         };
         Relationships: [];

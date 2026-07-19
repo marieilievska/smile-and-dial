@@ -6,16 +6,19 @@ export type ReviewFlagDef = {
   guidance: string;
 };
 
-/** A flag Pass 1 proposed. */
-export type ProposedFlag = {
+/** A finding Pass 1 proposed. `step_key` names the playbook step for a
+ *  `playbook_missed` finding, and is null for the fixed delivery checks. */
+export type ProposedFinding = {
   flag_key: string;
+  step_key: string | null;
   evidence_quote: string;
   confidence: number;
 };
 
-/** A flag after Pass 2 verification. */
-export type VerifiedFlag = {
+/** A finding after Pass 2 verification. */
+export type VerifiedFinding = {
   flag_key: string;
+  step_key: string | null;
   evidence_quote: string;
   confidence: number;
   status: "confirmed" | "needs_review";

@@ -271,8 +271,9 @@ function CallReviewPanel({ callId }: { callId: string }) {
         </Button>
       </div>
       <p className="text-muted-foreground -mt-1 text-xs">
-        Tell the AI if each flag is right — a false alarm removes it and counts
-        against that flag&apos;s accuracy, which sharpens future reviews.
+        Tell the AI if each flag is right. &ldquo;False alarm&rdquo; removes it
+        and is shown to the reviewer on this agent&apos;s next calls as an
+        example of what not to flag, so the same mistake stops recurring.
         &ldquo;Mark reviewed&rdquo; just means you&apos;ve handled this call.
       </p>
 
@@ -324,7 +325,7 @@ function CallReviewPanel({ callId }: { callId: string }) {
                   variant="ghost"
                   disabled={pending || f.status === "rejected"}
                   onClick={() => updateFlag(f.id, "rejected")}
-                  title="False alarm — removes it from this bucket and counts against this flag's accuracy"
+                  title="False alarm — removes it and teaches the reviewer not to flag this again"
                 >
                   False alarm
                 </Button>

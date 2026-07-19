@@ -1,85 +1,105 @@
 import { test, expect, describe, it } from "vitest";
-import { buildRubricText } from "../src/lib/review/rubric";
-import { mergeVerification } from "../src/lib/review/analyze";
+import { defsForAnalysis } from "../src/lib/review/rubric";
+import { findingId, mergeVerification } from "../src/lib/review/analyze";
+import type { ProposedFinding } from "../src/lib/review/types";
 
-test("buildRubricText renders key/lens/label/guidance per line", () => {
-  const text = buildRubricText([
+test("defsForAnalysis hides no_conversation from the AI (it's stamped at enqueue)", () => {
+  const defs = [
     {
-      key: "tool_error",
-      label: "Tool error",
-      lens: "bug",
-      severity: 1,
-      guidance: "A tool failed.",
+      key: "no_conversation",
+      label: "No conversation",
+      lens: "voc" as const,
+      severity: 4,
+      guidance: "Voicemail.",
     },
-  ]);
-  expect(text).toContain("tool_error (bug): Tool error. A tool failed.");
+    {
+      key: "monologued",
+      label: "Monologued",
+      lens: "quality" as const,
+      severity: 3,
+      guidance: "Stacked beats.",
+    },
+  ];
+  expect(defsForAnalysis(defs).map((d) => d.key)).toEqual(["monologued"]);
 });
 
-test("mergeVerification confirms agreed flags and flags disagreements for review", () => {
-  const proposed = [
+test("findingId identifies a playbook miss per step, everything else per flag", () => {
+  expect(findingId("playbook_missed", "intro_states_ai")).toBe(
+    "playbook_missed:intro_states_ai",
+  );
+  expect(findingId("monologued", null)).toBe("monologued");
+});
+
+test("mergeVerification confirms agreed findings and flags disagreements for review", () => {
+  const proposed: ProposedFinding[] = [
     {
-      flag_key: "tool_error",
-      evidence_quote: "the system errored",
+      flag_key: "wrong_data_used",
+      step_key: null,
+      evidence_quote: "called them Acme",
       confidence: 0.9,
     },
     {
-      flag_key: "price_objection",
-      evidence_quote: "too expensive",
+      flag_key: "monologued",
+      step_key: null,
+      evidence_quote: "long turn",
       confidence: 0.8,
     },
-    { flag_key: "off_goal", evidence_quote: "n/a", confidence: 0.4 },
+    {
+      flag_key: "talked_over",
+      step_key: null,
+      evidence_quote: "n/a",
+      confidence: 0.4,
+    },
   ];
   const verdicts = {
-    tool_error: {
+    wrong_data_used: {
       agree: true,
       confidence: 0.95,
-      evidence_quote: "the system errored out",
+      evidence_quote: "called them Acme Ltd",
     },
-    price_objection: { agree: false, confidence: 0.9, evidence_quote: "" },
-    off_goal: { agree: true, confidence: 0.5, evidence_quote: "n/a" },
+    monologued: { agree: false, confidence: 0.9, evidence_quote: "" },
+    talked_over: { agree: true, confidence: 0.5, evidence_quote: "n/a" },
   };
   const merged = mergeVerification(proposed, verdicts);
-  expect(merged.find((f) => f.flag_key === "tool_error")).toMatchObject({
+  expect(merged.find((f) => f.flag_key === "wrong_data_used")).toMatchObject({
     status: "confirmed",
-    evidence_quote: "the system errored out",
+    evidence_quote: "called them Acme Ltd",
   });
-  expect(merged.find((f) => f.flag_key === "price_objection")).toBeUndefined();
-  expect(merged.find((f) => f.flag_key === "off_goal")).toMatchObject({
+  expect(merged.find((f) => f.flag_key === "monologued")).toBeUndefined();
+  expect(merged.find((f) => f.flag_key === "talked_over")).toMatchObject({
     status: "needs_review",
   });
 });
 
-// Deterministic golden check: a known transcript with a booking-recovery pattern.
-// In mock mode we assert the pipeline SHAPE; the LLM-dependent assertion is
-// guarded behind OPENAI_API_KEY so CI without a key still passes.
-const GOLDEN = {
-  transcript:
-    "Agent: I can book you for 4pm Tuesday.\nLead: sure.\nAgent: Hmm, that time isn't available.\nAgent: Actually, you're all set for 4pm Tuesday.",
-  expectFlag: "booking_failed_then_recovered",
-};
-
-test.skipIf(!process.env.OPENAI_API_KEY)(
-  "golden: booking-failed-then-recovered (live only)",
-  async () => {
-    const { analyzeCall } = await import("../src/lib/review/analyze");
-    const { flags } = await analyzeCall({
-      transcript: GOLDEN.transcript,
-      extracted: "{}",
-      defs: [
-        {
-          key: "booking_failed_then_recovered",
-          label: "Booking failed then recovered",
-          lens: "bug",
-          severity: 1,
-          guidance:
-            "Said a time was unavailable, then booked the same slot anyway.",
-        },
-      ],
-      instructions: null,
-    });
-    expect(flags.map((f) => f.flag_key)).toContain(GOLDEN.expectFlag);
-  },
-);
+test("mergeVerification keeps two missed steps apart under the same flag", () => {
+  const proposed: ProposedFinding[] = [
+    {
+      flag_key: "playbook_missed",
+      step_key: "intro_states_ai",
+      evidence_quote: "a",
+      confidence: 0.9,
+    },
+    {
+      flag_key: "playbook_missed",
+      step_key: "hosting_disclosure",
+      evidence_quote: "b",
+      confidence: 0.9,
+    },
+  ];
+  const merged = mergeVerification(proposed, {
+    "playbook_missed:intro_states_ai": {
+      agree: true,
+      confidence: 0.9,
+      evidence_quote: "a",
+    },
+    "playbook_missed:hosting_disclosure": {
+      agree: false,
+      confidence: 0.9,
+      evidence_quote: "",
+    },
+  });
+  expect(merged.map((f) => f.step_key)).toEqual(["intro_states_ai"]);
+});
 
 import { orderBuckets } from "@/lib/review/buckets";
 import type { ReviewFlagDef } from "@/lib/review/types";

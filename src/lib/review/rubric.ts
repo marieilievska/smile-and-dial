@@ -18,9 +18,13 @@ export async function loadActiveFlagDefs(
   return (data ?? []) as ReviewFlagDef[];
 }
 
-/** Render the rubric as a numbered list the analyzer prompt embeds. */
-export function buildRubricText(defs: ReviewFlagDef[]): string {
-  return defs
-    .map((d) => `- ${d.key} (${d.lens}): ${d.label}. ${d.guidance}`)
-    .join("\n");
+/** Flags the AI must never be offered, because they're applied deterministically
+ *  elsewhere. `no_conversation` is stamped at enqueue time on calls that never
+ *  reached a human; leaving it in the AI's list meant a short-but-real
+ *  conversation could be labelled "no real conversation happened". */
+const NOT_AI_JUDGED = new Set(["no_conversation"]);
+
+/** The defs the analyzer may propose. */
+export function defsForAnalysis(defs: ReviewFlagDef[]): ReviewFlagDef[] {
+  return defs.filter((d) => !NOT_AI_JUDGED.has(d.key));
 }
