@@ -106,36 +106,47 @@ a campaign has only one number: **a campaign's pool = all `twilio_numbers` where
 
 ### New columns on `twilio_numbers`
 
-| Column               | Type                             | Purpose                                                                                           |
-| -------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `area_code`          | `text`                           | 3-digit NANP area code parsed from `phone_number`. Indexed for local matching.                    |
-| `region`             | `text null`                      | 2-letter US state, for same-state fallback. Derived from `area_code` via a static NANP→state map. |
-| `pool_status`        | `text not null default 'active'` | `active` \| `retired` (manual, permanent-until-unretired).                                        |
-| `rested_until`       | `timestamptz null`               | Auto-rest cool-off end; excluded from selection while in the future.                              |
-| `warmup_started_at`  | `timestamptz null`               | When the number entered service (defaults to attach time). Drives the ramp.                       |
-| `daily_cap_override` | `int null`                       | Optional per-number override of the global daily cap.                                             |
+| Column               | Type                             | Purpose                                                                                                                                                                                                                                                                            |
+| -------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `area_code`          | `text`                           | 3-digit NANP area code parsed from `phone_number`. Indexed for local matching.                                                                                                                                                                                                     |
+| `region`             | `text null`                      | 2-letter US state, for same-state fallback. Derived from `area_code` via a static NANP→state map.                                                                                                                                                                                  |
+| `pool_status`        | `text not null default 'active'` | `active` \| `retired`. **`retired` is the ONLY permanent state** — used only for a truly burned number or when downsizing the pool (usually paired with releasing the Twilio number). Everything else is reusable.                                                                 |
+| `rested_until`       | `timestamptz null`               | **Temporary "rest" — the number is pulled from rotation until this time, then AUTOMATICALLY returns and is reused.** Set by the health cron (auto) or by a manual "rest this number for N days" action. This is the default response to a flagging number: cool it down, reuse it. |
+| `warmup_started_at`  | `timestamptz null`               | When the number entered service (defaults to attach time). Drives the ramp.                                                                                                                                                                                                        |
+| `daily_cap_override` | `int null`                       | Optional per-number override of the global daily cap.                                                                                                                                                                                                                              |
 
-- **Repurpose** existing `flagged_for_rotation` as the **manual "rotate this number
-  out"** flag (operator-set) → excluded from selection (distinct from `pool_status`:
-  `flagged_for_rotation` is a soft "prefer not to use / phasing out" while
-  `pool_status='retired'` fully removes it). _(If simpler in build, collapse the two —
-  decide in the plan; the spec treats "excluded" = `retired` OR `flagged_for_rotation`
-  OR `rested_until > now`.)_
+**Rest & reuse model (per operator decision):** a number that starts flagging is
+**rested, not discarded** — pulled out to cool down, then it comes back into rotation
+automatically. Two reusable "out" states + one permanent:
+
+- **`rested_until` (timed, auto-returns):** the primary mechanism. Health-driven or
+  manual; the number reappears in selection the moment `rested_until` passes.
+- **`flagged_for_rotation` (existing bool, repurposed → manual indefinite hold):** the
+  operator toggles a number out with no timer; it returns when they toggle it back on.
+  For "hold this one aside for now" without committing to retirement. **Still reusable.**
+- **`pool_status = 'retired'` (permanent):** the only non-reusable state — a genuinely
+  burned number or pool downsizing; typically paired with `releaseNumber`.
+
+So: **rested and flagged numbers are always reused when they cool down / are un-held;
+only `retired` removes a number for good.** Selection excludes a number when it is
+`retired` OR `flagged_for_rotation` OR `rested_until > now()`.
+
 - Keep `campaigns.twilio_number_id` as a **legacy/primary fallback** (a pool of 1 for
   campaigns that never add more numbers → **fully backward compatible**). New pooled
   campaigns may leave it null.
 
 ### New settings (`public.app_settings`, single-row config)
 
-| Setting                   | Default | Purpose                                                              |
-| ------------------------- | ------- | -------------------------------------------------------------------- |
-| `number_daily_cap`        | `100`   | Mature per-number daily dial cap (reputation-safe).                  |
-| `number_warmup_days`      | `14`    | Ramp length for a fresh number.                                      |
-| `number_warmup_start_cap` | `20`    | Day-1 cap of a fresh number.                                         |
-| `number_rest_min_samples` | `20`    | Min 24h dials before a connect-rate rest decision.                   |
-| `number_rest_rate_factor` | `0.5`   | Rest if connect rate < factor × pool median (and < absolute floor).  |
-| `number_rest_abs_floor`   | `0.08`  | Absolute connect-rate floor below which a well-sampled number rests. |
-| `number_rest_hours`       | `24`    | Auto-rest cool-off length.                                           |
+| Setting                   | Default | Purpose                                                                                                      |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
+| `number_daily_cap`        | `100`   | Mature per-number daily dial cap (reputation-safe).                                                          |
+| `number_warmup_days`      | `14`    | Ramp length for a fresh number.                                                                              |
+| `number_warmup_start_cap` | `20`    | Day-1 cap of a fresh number.                                                                                 |
+| `number_rest_min_samples` | `20`    | Min 24h dials before a connect-rate rest decision.                                                           |
+| `number_rest_rate_factor` | `0.5`   | Rest if connect rate < factor × pool median (and < absolute floor).                                          |
+| `number_rest_abs_floor`   | `0.08`  | Absolute connect-rate floor below which a well-sampled number rests.                                         |
+| `number_rest_hours`       | `24`    | Auto-rest cool-off length (then the number auto-returns and is reused).                                      |
+| `number_rest_max_repeats` | `3`     | Rests within 7 days before a number is flagged as a suspected burn for operator review (never auto-retired). |
 
 ### Indexes / migration notes
 
@@ -217,21 +228,31 @@ For each `pool_status='active'`, non-released number:
 2. `connected_24h` = those with `outcome ∈ CONNECTED_OUTCOMES`
    (`src/lib/calls/outcomes.ts`). `connect_rate = connected_24h / calls_24h`.
 3. Write `last_calls_count_24h`, `last_connect_rate_24h`, `last_connect_rate_check_at`.
-4. **Auto-rest decision:** if `calls_24h >= number_rest_min_samples` AND
+4. **Auto-rest decision (rest → cool down → REUSE):** if
+   `calls_24h >= number_rest_min_samples` AND
    `connect_rate < max(number_rest_abs_floor, number_rest_rate_factor × poolMedianRate)`
    → set `rested_until = now + number_rest_hours` and emit `system_events`
-   `kind='number_rested'` (payload: number, rate, pool median). Numbers auto-return to
-   rotation when `rested_until` passes (no unrest job needed; selection checks it).
+   `kind='number_rested'` (payload: number, rate, pool median). The number **returns to
+   rotation automatically** when `rested_until` passes (no unrest job — selection checks
+   the timestamp) and gets reused. Resting is temporary by default; we never discard a
+   number for a single bad day.
+   - **Repeat-offender escalation:** count `number_rested` events for a number over the
+     trailing 7 days. If it has rested **≥ `number_rest_max_repeats` (default 3)** times
+     in that window, it's likely genuinely burned rather than having a bad day → set
+     `flagged_for_rotation = true` (held out, still reusable) and emit
+     `kind='number_burn_suspected'` so the operator can decide to keep resting it or
+     `retire`/replace it. We **never auto-retire** — retirement is always an operator
+     choice.
 5. **Pool-exhaustion signal:** if a campaign's whole pool is capped/rested during its
    calling hours, emit a rate-limited `system_events` `kind='pool_exhausted'`
    (payload: campaign, pool size) so the UI can surface "add numbers".
 
-`CONNECTED_OUTCOMES` is the app-wide "reached a human/gatekeeper" set (goal_met,
+`CONNECTED_OUTCOMES` is the app-wide "reached a human/gatekeeper" set (goal*met,
 callback, call_back_later, not_interested, gatekeeper, transferred_to_human,
 language_barrier, hung_up_immediately) — the same signal the best-time heatmap uses, so
 a spam-flagged number (few pickups) rests, while a healthy one that just hits voicemails
-is judged by pickups, not answers. _(Windowing note: 24h is responsive; if small pools
-produce noisy rates, the plan may widen to 72h with the same min-sample guard.)_
+is judged by pickups, not answers. *(Windowing note: 24h is responsive; if small pools
+produce noisy rates, the plan may widen to 72h with the same min-sample guard.)\_
 
 ---
 
@@ -299,8 +320,21 @@ min 1). Presented as a table the operator can act on.
     runs. (No code change — just set them equal.)
 - **Effective daily ceiling** = `min(campaign.calls_per_day_cap, Σ pool effective caps)`.
   At ~100/day/number, **5,000/day needs ~50–60 mature numbers** (more while warming).
-- **Confirm the ElevenLabs plan's concurrency limit** (external hard ceiling); keep the
-  app concurrency cap under it.
+- **ElevenLabs concurrency = 20, WORKSPACE-WIDE (the real hard ceiling).** Confirmed the
+  plan allows 20 simultaneous conversations, and EL's convai concurrency is a
+  **workspace-level** limit — **shared across every agent in the workspace**, not
+  per-agent. So this dialer competes for those 20 slots with all other Referrizer agents
+  in the same workspace (David, Support, Victory Martial Arts, JadeAI, …).
+  - **Is 20 enough for 150k/month?** Yes, on its own: ~385 calls/hr × ~28s avg (post
+    voicemail-fix) ≈ **3–4 concurrent average, ~8 peak** — comfortably under 20. Set the
+    app `concurrency_cap_per_user` to ~**12–15** (headroom below 20, leaving room for the
+    other agents).
+  - **But it's shared and blind.** The app can't see the other agents' usage; if the
+    workspace hits 20 from everything combined, EL rejects the dialer's next placement →
+    it's logged and the retry engine reschedules (no lost lead), but throughput dips.
+  - **Recommendation:** for reliable 150k/month **isolate the high-volume dialer in its
+    own ElevenLabs workspace** (dedicated 20+), or raise the tier — so it never fights
+    the other agents for slots. This is an ops/plan decision, not code.
 - **Reliability at scale** (harden, verify by load test):
   - The dialer tick is sequential, `limit 50`/tick. At ~7 dials/min it has headroom,
     but load-test at target concurrency; if it can't keep slots full, make in-tick
@@ -429,10 +463,14 @@ Validate on a **small pool (5–10 numbers)** end to end before scaling to 50+.
 ## 19. Open questions / external dependencies
 
 - EL per-agent number ceiling (2 proven; 50–100 unconfirmed) — confirm with EL.
-- EL plan concurrent-call limit — confirm with EL; set app concurrency under it.
-- Twilio A2P/SHAKEN registration status for the pool — ops.
-- `flagged_for_rotation` vs `pool_status='retired'`: keep both (soft vs hard) or
-  collapse — decide in the plan.
+- **EL concurrency: RESOLVED — 20 simultaneous, workspace-wide/shared (§11).** Enough for
+  150k/month alone (~8 peak), but shared with the other workspace agents. **Decision
+  needed:** isolate the dialer in its own EL workspace (or raise the tier) for reliable
+  headroom vs. accept sharing 20 with everything else.
+- Twilio A2P/SHAKEN registration status for the pool — ops (operator confirmed acceptable).
+- **Rest/reuse model: RESOLVED (§5, §8)** — rested/flagged numbers cool down and are
+  **reused**; only `retired` is permanent. `flagged_for_rotation` kept as the manual
+  indefinite-hold (reusable); `rested_until` is the timed auto-return.
 - Health window (24h vs 72h) for small pools — start 24h, revisit if noisy.
 
 ---
