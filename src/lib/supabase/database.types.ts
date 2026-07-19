@@ -314,6 +314,7 @@ export type Database = {
           meta_last_sync_count: number;
           meta_last_sync_error: string | null;
           meta_sync_secret: string | null;
+          number_pool_settings: Json;
           updated_at: string;
         };
         Insert: {
@@ -344,6 +345,7 @@ export type Database = {
           meta_last_sync_count?: number;
           meta_last_sync_error?: string | null;
           meta_sync_secret?: string | null;
+          number_pool_settings?: Json;
           updated_at?: string;
         };
         Update: {
@@ -374,6 +376,7 @@ export type Database = {
           meta_last_sync_count?: number;
           meta_last_sync_error?: string | null;
           meta_sync_secret?: string | null;
+          number_pool_settings?: Json;
           updated_at?: string;
         };
         Relationships: [];
@@ -2253,8 +2256,10 @@ export type Database = {
       };
       twilio_numbers: {
         Row: {
+          area_code: string | null;
           attached_campaign_id: string | null;
           country: string;
+          daily_cap_override: number | null;
           elevenlabs_phone_number_id: string | null;
           flagged_for_rotation: boolean;
           friendly_name: string | null;
@@ -2264,15 +2269,20 @@ export type Database = {
           last_connect_rate_check_at: string | null;
           monthly_cost: number;
           phone_number: string;
+          pool_status: string;
           purchased_at: string;
           released_at: string | null;
+          rested_until: string | null;
           status_webhook_url: string | null;
           twilio_sid: string | null;
           voice_webhook_url: string | null;
+          warmup_started_at: string | null;
         };
         Insert: {
+          area_code?: string | null;
           attached_campaign_id?: string | null;
           country: string;
+          daily_cap_override?: number | null;
           elevenlabs_phone_number_id?: string | null;
           flagged_for_rotation?: boolean;
           friendly_name?: string | null;
@@ -2282,15 +2292,20 @@ export type Database = {
           last_connect_rate_check_at?: string | null;
           monthly_cost?: number;
           phone_number: string;
+          pool_status?: string;
           purchased_at?: string;
           released_at?: string | null;
+          rested_until?: string | null;
           status_webhook_url?: string | null;
           twilio_sid?: string | null;
           voice_webhook_url?: string | null;
+          warmup_started_at?: string | null;
         };
         Update: {
+          area_code?: string | null;
           attached_campaign_id?: string | null;
           country?: string;
+          daily_cap_override?: number | null;
           elevenlabs_phone_number_id?: string | null;
           flagged_for_rotation?: boolean;
           friendly_name?: string | null;
@@ -2300,11 +2315,14 @@ export type Database = {
           last_connect_rate_check_at?: string | null;
           monthly_cost?: number;
           phone_number?: string;
+          pool_status?: string;
           purchased_at?: string;
           released_at?: string | null;
+          rested_until?: string | null;
           status_webhook_url?: string | null;
           twilio_sid?: string | null;
           voice_webhook_url?: string | null;
+          warmup_started_at?: string | null;
         };
         Relationships: [
           {
@@ -2531,6 +2549,10 @@ export type Database = {
       };
       monitor_campaign_spend_caps: { Args: never; Returns: number };
       monitor_twilio_connect_rates: { Args: never; Returns: number };
+      pool_number_usage_24h: {
+        Args: { in_campaign_id: string };
+        Returns: { twilio_number_id: string; calls_24h: number }[];
+      };
       pre_call_check: {
         Args: { in_campaign_id: string; in_lead_id: string };
         Returns: string;
