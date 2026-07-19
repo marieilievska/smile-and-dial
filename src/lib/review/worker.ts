@@ -128,9 +128,9 @@ export async function runReviewTick(
       derivationCost = 0;
       const stepTitle = new Map(ctx.steps.map((s) => [s.key, s.title]));
       // Human decisions are sticky: a re-queued analysis must never overwrite
-      // a flag a human already curated ("Looks right" / "False alarm") — else
-      // a re-review could resurrect a rejected flag into the prompt-suggestion
-      // example pool, or silently drop an approved one. Skip curated rows.
+      // a flag a human already curated ("Looks right" / "False alarm") — else a
+      // re-review could resurrect a rejected finding, undoing the correction
+      // that teaches the reviewer not to make it again. Skip curated rows.
       const { data: curatedRows } = await db
         .from("call_review_flags")
         .select("flag_key, step_key")
