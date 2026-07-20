@@ -7,6 +7,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import { ACTIVE_CALL_STATUSES } from "@/lib/calls/live-calls";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
+import { selectPoolNumber } from "@/lib/dialer/number-pool";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -115,7 +116,7 @@ export async function callNow(input: {
 
   const { data: campaign } = await userClient
     .from("campaigns")
-    .select("id, agent_id, twilio_number_id")
+    .select("id, agent_id")
     .eq("id", input.campaignId)
     .maybeSingle();
   if (!campaign) return { error: "Campaign not found." };
@@ -221,8 +222,30 @@ export async function callNow(input: {
     if (!dialNumber) {
       return { error: "Lead has no phone number on file." };
     }
-    if (!campaign.twilio_number_id) {
-      return { error: "Campaign has no Twilio number assigned." };
+    // Pick a live number from the campaign's pool — the same selection the
+    // autopilot tick uses. This used to read the legacy
+    // `campaigns.twilio_number_id`, which the number-pool work stopped
+    // populating (numbers now attach via `twilio_numbers.attached_campaign_id`),
+    // so every manual call failed with "no Twilio number assigned" while
+    // autopilot dialled fine.
+    const picked = await selectPoolNumber(
+      admin,
+      input.campaignId,
+      dialNumber,
+      input.leadId, // stable spread key, mirroring the tick
+    );
+    if (!picked) {
+      if (stampedHere) {
+        await admin
+          .from("leads")
+          .update({ owner_campaign_id: null })
+          .eq("id", input.leadId)
+          .eq("owner_campaign_id", input.campaignId);
+      }
+      return {
+        error:
+          "No number is free in this campaign's pool right now — it either has no numbers attached, or they've all hit their daily cap.",
+      };
     }
 
     // Insert the calls row first (status='dialing') so the post-call webhook
@@ -235,7 +258,7 @@ export async function callNow(input: {
         lead_id: input.leadId,
         campaign_id: input.campaignId,
         agent_id: campaign.agent_id,
-        twilio_number_id: campaign.twilio_number_id,
+        twilio_number_id: picked.numberId,
         direction: "outbound",
         status: "queued",
         outcome: null,
@@ -271,7 +294,7 @@ export async function callNow(input: {
     const result = await resolveAndPlaceAgentCall(admin, {
       callId: pending.id,
       agentId: campaign.agent_id,
-      twilioNumberId: campaign.twilio_number_id,
+      twilioNumberId: picked.numberId,
       toNumber: dialNumber,
     });
     if (!result.ok) {
@@ -338,7 +361,8 @@ export async function callNow(input: {
       lead_id: input.leadId,
       campaign_id: input.campaignId,
       agent_id: campaign.agent_id,
-      twilio_number_id: campaign.twilio_number_id,
+      // Mock calls never touch a real number; the pool is only picked live.
+      twilio_number_id: null,
       direction: "outbound",
       status: "completed",
       outcome: "no_answer",
