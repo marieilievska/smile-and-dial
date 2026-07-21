@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildFrontDeskBrief,
+  extractOutputText,
   fallbackBrief,
   ownSiteOrigin,
   researchDomain,
@@ -155,5 +156,42 @@ describe("buildFrontDeskBrief", () => {
     expect(
       buildFrontDeskBrief(inputs, { ...good, source_url: "" }).source_url,
     ).toBeNull();
+  });
+});
+
+describe("extractOutputText", () => {
+  it("prefers the output_text convenience field", () => {
+    expect(extractOutputText({ output_text: '{"found":true}' })).toBe(
+      '{"found":true}',
+    );
+  });
+
+  it("walks the output array past the web_search_call item", () => {
+    const body = {
+      output: [
+        { type: "web_search_call", id: "ws_1", status: "completed" },
+        {
+          type: "message",
+          content: [{ type: "output_text", text: '{"found":true}' }],
+        },
+      ],
+    };
+    expect(extractOutputText(body)).toBe('{"found":true}');
+  });
+
+  it("accepts a content part typed plain text", () => {
+    const body = {
+      output: [{ type: "message", content: [{ type: "text", text: "hi" }] }],
+    };
+    expect(extractOutputText(body)).toBe("hi");
+  });
+
+  it("returns empty string for anything unusable", () => {
+    expect(extractOutputText(null)).toBe("");
+    expect(extractOutputText({})).toBe("");
+    expect(extractOutputText({ output_text: "   " })).toBe("");
+    expect(extractOutputText({ output: [{ type: "web_search_call" }] })).toBe(
+      "",
+    );
   });
 });

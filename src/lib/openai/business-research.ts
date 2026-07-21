@@ -174,3 +174,34 @@ export function buildFrontDeskBrief(
     source_url: str(p.source_url) || null,
   };
 }
+
+/**
+ * Pull the model's text out of a raw Responses API body.
+ *
+ * `output_text` is a convenience field the official SDKs synthesise; over plain
+ * fetch it may be absent, so we fall back to walking `output`. That array is
+ * NOT just the message — with `web_search` enabled it also carries
+ * `web_search_call` items, which is why we look for the message item by type
+ * rather than taking `output[0]`.
+ */
+export function extractOutputText(body: unknown): string {
+  if (!body || typeof body !== "object") return "";
+  const b = body as Record<string, unknown>;
+
+  const direct = str(b.output_text);
+  if (direct) return direct;
+
+  if (!Array.isArray(b.output)) return "";
+  for (const item of b.output) {
+    if (!item || typeof item !== "object") continue;
+    const it = item as Record<string, unknown>;
+    if (it.type !== "message" || !Array.isArray(it.content)) continue;
+    for (const part of it.content) {
+      if (!part || typeof part !== "object") continue;
+      const pt = part as Record<string, unknown>;
+      const isText = pt.type === "output_text" || pt.type === "text";
+      if (isText && typeof pt.text === "string") return pt.text;
+    }
+  }
+  return "";
+}
