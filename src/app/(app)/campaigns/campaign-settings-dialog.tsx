@@ -124,6 +124,7 @@ export function CampaignSettingsDialog({
   poolNumbers,
   kbsByAgent,
   eligibleLists,
+  listSharedWith,
   currentListIds,
   smartLists,
   calendlyEvents,
@@ -141,6 +142,9 @@ export function CampaignSettingsDialog({
   poolNumbers: PoolNumber[];
   kbsByAgent: Record<string, Option[]>;
   eligibleLists: Option[];
+  /** list id -> the other campaigns already dialing it, so sharing a list is
+   *  visible at the moment you tick it rather than a surprise afterwards. */
+  listSharedWith?: Record<string, string[]>;
   currentListIds: string[];
   /** The admin's saved smart lists, selectable as a campaign audience. */
   smartLists: Option[];
@@ -510,8 +514,10 @@ export function CampaignSettingsDialog({
                 Lists
               </div>
               <p className="text-muted-foreground text-sm">
-                Lists attached to this campaign get dialed when it runs. A list
-                can be attached to only one active campaign at a time.
+                Lists attached to this campaign get dialed when it runs. The
+                same list can be attached to more than one campaign — each lead
+                is still only ever dialed by one of them, so they can&apos;t
+                double-call.
               </p>
               {eligibleLists.length > 0 ? (
                 <div className="flex flex-col gap-2">
@@ -528,13 +534,17 @@ export function CampaignSettingsDialog({
                       >
                         {list.name}
                       </Label>
+                      {listSharedWith?.[list.id]?.length ? (
+                        <span className="text-muted-foreground text-xs">
+                          also in {listSharedWith[list.id].join(", ")}
+                        </span>
+                      ) : null}
                     </div>
                   ))}
                 </div>
               ) : (
                 <p className="text-muted-foreground text-sm">
-                  No unattached lists. Create one on Settings → Lists, or detach
-                  an existing attachment first.
+                  No lists yet. Create one on Settings → Lists.
                 </p>
               )}
             </div>

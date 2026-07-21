@@ -201,16 +201,45 @@ export default async function CampaignsPage({
     return [...zones];
   }
 
-  function eligibleListsFor(campaignId: string | null): Option[] {
-    const result = allLists.filter((l) => !attachedListIds.has(l.id));
-    if (campaignId) {
-      const own = campaignToListIds.get(campaignId) ?? [];
-      const ownLists = allLists.filter(
-        (l) => own.includes(l.id) && !result.find((r) => r.id === l.id),
-      );
-      result.push(...ownLists);
+  // Which OTHER campaigns already dial each list, so the picker can say a list
+  // is shared rather than letting it happen invisibly.
+  const listToCampaignNames = new Map<string, string[]>();
+  {
+    const campaignName = new Map(
+      (rawCampaigns ?? []).map((c) => [c.id, c.name]),
+    );
+    for (const row of attachments) {
+      const name = campaignName.get(row.campaign_id);
+      if (!name) continue;
+      const arr = listToCampaignNames.get(row.list_id) ?? [];
+      arr.push(name);
+      listToCampaignNames.set(row.list_id, arr);
     }
-    return result;
+    for (const arr of listToCampaignNames.values()) arr.sort();
+  }
+
+  /**
+   * Every list is selectable for every campaign. Shared lists shipped with
+   * `leads.owner_campaign_id` + `claim_lead_for_dial`, which stop two campaigns
+   * dialing the same lead — but this picker still hid any list already attached
+   * elsewhere, so the feature was unreachable from campaign settings (the
+   * Settings → Lists page was updated; this one was missed).
+   */
+  function eligibleListsFor(): Option[] {
+    return allLists;
+  }
+
+  /** list id -> the OTHER campaigns already dialing it (excluding this one). */
+  function sharedWithFor(campaignId: string | null): Record<string, string[]> {
+    const self = campaignId
+      ? ((rawCampaigns ?? []).find((c) => c.id === campaignId)?.name ?? null)
+      : null;
+    const out: Record<string, string[]> = {};
+    for (const [listId, names] of listToCampaignNames) {
+      const others = names.filter((n) => n !== self);
+      if (others.length > 0) out[listId] = others;
+    }
+    return out;
   }
 
   const allNumbers = rawNumbers ?? [];
@@ -346,7 +375,8 @@ export default async function CampaignsPage({
       callingHoursEnd: campaign.calling_hours_end,
       poolNumbers: pool,
       poolCount: pool.length,
-      eligibleLists: eligibleListsFor(campaign.id),
+      eligibleLists: eligibleListsFor(),
+      listSharedWith: sharedWithFor(campaign.id),
       currentListIds: campaignToListIds.get(campaign.id) ?? [],
     };
   });
@@ -369,7 +399,8 @@ export default async function CampaignsPage({
           goals={goalOptions}
           poolNumbers={[]}
           kbsByAgent={kbsByAgent}
-          eligibleLists={eligibleListsFor(null)}
+          eligibleLists={eligibleListsFor()}
+          listSharedWith={sharedWithFor(null)}
           currentListIds={[]}
           smartLists={smartListOptions}
           calendlyEvents={calendlyEventOptions}
