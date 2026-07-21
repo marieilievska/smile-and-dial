@@ -241,12 +241,12 @@ async function listToolsByName(apiKey: string): Promise<Map<string, string>> {
 }
 
 // Resolved once per process — the configs are static for the process lifetime
-// (their URL depends only on the app base URL). Only successful resolutions
-// are cached so a transient failure can be retried on the next sync.
+// (their URL depends only on the app base URL). Only a COMPLETE resolution is
+// cached: see the guard at the end of ensureServerTools for why.
 let cachedToolIds: Record<string, string> | null = null;
 
 /**
- * Ensure all five server tools exist in the ElevenLabs workspace and return
+ * Ensure every server tool exists in the ElevenLabs workspace and return
  * a key → tool_id map. Mocked (no network) unless ELEVENLABS_LIVE=live.
  * Returns {} when the app URL or secret isn't configured — the caller then
  * attaches no tool_ids, which is recoverable via the re-sync button once the
@@ -280,14 +280,22 @@ export async function ensureServerTools(): Promise<Record<string, string>> {
       if (existingId) {
         // Refresh the definition (URL/secret/schema may have changed) but keep
         // the id even if the update fails — the tool still exists.
-        await fetch(`${TOOLS_API}/${encodeURIComponent(existingId)}`, {
-          method: "PATCH",
-          headers: {
-            "xi-api-key": apiKey,
-            "Content-Type": "application/json",
+        const patched = await fetch(
+          `${TOOLS_API}/${encodeURIComponent(existingId)}`,
+          {
+            method: "PATCH",
+            headers: {
+              "xi-api-key": apiKey,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ tool_config: config }),
           },
-          body: JSON.stringify({ tool_config: config }),
-        });
+        );
+        if (!patched.ok) {
+          console.error(
+            `[server-tools] PATCH ${toolFunctionName(key)} failed (${patched.status}): ${await patched.text()}`,
+          );
+        }
         out[key] = existingId;
         continue;
       }
@@ -297,15 +305,39 @@ export async function ensureServerTools(): Promise<Record<string, string>> {
         headers: { "xi-api-key": apiKey, "Content-Type": "application/json" },
         body: JSON.stringify({ tool_config: config }),
       });
+      if (!res.ok) {
+        // Previously swallowed in silence, which is how a newly added tool
+        // could simply never appear in the workspace with nothing anywhere
+        // explaining why. Log it — the re-sync is a manual action, so someone
+        // is watching.
+        console.error(
+          `[server-tools] CREATE ${toolFunctionName(key)} failed (${res.status}): ${await res.clone().text()}`,
+        );
+      }
       if (res.ok) {
         const created = (await res.json()) as { id?: string };
         if (created.id) out[key] = created.id;
       }
     }
 
-    cachedToolIds = out;
+    // Cache ONLY a complete resolution.
+    //
+    // A failed create is not an exception (we check res.ok), so caching `out`
+    // unconditionally pinned a partial map for the life of the serverless
+    // instance — and since the cache is checked before anything else, no
+    // amount of re-syncing could ever recover. That is how demo_front_desk
+    // stayed missing from the workspace after it shipped. An incomplete
+    // resolution now simply isn't cached, so the next re-sync genuinely retries.
+    if (Object.keys(out).length === SERVER_TOOL_KEYS.length) {
+      cachedToolIds = out;
+    } else {
+      console.error(
+        `[server-tools] resolved ${Object.keys(out).length}/${SERVER_TOOL_KEYS.length} tools; not caching so the next sync retries`,
+      );
+    }
     return out;
-  } catch {
+  } catch (err) {
+    console.error("[server-tools] ensureServerTools threw:", err);
     return {};
   }
 }
