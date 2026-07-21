@@ -75,9 +75,10 @@ const TOOL_BLOCKS: Record<ToolKey, string> = {
 **When to use:** ONLY when the instructions above describe a front-desk demo AND the caller has agreed to hear one. Never call it just to answer a question about the product.
 **How to use:**
 1. Tell them you're pulling their business up — the lookup takes a few seconds.
-2. The tool returns a brief. Open with its \`receptionist_greeting\`, and answer as their front desk using \`services\` and \`common_caller_reasons\`.
-3. Never state anything listed in \`do_not_claim\` — say you'd have to check on that.
-4. If \`found\` is false, keep it general: play the part without naming specific services or prices.`,
+2. The tool returns a brief: \`business_name_spoken\`, \`what_they_do\`, \`where_we_are\`, \`hours\` and \`how_to_book\`. Answer as their front desk using those — greet with their name, and work the others in as a real receptionist would when asked.
+3. Any field that comes back blank is one we couldn't verify. Don't invent it — say you'd have to check.
+4. Never state anything listed in \`do_not_claim\`, and hedge \`hours\` ("I think we're open till five — let me double-check") since a website can be out of date.
+5. If \`found\` is false, keep it general: play the part without naming specifics.`,
   transfer_to_number: `## transfer_to_number
 **When to use:** When the lead asks to speak with a human, or when the conversation requires escalation beyond what you can handle.
 **How to use:**

@@ -361,9 +361,9 @@ test.describe("ElevenLabs server-tool webhooks", () => {
       const brief = body.brief;
       expect(typeof brief.found).toBe("boolean");
       expect(String(brief.business_name_spoken).length).toBeGreaterThan(0);
-      expect(String(brief.receptionist_greeting).length).toBeGreaterThan(0);
-      expect(Array.isArray(brief.services)).toBe(true);
-      expect(brief.common_caller_reasons.length).toBeGreaterThan(0);
+      expect(typeof brief.where_we_are).toBe("string");
+      expect(typeof brief.hours).toBe("string");
+      expect(typeof brief.how_to_book).toBe("string");
       expect(Array.isArray(brief.do_not_claim)).toBe(true);
 
       const { data: event } = await admin

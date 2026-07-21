@@ -20,7 +20,8 @@ config({ path: ".env.local", quiet: true });
  * console output and you see a green tick but none of the brief.
  *
  * Override the target with env vars:
- *   RESEARCH_COMPANY, RESEARCH_CITY, RESEARCH_STATE, RESEARCH_WEBSITE
+ *   RESEARCH_COMPANY, RESEARCH_CITY, RESEARCH_STATE, RESEARCH_WEBSITE,
+ *   RESEARCH_BOOKING
  *
  * It deliberately does NOT assert `found === true`: an honest "I couldn't
  * identify them" is a correct outcome for a business with no web presence, and
@@ -38,6 +39,7 @@ describe.skipIf(!live)("researchBusiness — LIVE", () => {
       city: process.env.RESEARCH_CITY ?? "Fort Lauderdale",
       state: process.env.RESEARCH_STATE ?? "FL",
       website: process.env.RESEARCH_WEBSITE ?? null,
+      bookingSoftware: process.env.RESEARCH_BOOKING ?? null,
       heardOnCall: null,
     };
 
@@ -54,9 +56,9 @@ describe.skipIf(!live)("researchBusiness — LIVE", () => {
     // Shape only: every field present and usable, whatever research found.
     expect(typeof brief.found).toBe("boolean");
     expect(brief.business_name_spoken.length).toBeGreaterThan(0);
-    expect(brief.receptionist_greeting.length).toBeGreaterThan(0);
-    expect(Array.isArray(brief.services)).toBe(true);
-    expect(brief.common_caller_reasons.length).toBeGreaterThan(0);
+    expect(typeof brief.where_we_are).toBe("string");
+    expect(typeof brief.hours).toBe("string");
+    expect(typeof brief.how_to_book).toBe("string");
     expect(Array.isArray(brief.do_not_claim)).toBe(true);
 
     // Must stay inside the tool's own 25s ElevenLabs timeout, or the agent is

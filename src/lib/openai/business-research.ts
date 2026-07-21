@@ -70,33 +70,41 @@ export type ResearchInputs = {
   city: string | null;
   state: string | null;
   website: string | null;
+  /** The booking/CRM platform we already know this business runs on (the
+   *  `booking_crm_software` custom field). Not researched — we imported it — so
+   *  it is the one fact in the brief that cannot be wrong. */
+  bookingSoftware: string | null;
   /** Anything the caller volunteered on the call. Treated as authoritative —
    *  it comes from the owner's own mouth, seconds ago. */
   heardOnCall: string | null;
 };
 
-/** What the agent role-plays from. Every field is short enough to say out loud. */
+/**
+ * What the agent role-plays from: the five things a front desk genuinely needs
+ * to answer the phone, each short enough to say out loud.
+ *
+ * Deliberately NOT here: a service list, likely caller reasons, a canned
+ * greeting. They read well on paper but the agent improvises them fine from
+ * `what_they_do`, and every extra field costs seconds the caller spends waiting.
+ */
 export type FrontDeskBrief = {
-  /** False when research could not confirm it found the RIGHT business. The
-   *  agent keeps the demo general in that case. */
+  /** Did we identify the RIGHT business? This is ONLY about identification —
+   *  an unfilled `hours` must never drag it false. Learned the hard way: when
+   *  `found` also meant "I got everything", one unverifiable field blanked an
+   *  otherwise perfect brief. */
   found: boolean;
   business_name_spoken: string;
   what_they_do: string;
-  services: string[];
-  common_caller_reasons: string[];
-  receptionist_greeting: string;
-  /** Things the agent must NOT state because research could not verify them. */
+  where_we_are: string;
+  hours: string;
+  how_to_book: string;
+  /** Things the agent must NOT state because research could not verify them.
+   *  Not spoken — it's the rail that stops the demo inventing prices on a
+   *  recorded call. */
   do_not_claim: string[];
+  /** Not spoken. Feeds `leads.website` so the next lookup is domain-pinned. */
   source_url: string | null;
 };
-
-/** True of practically every local service business, so it is safe to assume
- *  when research found nothing. */
-const GENERIC_CALLER_REASONS = [
-  "booking or changing an appointment",
-  "hours and location",
-  "what something costs",
-];
 
 /** With no verified facts, everything specific is off-limits. Prices and hours
  *  lead the list: they are what an owner catches instantly. */
@@ -109,18 +117,23 @@ const UNVERIFIED_CLAIMS = [
 
 /** The brief we return when research fails, times out, or can't identify the
  *  business. Deliberately still usable — the caller is mid-conversation, so an
- *  empty answer is worse than a general one. */
+ *  empty answer is worse than a general one. Note `where_we_are` and
+ *  `how_to_book` still come out populated: the lead's city and booking platform
+ *  are ours already, so they survive a total research failure. */
 export function fallbackBrief(inputs: ResearchInputs): FrontDeskBrief {
   const company = inputs.company?.trim() ?? "";
+  const where = [inputs.city, inputs.state]
+    .map((s) => s?.trim())
+    .filter((s): s is string => Boolean(s))
+    .join(", ");
+  const booking = inputs.bookingSoftware?.trim() ?? "";
   return {
     found: false,
     business_name_spoken: company || "the business",
     what_they_do: inputs.heardOnCall?.trim() ?? "",
-    services: [],
-    common_caller_reasons: [...GENERIC_CALLER_REASONS],
-    receptionist_greeting: company
-      ? `Thanks for calling ${company}, how can I help you?`
-      : "Thanks for calling, how can I help you?",
+    where_we_are: where,
+    hours: "",
+    how_to_book: booking ? `You can book through ${booking}.` : "",
     do_not_claim: [...UNVERIFIED_CLAIMS],
     source_url: null,
   };
@@ -157,17 +170,16 @@ export function buildFrontDeskBrief(
   const p = parsed as Record<string, unknown>;
   if (p.found !== true) return base;
 
-  const reasons = strArray(p.common_caller_reasons, 3);
   return {
     found: true,
     business_name_spoken:
       str(p.business_name_spoken) || base.business_name_spoken,
     what_they_do: str(p.what_they_do) || base.what_they_do,
-    services: strArray(p.services, 5),
-    common_caller_reasons:
-      reasons.length > 0 ? reasons : base.common_caller_reasons,
-    receptionist_greeting:
-      str(p.receptionist_greeting) || base.receptionist_greeting,
+    // A blank from research falls back to what we already knew (city, booking
+    // platform) rather than to an empty string the agent would have to skip.
+    where_we_are: str(p.where_we_are) || base.where_we_are,
+    hours: str(p.hours),
+    how_to_book: str(p.how_to_book) || base.how_to_book,
     // Whatever research itself flagged as unverified. NOT merged with the
     // fallback list: once we've confirmed the business, blanket-blocking
     // prices and hours would gut the demo, and the agent's own prompt frames
@@ -219,9 +231,9 @@ const BRIEF_SCHEMA = {
     "found",
     "business_name_spoken",
     "what_they_do",
-    "services",
-    "common_caller_reasons",
-    "receptionist_greeting",
+    "where_we_are",
+    "hours",
+    "how_to_book",
     "do_not_claim",
     "source_url",
   ],
@@ -229,7 +241,7 @@ const BRIEF_SCHEMA = {
     found: {
       type: "boolean",
       description:
-        "True ONLY if you are confident you found this exact business. Guessing is worse than false.",
+        "Did you identify the RIGHT business? This is ONLY about identification — how many other fields you managed to fill is irrelevant to it. Guessing at the business is worse than false.",
     },
     business_name_spoken: {
       type: "string",
@@ -242,25 +254,26 @@ const BRIEF_SCHEMA = {
       description:
         "ONE sentence, at most 20 words, as a person would say it aloud.",
     },
-    services: {
-      type: "array",
-      items: { type: "string" },
-      description: "Three to five services, each a few words.",
-    },
-    common_caller_reasons: {
-      type: "array",
-      items: { type: "string" },
-      description: "The three most likely reasons a customer phones them.",
-    },
-    receptionist_greeting: {
+    where_we_are: {
       type: "string",
-      description: "The exact line their receptionist would answer with.",
+      description:
+        "Where they are, as their receptionist would say it — street, landmark or neighbourhood, plus parking if you know it. At most 20 words. Blank if unknown.",
+    },
+    hours: {
+      type: "string",
+      description:
+        "Opening hours spoken naturally, e.g. 'we're open Monday to Thursday, eight to five'. Blank if you could not verify them.",
+    },
+    how_to_book: {
+      type: "string",
+      description:
+        "One spoken line for getting a caller booked in. At most 20 words.",
     },
     do_not_claim: {
       type: "array",
       items: { type: "string" },
       description:
-        "Anything a receptionist must NOT state because you could not verify it (e.g. prices, hours, staff names).",
+        "SHORT NOUN PHRASES ONLY for what a receptionist must not state because you could not verify it, e.g. 'exact prices', 'walk-ins', 'parking'. Never full sentences.",
     },
     source_url: {
       type: ["string", "null"],
@@ -287,11 +300,19 @@ export function buildResearchRequest(
     domain
       ? `Their website is ${domain} — treat it as the primary source.`
       : "Find their website or business listing first.",
+    inputs.bookingSoftware?.trim()
+      ? `They book through ${inputs.bookingSoftware.trim()} — we already know this, so use it for how_to_book.`
+      : "",
     heard
       ? `The owner said this on a live call just now — treat it as authoritative and prefer it over anything on the web: ${heard}`
       : "",
     "If you cannot confirm you found the RIGHT business, set found to false rather than guessing.",
-    "Put anything you could not verify into do_not_claim.",
+    // Without this the model treats ANY unverifiable field as a failure to
+    // identify the business and blanks the whole brief — measured: a business
+    // it had described perfectly came back empty purely because its hours
+    // weren't published.
+    "But found is ONLY about identifying the business. Leaving an individual field blank because you could not verify it is NORMAL and EXPECTED, and must NOT make found false.",
+    "Fill every field you can, leave blank the ones you cannot, and list the blanks in do_not_claim.",
     "Keep every field short enough to say out loud on a phone call.",
   ]
     .filter(Boolean)

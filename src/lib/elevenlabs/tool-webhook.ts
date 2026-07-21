@@ -1141,6 +1141,31 @@ async function markDnc(
 // ---------------------------------------------------------------------------
 // demo_front_desk
 // ---------------------------------------------------------------------------
+/** The lead's imported `booking_crm_software` value (Vagaro, Square, ...).
+ *  We know this from import rather than from the web, so it is the one fact in
+ *  the brief that cannot be wrong — and it's what lets the demo say "I'll get
+ *  you on the books in Vagaro". Same two-step lookup the conversation-init
+ *  webhook does for the matching dynamic variable. Null when unset. */
+async function resolveBookingSoftware(
+  ctx: CallContext,
+): Promise<string | null> {
+  const { data: def } = await ctx.supabase
+    .from("custom_field_defs")
+    .select("id")
+    .eq("slug", "booking_crm_software")
+    .maybeSingle();
+  if (!def?.id) return null;
+  const { data: val } = await ctx.supabase
+    .from("lead_custom_values")
+    .select("value")
+    .eq("lead_id", ctx.lead.id)
+    .eq("custom_field_id", def.id)
+    .maybeSingle();
+  const v = val?.value;
+  const s = typeof v === "string" ? v : v != null ? String(v) : "";
+  return s.trim() || null;
+}
+
 /**
  * Research the lead's business live so the agent can role-play their own front
  * desk. Returns the brief alongside a speakable `message`; the agent's own
@@ -1161,6 +1186,7 @@ async function demoFrontDesk(
     city: ctx.lead.city,
     state: ctx.lead.state,
     website: ctx.lead.website,
+    bookingSoftware: await resolveBookingSoftware(ctx),
     heardOnCall: str(body.heard_on_call) || null,
   });
 
