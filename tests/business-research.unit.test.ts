@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildFrontDeskBrief,
   fallbackBrief,
   ownSiteOrigin,
   researchDomain,
@@ -90,5 +91,69 @@ describe("fallbackBrief", () => {
       heardOnCall: "we do gel manicures and lash extensions",
     });
     expect(brief.what_they_do).toBe("we do gel manicures and lash extensions");
+  });
+});
+
+describe("buildFrontDeskBrief", () => {
+  const inputs = {
+    company: "Bella Nails",
+    city: "Cicero",
+    state: "IL",
+    website: null,
+    heardOnCall: null,
+  };
+
+  const good = {
+    found: true,
+    business_name_spoken: "Bella Nails",
+    what_they_do: "A nail salon offering manicures and pedicures.",
+    services: ["gel manicures", "pedicures", "lash extensions"],
+    common_caller_reasons: ["booking", "prices", "walk-in availability"],
+    receptionist_greeting: "Thanks for calling Bella Nails!",
+    do_not_claim: ["exact prices"],
+    source_url: "https://bellanails.com",
+  };
+
+  it("passes a complete answer through", () => {
+    expect(buildFrontDeskBrief(inputs, good)).toEqual(good);
+  });
+
+  it("falls back entirely when the model could not identify the business", () => {
+    expect(buildFrontDeskBrief(inputs, { ...good, found: false })).toEqual(
+      fallbackBrief(inputs),
+    );
+  });
+
+  it("falls back entirely on junk input", () => {
+    expect(buildFrontDeskBrief(inputs, null)).toEqual(fallbackBrief(inputs));
+    expect(buildFrontDeskBrief(inputs, "nope")).toEqual(fallbackBrief(inputs));
+  });
+
+  it("fills blank fields from the fallback rather than speaking empties", () => {
+    const brief = buildFrontDeskBrief(inputs, {
+      ...good,
+      receptionist_greeting: "   ",
+      common_caller_reasons: [],
+    });
+    expect(brief.receptionist_greeting).toBe(
+      "Thanks for calling Bella Nails, how can I help you?",
+    );
+    expect(brief.common_caller_reasons).toEqual(
+      fallbackBrief(inputs).common_caller_reasons,
+    );
+  });
+
+  it("drops non-strings, blanks and overruns from list fields", () => {
+    const brief = buildFrontDeskBrief(inputs, {
+      ...good,
+      services: ["a", "", "  ", 7, null, "b", "c", "d", "e", "f"],
+    });
+    expect(brief.services).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  it("normalises a missing source url to null", () => {
+    expect(
+      buildFrontDeskBrief(inputs, { ...good, source_url: "" }).source_url,
+    ).toBeNull();
   });
 });

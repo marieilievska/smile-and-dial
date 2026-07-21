@@ -123,3 +123,54 @@ export function fallbackBrief(inputs: ResearchInputs): FrontDeskBrief {
     source_url: null,
   };
 }
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+/** Clean a model-supplied list: strings only, trimmed, no blanks, capped. */
+function strArray(v: unknown, max: number): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((x): x is string => typeof x === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .slice(0, max);
+}
+
+/**
+ * Turn whatever the model returned into a complete brief.
+ *
+ * Two rules: a `found: false` (or unparseable) answer falls back WHOLESALE
+ * rather than field-by-field — a half-identified business is worse than an
+ * honestly generic one — and any individual field that comes back blank is
+ * filled from the fallback so the agent never has to speak an empty string.
+ */
+export function buildFrontDeskBrief(
+  inputs: ResearchInputs,
+  parsed: unknown,
+): FrontDeskBrief {
+  const base = fallbackBrief(inputs);
+  if (!parsed || typeof parsed !== "object") return base;
+  const p = parsed as Record<string, unknown>;
+  if (p.found !== true) return base;
+
+  const reasons = strArray(p.common_caller_reasons, 3);
+  return {
+    found: true,
+    business_name_spoken:
+      str(p.business_name_spoken) || base.business_name_spoken,
+    what_they_do: str(p.what_they_do) || base.what_they_do,
+    services: strArray(p.services, 5),
+    common_caller_reasons:
+      reasons.length > 0 ? reasons : base.common_caller_reasons,
+    receptionist_greeting:
+      str(p.receptionist_greeting) || base.receptionist_greeting,
+    // Whatever research itself flagged as unverified. NOT merged with the
+    // fallback list: once we've confirmed the business, blanket-blocking
+    // prices and hours would gut the demo, and the agent's own prompt frames
+    // the whole thing as a sample anyway.
+    do_not_claim: strArray(p.do_not_claim, 6),
+    source_url: str(p.source_url) || null,
+  };
+}
