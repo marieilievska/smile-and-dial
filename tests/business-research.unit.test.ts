@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildFrontDeskBrief,
+  buildResearchRequest,
   extractOutputText,
   fallbackBrief,
   ownSiteOrigin,
@@ -193,5 +194,52 @@ describe("extractOutputText", () => {
     expect(extractOutputText({ output: [{ type: "web_search_call" }] })).toBe(
       "",
     );
+  });
+});
+
+describe("buildResearchRequest", () => {
+  const inputs = {
+    company: "Bella Nails",
+    city: "Cicero",
+    state: "IL",
+    website: null,
+    heardOnCall: null,
+  };
+
+  function toolOf(req: Record<string, unknown>) {
+    return (req.tools as Record<string, unknown>[])[0];
+  }
+
+  it("pins the search to the lead's own domain when we have one", () => {
+    const req = buildResearchRequest({
+      ...inputs,
+      website: "https://www.bellanails.com/book",
+    });
+    expect(toolOf(req).filters).toEqual({
+      allowed_domains: ["bellanails.com"],
+    });
+  });
+
+  it("searches openly when we have no website", () => {
+    expect(toolOf(buildResearchRequest(inputs))).not.toHaveProperty("filters");
+  });
+
+  it("always requests web search and the strict brief schema", () => {
+    const req = buildResearchRequest(inputs);
+    expect(toolOf(req).type).toBe("web_search");
+    const format = (req.text as { format: Record<string, unknown> }).format;
+    expect(format.type).toBe("json_schema");
+    expect(format.strict).toBe(true);
+    expect(format.name).toBe("front_desk_brief");
+  });
+
+  it("puts the business, its location and anything heard on the call in the prompt", () => {
+    const req = buildResearchRequest({
+      ...inputs,
+      heardOnCall: "we mostly do lashes now",
+    });
+    expect(String(req.input)).toContain("Bella Nails");
+    expect(String(req.input)).toContain("Cicero, IL");
+    expect(String(req.input)).toContain("we mostly do lashes now");
   });
 });

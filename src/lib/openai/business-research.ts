@@ -205,3 +205,110 @@ export function extractOutputText(body: unknown): string {
   }
   return "";
 }
+
+const MODEL = "gpt-5.4-mini";
+
+/** Strict JSON schema for the brief. `strict: true` requires every property to
+ *  be listed in `required` and `additionalProperties: false`. */
+const BRIEF_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "found",
+    "business_name_spoken",
+    "what_they_do",
+    "services",
+    "common_caller_reasons",
+    "receptionist_greeting",
+    "do_not_claim",
+    "source_url",
+  ],
+  properties: {
+    found: {
+      type: "boolean",
+      description:
+        "True ONLY if you are confident you found this exact business. Guessing is worse than false.",
+    },
+    business_name_spoken: {
+      type: "string",
+      description: "How a receptionist would say the name out loud.",
+    },
+    what_they_do: { type: "string", description: "One short sentence." },
+    services: {
+      type: "array",
+      items: { type: "string" },
+      description: "Three to five services, each a few words.",
+    },
+    common_caller_reasons: {
+      type: "array",
+      items: { type: "string" },
+      description: "The three most likely reasons a customer phones them.",
+    },
+    receptionist_greeting: {
+      type: "string",
+      description: "The exact line their receptionist would answer with.",
+    },
+    do_not_claim: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Anything a receptionist must NOT state because you could not verify it (e.g. prices, hours, staff names).",
+    },
+    source_url: {
+      type: ["string", "null"],
+      description: "The page you relied on most.",
+    },
+  },
+} as const;
+
+/** Build the Responses API request. Pure — exported so the domain-pinning logic
+ *  is testable without hitting the network. */
+export function buildResearchRequest(
+  inputs: ResearchInputs,
+): Record<string, unknown> {
+  const domain = researchDomain(inputs.website);
+  const where = [inputs.city, inputs.state]
+    .map((s) => s?.trim())
+    .filter((s): s is string => Boolean(s))
+    .join(", ");
+  const heard = inputs.heardOnCall?.trim();
+
+  const instructions = [
+    "Research this local business so a receptionist could convincingly answer its phone.",
+    `Business: ${inputs.company?.trim() || "(name unknown)"}${where ? ` in ${where}` : ""}.`,
+    domain
+      ? `Their website is ${domain} — treat it as the primary source.`
+      : "Find their website or business listing first.",
+    heard
+      ? `The owner said this on a live call just now — treat it as authoritative and prefer it over anything on the web: ${heard}`
+      : "",
+    "If you cannot confirm you found the RIGHT business, set found to false rather than guessing.",
+    "Put anything you could not verify into do_not_claim.",
+    "Keep every field short enough to say out loud on a phone call.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    model: MODEL,
+    input: instructions,
+    tools: [
+      {
+        type: "web_search",
+        // "low" keeps the round-trip short; the caller is waiting on the phone.
+        search_context_size: "low",
+        // Pinning to their own domain is both faster and more accurate than an
+        // open search — this is why populating leads.website pays off.
+        ...(domain ? { filters: { allowed_domains: [domain] } } : {}),
+      },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "front_desk_brief",
+        strict: true,
+        schema: BRIEF_SCHEMA,
+      },
+    },
+  };
+}
