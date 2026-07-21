@@ -68,7 +68,7 @@ Confirmed against the ElevenLabs / OpenAI docs and this codebase on 2026-07-21:
    ([docs](https://developers.openai.com/api/docs/guides/tools-web-search))
 7. **We do not store an agent's voice.** The `agents` table has `ai_model` but no
    `voice_id`; voice lives only in ElevenLabs. Any server-side "pick a contrasting
-   voice" logic would need an extra mid-call API round-trip. This shapes decision D4.
+   voice" logic would need an extra mid-call API round-trip. This shapes §5.4.
 8. **Production agents are externally managed.** They are built in the ElevenLabs
    dashboard and connected by ID (`agents.externally_managed`), and
    `applyConnectedAgentIntegration` deliberately **never touches their prompt, voice,
