@@ -454,16 +454,21 @@ async function escalateCallbackVoicemail(
     return true;
   }
 
-  // 1st voicemail: +30 min. 2nd: next day same time. Callbacks dial on weekends
-  // now (agreed appointments), so keep the escalated time as-is instead of
-  // rolling a weekend attempt to Monday.
-  const nextRaw =
+  // 1st voicemail: +30 min, as-is — a callback the customer booked for a
+  // Saturday is honoured on that Saturday, so a same-day nudge must not roll.
+  //
+  // 2nd voicemail: next day, same time — but this one is OUR reschedule, not
+  // the customer's chosen slot, so it skips the weekend (Sat/Sun -> Monday) in
+  // the lead's local time rather than landing on a closed business.
+  const next =
     attempts === 1
-      ? new Date(Date.now() + 30 * 60 * 1000)
-      : new Date(
-          new Date(callback.scheduled_at).getTime() + 24 * 60 * 60 * 1000,
+      ? new Date(Date.now() + 30 * 60 * 1000).toISOString()
+      : rollIsoOffWeekend(
+          new Date(
+            new Date(callback.scheduled_at).getTime() + 24 * 60 * 60 * 1000,
+          ),
+          timeZone,
         );
-  const next = nextRaw.toISOString();
 
   await supabase
     .from("callbacks")
