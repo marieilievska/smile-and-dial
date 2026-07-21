@@ -1,29 +1,36 @@
-# Live Front-Desk Demo — Design
+# Front-Desk Demo Tool — Design
 
 **Date:** 2026-07-21
 **Status:** Design — pending user review, then implementation plan
-**Owner context:** Mid-call sales moment. When a prospect doubts that an AI can
-handle their phone, the agent researches their business live, switches voice, and
-plays _their_ front desk for 60–90 seconds — then pivots back to booking.
+**Scope:** **The tool only.** A seventh server tool that researches a prospect's
+business live and hands the agent a front-desk brief. Everything about _how_ a demo is
+performed — the persona, the second voice, when to offer it — is per-agent
+configuration, set up on a purpose-built demo agent in the ElevenLabs dashboard. Not
+built here.
 
 ---
 
 ## 1. Problem & goal
 
 The hardest objection on these calls is imagination: a salon owner cannot picture an
-AI answering their phone, so "does it actually sound human?" and "how would that even
-work for us?" stall the call. Today the agent can only _describe_ the product.
+AI answering their phone, so "does it actually sound human?" stalls the call. Today the
+agent can only _describe_ the product.
 
-**Goal:** give the agent a tool that turns that objection into the pitch. Mid-call,
-same call, no transfer: the agent looks up the prospect's business on the web, adopts
-a second voice, and role-plays their receptionist while the prospect plays a customer
-calling in. Then it steps back into its own voice and closes for the meeting.
+The answer is to let the agent _show_ them — mid-call, same call, it researches their
+business and role-plays their front desk while the prospect plays a customer calling
+in.
 
-**Secondary goal (free byproduct):** every demo permanently enriches the lead record
-with what the research found.
+**What this spec builds:** the missing capability underneath that — a tool the agent
+can call to get an accurate, speakable brief about the prospect's business in a few
+seconds. Nothing today can do that.
 
-**Non-goals:** provisioning a real, usable AI receptionist for the prospect; creating
-per-lead ElevenLabs agents; pre-researching the whole lead database.
+**What this spec deliberately does not build:** the demo behaviour itself. Whoever
+wants a demo agent builds one and writes the persona, the voice switch, and the
+offer/exit rules into that agent's own prompt. That keeps a sales-demo behaviour from
+leaking into Market Research and every other campaign.
+
+**Secondary goal (free byproduct):** research fills in `leads.website` and
+`leads.category`, which are empty on essentially every lead today.
 
 ---
 
@@ -31,302 +38,205 @@ per-lead ElevenLabs agents; pre-researching the whole lead database.
 
 Confirmed against the ElevenLabs / OpenAI docs and this codebase on 2026-07-21:
 
-1. **A tool's return value is fed to the live LLM as context.** Our six existing
-   server tools already rely on this (`ToolWebhookResult.message`, consumed in
+1. **A tool's return value is fed to the live LLM as context.** Our six existing server
+   tools rely on this (`ToolWebhookResult`, consumed in
    `src/app/api/elevenlabs/tools/[tool]/route.ts`). So a tool can hand the agent a
    persona mid-call and the agent will act on it. No new mechanism needed.
-2. **ElevenLabs supports multiple voices per agent.**
-   `conversation_config.tts.supported_voices` takes entries of
-   `{label, voice_id, language?, description?}`, **max 10 including the default**.
-   The LLM switches voice by wrapping text in `<LABEL>…</LABEL>` markup —
-   case-sensitive, no nesting. Returns to the default voice automatically when no tag
-   is present. Switching adds negligible latency after first use.
+2. **Adding a tool key gives us the checkbox for free.** `agent-wizard.tsx:563` maps
+   over `ALL_TOOLS` and renders `TOOL_LABELS[key]` + `TOOL_HELPERS[key]`. All three of
+   `TOOL_LABELS`, `TOOL_HELPERS`, `TOOL_BLOCKS` are exhaustive `Record<ToolKey, …>`, so
+   **TypeScript forces** an entry in each — they are not optional extras.
+3. **Connected (dashboard-built) agents already sync their checked tools.**
+   `applyConnectedAgentIntegration(agentId, toolsEnabled, …)` is called on connect, on
+   edit, and on "Re-sync all" (`src/lib/agents/actions.ts:169,240,349`). It merges our
+   `tool_ids` in while explicitly leaving prompt/voice/model alone. **Zero new work** to
+   satisfy "when connecting an existing agent it syncs to ElevenLabs."
+4. **ElevenLabs supports multiple voices per agent** —
+   `conversation_config.tts.supported_voices`, max 10, switched by `<LABEL>…</LABEL>`
+   markup. Configurable directly in the ElevenLabs dashboard, so the demo agent's owner
+   sets this up there. Out of scope for us.
    ([docs](https://elevenlabs.io/docs/eleven-agents/customization/voice/multi-voice-support))
-3. **Agent-to-agent transfer exists but is the wrong tool here.** It preserves the
-   transcript on the same call, but the receiving agent's prompt and voice are fixed
-   and **dynamic variables cannot be passed to it** — so it cannot be personalised per
-   business. Rejected.
-   ([docs](https://elevenlabs.io/docs/eleven-agents/customization/tools/system-tools/agent-transfer))
-4. **The agent can speak filler while a tool runs.** `soft_timeout_config` supports
-   `additional_soft_timeout_messages` (up to 7) and
-   `max_soft_timeouts_per_generation` (1–8, **default 1**). We currently set
-   `timeout_seconds: 3`, `use_llm_generated_message: true`, and leave the max at its
-   default of 1 (`src/lib/elevenlabs/agents.ts`) — so today the agent says one filler
-   and then goes silent. This must be raised for the research wait.
+5. **The agent can speak filler while a tool runs.** `soft_timeout_config` supports
+   `additional_soft_timeout_messages` (up to 7) and `max_soft_timeouts_per_generation`
+   (1–8, **default 1**). Also dashboard-configurable per agent. Relevant because the
+   research wait needs covering — but it is agent config, not ours.
    ([changelog](https://elevenlabs.io/docs/changelog/2026/5/4))
-5. **Lead enrichment is effectively empty in production.** Sampled 1,000 live leads
-   (of 29,970): **0% have `website`, 0% `category`, 0% `google_rating`; 100% have
-   `city`.** So the research step cannot lean on stored data — it must go to the web.
-   Marija is populating `website` on import going forward, which will make the fast
-   path the common one.
-6. **OpenAI web search requires the Responses API.** `POST /v1/responses` with
+6. **Lead enrichment is effectively empty in production.** Sampled 1,000 live leads (of
+   29,970): **0% have `website`, 0% `category`, 0% `google_rating`; 100% have `city`.**
+   The research step therefore cannot lean on stored data — it must go to the web.
+7. **OpenAI web search requires the Responses API.** `POST /v1/responses` with
    `tools: [{type: "web_search", search_context_size, filters:{allowed_domains}}]`.
-   Chat Completions only supports it via the separate `gpt-5-search-api` model with no
+   Chat Completions supports it only via the separate `gpt-5-search-api` model, with no
    filtering. `gpt-5.4-mini` supports web search + structured outputs on Responses.
    **This repo has never called `/v1/responses`** — every existing OpenAI call uses
-   `/v1/chat/completions`. This is new ground.
+   `/v1/chat/completions`. This is the one genuinely new piece of engineering.
    ([docs](https://developers.openai.com/api/docs/guides/tools-web-search))
-7. **We do not store an agent's voice.** The `agents` table has `ai_model` but no
-   `voice_id`; voice lives only in ElevenLabs. Any server-side "pick a contrasting
-   voice" logic would need an extra mid-call API round-trip. This shapes §5.4.
-8. **Production agents are externally managed.** They are built in the ElevenLabs
-   dashboard and connected by ID (`agents.externally_managed`), and
-   `applyConnectedAgentIntegration` deliberately **never touches their prompt, voice,
-   model, or guardrails**. Any agent-wizard-only feature would not reach them.
 
 ---
 
 ## 3. Decisions taken (approved 2026-07-21)
 
-| #   | Decision                                                                                                                         | Rationale                                                                                                                                                                                     |
-| --- | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | **Role-play demo only** — no real receptionist is provisioned                                                                    | Provisioning is a second product (agent + number + hours + booking + billing). Weeks, not days.                                                                                               |
-| D2  | **The AI offers it** when the prospect shows curiosity or doubt; it also honours direct requests                                 | Prospects don't know the feature exists, so request-only would almost never fire.                                                                                                             |
-| D3  | **Live web research is the source of truth**, not questions asked on the call                                                    | Marija: the web lookup _is_ the point. Anything the prospect already volunteered is passed along opportunistically, but the agent asks no extra questions.                                    |
-| D4  | **Framed as a sample; allowed to approximate**                                                                                   | Pre-framing ("here's roughly how this'd sound") buys forgiveness for imperfect research, which is unavoidable.                                                                                |
-| D5  | **Always attached to every agent**, wizard-built and connected alike. No per-agent checkbox. The prompt decides whether it fires | Production agents are dashboard-built (fact 8) — a wizard checkbox would never reach them.                                                                                                    |
-| D6  | **Demo voice synced to every agent, connected ones included**                                                                    | Purely additive: adds one labelled voice, never changes the voice an agent normally speaks in. Without it the demo runs in the same voice on the agents that matter and the effect collapses. |
+| #   | Decision                                                                                                                            | Rationale                                                                                                                                                      |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | **Role-play demo only** — no real receptionist is provisioned for the prospect                                                      | Provisioning is a second product (agent + number + hours + booking + billing). Weeks, not days.                                                                |
+| D2  | **Live web research is the source of truth**, not questions asked on the call                                                       | The web lookup _is_ the point of the tool. Anything the prospect already volunteered is passed along opportunistically; the agent asks no extra questions.     |
+| D3  | **Framed as a sample; allowed to approximate**                                                                                      | Research is never perfect. Pre-framing buys forgiveness. Enforced by the demo agent's prompt, not by us.                                                       |
+| D4  | **A checkbox, exactly like the other six tools**                                                                                    | Same wizard step, same `toolsEnabled` gate, same connected-agent sync. Nothing bespoke. Unchecking it is also the off switch — no separate kill switch needed. |
+| D5  | **Scope is the tool alone.** Persona, second voice, offer/exit rules, and post-call handling all live on a purpose-built demo agent | Keeps demo behaviour out of every other campaign, and keeps this change small enough to ship and verify in a day.                                              |
+
+**Reversed from the first draft of this spec** (superseded, recorded so it isn't
+re-proposed): the tool being always-on for every agent; syncing a demo voice onto
+connected agents; a `lead_business_profiles` cache table; an `app_settings` kill
+switch; Call Reviewer containment changes. All dropped by D4/D5. **The build now
+requires no database migration at all.**
 
 ---
 
-## 4. What happens on a call
+## 4. What we build
 
-1. Prospect is engaged and skeptical — _"does it actually sound human?"_
-2. Agent offers: _"Want to hear it? Give me ten seconds and I'll answer your phone as
-   your front desk."_ Prospect agrees.
-3. Agent calls `smiledial_demo_front_desk`, passing `{{call_id}}` and (optionally)
-   anything the prospect already said about the business.
-4. **While the tool runs**, the agent covers naturally — _"one sec, pulling your site
-   up…"_ — via LLM-generated soft-timeout fillers.
-5. Tool returns a front-desk brief. Agent sets the frame out loud:
-   _"Okay, got your site. This is roughly how it'd sound — go ahead and call in."_
-6. Agent switches voice via `<FRONT_DESK>…</FRONT_DESK>` and plays the receptionist.
-   Prospect acts as a customer. **2–4 exchanges, hard cap ~90 seconds.**
-7. Agent drops back to its own voice: _"…that's your front desk, and I built that off
-   your website in ten seconds."_ → pivots straight back to the campaign's goal.
+### 4.1 Tool registration — `demo_front_desk`
 
-**If research fails or times out**, the tool still returns a usable generic brief and
-the agent runs a shorter, vaguer demo. It never stalls and never says "the tool
-failed."
+Add the key to `ALL_TOOLS`, `SERVER_TOOL_KEYS`, `TOOL_LABELS`, `TOOL_HELPERS`,
+`TOOL_BLOCKS`, and `TOOL_DESCRIPTIONS`. LLM-facing name
+`smiledial_demo_front_desk` (existing namespace prefix).
 
----
+Request body properties (via `bodySchemaFor`):
 
-## 5. Components
-
-### 5.1 New server tool — `demo_front_desk`
-
-Follows the existing pattern exactly (`SERVER_TOOL_KEYS` → `bodySchemaFor` →
-`executeServerTool`). LLM-facing name `smiledial_demo_front_desk`.
-
-Request body properties:
-
-| Property        | Kind                  | Notes                                                                                                                                                                                            |
-| --------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `call_id`       | dynamic `{{call_id}}` | Resolves lead + campaign server-side, as every tool does                                                                                                                                         |
-| `tool_secret`   | constant              | Existing shared-secret validation                                                                                                                                                                |
-| `heard_on_call` | LLM-filled, optional  | "Anything the caller has ALREADY told you about their business — services, who answers the phone, why people call. Leave blank if they haven't said. Do not ask them questions to fill this in." |
+| Property        | Kind                  | Notes                                                                                                                                                                                       |
+| --------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `call_id`       | dynamic `{{call_id}}` | Resolves lead + campaign server-side, as every tool does                                                                                                                                    |
+| `tool_secret`   | constant              | Existing shared-secret validation                                                                                                                                                           |
+| `heard_on_call` | LLM-filled, optional  | "Anything the caller has ALREADY told you about their business — services, who answers the phone, why people call. Leave blank if they haven't said. Do not ask questions to fill this in." |
 
 `response_timeout_secs` becomes **per-tool** (`buildToolConfig` hardcodes 20 for all
 six today) so this one can use **25** to cover a slow search while the rest stay at 20.
 
-**Tool description (what the LLM reads when deciding to call it) must be tightly
-gated**, because the tool is attached to every agent including ones with no demo
-instructions:
+Tool description the LLM reads when deciding to call it:
 
-> Play a live sample of the prospect's own AI front desk. ONLY call this when your
-> system prompt explicitly authorises a front-desk demo AND the caller has agreed to
-> hear one. Never call this to answer a general question about the product.
+> Look up this prospect's business on the web and return a brief you can use to
+> role-play their front desk. Call this only when your instructions tell you to run a
+> front-desk demo and the caller has agreed to hear one.
 
-### 5.2 Research module — `src/lib/openai/business-research.ts`
+`TOOL_BLOCKS` gets a **short, honest** entry — it is type-required, and it is what a
+wizard-built agent would receive. It describes calling the tool and using the brief; it
+does not attempt to encode a full demo script. A purpose-built demo agent overrides it
+with its own richer prompt.
 
-New file. `researchBusiness({ company, city, state, website, heardOnCall })` →
-`FrontDeskBrief`.
+### 4.2 Handler — `executeServerTool` case in `tool-webhook.ts`
+
+1. Resolve the call context (existing `resolveCallContext`).
+2. Call `researchBusiness(...)` with the lead's `company`, `city`, `state`, `website`,
+   plus `heard_on_call`.
+3. Opportunistically fill `leads.website` / `leads.category` when research found one
+   and the lead has none. **Never overwrite an existing value** — the same rule
+   `sendEmail` already follows for `business_email`.
+4. Log a `tool_demo_front_desk` `system_events` row (existing table) with what was
+   found and how long it took, so we can see real-world hit rate and latency.
+5. Return the brief as the tool result alongside a speakable `message`.
+
+### 4.3 Research module — `src/lib/openai/business-research.ts` (new)
+
+`researchBusiness({ company, city, state, website, heardOnCall })` → `FrontDeskBrief`.
 
 - `POST https://api.openai.com/v1/responses`, model `gpt-5.4-mini`,
   `tools: [{ type: "web_search", search_context_size: "low" }]`.
-- **When `lead.website` exists**, pass `filters.allowed_domains: [<their domain>]` —
-  this pins the search to their own site: faster and far more accurate than an open
-  search.
+- **When the lead has a `website`**, pass `filters.allowed_domains: [<their domain>]` —
+  pins the search to their own site: faster and far more accurate than open search.
 - **When it doesn't**, open search on `"<company>" <city> <state>`.
-- Structured output (JSON schema) — the model returns **only these fields**, never raw
-  page text:
+- Structured output (JSON schema). The model returns **only these fields, never raw
+  page text**:
 
   ```
-  found                    boolean
-  business_name_spoken     string        how a receptionist would say it
-  what_they_do             string        one line
-  services                 string[]      3–5
-  common_caller_reasons    string[]      3
-  receptionist_greeting    string        the exact opening line
-  do_not_claim             string[]      things research could NOT verify
-  source_url               string | null
+  found                  boolean
+  business_name_spoken   string        how a receptionist would say it
+  what_they_do           string        one line
+  services               string[]      3–5
+  common_caller_reasons  string[]      3
+  receptionist_greeting  string        the exact opening line
+  do_not_claim           string[]      things research could NOT verify
+  source_url             string | null
   ```
 
-- **Hard 12s timeout.** On timeout, error, or `found: false`, return a generic brief
-  built from company + city so the demo still runs.
-- **Prompt-injection containment:** we fetch third-party websites and feed the result
-  into a live call. Returning only these structured fields — never page text — is the
-  containment boundary. ElevenLabs' `prompt_injection` guardrail is already on.
-
-### 5.3 Research cache — new table `lead_business_profiles`
-
-```
-lead_id      uuid  primary key  references leads(id) on delete cascade
-brief        jsonb not null
-source_url   text
-researched_at timestamptz not null default now()
-```
-
-Read before searching; refresh if older than 90 days. Stops us paying twice when a
-lead is demoed on two calls, and makes the second demo instant.
-
-**Write-back to the lead** (the secondary goal in §1): when research finds a website or a
-category the lead lacks, fill `leads.website` / `leads.category`. Never overwrite an
-existing value — same rule the post-call webhook already follows for
-`business_email`.
-
-### 5.4 Voice + wait behaviour
-
-Add a fixed second voice to `src/lib/elevenlabs/voices.ts` — Eryn ("Genuine,
-friendly, natural"), already in the roster:
-
-```
-FRONT_DESK_VOICE = { label: "FRONT_DESK", voice_id: "kdnRe2koJdOK4Ovxn2DI" }
-```
-
-Synced as `conversation_config.tts.supported_voices` in **both** `liveSync` (wizard
-agents) and `applyConnectedAgentIntegration` (dashboard agents), merged into any
-`supported_voices` already present, never replacing `tts.voice_id`.
-
-**Wait behaviour.** `soft_timeout_config` in `liveSync` currently leaves
-`max_soft_timeouts_per_generation` at its default of 1 (fact 4), so after one filler
-the agent goes quiet — a 10s research wait would be 7s of dead air. Raise it to **4**.
-Low risk: normal turns answer in ~1s and never reach the 3s threshold twice, and
-`use_llm_generated_message` is already on so the fillers are contextual
-("still pulling it up…") rather than canned.
-
-> **Change from the earlier conversation:** we discussed defaulting the demo voice to
-> the _opposite gender_ of the agent's own voice. That is not buildable cheaply — we
-> don't store agent voice (fact 7), so contrast would need an extra ElevenLabs lookup
-> mid-call. One fixed, distinctly-different-person voice is used instead; the agent
-> also frames the switch verbally, so the change is unmistakable either way. Syncing
-> two labelled voices (`FRONT_DESK_F` / `FRONT_DESK_M`) and letting the prompt pick is
-> a cheap v1.1 tweak if the single voice feels wrong.
-
-### 5.5 Prompt block
-
-New entry in `TOOL_BLOCKS` (`src/lib/agents/prompt.ts`) covering:
-
-- **When to offer** — decision-maker reached, past the intro, and they express doubt
-  or curiosity about how it sounds/works.
-- **When never to offer** — gatekeeper, hostile caller, voicemail, DNC, or when
-  they've already agreed to book.
-- **Disambiguation from `transfer_to_number`** — "talk to the AI front desk" is a
-  demo; "talk to a person / someone real" is a transfer. This collision is the single
-  most likely prompt failure and needs explicit wording.
-- **The frame** — always announce it's a sample built from their website _before_
-  switching.
-- **The mechanics** — wrap every receptionist line in `<FRONT_DESK>…</FRONT_DESK>`.
-- **The demo persona never gives a personal name.** "Thanks for calling Bella Nails,
-  how can I help?" — never "this is Sarah." This is what keeps the role-play out of
-  post-call `owner_name` / `employee_name` extraction.
-- **Honour `do_not_claim`** — deflect anything on that list with "let me grab someone
-  who can confirm that."
-- **The exit** — after 2–4 exchanges or ~90 seconds, switch back and close for the
-  meeting.
-
-Prompts on dashboard-built agents are edited in ElevenLabs by hand, so this block also
-needs to be documented for Marija to paste into those agents.
-
-### 5.6 Post-call containment
-
-The transcript will contain the agent role-playing as a nail salon. Three systems read
-it afterwards and will each draw the wrong conclusion:
-
-| Reader                     | Wrong conclusion                                                             | Fix                                                                                                                                                                                                         |
-| -------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Call Reviewer              | Flags the whole call `off_script` — exactly the false-alarm class #288 fixed | Tool writes a `tool_demo_front_desk` `system_events` row against the call. `src/lib/review/playbook-data.ts` / `prompts.ts` append a line to both passes: a front-desk demo section is _intended_ behaviour |
-| ElevenLabs data collection | Could extract a role-play name into `owner_name` / `employee_name`           | Prompt rule: the demo persona never gives a personal name (§5.5)                                                                                                                                            |
-| 0–10 quality score         | Grades the role-play as rambling / off-message                               | Same `system_events` marker; excluded or annotated in scoring                                                                                                                                               |
-
-### 5.7 Kill switch
-
-`app_settings.front_desk_demo_enabled boolean not null default false`.
-
-The handler checks it first; when off it returns
-`{success: false, message: "The front-desk demo isn't available on this call — carry on normally."}`
-and the agent simply moves on. **Defaults to `false`** so the migration and deploy are
-inert; flipped on manually after a supervised test call. Also gives a
-no-deploy global off switch if it misbehaves on live calls.
+- **Hard 12s timeout.** On timeout, error, missing API key, or `found: false`, return a
+  generic brief built from company + city so the demo still runs. The tool never
+  reports failure to the caller.
+- **Prompt-injection containment:** we are pulling third-party websites into a live
+  phone call. Returning only these structured fields — never page text — is the
+  containment boundary. ElevenLabs' `prompt_injection` guardrail is already on for
+  every agent.
 
 ---
 
-## 6. Error handling
+## 5. Error handling
 
-| Failure                                 | Behaviour                                                    |
-| --------------------------------------- | ------------------------------------------------------------ |
-| Kill switch off                         | Polite decline, agent continues (above)                      |
-| `call_id` unresolvable                  | Existing generic tool failure message                        |
-| Research times out (>12s)               | Generic brief from company + city; demo runs shorter         |
-| Research finds nothing (`found: false`) | Same generic brief; the frame ("a sample") already covers it |
-| OpenAI key missing                      | Generic brief. Feature degrades, never errors                |
-| Voice label missing on the agent        | Demo still runs in the default voice — persona change only   |
+| Failure                                 | Behaviour                                     |
+| --------------------------------------- | --------------------------------------------- |
+| Tool unchecked on the agent             | Never attached; the LLM cannot see or call it |
+| `call_id` unresolvable                  | Existing generic tool failure message         |
+| Research times out (>12s)               | Generic brief from company + city             |
+| Research finds nothing (`found: false`) | Same generic brief                            |
+| `OPENAI_API_KEY` missing                | Generic brief. Feature degrades, never errors |
 
 Every path returns HTTP 200 with a speakable message, per the existing route contract.
 
 ---
 
-## 7. Verification
+## 6. Verification
 
 No CI gate on this repo, so: `npx tsc --noEmit`, `npx eslint`, `npm run build` clean on
 changed files.
 
-- **Playwright** (contract, runs against live): a spec POSTing
-  `/api/elevenlabs/tools/demo_front_desk` — asserts the kill-switch-off decline, and
-  with it on, a brief-shaped response for a seeded lead.
-- **Unit-testable seam:** brief-building is pure given a research result — the same
-  shape as `planEmailSend` / `planTextSend`, which exist precisely to be tested
-  without network.
-- **Live:** one supervised call to a known business before flipping the kill switch.
+- **Pure seam for unit-style testing:** brief-shaping from a research result is pure,
+  the same pattern as `planEmailSend` / `planTextSend`, which exist precisely to be
+  tested without network.
+- **Playwright** (contract, runs against live): POST
+  `/api/elevenlabs/tools/demo_front_desk` for a seeded lead and assert a brief-shaped
+  200 — including the degraded path, which is what runs without an OpenAI key.
+- **Live smoke:** call the deployed endpoint directly with a real lead id and eyeball
+  the brief for a business we can verify by hand. This is the real test of research
+  quality, and it needs no phone call.
 
 ---
 
-## 8. Cost
+## 7. Cost
 
-- Research: one `gpt-5.4-mini` Responses call with one web-search action per demo —
-  cents, cached per lead for 90 days.
-- Call time: +60–120s per demo. This is the real cost, and it lands only on engaged
-  decision-makers. `max_duration_seconds` is already 700s, so no cap change needed.
-- Zero cost on every call where no demo happens.
+One `gpt-5.4-mini` Responses call with one web-search action per invocation — cents.
+No cost on any call that doesn't use the tool. No added call time (the demo itself
+costs call minutes, but that arrives with the demo agent, not with this change).
 
 ---
 
-## 9. Out of scope for v1
+## 8. Out of scope — and who does it instead
 
-- Provisioning a real front desk for the prospect (D1).
-- Per-lead ElevenLabs agents (shared Referrizer workspace, slow to create mid-call).
-- Agent-to-agent transfer (fact 3).
-- Overnight pre-research of the lead database (pays to research ~30k leads to serve a
-  few hundred demos, and with no websites on file most would come back empty).
-- A UI surface for reviewing demos. The `system_events` rows are the record for now.
+Everything below is **per-agent setup**, done by whoever builds the demo agent, in the
+ElevenLabs dashboard:
 
----
+| Item                                                             | Where it's done                                                             |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| The demo persona, the offer/exit rules, honouring `do_not_claim` | The demo agent's system prompt                                              |
+| The second voice + `<LABEL>` switch markup                       | ElevenLabs dashboard → agent → voice → supported voices                     |
+| Filler while research runs (`max_soft_timeouts_per_generation`)  | ElevenLabs dashboard → agent → turn-taking                                  |
+| Keeping role-play out of `owner_name` extraction                 | Prompt rule on the demo agent: the receptionist never gives a personal name |
+| Call Reviewer flagging demo calls `off_script`                   | Contained to the demo agent; revisit only if it becomes noisy               |
 
-## 10. Open risks
-
-1. **Prompt discipline is the real risk, not the tech.** Knowing when to offer, when
-   to shut up, and how to land back on booking is tuning over weeks of real calls —
-   the same arc the Call Reviewer went through.
-2. **Always-on means any agent can reach the tool** (D5). The gated description plus
-   the kill switch are the mitigations; `system_events` logging will show if it fires
-   where it shouldn't.
-3. **First use of `/v1/responses`** in this codebase (fact 6). Small, but new.
-4. **Web research quality is unknowable until tested** on real prospect businesses.
-   The "it's a sample" frame (D4) is the hedge.
+Also out of scope: provisioning a real front desk for the prospect (D1), per-lead
+ElevenLabs agents, agent-to-agent transfer, research caching, and overnight
+pre-research of the lead database.
 
 ---
 
-## 11. Effort
+## 9. Open risks
 
-~2–3 days: tool + research module 1d; prompt + voice sync + migration ½d; post-call
-containment ½d; live-call tuning ½–1d.
+1. **Research quality is unknowable until tested** against real prospect businesses
+   with no website on file. The live smoke test in §6 is how we find out — before any
+   phone call is involved.
+2. **First use of `/v1/responses`** in this codebase (fact 7). Small, but new.
+3. **A demo agent still has to be built and tuned** for any of this to reach a
+   prospect. This spec delivers the capability, not the experience.
+
+---
+
+## 10. Effort
+
+~1 day: research module ½d, tool + handler + wiring ¼d, Playwright + local
+verification ¼d. No migration, no UI work, no changes to existing agents.
