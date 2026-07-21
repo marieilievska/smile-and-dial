@@ -41,9 +41,28 @@ describe("ownSiteOrigin", () => {
     expect(ownSiteOrigin("https://facebook.com/bellanails")).toBeNull();
   });
 
+  // Regression: research for a real salon returned a vagaro.com listings page
+  // and we stored it as the lead's website. Not their site — and since that
+  // column pins the next search, it would have aimed every future lookup at a
+  // platform whose pages can't be read. 69% of leads are on Vagaro.
+  it("rejects booking platforms, which is where research usually lands", () => {
+    expect(
+      ownSiteOrigin("https://www.vagaro.com/listings/lashes/saltlakecity--ut"),
+    ).toBeNull();
+    expect(
+      ownSiteOrigin("https://square.site/book/5918NVHB63WEC/shania-esthetics"),
+    ).toBeNull();
+    expect(ownSiteOrigin("https://glossgenius.com/x")).toBeNull();
+    expect(ownSiteOrigin("https://booksy.com/en-us/1234_salon")).toBeNull();
+    expect(ownSiteOrigin("https://app.squareup.com/appointments")).toBeNull();
+  });
+
   it("does not reject a real site whose name merely starts like a directory", () => {
     expect(ownSiteOrigin("https://googlenails.com")).toBe(
       "https://googlenails.com",
+    );
+    expect(ownSiteOrigin("https://squarenails.com")).toBe(
+      "https://squarenails.com",
     );
   });
 
