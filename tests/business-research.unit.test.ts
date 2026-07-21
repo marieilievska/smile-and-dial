@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  fallbackBrief,
   ownSiteOrigin,
   researchDomain,
 } from "../src/lib/openai/business-research";
@@ -45,5 +46,49 @@ describe("ownSiteOrigin", () => {
 
   it("returns null when there is no source url", () => {
     expect(ownSiteOrigin(null)).toBeNull();
+  });
+});
+
+describe("fallbackBrief", () => {
+  const inputs = {
+    company: "Bella Nails",
+    city: "Cicero",
+    state: "IL",
+    website: null,
+    heardOnCall: null,
+  };
+
+  it("is speakable even though it knows nothing", () => {
+    const brief = fallbackBrief(inputs);
+    expect(brief.found).toBe(false);
+    expect(brief.business_name_spoken).toBe("Bella Nails");
+    expect(brief.receptionist_greeting).toBe(
+      "Thanks for calling Bella Nails, how can I help you?",
+    );
+    expect(brief.common_caller_reasons.length).toBeGreaterThan(0);
+    expect(brief.services).toEqual([]);
+    expect(brief.source_url).toBeNull();
+  });
+
+  it("blocks the specifics an owner would instantly catch", () => {
+    expect(fallbackBrief(inputs).do_not_claim).toEqual(
+      expect.arrayContaining(["prices", "opening hours"]),
+    );
+  });
+
+  it("keeps the greeting natural when we have no company name", () => {
+    const brief = fallbackBrief({ ...inputs, company: null });
+    expect(brief.business_name_spoken).toBe("the business");
+    expect(brief.receptionist_greeting).toBe(
+      "Thanks for calling, how can I help you?",
+    );
+  });
+
+  it("uses what the caller already said as the description", () => {
+    const brief = fallbackBrief({
+      ...inputs,
+      heardOnCall: "we do gel manicures and lash extensions",
+    });
+    expect(brief.what_they_do).toBe("we do gel manicures and lash extensions");
   });
 });

@@ -62,3 +62,64 @@ export function ownSiteOrigin(sourceUrl: string | null): string | null {
   );
   return isDirectory ? null : `https://${domain}`;
 }
+
+export type ResearchInputs = {
+  company: string | null;
+  city: string | null;
+  state: string | null;
+  website: string | null;
+  /** Anything the caller volunteered on the call. Treated as authoritative —
+   *  it comes from the owner's own mouth, seconds ago. */
+  heardOnCall: string | null;
+};
+
+/** What the agent role-plays from. Every field is short enough to say out loud. */
+export type FrontDeskBrief = {
+  /** False when research could not confirm it found the RIGHT business. The
+   *  agent keeps the demo general in that case. */
+  found: boolean;
+  business_name_spoken: string;
+  what_they_do: string;
+  services: string[];
+  common_caller_reasons: string[];
+  receptionist_greeting: string;
+  /** Things the agent must NOT state because research could not verify them. */
+  do_not_claim: string[];
+  source_url: string | null;
+};
+
+/** True of practically every local service business, so it is safe to assume
+ *  when research found nothing. */
+const GENERIC_CALLER_REASONS = [
+  "booking or changing an appointment",
+  "hours and location",
+  "what something costs",
+];
+
+/** With no verified facts, everything specific is off-limits. Prices and hours
+ *  lead the list: they are what an owner catches instantly. */
+const UNVERIFIED_CLAIMS = [
+  "prices",
+  "opening hours",
+  "specific services",
+  "staff names",
+];
+
+/** The brief we return when research fails, times out, or can't identify the
+ *  business. Deliberately still usable — the caller is mid-conversation, so an
+ *  empty answer is worse than a general one. */
+export function fallbackBrief(inputs: ResearchInputs): FrontDeskBrief {
+  const company = inputs.company?.trim() ?? "";
+  return {
+    found: false,
+    business_name_spoken: company || "the business",
+    what_they_do: inputs.heardOnCall?.trim() ?? "",
+    services: [],
+    common_caller_reasons: [...GENERIC_CALLER_REASONS],
+    receptionist_greeting: company
+      ? `Thanks for calling ${company}, how can I help you?`
+      : "Thanks for calling, how can I help you?",
+    do_not_claim: [...UNVERIFIED_CLAIMS],
+    source_url: null,
+  };
+}
