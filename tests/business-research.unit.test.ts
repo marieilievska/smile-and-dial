@@ -58,18 +58,15 @@ describe("fallbackBrief", () => {
     city: "Cicero",
     state: "IL",
     website: null,
+    bookingSoftware: null,
     heardOnCall: null,
   };
 
-  it("is speakable even though it knows nothing", () => {
+  it("still names the business when it knows nothing else", () => {
     const brief = fallbackBrief(inputs);
     expect(brief.found).toBe(false);
     expect(brief.business_name_spoken).toBe("Bella Nails");
-    expect(brief.receptionist_greeting).toBe(
-      "Thanks for calling Bella Nails, how can I help you?",
-    );
-    expect(brief.common_caller_reasons.length).toBeGreaterThan(0);
-    expect(brief.services).toEqual([]);
+    expect(brief.hours).toBe("");
     expect(brief.source_url).toBeNull();
   });
 
@@ -79,12 +76,26 @@ describe("fallbackBrief", () => {
     );
   });
 
-  it("keeps the greeting natural when we have no company name", () => {
-    const brief = fallbackBrief({ ...inputs, company: null });
-    expect(brief.business_name_spoken).toBe("the business");
-    expect(brief.receptionist_greeting).toBe(
-      "Thanks for calling, how can I help you?",
-    );
+  it("falls back to a generic name when we have none", () => {
+    expect(
+      fallbackBrief({ ...inputs, company: null }).business_name_spoken,
+    ).toBe("the business");
+  });
+
+  // The two facts that survive a total research failure, because they came from
+  // our own import rather than the web.
+  it("still knows where they are, from the lead's own city", () => {
+    expect(fallbackBrief(inputs).where_we_are).toBe("Cicero, IL");
+  });
+
+  it("still knows how to book, from the imported booking platform", () => {
+    expect(
+      fallbackBrief({ ...inputs, bookingSoftware: "Vagaro" }).how_to_book,
+    ).toBe("You can book through Vagaro.");
+  });
+
+  it("leaves booking blank when we don't know the platform", () => {
+    expect(fallbackBrief(inputs).how_to_book).toBe("");
   });
 
   it("uses what the caller already said as the description", () => {
@@ -102,6 +113,7 @@ describe("buildFrontDeskBrief", () => {
     city: "Cicero",
     state: "IL",
     website: null,
+    bookingSoftware: "Vagaro",
     heardOnCall: null,
   };
 
@@ -109,9 +121,9 @@ describe("buildFrontDeskBrief", () => {
     found: true,
     business_name_spoken: "Bella Nails",
     what_they_do: "A nail salon offering manicures and pedicures.",
-    services: ["gel manicures", "pedicures", "lash extensions"],
-    common_caller_reasons: ["booking", "prices", "walk-in availability"],
-    receptionist_greeting: "Thanks for calling Bella Nails!",
+    where_we_are: "On Main Street, parking round the back.",
+    hours: "Open Monday to Saturday, nine to six.",
+    how_to_book: "I can get you booked in through Vagaro.",
     do_not_claim: ["exact prices"],
     source_url: "https://bellanails.com",
   };
@@ -131,26 +143,33 @@ describe("buildFrontDeskBrief", () => {
     expect(buildFrontDeskBrief(inputs, "nope")).toEqual(fallbackBrief(inputs));
   });
 
-  it("fills blank fields from the fallback rather than speaking empties", () => {
-    const brief = buildFrontDeskBrief(inputs, {
-      ...good,
-      receptionist_greeting: "   ",
-      common_caller_reasons: [],
-    });
-    expect(brief.receptionist_greeting).toBe(
-      "Thanks for calling Bella Nails, how can I help you?",
-    );
-    expect(brief.common_caller_reasons).toEqual(
-      fallbackBrief(inputs).common_caller_reasons,
-    );
+  // The bug this guards: `found` used to mean both "I identified them" AND "I
+  // got everything", so one unverifiable field blanked an otherwise perfect
+  // brief. Unknown hours must cost us the hours and nothing else.
+  it("keeps everything else when hours could not be verified", () => {
+    const brief = buildFrontDeskBrief(inputs, { ...good, hours: "" });
+    expect(brief.found).toBe(true);
+    expect(brief.hours).toBe("");
+    expect(brief.where_we_are).toBe("On Main Street, parking round the back.");
+    expect(brief.what_they_do).toBe(good.what_they_do);
   });
 
-  it("drops non-strings, blanks and overruns from list fields", () => {
+  it("fills a blank location and booking line from what we already knew", () => {
     const brief = buildFrontDeskBrief(inputs, {
       ...good,
-      services: ["a", "", "  ", 7, null, "b", "c", "d", "e", "f"],
+      where_we_are: "   ",
+      how_to_book: "",
     });
-    expect(brief.services).toEqual(["a", "b", "c", "d", "e"]);
+    expect(brief.where_we_are).toBe("Cicero, IL");
+    expect(brief.how_to_book).toBe("You can book through Vagaro.");
+  });
+
+  it("drops non-strings, blanks and overruns from do_not_claim", () => {
+    const brief = buildFrontDeskBrief(inputs, {
+      ...good,
+      do_not_claim: ["a", "", "  ", 7, null, "b", "c", "d", "e", "f", "g"],
+    });
+    expect(brief.do_not_claim).toEqual(["a", "b", "c", "d", "e", "f"]);
   });
 
   it("normalises a missing source url to null", () => {
@@ -203,6 +222,7 @@ describe("buildResearchRequest", () => {
     city: "Cicero",
     state: "IL",
     website: null,
+    bookingSoftware: null,
     heardOnCall: null,
   };
 
