@@ -29,8 +29,9 @@ wants a demo agent builds one and writes the persona, the voice switch, and the
 offer/exit rules into that agent's own prompt. That keeps a sales-demo behaviour from
 leaking into Market Research and every other campaign.
 
-**Secondary goal (free byproduct):** research fills in `leads.website` and
-`leads.category`, which are empty on essentially every lead today.
+**Secondary goal (free byproduct):** research fills in `leads.website`, which is empty
+on essentially every lead today — and which makes every subsequent lookup for that
+lead faster and more accurate.
 
 ---
 
@@ -127,9 +128,13 @@ with its own richer prompt.
 1. Resolve the call context (existing `resolveCallContext`).
 2. Call `researchBusiness(...)` with the lead's `company`, `city`, `state`, `website`,
    plus `heard_on_call`.
-3. Opportunistically fill `leads.website` / `leads.category` when research found one
-   and the lead has none. **Never overwrite an existing value** — the same rule
-   `sendEmail` already follows for `business_email`.
+3. Opportunistically fill `leads.website` when research identified the business's own
+   site and the lead has none. **Never overwrite an existing value** — the same rule
+   `sendEmail` already follows for `business_email` — and never store a directory
+   listing (Yelp, Google, Facebook): that column is what pins the _next_ search, so
+   letting an aggregator in would quietly degrade future research for that lead.
+   `leads.category` is deliberately **not** written: it is a short taxonomy value used
+   in filters and dynamic variables, and a one-line description would pollute it.
 4. Log a `tool_demo_front_desk` `system_events` row (existing table) with what was
    found and how long it took, so we can see real-world hit rate and latency.
 5. Return the brief as the tool result alongside a speakable `message`.
