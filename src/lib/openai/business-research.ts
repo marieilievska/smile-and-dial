@@ -235,7 +235,13 @@ const BRIEF_SCHEMA = {
       type: "string",
       description: "How a receptionist would say the name out loud.",
     },
-    what_they_do: { type: "string", description: "One short sentence." },
+    what_they_do: {
+      type: "string",
+      // Left to itself the model writes a three-sentence paragraph, which is
+      // unusable on a phone call. Give it a hard ceiling, not an adjective.
+      description:
+        "ONE sentence, at most 20 words, as a person would say it aloud.",
+    },
     services: {
       type: "array",
       items: { type: "string" },
@@ -299,8 +305,10 @@ export function buildResearchRequest(
         type: "web_search",
         // "low" keeps the round-trip short; the caller is waiting on the phone.
         search_context_size: "low",
-        // Pinning to their own domain is both faster and more accurate than an
-        // open search — this is why populating leads.website pays off.
+        // Pinning to their own domain buys ACCURACY, not speed — measured, a
+        // pinned search actually runs a few seconds slower than an open one.
+        // Worth it: it guarantees we describe the right business rather than a
+        // same-named one in another state.
         ...(domain ? { filters: { allowed_domains: [domain] } } : {}),
       },
     ],
@@ -317,10 +325,15 @@ export function buildResearchRequest(
 
 const RESPONSES_API = "https://api.openai.com/v1/responses";
 
-/** Hard ceiling on the research round-trip. The ElevenLabs tool is registered
- *  with a 25s timeout, so we must come back well inside that with room for the
- *  agent to start speaking. */
-const RESEARCH_TIMEOUT_MS = 12_000;
+/** Hard ceiling on the research round-trip.
+ *
+ *  Measured against the live API on 2026-07-21: a web-search round trip lands
+ *  between ~6s and ~13s (a domain-pinned search is at the slow end — see
+ *  buildResearchRequest). An earlier 12s ceiling was clipping perfectly good
+ *  results, turning a successful lookup into a "couldn't find them" demo. The
+ *  ElevenLabs tool is registered with a 25s timeout, so 18s leaves headroom for
+ *  the agent to start speaking while staying inside it. */
+const RESEARCH_TIMEOUT_MS = 18_000;
 
 /**
  * Research a business and return a brief the agent can role-play from.
