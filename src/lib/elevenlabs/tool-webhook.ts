@@ -19,13 +19,16 @@ import { deliverEmailViaClose } from "@/lib/close/send-email";
 import { planEmailSend } from "@/lib/close/email-send-plan";
 import { deliverSmsViaClose } from "@/lib/close/send-sms";
 import { planTextSend } from "@/lib/close/text-send-plan";
+import {
+  ownSiteOrigin,
+  researchBusiness,
+} from "@/lib/openai/business-research";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
 /**
  * ElevenLabs server-tool webhooks.
  *
- * Each of our five custom tools (send_email, schedule_callback,
- * get_available_times, book_appointment, mark_dnc) is registered with
+ * Each of our custom tools (see SERVER_TOOL_KEYS) is registered with
  * ElevenLabs as a webhook tool (see lib/elevenlabs/server-tools). When the
  * agent's LLM decides to use one mid-call, ElevenLabs POSTs to
  * /api/elevenlabs/tools/<tool> with a flat JSON body containing exactly the
@@ -44,7 +47,7 @@ import type { Database, Json } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
 
-/** The five custom server tools, in the order the wizard lists them. */
+/** Our custom server tools, in the order the wizard lists them. */
 export const SERVER_TOOL_KEYS = [
   "send_email",
   "send_text",
@@ -52,6 +55,7 @@ export const SERVER_TOOL_KEYS = [
   "get_available_times",
   "book_appointment",
   "mark_dnc",
+  "demo_front_desk",
 ] as const;
 
 export type ServerToolKey = (typeof SERVER_TOOL_KEYS)[number];
@@ -136,6 +140,9 @@ type CallContext = {
     mobile_phone: string | null;
     owner_phone: string | null;
     business_email: string | null;
+    city: string | null;
+    state: string | null;
+    website: string | null;
     owner_name: string | null;
     manager_name: string | null;
     employee_name: string | null;
@@ -159,7 +166,7 @@ async function resolveCallContext(
   const { data: lead } = await supabase
     .from("leads")
     .select(
-      "id, owner_id, company, business_phone, mobile_phone, owner_phone, business_email, owner_name, manager_name, employee_name, timezone, status",
+      "id, owner_id, company, business_phone, mobile_phone, owner_phone, business_email, city, state, website, owner_name, manager_name, employee_name, timezone, status",
     )
     .eq("id", call.lead_id)
     .maybeSingle();
@@ -281,6 +288,8 @@ export async function executeServerTool(
       return bookAppointment(ctx, body);
     case "mark_dnc":
       return markDnc(ctx, body);
+    case "demo_front_desk":
+      return demoFrontDesk(ctx, body);
     default:
       return { success: false, message: "Unknown tool." };
   }
@@ -1126,5 +1135,59 @@ async function markDnc(
     success: true,
     message:
       "Understood — I've removed you from our list and you won't be contacted again.",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// demo_front_desk
+// ---------------------------------------------------------------------------
+/**
+ * Research the lead's business live so the agent can role-play their own front
+ * desk. Returns the brief alongside a speakable `message`; the agent's own
+ * prompt decides how the demo is performed.
+ *
+ * Always succeeds. When research finds nothing the brief is still complete and
+ * the message tells the agent to keep the demo general — a stalled tool call
+ * mid-conversation is far worse than a vague demo.
+ */
+async function demoFrontDesk(
+  ctx: CallContext,
+  body: Record<string, unknown>,
+): Promise<ToolWebhookResult> {
+  const startedAt = Date.now();
+
+  const brief = await researchBusiness({
+    company: ctx.lead.company,
+    city: ctx.lead.city,
+    state: ctx.lead.state,
+    website: ctx.lead.website,
+    heardOnCall: str(body.heard_on_call) || null,
+  });
+
+  // Free enrichment: essentially no lead has a website today, and that column
+  // is what pins the NEXT research run. Only ever fill a blank — never
+  // overwrite (the same rule sendEmail follows for business_email) — and only
+  // with the business's OWN site, never a directory listing.
+  const discovered = ctx.lead.website ? null : ownSiteOrigin(brief.source_url);
+  if (discovered) {
+    await ctx.supabase
+      .from("leads")
+      .update({ website: discovered })
+      .eq("id", ctx.lead.id);
+  }
+
+  await logToolEvent(ctx, "tool_demo_front_desk", {
+    found: brief.found,
+    source_url: brief.source_url,
+    website_captured: discovered,
+    took_ms: Date.now() - startedAt,
+  });
+
+  return {
+    success: true,
+    message: brief.found
+      ? "I've got their details — use this brief to play their front desk."
+      : "I couldn't confirm much about them online — keep the demo general and don't state any specifics.",
+    brief,
   };
 }

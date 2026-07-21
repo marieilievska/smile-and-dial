@@ -337,4 +337,53 @@ test.describe("ElevenLabs server-tool webhooks", () => {
       await cleanupLeadAndCall(leadId, callId);
     }
   });
+
+  /**
+   * demo_front_desk researches the lead's business on the web, so what this
+   * exercises depends on the environment: with no OPENAI_API_KEY it takes the
+   * degraded path (the one that must never break); with a key it runs a real
+   * web search for the seeded fake company and will legitimately come back
+   * found:false. Both are correct, which is why every assertion below is on the
+   * brief's SHAPE and never on `found`.
+   */
+  test("demo_front_desk returns a complete brief and logs the lookup", async () => {
+    const { leadId, callId } = await seedLeadAndCall();
+    try {
+      const { status, body } = await post("demo_front_desk", {
+        call_id: callId,
+        heard_on_call: "we mostly do gel manicures",
+      });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+
+      // Every field must be present and speakable even with no research
+      // available — the agent is mid-conversation and cannot handle a gap.
+      const brief = body.brief;
+      expect(typeof brief.found).toBe("boolean");
+      expect(String(brief.business_name_spoken).length).toBeGreaterThan(0);
+      expect(String(brief.receptionist_greeting).length).toBeGreaterThan(0);
+      expect(Array.isArray(brief.services)).toBe(true);
+      expect(brief.common_caller_reasons.length).toBeGreaterThan(0);
+      expect(Array.isArray(brief.do_not_claim)).toBe(true);
+
+      const { data: event } = await admin
+        .from("system_events")
+        .select("kind, ref_id, payload")
+        .eq("ref_id", callId)
+        .eq("kind", "tool_demo_front_desk")
+        .single();
+      expect(event?.ref_id).toBe(callId);
+      expect(event?.payload).toHaveProperty("took_ms");
+    } finally {
+      await cleanupLeadAndCall(leadId, callId);
+    }
+  });
+
+  test("demo_front_desk degrades gracefully when the call can't be resolved", async () => {
+    const { status, body } = await post("demo_front_desk", {
+      call_id: "00000000-0000-0000-0000-000000000000",
+    });
+    expect(status).toBe(200);
+    expect(body.success).toBe(false);
+  });
 });

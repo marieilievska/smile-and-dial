@@ -90,6 +90,8 @@ const TOOL_HELPERS: Record<ToolKey, string> = {
     "Books a Calendly slot directly during the call. Counts as Goal Met.",
   mark_dnc:
     "Adds the lead's number to the workspace DNC list with reason 'caller requested'.",
+  demo_front_desk:
+    "Mid-call: looks the lead's business up on the web and returns a brief the agent can use to role-play their own front desk.",
   transfer_to_number:
     "Warm-transfers the live call to a human number set on the campaign.",
 };

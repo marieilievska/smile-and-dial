@@ -9,9 +9,8 @@ import {
 /**
  * ElevenLabs server-tool webhook dispatch.
  *
- * One route handles all five custom tools (send_email, schedule_callback,
- * get_available_times, book_appointment, mark_dnc), keyed by the [tool]
- * segment. Each tool is registered with ElevenLabs pointing at
+ * One route handles every custom tool (see SERVER_TOOL_KEYS), keyed by the
+ * [tool] segment. Each tool is registered with ElevenLabs pointing at
  * /api/elevenlabs/tools/<tool> (see lib/elevenlabs/server-tools). When the
  * agent's LLM uses a tool mid-call, ElevenLabs POSTs the declared parameters
  * here as a flat JSON body — including the {{call_id}} we bound so we can
