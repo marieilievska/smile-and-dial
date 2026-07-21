@@ -19,10 +19,20 @@ import { openAiKey } from "@/lib/openai/live";
  * one that touches the network) so they can be unit-tested offline.
  */
 
-/** Hosts that are directories/social pages rather than a business's own site.
- *  Matched on the registrable-ish domain, so "maps.google.com" and "google.com"
- *  both hit while "googlenails.com" does not. */
+/** Hosts that are NOT a business's own site — directories, social pages and
+ *  booking platforms. Matched on the registrable-ish domain, so
+ *  "maps.google.com" and "google.com" both hit while "googlenails.com" does not
+ *  (the trailing dot is what keeps the prefix honest).
+ *
+ *  The booking platforms matter most, and cost us a real lead before they were
+ *  here: research for a salon returned a vagaro.com listings page, which we
+ *  duly stored as its website. That is doubly bad — it isn't their site, and
+ *  `leads.website` is what pins the NEXT search, so every future lookup for
+ *  that lead would have been aimed at a platform whose pages are JavaScript
+ *  apps our crawler cannot read. With 69% of leads on Vagaro alone, these are
+ *  the URLs research lands on most often. */
 const DIRECTORY_HOSTS = [
+  // Directories and social
   "google.",
   "yelp.",
   "facebook.",
@@ -32,6 +42,26 @@ const DIRECTORY_HOSTS = [
   "mapquest.",
   "linkedin.",
   "bing.",
+  "nextdoor.",
+  "thumbtack.",
+  "groupon.",
+  // Booking platforms — every system our leads actually run on, plus the
+  // common ones in this vertical.
+  "vagaro.",
+  "square.",
+  "squareup.",
+  "glossgenius.",
+  "janeapp.",
+  "mangomint.",
+  "booksy.",
+  "fresha.",
+  "styleseat.",
+  "schedulicity.",
+  "setmore.",
+  "acuityscheduling.",
+  "mindbodyonline.",
+  "calendly.",
+  "treatwell.",
 ];
 
 /** The bare domain to pin a web search to ("https://www.Foo.com/x" → "foo.com").
