@@ -1,5 +1,7 @@
 import "server-only";
 
+import { openAiKey } from "@/lib/openai/live";
+
 /**
  * Live business research behind the `demo_front_desk` tool.
  *
@@ -311,4 +313,55 @@ export function buildResearchRequest(
       },
     },
   };
+}
+
+const RESPONSES_API = "https://api.openai.com/v1/responses";
+
+/** Hard ceiling on the research round-trip. The ElevenLabs tool is registered
+ *  with a 25s timeout, so we must come back well inside that with room for the
+ *  agent to start speaking. */
+const RESEARCH_TIMEOUT_MS = 12_000;
+
+/**
+ * Research a business and return a brief the agent can role-play from.
+ *
+ * Live whenever OPENAI_API_KEY is set (same "live when the credential is
+ * present" rule the rest of our OpenAI features use — see lib/openai/live).
+ * NEVER throws and never rejects: every failure path returns `fallbackBrief`,
+ * because the alternative is dead air on a live sales call.
+ */
+export async function researchBusiness(
+  inputs: ResearchInputs,
+): Promise<FrontDeskBrief> {
+  const apiKey = openAiKey();
+  if (!apiKey) return fallbackBrief(inputs);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RESEARCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(RESPONSES_API, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(buildResearchRequest(inputs)),
+      signal: controller.signal,
+    });
+    if (!res.ok) return fallbackBrief(inputs);
+
+    const text = extractOutputText((await res.json()) as unknown);
+    if (!text) return fallbackBrief(inputs);
+
+    try {
+      return buildFrontDeskBrief(inputs, JSON.parse(text));
+    } catch {
+      return fallbackBrief(inputs);
+    }
+  } catch {
+    // Aborted (timeout) or network failure.
+    return fallbackBrief(inputs);
+  } finally {
+    clearTimeout(timer);
+  }
 }
