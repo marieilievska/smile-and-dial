@@ -10,6 +10,7 @@ export const ALL_TOOLS = [
   "get_available_times",
   "book_appointment",
   "mark_dnc",
+  "demo_front_desk",
   "transfer_to_number",
 ] as const;
 
@@ -34,6 +35,7 @@ export const TOOL_LABELS: Record<ToolKey, string> = {
   get_available_times: "Get available times (Calendly)",
   book_appointment: "Book an appointment (Calendly)",
   mark_dnc: "Add the lead to do-not-call",
+  demo_front_desk: "Front-desk demo research",
   transfer_to_number: "Transfer to a human",
 };
 
@@ -69,6 +71,13 @@ const TOOL_BLOCKS: Record<ToolKey, string> = {
 **How to use:**
 1. Confirm: "I understand, I'll make sure you're not contacted again."
 2. Call the tool.`,
+  demo_front_desk: `## smiledial_demo_front_desk
+**When to use:** ONLY when the instructions above describe a front-desk demo AND the caller has agreed to hear one. Never call it just to answer a question about the product.
+**How to use:**
+1. Tell them you're pulling their business up — the lookup takes a few seconds.
+2. The tool returns a brief. Open with its \`receptionist_greeting\`, and answer as their front desk using \`services\` and \`common_caller_reasons\`.
+3. Never state anything listed in \`do_not_claim\` — say you'd have to check on that.
+4. If \`found\` is false, keep it general: play the part without naming specific services or prices.`,
   transfer_to_number: `## transfer_to_number
 **When to use:** When the lead asks to speak with a human, or when the conversation requires escalation beyond what you can handle.
 **How to use:**

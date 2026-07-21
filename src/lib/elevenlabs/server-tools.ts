@@ -12,14 +12,14 @@ import {
 import { appBaseUrl } from "@/lib/app-url";
 
 /**
- * Register our five custom server tools with ElevenLabs and map each to the
+ * Register our custom server tools with ElevenLabs and map each to the
  * workspace tool id the agent references via `tool_ids`.
  *
  * ElevenLabs tools are WORKSPACE-level objects (POST /v1/convai/tools),
  * reusable across agents. We keep exactly one tool per key, matched by
  * `tool_config.name` (which must equal the key so the agent prompt's tool
  * instructions line up with the function the LLM sees). On each sync we
- * upsert the five definitions, then attach the enabled subset's ids to the
+ * upsert every definition, then attach the enabled subset's ids to the
  * agent.
  *
  * Everything here is mocked unless ELEVENLABS_LIVE=live, so tests and local
@@ -51,6 +51,8 @@ const TOOL_DESCRIPTIONS: Record<ServerToolKey, string> = {
     "Book an appointment in a time slot the lead chose from get_available_times.",
   mark_dnc:
     "Add the lead to the do-not-call list when they ask not to be contacted again.",
+  demo_front_desk:
+    "Look up this prospect's business on the web and return a brief you can use to role-play their own front desk. Call this ONLY when your instructions tell you to run a front-desk demo and the caller has agreed to hear one.",
 };
 
 // A request-body property in ElevenLabs' tool schema. The live API enforces
@@ -155,9 +157,30 @@ function bodySchemaFor(
         false,
       );
       break;
+    case "demo_front_desk":
+      add(
+        "heard_on_call",
+        "Anything the caller has ALREADY told you about their business — services, who usually answers the phone, why people call them. Leave blank if they haven't said. Do NOT ask them questions to fill this in.",
+        false,
+      );
+      break;
   }
   return { properties, required };
 }
+
+/** Seconds ElevenLabs waits for our webhook before giving up. 20s is ample for
+ *  the tools that only touch our own database; demo_front_desk also runs a live
+ *  web search (measured ~4-13s, capped at 18s in the research module), so it
+ *  gets longer. */
+const TOOL_TIMEOUT_SECS: Record<ServerToolKey, number> = {
+  send_email: 20,
+  send_text: 20,
+  schedule_callback: 20,
+  get_available_times: 20,
+  book_appointment: 20,
+  mark_dnc: 20,
+  demo_front_desk: 25,
+};
 
 /** Build the ElevenLabs tool_config for one key, in the shape the live
  *  /v1/convai/tools API expects (verified against a working workspace tool):
@@ -173,7 +196,7 @@ function buildToolConfig(
     type: "webhook",
     name: toolFunctionName(key),
     description: TOOL_DESCRIPTIONS[key],
-    response_timeout_secs: 20,
+    response_timeout_secs: TOOL_TIMEOUT_SECS[key],
     api_schema: {
       url: `${baseUrl}/api/elevenlabs/tools/${key}`,
       method: "POST",

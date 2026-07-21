@@ -24,8 +24,7 @@ import type { Database, Json } from "@/lib/supabase/database.types";
 /**
  * ElevenLabs server-tool webhooks.
  *
- * Each of our five custom tools (send_email, schedule_callback,
- * get_available_times, book_appointment, mark_dnc) is registered with
+ * Each of our custom tools (see SERVER_TOOL_KEYS) is registered with
  * ElevenLabs as a webhook tool (see lib/elevenlabs/server-tools). When the
  * agent's LLM decides to use one mid-call, ElevenLabs POSTs to
  * /api/elevenlabs/tools/<tool> with a flat JSON body containing exactly the
@@ -44,7 +43,7 @@ import type { Database, Json } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
 
-/** The five custom server tools, in the order the wizard lists them. */
+/** Our custom server tools, in the order the wizard lists them. */
 export const SERVER_TOOL_KEYS = [
   "send_email",
   "send_text",
@@ -52,6 +51,7 @@ export const SERVER_TOOL_KEYS = [
   "get_available_times",
   "book_appointment",
   "mark_dnc",
+  "demo_front_desk",
 ] as const;
 
 export type ServerToolKey = (typeof SERVER_TOOL_KEYS)[number];
