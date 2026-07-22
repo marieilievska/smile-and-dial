@@ -156,6 +156,11 @@ export function SmsTemplateFormDialog({
                 <code className="text-[11px]">{"{{owner.full_name}}"}</code>.
                 Anything unknown is left blank.
               </p>
+              <p className="text-muted-foreground text-xs">
+                Paste a link as-is. On send we attach the lead&rsquo;s business
+                details and shorten it, so a long URL costs fewer segments than
+                counted above.
+              </p>
             </div>
           </DialogSection>
 

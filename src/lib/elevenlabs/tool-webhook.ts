@@ -15,6 +15,8 @@ import {
   parseZonedDatetime,
 } from "@/lib/dialer/local-schedule";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
+import { shortenMessageLink } from "@/lib/shortlinks/shorten-message";
+import type { LeadLinkParams } from "@/lib/shortlinks/destination";
 import { deliverEmailViaClose } from "@/lib/close/send-email";
 import { planEmailSend } from "@/lib/close/email-send-plan";
 import { deliverSmsViaClose } from "@/lib/close/send-sms";
@@ -335,18 +337,22 @@ async function resolveCampaignEmailTemplate(
   return tmpl ?? null;
 }
 
-/** Build the template-rendering context from the lead + owner + custom fields. */
+/** Build the template-rendering context from the lead + owner + custom fields.
+ *  The campaign is included so the documented {{campaign.name}} token resolves
+ *  (it silently rendered empty before) and so we can attribute short links to
+ *  the campaign via utm_campaign. */
 async function buildEmailContext(ctx: CallContext): Promise<TemplateContext> {
   const [
     { data: lead },
     { data: ownerProfile },
     { data: customValues },
     { data: defs },
+    { data: campaign },
   ] = await Promise.all([
     ctx.supabase
       .from("leads")
       .select(
-        "company, business_phone, business_email, owner_name, manager_name, employee_name, city, state",
+        "company, business_phone, business_email, owner_name, manager_name, employee_name, city, state, google_place_id",
       )
       .eq("id", ctx.lead.id)
       .maybeSingle(),
@@ -360,6 +366,11 @@ async function buildEmailContext(ctx: CallContext): Promise<TemplateContext> {
       .select("custom_field_id, value")
       .eq("lead_id", ctx.lead.id),
     ctx.supabase.from("custom_field_defs").select("id, name"),
+    ctx.supabase
+      .from("campaigns")
+      .select("name")
+      .eq("id", ctx.campaignId)
+      .maybeSingle(),
   ]);
   const defById = new Map((defs ?? []).map((d) => [d.id, d.name] as const));
   const customFields: Record<string, string> = {};
@@ -378,9 +389,33 @@ async function buildEmailContext(ctx: CallContext): Promise<TemplateContext> {
       employee_name: l.employee_name,
       city: l.city,
       state: l.state,
+      google_place_id: l.google_place_id,
     },
+    campaign: { name: campaign?.name ?? null },
     owner: { full_name: ownerProfile?.full_name ?? null },
     customFields,
+  };
+}
+
+/** The per-lead parameters the presell page reads, built from the database
+ *  rather than from anything the AI heard on the call — exact spelling every
+ *  time, and present even when the caller never mentioned their city.
+ *  `address` is deliberately absent: we store city/state but no street address,
+ *  and a half-filled address field reads as broken. */
+function leadLinkParams(args: {
+  renderCtx: TemplateContext;
+  channel: "sms" | "email";
+  email: string | null;
+}): LeadLinkParams {
+  const lead = args.renderCtx.lead;
+  return {
+    business_name: lead.company ?? null,
+    phone: lead.business_phone ?? null,
+    email: args.email || (lead.business_email ?? null),
+    google_place_id: lead.google_place_id ?? null,
+    utm_source: "smile-and-dial",
+    utm_medium: args.channel,
+    utm_campaign: args.renderCtx.campaign?.name ?? null,
   };
 }
 
@@ -465,7 +500,21 @@ async function sendEmail(
 
   const renderCtx = await buildEmailContext(ctx);
   const subject = renderTemplate(tmpl.subject, renderCtx);
-  const renderedBody = renderTemplate(tmpl.body, renderCtx);
+  // Personalise + shorten the template's link before anything is delivered or
+  // recorded, so the stored body is exactly what the lead received.
+  const renderedBody = await shortenMessageLink({
+    supabase: ctx.supabase,
+    leadId: ctx.lead.id,
+    ownerId: ctx.lead.owner_id,
+    campaignId: ctx.campaignId,
+    channel: "email",
+    campaignName: renderCtx.campaign?.name ?? null,
+    company: ctx.lead.company,
+    body: renderTemplate(tmpl.body, renderCtx),
+    // The address the AI just confirmed out loud beats the stored one — it's
+    // the one the lead actually gave us.
+    params: leadLinkParams({ renderCtx, channel: "email", email }),
+  });
 
   const live = process.env.ELEVENLABS_LIVE === "live";
   const sentMessage = `Done — I've sent the "${tmpl.name}" email to ${email}. It should arrive shortly.`;
@@ -686,7 +735,20 @@ async function sendText(
   }
 
   const renderCtx = await buildEmailContext(ctx);
-  const rendered = renderTemplate(tmpl.body, renderCtx);
+  // Shortening matters most here: the personalised URL is ~250 characters, which
+  // would split one text into three segments and attract carrier filtering.
+  const rendered = await shortenMessageLink({
+    supabase: ctx.supabase,
+    leadId: ctx.lead.id,
+    ownerId: ctx.lead.owner_id,
+    campaignId: ctx.campaignId,
+    channel: "sms",
+    campaignName: renderCtx.campaign?.name ?? null,
+    company: ctx.lead.company,
+    body: renderTemplate(tmpl.body, renderCtx),
+    // No email confirmed on a text — fall back to the stored one, or omit.
+    params: leadLinkParams({ renderCtx, channel: "sms", email: null }),
+  });
   const text = `${rendered}\n\n${SMS_OPT_OUT_LINE}`;
 
   const live = process.env.ELEVENLABS_LIVE === "live";
