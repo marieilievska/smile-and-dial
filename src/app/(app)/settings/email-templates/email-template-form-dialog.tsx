@@ -165,6 +165,10 @@ export function EmailTemplateFormDialog({
                 , <code className="text-[11px]">{"{{owner.full_name}}"}</code>.
                 Anything unknown is left blank.
               </p>
+              <p className="text-muted-foreground text-xs">
+                Paste a link as-is. On send we attach the lead&rsquo;s business
+                details to it and shorten it.
+              </p>
             </div>
           </DialogSection>
 

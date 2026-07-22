@@ -1214,6 +1214,64 @@ export type Database = {
           },
         ];
       };
+      short_links: {
+        Row: {
+          campaign_id: string | null;
+          channel: string;
+          code: string | null;
+          created_at: string;
+          id: string;
+          lead_id: string;
+          long_url: string;
+          owner_id: string;
+          short_url: string;
+        };
+        Insert: {
+          campaign_id?: string | null;
+          channel: string;
+          code?: string | null;
+          created_at?: string;
+          id?: string;
+          lead_id: string;
+          long_url: string;
+          owner_id: string;
+          short_url: string;
+        };
+        Update: {
+          campaign_id?: string | null;
+          channel?: string;
+          code?: string | null;
+          created_at?: string;
+          id?: string;
+          lead_id?: string;
+          long_url?: string;
+          owner_id?: string;
+          short_url?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "short_links_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "short_links_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "short_links_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       sms_templates: {
         Row: {
           body: string;
