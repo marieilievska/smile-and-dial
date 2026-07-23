@@ -379,7 +379,11 @@ export async function createCloseTask(
 /** Ensure the org has lead custom-field definitions for `names` — GET the lead
  *  custom fields, create any missing ones (type "text"). Returns a name→field-id
  *  map. Best-effort: silently omits any it couldn't list or create. Used to stamp
- *  UTM attribution onto a handed-off lead. */
+ *  UTM attribution onto a handed-off lead.
+ *
+ *  Matching is punctuation-insensitive (case, spaces, and underscores are
+ *  ignored) so we REUSE an org's existing UTM fields (e.g. "UTM Source") instead
+ *  of creating near-duplicate variants (e.g. "utm_source"). */
 export async function ensureCloseLeadCustomFields(
   apiKey: string,
   names: string[],
@@ -392,11 +396,12 @@ export async function ensureCloseLeadCustomFields(
     ? (((await res.json()) as { data?: { id: string; name?: string }[] })
         .data ?? [])
     : [];
+  const norm = (s: string) => s.toLowerCase().replace(/[\s_]+/g, "");
   const byName = new Map(
-    existing.map((f) => [(f.name ?? "").toLowerCase(), f.id] as const),
+    existing.map((f) => [norm(f.name ?? ""), f.id] as const),
   );
   for (const name of names) {
-    const found = byName.get(name.toLowerCase());
+    const found = byName.get(norm(name));
     if (found) {
       out[name] = found;
       continue;
