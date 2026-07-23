@@ -11,7 +11,7 @@ import "server-only";
  * Without SHORTLINK_API_KEY (local dev, tests) we never touch the network.
  */
 
-const SHORTLINK_API = "https://presell.hireai.me/api/public/shortlinks";
+const SHORTLINK_API = "https://presale.hireai.me/api/public/shortlinks";
 
 /** Well under the tools' 20s ElevenLabs budget — the rest of the send (Close
  *  delivery, row insert) still has to finish inside it. */

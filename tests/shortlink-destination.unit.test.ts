@@ -9,8 +9,8 @@ import {
 describe("findFirstUrl", () => {
   it("finds the link inside a rendered message", () => {
     expect(
-      findFirstUrl("Hi Joe's Bar — here it is:\nhttps://presell.hireai.me/"),
-    ).toBe("https://presell.hireai.me/");
+      findFirstUrl("Hi Joe's Bar — here it is:\nhttps://presale.hireai.me/"),
+    ).toBe("https://presale.hireai.me/");
   });
 
   it("keeps query strings intact", () => {
@@ -37,7 +37,7 @@ describe("findFirstUrl", () => {
 });
 
 describe("withLeadParams", () => {
-  const base = "https://presell.hireai.me/";
+  const base = "https://presale.hireai.me/";
 
   it("attaches the lead's details to a bare link", () => {
     const url = withLeadParams(base, {
