@@ -2,9 +2,49 @@ import { describe, expect, it } from "vitest";
 
 import {
   findFirstUrl,
+  linkUtmParams,
   shortLinkLabel,
   withLeadParams,
 } from "../src/lib/shortlinks/destination";
+
+const HIREAI_PRESELL_ID = "55a68e5b-dc27-458a-8d23-db1560aad322";
+
+describe("linkUtmParams", () => {
+  it("uses the HireAI Presell overrides, with the channel as the medium", () => {
+    expect(
+      linkUtmParams({
+        campaignId: HIREAI_PRESELL_ID,
+        campaignName: "HireAI Presell",
+        channel: "sms",
+      }),
+    ).toEqual({
+      utm_source: "smile_dial",
+      utm_medium: "sms",
+      utm_campaign: "presale_voice_agents_q3-2026",
+    });
+    expect(
+      linkUtmParams({
+        campaignId: HIREAI_PRESELL_ID,
+        campaignName: "HireAI Presell",
+        channel: "email",
+      }).utm_medium,
+    ).toBe("email");
+  });
+
+  it("falls back to the default source + campaign name for other campaigns", () => {
+    expect(
+      linkUtmParams({
+        campaignId: "some-other-campaign-id",
+        campaignName: "Med Spa Q3",
+        channel: "email",
+      }),
+    ).toEqual({
+      utm_source: "smile-and-dial",
+      utm_medium: "email",
+      utm_campaign: "Med Spa Q3",
+    });
+  });
+});
 
 describe("findFirstUrl", () => {
   it("finds the link inside a rendered message", () => {

@@ -17,6 +17,38 @@ export type LeadLinkParams = {
   utm_campaign?: string | null;
 };
 
+/** Per-campaign UTM attribution for the links we place in texts/emails, keyed by
+ *  campaign id (an id survives a campaign rename; a name doesn't). A campaign not
+ *  listed here keeps the defaults below — we'll add proper per-campaign UTM
+ *  settings when a second campaign needs its own. `utm_medium` is always the
+ *  send channel (sms/email) and is never overridden. */
+const CAMPAIGN_LINK_UTM: Record<string, { source: string; campaign: string }> =
+  {
+    // HireAI Presell
+    "55a68e5b-dc27-458a-8d23-db1560aad322": {
+      source: "smile_dial",
+      campaign: "presale_voice_agents_q3-2026",
+    },
+  };
+
+/** The three UTM params for a shortened text/email link. Defaults to
+ *  source "smile-and-dial" + the campaign's own name; a campaign in
+ *  CAMPAIGN_LINK_UTM overrides both. Pure, so the override wiring is unit-tested. */
+export function linkUtmParams(args: {
+  campaignId: string | null;
+  campaignName: string | null;
+  channel: "sms" | "email";
+}): Pick<LeadLinkParams, "utm_source" | "utm_medium" | "utm_campaign"> {
+  const override = args.campaignId
+    ? CAMPAIGN_LINK_UTM[args.campaignId]
+    : undefined;
+  return {
+    utm_source: override?.source ?? "smile-and-dial",
+    utm_medium: args.channel,
+    utm_campaign: override?.campaign ?? args.campaignName ?? null,
+  };
+}
+
 /** Trailing characters that are almost always sentence punctuation rather than
  *  part of the URL ("...the link: https://x.com/." → the dot isn't the URL). */
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}'"]+$/;

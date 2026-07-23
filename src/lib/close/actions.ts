@@ -323,6 +323,11 @@ export async function handoffLeadToClose(
     ) ??
     calls[0] ??
     null;
+  // The campaign that scheduled the appointment. Appointments (calendly_events)
+  // don't store the campaign that booked them, so we use the lead's most recent
+  // call's campaign as the stand-in — correct while a lead runs on a single
+  // campaign. Revisit (store campaign on the appointment) once leads run across
+  // multiple campaigns and this can diverge.
   const utmCampaign = calls[0]?.campaign?.name ?? null;
 
   // Appointment: earliest upcoming, else most recent.
@@ -523,7 +528,7 @@ export async function handoffLeadToClose(
       "UTM Campaign",
     ]);
     const utm: Record<string, string> = {
-      "UTM Source": "smile-and-dial",
+      "UTM Source": "smile_dial",
       "UTM Medium": "ai_call",
       ...(utmCampaign ? { "UTM Campaign": utmCampaign } : {}),
     };
