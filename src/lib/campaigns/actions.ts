@@ -136,8 +136,10 @@ function buildUpdate(input: CampaignInput) {
     calling_hours_end: parseTime(input.callingHoursEnd, "21:00"),
     calls_per_hour_cap: parseNumber(input.callsPerHourCap) ?? 30,
     calls_per_day_cap: parseNumber(input.callsPerDayCap) ?? 300,
+    // Ceiling is the ElevenLabs Pro workspace concurrency limit (20, shared
+    // workspace-wide incl. inbound) — no point allowing a value EL can't honor.
     concurrency_cap_per_user: Math.min(
-      5,
+      20,
       Math.max(1, parseNumber(input.concurrencyCapPerUser) ?? 2),
     ),
     // Seconds between cold dials (0 = off). Clamped to a sane 0–120s.
