@@ -514,15 +514,18 @@ export async function handoffLeadToClose(
   // the AI calling. Best-effort — a Close custom-field hiccup never fails the
   // handoff (the note already posted).
   try {
+    // Use Close's existing UTM lead fields ("UTM Source" / "UTM Medium" /
+    // "UTM Campaign"). ensureCloseLeadCustomFields matches punctuation-insensitively,
+    // so it reuses these instead of creating "utm_source"-style duplicates.
     const ids = await ensureCloseLeadCustomFields(closeKey, [
-      "utm_source",
-      "utm_medium",
-      "utm_campaign",
+      "UTM Source",
+      "UTM Medium",
+      "UTM Campaign",
     ]);
     const utm: Record<string, string> = {
-      utm_source: "smile-and-dial",
-      utm_medium: "ai_call",
-      ...(utmCampaign ? { utm_campaign: utmCampaign } : {}),
+      "UTM Source": "smile-and-dial",
+      "UTM Medium": "ai_call",
+      ...(utmCampaign ? { "UTM Campaign": utmCampaign } : {}),
     };
     const utmValues = Object.entries(utm)
       .filter(([name]) => ids[name])
