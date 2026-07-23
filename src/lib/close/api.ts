@@ -278,6 +278,38 @@ export async function sendCloseSms(
   return { id: json.id ?? null, error: null };
 }
 
+/** After Close accepts an outbox email/SMS it returns an id immediately, but
+ *  delivers ASYNC — a bad account/number/token flips the activity to "error" a
+ *  moment later (seen ~0.4s after send). This briefly confirms the send didn't
+ *  immediately error, so we never record a "sent" Close actually bounced.
+ *
+ *  It ONLY reports an explicit error: a send still in "outbox"/"scheduled" is
+ *  left alone (returns false) since we can't block the call waiting for Close to
+ *  finish. Bounded to a few short polls (~1.5s worst case), exiting early on a
+ *  terminal status. Never throws — a read failure just returns false (assume
+ *  sent) rather than inventing a failure. */
+export async function closeActivityErrored(
+  apiKey: string,
+  kind: "email" | "sms",
+  activityId: string,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const res = await fetch(`${BASE}/activity/${kind}/${activityId}/`, {
+        headers: { Authorization: authHeader(apiKey) },
+      });
+      if (!res.ok) return false;
+      const json = (await res.json()) as { status?: string };
+      if (json.status === "error") return true;
+      if (json.status === "sent") return false;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 /** Find a Close USER by email — used to assign a task to the appointment's host.
  *  GET /user/ lists the org's users; match by email case-insensitively. Returns
  *  the user id, or null when there is no match / the request fails. */
