@@ -730,12 +730,16 @@ export function CampaignSettingsDialog({
                   id="campaign-concur"
                   type="number"
                   min={1}
-                  max={5}
+                  max={20}
                   value={concurrencyCapPerUser}
                   onChange={(event) =>
                     setConcurrencyCapPerUser(event.target.value)
                   }
                 />
+                <p className="text-muted-foreground text-[11px]">
+                  Max simultaneous live calls. Up to 20 (the ElevenLabs
+                  workspace limit, shared with inbound).
+                </p>
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="campaign-dial-interval">
