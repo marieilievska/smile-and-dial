@@ -16,6 +16,7 @@ import {
 } from "@/lib/dialer/local-schedule";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
 import { shortenMessageLink } from "@/lib/shortlinks/shorten-message";
+import { linkUtmParams } from "@/lib/shortlinks/destination";
 import type { LeadLinkParams } from "@/lib/shortlinks/destination";
 import { deliverEmailViaClose } from "@/lib/close/send-email";
 import { planEmailSend } from "@/lib/close/email-send-plan";
@@ -404,6 +405,7 @@ async function buildEmailContext(ctx: CallContext): Promise<TemplateContext> {
  *  and a half-filled address field reads as broken. */
 function leadLinkParams(args: {
   renderCtx: TemplateContext;
+  campaignId: string;
   channel: "sms" | "email";
   email: string | null;
 }): LeadLinkParams {
@@ -413,9 +415,13 @@ function leadLinkParams(args: {
     phone: lead.business_phone ?? null,
     email: args.email || (lead.business_email ?? null),
     google_place_id: lead.google_place_id ?? null,
-    utm_source: "smile-and-dial",
-    utm_medium: args.channel,
-    utm_campaign: args.renderCtx.campaign?.name ?? null,
+    // Attribution: defaults for every campaign, overridden per-campaign (e.g.
+    // HireAI Presell) in linkUtmParams. utm_medium is the send channel.
+    ...linkUtmParams({
+      campaignId: args.campaignId,
+      campaignName: args.renderCtx.campaign?.name ?? null,
+      channel: args.channel,
+    }),
   };
 }
 
@@ -513,7 +519,12 @@ async function sendEmail(
     body: renderTemplate(tmpl.body, renderCtx),
     // The address the AI just confirmed out loud beats the stored one — it's
     // the one the lead actually gave us.
-    params: leadLinkParams({ renderCtx, channel: "email", email }),
+    params: leadLinkParams({
+      renderCtx,
+      campaignId: ctx.campaignId,
+      channel: "email",
+      email,
+    }),
   });
 
   const live = process.env.ELEVENLABS_LIVE === "live";
@@ -747,7 +758,12 @@ async function sendText(
     company: ctx.lead.company,
     body: renderTemplate(tmpl.body, renderCtx),
     // No email confirmed on a text — fall back to the stored one, or omit.
-    params: leadLinkParams({ renderCtx, channel: "sms", email: null }),
+    params: leadLinkParams({
+      renderCtx,
+      campaignId: ctx.campaignId,
+      channel: "sms",
+      email: null,
+    }),
   });
   const text = `${rendered}\n\n${SMS_OPT_OUT_LINE}`;
 
