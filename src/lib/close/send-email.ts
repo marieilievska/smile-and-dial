@@ -1,7 +1,7 @@
 import "server-only";
 
 import {
-  closeSenderEmail,
+  closeSendingAccount,
   createCloseLead,
   findCloseLeadByEmail,
   sendCloseEmail,
@@ -31,12 +31,12 @@ export async function deliverEmailViaClose(
   input: DeliverEmailInput,
 ): Promise<DeliverEmailResult> {
   try {
-    const senderEmail = await closeSenderEmail(input.closeKey);
-    if (!senderEmail) return { ok: false, error: "no_connected_sending_email" };
+    const account = await closeSendingAccount(input.closeKey);
+    if (!account) return { ok: false, error: "no_connected_sending_email" };
 
     const fromAddress = input.senderName
-      ? `${input.senderName} <${senderEmail}>`
-      : senderEmail;
+      ? `${input.senderName} <${account.email}>`
+      : account.email;
 
     let ref = await findCloseLeadByEmail(input.closeKey, input.toAddress);
     if (!ref) {
@@ -56,6 +56,7 @@ export async function deliverEmailViaClose(
       subject: input.subject,
       bodyText: input.body,
       sender: fromAddress,
+      emailAccountId: account.id,
     });
     if (sent.error || !sent.id) {
       return { ok: false, error: sent.error ?? "close_send_failed" };

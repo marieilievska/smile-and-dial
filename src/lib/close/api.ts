@@ -137,30 +137,56 @@ export async function createCloseNote(
   return json.id ? { id: json.id } : null;
 }
 
-/** The email address Close will send FROM for this API key — the first
- *  connected email-capable account. Needed so an outbox email actually
- *  delivers. Returns null when no sending account is connected. */
-export async function closeSenderEmail(apiKey: string): Promise<string | null> {
+/** A connected account as Close returns it in the /connected_account/ list. */
+export type CloseConnectedAccount = {
+  id?: string;
+  email?: string;
+  send_status?: string;
+  enabled_features?: string[];
+};
+
+/** Pick a connected account Close can actually SEND email from RIGHT NOW: the
+ *  `email_sending` feature is enabled and the send channel is healthy
+ *  (`send_status: "ok"`). Pure so the selection is unit-tested.
+ *
+ *  Why the strict check: a Gmail account connected for sync/reading only (no
+ *  `email_sending` feature), or a reconnect still initializing (`send_status`
+ *  not yet "ok"), CANNOT send — and picking it made Close reject the send with
+ *  "No Connected Accounts were found to send this email" AFTER we'd already told
+ *  the caller it sent. Returning null here routes the honest "I've made a note"
+ *  fallback instead. */
+export function pickSendingAccount(
+  accounts: CloseConnectedAccount[],
+): { id: string; email: string } | null {
+  const acct = accounts.find(
+    (a) =>
+      a.id &&
+      a.email &&
+      a.send_status === "ok" &&
+      (a.enabled_features?.includes("email_sending") ?? false),
+  );
+  return acct?.id && acct.email ? { id: acct.id, email: acct.email } : null;
+}
+
+/** The connected account Close will send FROM for this API key — its id AND
+ *  address. The id must be passed as `email_account_id` on the outbox email or
+ *  Close can't route the send. Returns null when no send-capable account exists. */
+export async function closeSendingAccount(
+  apiKey: string,
+): Promise<{ id: string; email: string } | null> {
   const res = await fetch(`${BASE}/connected_account/`, {
     headers: { Authorization: authHeader(apiKey) },
   });
   if (!res.ok) return null;
-  const json = (await res.json()) as {
-    data?: { _type?: string; email?: string }[];
-  };
-  const acct = (json.data ?? []).find(
-    (a) =>
-      a.email &&
-      /google|gmail|email|smtp|office|microsoft|custom|outlook/i.test(
-        a._type ?? "",
-      ),
-  );
-  return acct?.email ?? null;
+  const json = (await res.json()) as { data?: CloseConnectedAccount[] };
+  return pickSendingAccount(json.data ?? []);
 }
 
 /** Send an email through Close (`status: "outbox"` → Close delivers it via the
- *  connected sending account). Returns the new activity id, or an error
- *  string the caller can surface. */
+ *  connected sending account). `emailAccountId` names WHICH connected account
+ *  sends it — required, or Close fails the activity with "No Connected Accounts
+ *  were found to send this email" even when a capable account exists. Returns
+ *  the new activity id, or an error string the caller can surface. */
 export async function sendCloseEmail(
   apiKey: string,
   input: {
@@ -170,6 +196,7 @@ export async function sendCloseEmail(
     subject: string;
     bodyText: string;
     sender: string;
+    emailAccountId: string;
   },
 ): Promise<{ id: string | null; error: string | null }> {
   const body = {
@@ -180,6 +207,7 @@ export async function sendCloseEmail(
     subject: input.subject,
     body_text: input.bodyText,
     status: "outbox",
+    email_account_id: input.emailAccountId,
   };
   const res = await fetch(`${BASE}/activity/email/`, {
     method: "POST",
