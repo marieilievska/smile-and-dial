@@ -1,6 +1,11 @@
 import "server-only";
 
-import { createCloseLead, findCloseLeadByPhone, sendCloseSms } from "./api";
+import {
+  closeActivityErrored,
+  createCloseLead,
+  findCloseLeadByPhone,
+  sendCloseSms,
+} from "./api";
 
 export type DeliverSmsInput = {
   closeKey: string;
@@ -42,6 +47,11 @@ export async function deliverSmsViaClose(
     });
     if (sent.error || !sent.id) {
       return { ok: false, error: sent.error ?? "close_send_failed" };
+    }
+    // Close accepted it, but sends async — confirm it didn't immediately error
+    // before we claim it sent (mirror of deliverEmailViaClose).
+    if (await closeActivityErrored(input.closeKey, "sms", sent.id)) {
+      return { ok: false, error: "close_send_errored" };
     }
     return { ok: true, closeMessageId: sent.id };
   } catch {
