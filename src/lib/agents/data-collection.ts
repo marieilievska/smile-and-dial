@@ -112,11 +112,22 @@ export function normalizeEvaluation(raw: unknown): ExtraEvaluationCriterion[] {
  *  analysis LLM extracts the answer from the CUSTOMER's own words only — never
  *  from the agent's questions, examples, or script. Without this the extractor
  *  was crediting the lead with things the agent said (e.g. tools the agent named
- *  as examples, or "interest" inferred from the agent's pitch). */
+ *  as examples, or "interest" inferred from the agent's pitch). The worked
+ *  example targets the most common leak: the agent paraphrases the customer, the
+ *  customer just says "right", and the extractor adopts the agent's wording as
+ *  the customer's. Keep this in sync with the same fields on connected agents. */
 export const CUSTOMER_ONLY_CLAUSE =
-  " Base this ONLY on what the person we called actually said. Never extract it " +
-  "from the AI agent's own words, questions, examples, or suggestions — if the " +
-  "customer never said it, leave it blank.";
+  " Base this ONLY on words the customer actually spoke themselves. Never take " +
+  "wording from the AI agent's own turns — its questions, pitch, examples, or " +
+  "paraphrases. In particular, if the agent restated the customer or put words " +
+  "in their mouth and the customer only gave a brief agreement ('right', 'yeah', " +
+  "'exactly', 'correct', 'mm-hmm'), do NOT adopt the agent's wording — capture " +
+  "only what the customer independently said in their own words, and if that is " +
+  "too thin to stand alone, leave it blank. Example: the customer says 'I'd need " +
+  "good customer service', the agent replies 'so it'd need to handle people " +
+  "well?', the customer says 'right' — record only 'needs good customer " +
+  "service', never the agent's 'handle people well' phrasing. When unsure, leave " +
+  "it blank.";
 
 /** Shape a normalized field into the ElevenLabs Data Collection entry. */
 export function toElevenLabsDataCollection(
