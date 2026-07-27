@@ -21,11 +21,18 @@ export type LeadLinkParams = {
  *  campaign id (an id survives a campaign rename; a name doesn't). A campaign not
  *  listed here keeps the defaults below — we'll add proper per-campaign UTM
  *  settings when a second campaign needs its own. `utm_medium` is always the
- *  send channel (sms/email) and is never overridden. */
+ *  send channel (sms/email) and is never overridden.
+ *
+ *  ⚠️ Keying on the id has one sharp edge: a database reset recreates the
+ *  campaign with a NEW id, and this map silently stops matching — links keep
+ *  sending, just with the generic fallback tags, so nothing looks broken while
+ *  attribution quietly degrades. That happened once already (the 2026-07-27
+ *  wipe), which is why the id below is the post-wipe one. If the CEO's dashboard
+ *  stops showing `presale_voice_agents_q3-2026`, check this id first. */
 const CAMPAIGN_LINK_UTM: Record<string, { source: string; campaign: string }> =
   {
-    // HireAI Presell
-    "55a68e5b-dc27-458a-8d23-db1560aad322": {
+    // HireAI Presell Research
+    "4e9b907b-2fb8-4735-80ef-ebca580af2d1": {
       source: "smile_dial",
       campaign: "presale_voice_agents_q3-2026",
     },

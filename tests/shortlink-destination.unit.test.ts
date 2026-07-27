@@ -7,7 +7,10 @@ import {
   withLeadParams,
 } from "../src/lib/shortlinks/destination";
 
-const HIREAI_PRESELL_ID = "55a68e5b-dc27-458a-8d23-db1560aad322";
+// Must match the live campaign id in CAMPAIGN_LINK_UTM. A database reset
+// recreates the campaign with a new id and silently kills the override, so this
+// constant is the canary: if it drifts from prod, attribution is already broken.
+const HIREAI_PRESELL_ID = "4e9b907b-2fb8-4735-80ef-ebca580af2d1";
 
 describe("linkUtmParams", () => {
   it("uses the HireAI Presell overrides, with the channel as the medium", () => {
@@ -91,6 +94,21 @@ describe("withLeadParams", () => {
     expect(parsed.searchParams.get("google_place_id")).toBe(
       "ChIJN1t_tDeuEmsRUsoyG83frY4",
     );
+  });
+
+  it("keeps the path when the template links to a page, not the root", () => {
+    // The live templates point at /pricing (where the founder rate is), so the
+    // path has to survive having the lead's details appended to it.
+    const url = withLeadParams("https://hireai.me/pricing", {
+      business_name: "Joe's Bar & Grill",
+      utm_source: "smile_dial",
+      utm_medium: "sms",
+    });
+    const parsed = new URL(url);
+    expect(parsed.pathname).toBe("/pricing");
+    expect(parsed.searchParams.get("business_name")).toBe("Joe's Bar & Grill");
+    expect(parsed.searchParams.get("utm_source")).toBe("smile_dial");
+    expect(url.startsWith("https://hireai.me/pricing?")).toBe(true);
   });
 
   it("encodes ampersands and apostrophes so the query string survives", () => {
