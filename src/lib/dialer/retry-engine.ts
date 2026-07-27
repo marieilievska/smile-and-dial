@@ -8,6 +8,7 @@ import {
   localHourDaysAheadIso,
   rollIsoOffWeekend,
 } from "@/lib/dialer/local-schedule";
+import { shouldScheduleRedial } from "@/lib/dialer/redial";
 import type { Database } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -144,7 +145,9 @@ export async function applyRetryForCall(
     .update({ retry_applied_at: new Date().toISOString() })
     .eq("id", callId)
     .is("retry_applied_at", null)
-    .select("id, lead_id, campaign_id, outcome, status");
+    .select(
+      "id, lead_id, campaign_id, outcome, status, is_redial, twilio_number_id",
+    );
   if (claimError) return { ok: false, reason: "could_not_claim_call" };
   if (!claimed || claimed.length === 0) {
     return { ok: true, status: "already_applied" };
@@ -197,7 +200,9 @@ export async function applyRetryForCall(
       .single(),
     supabase
       .from("campaigns")
-      .select("smart_scheduling, calling_hours_start, calling_hours_end")
+      .select(
+        "smart_scheduling, calling_hours_start, calling_hours_end, double_call_enabled",
+      )
       .eq("id", call.campaign_id ?? "")
       .maybeSingle(),
   ]);
@@ -346,6 +351,26 @@ export async function applyRetryForCall(
       .update({ retry_applied_at: null })
       .eq("id", callId);
     return { ok: false, reason: `unhandled_outcome:${call.outcome}` };
+  }
+
+  // Double calling: a voicemail at the opener or the pre-15-day step schedules
+  // an immediate redial from the SAME number. The cycle has already advanced
+  // above, so this marker is purely additive — if it can't be consumed (calling
+  // hours, caps, paused campaign, empty pool) the queue's 10-minute window
+  // closes and the lead is already scheduled correctly. Nothing to unwind.
+  //
+  // Read the position from the LEAD as it was fetched, not from `update`, which
+  // applyUnifiedRetryCycle has already overwritten with the NEXT position.
+  if (
+    shouldScheduleRedial({
+      doubleCallEnabled: campaign?.double_call_enabled ?? false,
+      outcome: call.outcome,
+      isRedial: call.is_redial ?? false,
+      retryPositionBefore: lead?.retry_position ?? 0,
+    })
+  ) {
+    update.redial_at = new Date().toISOString();
+    update.redial_number_id = call.twilio_number_id;
   }
 
   const { error: leadError } = await supabase
