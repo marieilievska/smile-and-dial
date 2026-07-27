@@ -2414,6 +2414,41 @@ export type Database = {
           },
         ];
       };
+      twilio_number_daily_stats: {
+        Row: {
+          calls: number;
+          connect_rate: number | null;
+          connected: number;
+          day: string;
+          twilio_number_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          calls?: number;
+          connect_rate?: number | null;
+          connected?: number;
+          day: string;
+          twilio_number_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          calls?: number;
+          connect_rate?: number | null;
+          connected?: number;
+          day?: string;
+          twilio_number_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "twilio_number_daily_stats_twilio_number_id_fkey";
+            columns: ["twilio_number_id"];
+            isOneToOne: false;
+            referencedRelation: "twilio_numbers";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       twilio_recording_events: {
         Row: {
           call_sid: string | null;

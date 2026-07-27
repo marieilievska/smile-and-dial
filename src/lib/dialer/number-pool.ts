@@ -7,10 +7,19 @@ import { stateForAreaCode } from "@/lib/dialer/nanp-states";
 type Admin = ReturnType<typeof createClient<Database>>;
 
 export type PoolSettings = {
+  /** Reputation-safe dials per number per day. **0 (or negative) means NO per-
+   *  number cap** — numbers dial without a daily ceiling and the warm-up ramp is
+   *  skipped entirely, leaving the campaign's own hourly/daily caps and
+   *  concurrency as the only volume limits. When uncapped, the connect-rate
+   *  trend (twilio_number_daily_stats) plus the auto-rest health monitor are
+   *  what protect a number's reputation. */
   daily_cap: number;
   warmup_days: number;
   warmup_start_cap: number;
 };
+
+/** Sentinel returned by `effectiveDailyCap` when per-number capping is off. */
+export const UNCAPPED = Number.POSITIVE_INFINITY;
 
 export const DEFAULT_POOL_SETTINGS: PoolSettings = {
   daily_cap: 100,
@@ -26,7 +35,12 @@ export function areaCodeOf(e164: string | null | undefined): string | null {
 }
 
 /** A number's daily cap today: the mature cap, ramped up over the warm-up window
- *  so a fresh number doesn't blast high volume. Pure. */
+ *  so a fresh number doesn't blast high volume. Pure.
+ *
+ *  A mature cap of 0 or less means capping is turned OFF for the whole pool:
+ *  returns `UNCAPPED`, and the warm-up ramp is skipped (a ramp toward "no
+ *  ceiling" is meaningless, and reading the ramp first would otherwise floor the
+ *  number at warmup_start_cap). */
 export function effectiveDailyCap(input: {
   matureCap: number;
   warmupStartCap: number;
@@ -35,6 +49,7 @@ export function effectiveDailyCap(input: {
   now: number;
 }): number {
   const { matureCap, warmupStartCap, warmupDays, warmupStartedAt, now } = input;
+  if (matureCap <= 0) return UNCAPPED;
   if (!warmupStartedAt || warmupDays <= 0) return matureCap;
   const ageDays = (now - new Date(warmupStartedAt).getTime()) / 86_400_000;
   if (ageDays >= warmupDays) return matureCap;
@@ -58,7 +73,8 @@ export type PoolCandidate = {
  *  the final fallback. The first non-empty tier wins. Within the chosen
  *  tier: least-used-today, tie-broken by higher connect rate then a stable
  *  spread key (so equal numbers share load evenly). Returns null when every
- *  candidate is at/over its cap (pool exhausted). Pure. */
+ *  candidate is at/over its cap (pool exhausted) — which cannot happen while
+ *  capping is off, since `UNCAPPED` candidates never fail the filter. Pure. */
 export function pickPoolNumber(
   candidates: PoolCandidate[],
   leadAreaCode: string | null,
@@ -106,7 +122,8 @@ export async function loadPoolSettings(db: Admin): Promise<PoolSettings> {
 /** Pick a live pool number for a campaign + lead. Loads the campaign's active,
  *  non-rested, imported numbers, their live 24h usage (via the grouped RPC), and
  *  ranks them with pickPoolNumber. Returns null when the pool is empty or fully
- *  capped (caller should defer the lead). */
+ *  capped (caller should defer the lead). With capping off, only an empty pool —
+ *  every number released, retired, rested or flagged — yields null. */
 export async function selectPoolNumber(
   db: Admin,
   campaignId: string,

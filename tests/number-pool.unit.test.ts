@@ -4,6 +4,7 @@ import {
   areaCodeOf,
   effectiveDailyCap,
   pickPoolNumber,
+  UNCAPPED,
   type PoolCandidate,
 } from "../src/lib/dialer/number-pool";
 
@@ -64,6 +65,39 @@ describe("effectiveDailyCap (warm-up ramp)", () => {
   });
 });
 
+describe("effectiveDailyCap (capping turned off)", () => {
+  // daily_cap <= 0 means "no per-number ceiling" pool-wide.
+  const off = { matureCap: 0, warmupStartCap: 50, warmupDays: 14, now: NOW };
+
+  it("returns UNCAPPED for a zero mature cap", () => {
+    expect(effectiveDailyCap({ ...off, warmupStartedAt: null })).toBe(UNCAPPED);
+  });
+
+  it("returns UNCAPPED for a negative mature cap", () => {
+    expect(
+      effectiveDailyCap({ ...off, matureCap: -1, warmupStartedAt: null }),
+    ).toBe(UNCAPPED);
+  });
+
+  it("skips the warm-up ramp entirely when uncapped", () => {
+    // The ramp is checked AFTER the uncapped short-circuit on purpose: reading
+    // it first would floor a brand-new number at warmupStartCap (50) and
+    // silently reintroduce a cap we turned off.
+    expect(
+      effectiveDailyCap({
+        ...off,
+        warmupStartedAt: new Date(NOW).toISOString(),
+      }),
+    ).toBe(UNCAPPED);
+  });
+
+  it("still honours a per-number override when the pool default is off", () => {
+    expect(
+      effectiveDailyCap({ ...off, matureCap: 25, warmupStartedAt: null }),
+    ).toBe(25);
+  });
+});
+
 describe("pickPoolNumber", () => {
   it("prefers an exact area-code match over a less-used other-area number", () => {
     const chosen = pickPoolNumber(
@@ -105,6 +139,37 @@ describe("pickPoolNumber", () => {
       "leadA",
     );
     expect(chosen).toBeNull();
+  });
+  it("never exhausts an uncapped pool, however many calls it has taken", () => {
+    const chosen = pickPoolNumber(
+      [cand({ id: "busy", calls24h: 50_000, effectiveCap: UNCAPPED })],
+      "954",
+      "leadA",
+    );
+    expect(chosen?.id).toBe("busy");
+  });
+  it("still spreads load across uncapped numbers, least-used first", () => {
+    // Removing the ceiling must not collapse onto one number — the least-used
+    // ordering is what keeps volume even across the pool.
+    const chosen = pickPoolNumber(
+      [
+        cand({
+          id: "hot",
+          areaCode: "954",
+          calls24h: 900,
+          effectiveCap: UNCAPPED,
+        }),
+        cand({
+          id: "cool",
+          areaCode: "954",
+          calls24h: 12,
+          effectiveCap: UNCAPPED,
+        }),
+      ],
+      "954",
+      "leadA",
+    );
+    expect(chosen?.id).toBe("cool");
   });
   it("breaks a usage tie by higher connect rate", () => {
     const chosen = pickPoolNumber(
