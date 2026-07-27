@@ -224,6 +224,7 @@ export function DashboardView({
         <KpiTile
           label="Conversations >1 min"
           value={sel.convGt1min.toLocaleString()}
+          hint="Connected calls only — a long voicemail or phone menu doesn't count"
         />
         <KpiTile label="DMs reached" value={sel.dms.toLocaleString()} />
         <KpiTile label="Callbacks" value={sel.callbacks.toLocaleString()} />
