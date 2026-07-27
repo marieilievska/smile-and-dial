@@ -350,9 +350,15 @@ export async function suggestPoolPlan(
     .select("number_pool_settings")
     .limit(1)
     .maybeSingle();
-  const dailyCap =
+  // How many numbers to BUY still needs a per-number throughput figure, even
+  // when dialing itself is uncapped (daily_cap <= 0) — otherwise the planner
+  // divides by ~1 and suggests buying thousands. Fall back to the standard
+  // reputation-safe figure for the suggestion only; it does not throttle
+  // anything at dial time.
+  const configuredCap =
     (settingsRow?.number_pool_settings as { daily_cap?: number } | null)
       ?.daily_cap ?? 100;
+  const dailyCap = configuredCap > 0 ? configuredCap : 100;
 
   const plan = buildPoolPlan({
     leadAreaCodes,

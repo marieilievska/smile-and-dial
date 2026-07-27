@@ -13,6 +13,7 @@ import {
 import {
   effectiveDailyCap,
   loadPoolSettings,
+  UNCAPPED,
   type PoolSettings,
 } from "@/lib/dialer/number-pool";
 import { stateForAreaCode } from "@/lib/dialer/nanp-states";
@@ -22,6 +23,7 @@ import { expectedNumberWebhooks } from "@/lib/twilio/numbers";
 import { formatCreatedAt } from "../format-created";
 import { BuyIntoPoolDialog } from "./buy-into-pool-dialog";
 import { BuyNumberDialog } from "./buy-number-dialog";
+import { ConnectRateTrend, type DailyStat } from "./connect-rate-trend";
 import { DeleteNumberDialog } from "./delete-number-dialog";
 import { PoolActionsMenu } from "./pool-actions-menu";
 import { ReleaseNumberDialog } from "./release-number-dialog";
@@ -77,6 +79,30 @@ export default async function TwilioNumbersPage({
 
   const poolSettings = await loadPoolSettings(supabase);
 
+  const now = new Date();
+
+  // Connect-rate history per number, last 30 Eastern days, oldest first.
+  // Recomputed every 30 min by refresh_twilio_number_daily_stats().
+  const historySince = new Date(now.getTime() - 30 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  const { data: statRows } = await supabase
+    .from("twilio_number_daily_stats")
+    .select("twilio_number_id, day, calls, connected, connect_rate")
+    .gte("day", historySince)
+    .order("day", { ascending: true });
+  const historyByNumber = new Map<string, DailyStat[]>();
+  for (const s of statRows ?? []) {
+    const list = historyByNumber.get(s.twilio_number_id) ?? [];
+    list.push({
+      day: s.day,
+      calls: s.calls,
+      connected: s.connected,
+      rate: s.connect_rate == null ? null : Number(s.connect_rate),
+    });
+    historyByNumber.set(s.twilio_number_id, list);
+  }
+
   // The webhook URLs we *expect* every number to be set to: ElevenLabs' native
   // inbound endpoints (inbound is EL-native). Used to render an
   // "ok / mismatch / unset" indicator in the Webhooks column.
@@ -99,8 +125,6 @@ export default async function TwilioNumbersPage({
     const qs = url.toString();
     return qs ? `/settings/twilio-numbers?${qs}` : "/settings/twilio-numbers";
   }
-
-  const now = new Date();
 
   return (
     <div className="flex flex-col gap-5 p-6">
@@ -151,7 +175,7 @@ export default async function TwilioNumbersPage({
                     <TableHead>Friendly name</TableHead>
                     <TableHead>Campaign</TableHead>
                     <TableHead>Area</TableHead>
-                    <TableHead>24h</TableHead>
+                    <TableHead>Connect rate</TableHead>
                     <TableHead>Country</TableHead>
                     <TableHead>Monthly cost</TableHead>
                     <TableHead>Status</TableHead>
@@ -195,26 +219,16 @@ export default async function TwilioNumbersPage({
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell
-                        title={`cap ${effectiveDailyCap({
-                          matureCap:
-                            number.daily_cap_override ?? poolSettings.daily_cap,
-                          warmupStartCap: poolSettings.warmup_start_cap,
-                          warmupDays: poolSettings.warmup_days,
-                          warmupStartedAt: number.warmup_started_at,
-                          now: now.getTime(),
-                        })}/day`}
-                      >
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-foreground tabular-nums">
-                            {number.last_calls_count_24h ?? 0} calls
-                          </span>
-                          <span className="text-muted-foreground text-xs">
-                            {number.last_connect_rate_24h != null
-                              ? `${Math.round(number.last_connect_rate_24h * 100)}%`
-                              : "—"}
-                          </span>
-                        </div>
+                      {/* Was a volume/cap column ("N calls", cap in the
+                       *  tooltip). Per-number daily caps are off, so the number
+                       *  that matters is no longer "how close to the ceiling"
+                       *  but "is this number's connect rate holding up". */}
+                      <TableCell>
+                        <ConnectRateTrend
+                          days={historyByNumber.get(number.id) ?? []}
+                          liveRate={number.last_connect_rate_24h}
+                          liveCalls={number.last_calls_count_24h}
+                        />
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {number.country}
@@ -234,7 +248,18 @@ export default async function TwilioNumbersPage({
                             </Badge>
                           )}
                           {!number.released_at
-                            ? poolStateBadge(number, poolSettings, now)
+                            ? poolStateBadge(
+                                {
+                                  pool_status: number.pool_status,
+                                  flagged_for_rotation:
+                                    number.flagged_for_rotation,
+                                  rested_until: number.rested_until,
+                                  warmup_started_at: number.warmup_started_at,
+                                  daily_cap_override: number.daily_cap_override,
+                                },
+                                poolSettings,
+                                now,
+                              )
                             : null}
                           {!number.released_at &&
                           number.elevenlabs_phone_number_id ? (
@@ -337,13 +362,18 @@ export default async function TwilioNumbersPage({
  *  flagging, resting, and warm-up are all pool concepts). Checked in priority
  *  order: retired (terminal-ish, until reactivated) > flagged (operator called it
  *  out) > rested (health engine cooled it down, auto-returns) > warming (still
- *  ramping to its mature cap) > active (the steady state). */
+ *  ramping to its mature cap) > active (the steady state).
+ *
+ *  "Warming" is skipped when this number has no daily cap: warm-up only exists
+ *  to ramp toward a ceiling, so with capping off there is nothing to ramp and
+ *  the badge would promise a throttle that isn't running. */
 function poolStateBadge(
   number: {
     pool_status: string;
     flagged_for_rotation: boolean;
     rested_until: string | null;
     warmup_started_at: string | null;
+    daily_cap_override: number | null;
   },
   settings: PoolSettings,
   now: Date,
@@ -363,7 +393,15 @@ function poolStateBadge(
     );
     return <Badge variant="secondary">Rested {hoursLeft}h</Badge>;
   }
-  if (number.warmup_started_at) {
+  const capped =
+    effectiveDailyCap({
+      matureCap: number.daily_cap_override ?? settings.daily_cap,
+      warmupStartCap: settings.warmup_start_cap,
+      warmupDays: settings.warmup_days,
+      warmupStartedAt: number.warmup_started_at,
+      now: now.getTime(),
+    }) !== UNCAPPED;
+  if (capped && number.warmup_started_at) {
     const ageDays =
       (now.getTime() - new Date(number.warmup_started_at).getTime()) /
       86_400_000;
