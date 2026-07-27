@@ -89,6 +89,7 @@ export type CampaignInput = {
   /** When true, retries aim for each lead's best-answering hour (in their
    *  timezone) instead of a fixed time window. Optional, defaults to false. */
   smartSchedulingEnabled?: boolean;
+  doubleCallEnabled?: boolean;
   /** Calendly event type (calendly_event_types.id) the booking tools check
    *  availability against and book into. Empty = booking is OFF for this
    *  campaign (the agent won't offer times or book; no fallback event). */
@@ -152,6 +153,7 @@ function buildUpdate(input: CampaignInput) {
     monthly_spend_cap: parseNumber(input.monthlySpendCap),
     autopilot_enabled: input.autopilotEnabled ?? true,
     smart_scheduling: input.smartSchedulingEnabled ?? false,
+    double_call_enabled: input.doubleCallEnabled ?? false,
     calendly_event_id: input.calendlyEventId?.trim() || null,
     email_template_id: input.emailTemplateId?.trim() || null,
     sms_template_id: input.smsTemplateId?.trim() || null,
