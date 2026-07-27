@@ -401,15 +401,8 @@ export async function runDialerTick(
     // next candidate for the same campaign waits out the dial interval above.
     lastDialAtByCampaign.set(c.campaign_id, Date.now());
 
-    // Consume the redial marker as soon as we own the lead. Clearing here rather
-    // than after placement means a failed placement can't leave the lead looping
-    // on the same marker for the rest of its 10-minute window.
-    if (c.is_redial_due) {
-      await supabase
-        .from("leads")
-        .update({ redial_at: null, redial_number_id: null })
-        .eq("id", c.lead_id);
-    }
+    // claim_lead_for_dial (above) already consumed the redial marker
+    // atomically as part of the claim UPDATE — nothing left to do here.
 
     if (elevenLive) {
       // TS doesn't carry the lead_id / campaign_id null narrow from
