@@ -101,8 +101,13 @@ export function computeDailyKpis(
     }
     k.callsMade++;
     const o = r.outcome ?? "";
-    if (CONNECTED_OUTCOMES.has(o)) k.connected++;
-    if ((r.duration_seconds ?? 0) > 60) k.convGt1min++;
+    const connected = CONNECTED_OUTCOMES.has(o);
+    if (connected) k.connected++;
+    // Duration alone doesn't make a conversation: a looping phone menu or a long
+    // voicemail greeting can easily run past a minute without a person ever
+    // speaking (one IVR ran 203s). Requiring a connected outcome also keeps this
+    // a strict subset of `connected` — it could previously exceed it.
+    if (connected && (r.duration_seconds ?? 0) > 60) k.convGt1min++;
     if (dmReached(r)) k.dms++;
     if (o === "callback") k.callbacks++;
     if (o === "call_back_later") k.callbackLater++;

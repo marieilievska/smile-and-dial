@@ -133,7 +133,12 @@ async function main() {
         new Date(r.started_at).toLocaleString("en-US", { timeZone: TZ }),
         r.outcome,
         CONNECTED.has(r.outcome) ? "yes" : "no",
-        (r.duration_seconds || 0) > 60 ? "yes" : "no",
+        // Connected AND over a minute. Duration alone isn't a conversation — a
+        // looping phone menu or a long voicemail greeting runs past a minute
+        // with nobody ever speaking. Matches computeDailyKpis in the app.
+        CONNECTED.has(r.outcome) && (r.duration_seconds || 0) > 60
+          ? "yes"
+          : "no",
         norm(x.decision_maker_reached) === "yes" ? "yes" : "no",
         x.ai_call_answering_interest,
         x.ai_call_answering_reason,
@@ -151,7 +156,9 @@ async function main() {
   writeFileSync(outPath, "﻿" + lines.join("\r\n"), "utf8");
 
   const connected = calls.filter((r) => CONNECTED.has(r.outcome)).length;
-  const convo = calls.filter((r) => (r.duration_seconds || 0) > 60).length;
+  const convo = calls.filter(
+    (r) => CONNECTED.has(r.outcome) && (r.duration_seconds || 0) > 60,
+  ).length;
   const dms = calls.filter(
     (r) => norm(exOf(r).decision_maker_reached) === "yes",
   ).length;
