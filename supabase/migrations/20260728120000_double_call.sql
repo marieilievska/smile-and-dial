@@ -103,10 +103,6 @@ select
   q.business_phone,
   q.lead_timezone,
   q.next_call_at,
-  -- DOUBLE CALL
-  q.is_redial_due,
-  q.redial_number_id,
-  q.queue_order,
   q.campaign_id,
   q.agent_id,
   q.twilio_number_id,
@@ -117,7 +113,14 @@ select
   q.concurrency_cap_per_user,
   q.daily_spend_cap,
   q.monthly_spend_cap,
-  q.dial_priority
+  q.dial_priority,
+  -- DOUBLE CALL: appended after dial_priority, not interleaved with the
+  -- columns above -- create or replace view can only APPEND new columns at
+  -- the end of the output list; it cannot rename or reorder an existing one
+  -- (Postgres 42P16). The 16 columns above must stay in exactly this order.
+  q.is_redial_due,
+  q.redial_number_id,
+  q.queue_order
 from (
   select
     l.id as lead_id,
