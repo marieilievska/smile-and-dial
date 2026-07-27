@@ -31,15 +31,23 @@ The template author pastes a plain link and never types a parameter.
 ## Why HireAI's shortener and not our own
 
 The CEO's presell app already exposes a shortener API
-(`POST https://presale.hireai.me/api/public/shortlinks`, bearer auth) that
-returns `https://presale.hireai.me/s/<code>` and answers clicks with a
+(`POST https://hireai.me/api/public/shortlinks`, bearer auth) that
+returns a short URL on the same host and answers clicks with a
 server-side 302, logging click analytics.
+
+> **Host history (2026-07-27).** The presell app has moved three times:
+> `presell.hireai.me` → `presale.hireai.me` → `hireai.me` (the apex). The old
+> hosts 302-redirect to the apex and preserve the query string, so previously
+> sent links still land correctly with their personalisation and UTMs intact.
+> Because it keeps moving, the endpoint is now overridable via the
+> `SHORTLINK_API_URL` env var — point it at the full endpoint URL to change
+> hosts without a deploy.
 
 Using it means:
 
 - **No DNS work.** Building our own needed a branded domain, and every
-  candidate was blocked: `hireai.me` is registered in another Vercel account
-  (ownership-claim wall, which risked breaking `presale.hireai.me` itself), and
+  candidate was blocked: `hireai.me` was registered in another Vercel account
+  (ownership-claim wall, which risked breaking the presell host itself), and
   nobody on this side has access to `referrizer.com` DNS.
 - **The short link and the landing page share a domain**, so the link the
   prospect taps matches the page they arrive at.

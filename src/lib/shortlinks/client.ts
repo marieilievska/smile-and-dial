@@ -11,7 +11,13 @@ import "server-only";
  * Without SHORTLINK_API_KEY (local dev, tests) we never touch the network.
  */
 
-const SHORTLINK_API = "https://presale.hireai.me/api/public/shortlinks";
+/** The presell app's shortener endpoint. This host has moved three times
+ *  (presell.hireai.me → presale.hireai.me → hireai.me), so it's overridable
+ *  without a deploy: set SHORTLINK_API_URL in Vercel to the full endpoint URL
+ *  if it moves again. The default is the current live one. */
+const SHORTLINK_API =
+  process.env.SHORTLINK_API_URL?.trim() ||
+  "https://hireai.me/api/public/shortlinks";
 
 /** Well under the tools' 20s ElevenLabs budget — the rest of the send (Close
  *  delivery, row insert) still has to finish inside it. */

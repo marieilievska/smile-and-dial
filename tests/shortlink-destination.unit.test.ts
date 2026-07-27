@@ -48,9 +48,9 @@ describe("linkUtmParams", () => {
 
 describe("findFirstUrl", () => {
   it("finds the link inside a rendered message", () => {
-    expect(
-      findFirstUrl("Hi Joe's Bar — here it is:\nhttps://presale.hireai.me/"),
-    ).toBe("https://presale.hireai.me/");
+    expect(findFirstUrl("Hi Joe's Bar — here it is:\nhttps://hireai.me/")).toBe(
+      "https://hireai.me/",
+    );
   });
 
   it("keeps query strings intact", () => {
@@ -77,7 +77,7 @@ describe("findFirstUrl", () => {
 });
 
 describe("withLeadParams", () => {
-  const base = "https://presale.hireai.me/";
+  const base = "https://hireai.me/";
 
   it("attaches the lead's details to a bare link", () => {
     const url = withLeadParams(base, {
