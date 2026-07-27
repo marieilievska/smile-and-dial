@@ -5,7 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { resolveDueCallbacksForLead } from "@/lib/callbacks/sync-next-call";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
-import { selectPoolNumber } from "@/lib/dialer/number-pool";
+import { selectPoolNumber, usableRedialNumber } from "@/lib/dialer/number-pool";
 import { finalizeFailedCall } from "@/lib/dialer/retry-engine";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 
@@ -271,19 +271,33 @@ export async function runDialerTick(
   // tick), narrow the queue to just those rows.
   let query = supabase
     .from("dial_queue")
-    .select("lead_id, owner_id, business_phone, campaign_id, agent_id")
+    .select(
+      "lead_id, owner_id, business_phone, campaign_id, agent_id, is_redial_due, redial_number_id",
+    )
     // Scheduled callbacks (dial_priority = 0) jump ahead of cold leads
     // (dial_priority = 1) so an agreed appointment is never buried behind a
-    // large import. Within each priority band, soonest-due dials first.
+    // large import. Within each priority band, is_redial_due desc puts a due
+    // double-call redial ahead of the rest of the tier — queue_order ALONE
+    // would put it LAST (its redial_at is ~30s old while a backlog lead's
+    // next_call_at can be days old, and ascending order means oldest first),
+    // so without this band it would never surface inside its 10-minute
+    // window. queue_order is then only the tiebreak within a band.
     .order("dial_priority", { ascending: true })
-    .order("next_call_at", { ascending: true, nullsFirst: true })
+    .order("is_redial_due", { ascending: false })
+    .order("queue_order", { ascending: true, nullsFirst: true })
     .limit(options.limit ?? 50);
   if (options.leadIds && options.leadIds.length > 0) {
     query = query.in("lead_id", options.leadIds);
   }
   const { data: queue } = await query;
 
-  const candidates = queue ?? [];
+  // The view's is_redial_due is a nullable boolean; normalize to a definite
+  // one here so downstream checks (and the is_redial param passed to
+  // placeLiveDialerCall) don't have to treat null as a third state.
+  const candidates = (queue ?? []).map((row) => ({
+    ...row,
+    is_redial_due: row.is_redial_due === true,
+  }));
 
   const summary: TickSummary = {
     candidates: candidates.length,
@@ -387,6 +401,16 @@ export async function runDialerTick(
     // next candidate for the same campaign waits out the dial interval above.
     lastDialAtByCampaign.set(c.campaign_id, Date.now());
 
+    // Consume the redial marker as soon as we own the lead. Clearing here rather
+    // than after placement means a failed placement can't leave the lead looping
+    // on the same marker for the rest of its 10-minute window.
+    if (c.is_redial_due) {
+      await supabase
+        .from("leads")
+        .update({ redial_at: null, redial_number_id: null })
+        .eq("id", c.lead_id);
+    }
+
     if (elevenLive) {
       // TS doesn't carry the lead_id / campaign_id null narrow from
       // the guard above into this scope, so re-bind into a typed
@@ -397,6 +421,8 @@ export async function runDialerTick(
         agent_id: c.agent_id,
         twilio_number_id: null,
         business_phone: c.business_phone,
+        is_redial: c.is_redial_due,
+        redial_number_id: c.redial_number_id,
       });
       if (res.callId) {
         summary.dialed++;
@@ -443,20 +469,38 @@ async function placeLiveDialerCall(
     agent_id: string | null;
     twilio_number_id: string | null;
     business_phone: string | null;
+    is_redial?: boolean;
+    redial_number_id?: string | null;
   },
 ): Promise<LivePlaceResult> {
   if (!c.business_phone) return { callId: null };
+
+  // A double-call redial reuses call 1's number so the lead sees the SAME caller
+  // ring twice — that recognition is the entire point of the second call.
+  //
+  // If that number is no longer dialable (retired, rested, flagged) we place NO
+  // call rather than falling back to the pool: two calls a minute apart from two
+  // different caller IDs is the spam pattern the same-number rule exists to
+  // avoid, and is worse for the lead than a single clean call. The lead is
+  // already scheduled two days out, so skipping costs nothing.
+  const reserved =
+    c.is_redial && c.redial_number_id
+      ? await usableRedialNumber(supabase, c.campaign_id, c.redial_number_id)
+      : null;
+  if (c.is_redial && !reserved) return { callId: null };
 
   // Pick a healthy, under-cap, area-matched number from the campaign's pool.
   // Null → the whole pool is capped/rested right now: skip WITHOUT inserting a
   // call; the claim lease (2 min) makes the lead retry, and volume self-throttles
   // to what the pool can safely support.
-  const picked = await selectPoolNumber(
-    supabase,
-    c.campaign_id,
-    c.business_phone,
-    c.lead_id, // stable spread key
-  );
+  const picked =
+    reserved ??
+    (await selectPoolNumber(
+      supabase,
+      c.campaign_id,
+      c.business_phone,
+      c.lead_id, // stable spread key
+    ));
   // Deliberately NOT logged to system_events. A capped pool is routine
   // throttling, not an event worth auditing: this runs once per blocked lead
   // per tick, so a pool that's smaller than the campaign's appetite buries the
@@ -476,6 +520,7 @@ async function placeLiveDialerCall(
       status: "queued",
       outcome: null,
       outcome_source: "elevenlabs",
+      is_redial: c.is_redial === true,
     })
     .select("id")
     .single();

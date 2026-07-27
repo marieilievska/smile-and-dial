@@ -10,6 +10,10 @@ export type DialQueueEntry = {
   campaign_id: string;
   agent_id: string | null;
   twilio_number_id: string | null;
+  /** True when this row surfaced because of a live double-call marker. */
+  is_redial_due: boolean;
+  /** The number call 1 used, to be reused for the redial. */
+  redial_number_id: string | null;
 };
 
 /**
@@ -45,19 +49,30 @@ export async function readDialQueue(limit = 50): Promise<DialQueueEntry[]> {
   const { data } = await supabase
     .from("dial_queue")
     .select(
-      "lead_id, owner_id, business_phone, campaign_id, agent_id, twilio_number_id",
+      "lead_id, owner_id, business_phone, campaign_id, agent_id, twilio_number_id, is_redial_due, redial_number_id",
     )
-    .order("next_call_at", { ascending: true, nullsFirst: true })
+    .order("dial_priority", { ascending: true })
+    // The band matters more than the sort key. queue_order ALONE puts a redial
+    // LAST: its timestamp is ~30s old while a backlog lead's next_call_at is
+    // days old, and ascending means oldest first. With ~33k due leads and a
+    // 50-row limit it would never surface inside its 10-minute window.
+    .order("is_redial_due", { ascending: false })
+    .order("queue_order", { ascending: true, nullsFirst: true })
     .limit(limit);
   // `lead_id`, `owner_id`, `business_phone`, `campaign_id` are non-null in
   // the view by construction; the type generator can't see that.
-  return (data ?? []).filter(
-    (row): row is DialQueueEntry =>
-      typeof row.lead_id === "string" &&
-      typeof row.owner_id === "string" &&
-      typeof row.business_phone === "string" &&
-      typeof row.campaign_id === "string",
-  );
+  return (data ?? [])
+    .filter(
+      (row) =>
+        typeof row.lead_id === "string" &&
+        typeof row.owner_id === "string" &&
+        typeof row.business_phone === "string" &&
+        typeof row.campaign_id === "string",
+    )
+    .map((row) => ({
+      ...row,
+      is_redial_due: row.is_redial_due === true,
+    })) as DialQueueEntry[];
 }
 
 /**
