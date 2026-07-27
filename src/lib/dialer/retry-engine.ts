@@ -146,7 +146,7 @@ export async function applyRetryForCall(
     .eq("id", callId)
     .is("retry_applied_at", null)
     .select(
-      "id, lead_id, campaign_id, outcome, status, is_redial, twilio_number_id",
+      "id, lead_id, campaign_id, outcome, status, is_redial, twilio_number_id, ended_at",
     );
   if (claimError) return { ok: false, reason: "could_not_claim_call" };
   if (!claimed || claimed.length === 0) {
@@ -294,15 +294,32 @@ export async function applyRetryForCall(
     update.resting_until = null;
   };
 
+  // Double calling: `is_redial` marks call 2, the second half of a pair — call
+  // 1 already ran applyUnifiedRetryCycle and wrote the advanced
+  // retry_position/next_call_at to the lead. By the time call 2 runs, ITS OWN
+  // fetch of `lead.retry_position` reads that already-advanced value, so an
+  // ungated second call would advance AGAIN from there and clobber call 1's
+  // schedule with the wrong one — e.g. call 1 at position 2 correctly sets a
+  // 15-day next_call_at, then call 2 (now reading position 0) silently
+  // collapses it to 2 days and double-bumps retry_counter. The pair must
+  // count as ONE attempt (see calls.is_redial's column comment). This gate
+  // covers ONLY the cycle advance — resting/terminal/call_back_later below
+  // are untouched, so a redial that actually reaches a human still
+  // dispositions normally.
+  const advanceCycle = (): void => {
+    if (call.is_redial) return;
+    applyUnifiedRetryCycle();
+  };
+
   if (!call.outcome) {
     // FIX C (#9): a TERMINAL call (we only reach here when callIsTerminal) with
     // no mapped outcome. No later webhook will ever set one (idempotency-
     // deduped), so default it onto the unified retry cycle so the lead keeps
     // progressing instead of stalling forever. The call's stored outcome stays
     // honestly NULL — only the lead's schedule advances.
-    applyUnifiedRetryCycle();
+    advanceCycle();
   } else if (RETRY_OUTCOMES.has(call.outcome)) {
-    applyUnifiedRetryCycle();
+    advanceCycle();
   } else if (RESTING_OUTCOMES[call.outcome] !== undefined) {
     const days = RESTING_OUTCOMES[call.outcome];
     const restingUntil = scheduleDayIso(days);
@@ -361,7 +378,32 @@ export async function applyRetryForCall(
   //
   // Read the position from the LEAD as it was fetched, not from `update`, which
   // applyUnifiedRetryCycle has already overwritten with the NEXT position.
+  //
+  // Freshness guard: a redial only makes sense when call 1 JUST ended — the
+  // outcome webhook normally lands ~0.2s after the call ends, so 2 minutes is
+  // generous for the live path while ruling out a STALE re-apply.
+  // reapplyRetryForCall (via overrideCallOutcome and
+  // resyncLeadAfterCallbackRemoval) clears retry_applied_at and re-runs this
+  // whole function against the SAME call row, sometimes minutes, hours, or
+  // days later — by then lead.retry_position has already moved on from what
+  // the original run saw, so without this guard a re-apply can mint a redial
+  // the original run correctly declined, long after the "two calls under a
+  // minute apart" premise stopped being true. Fail closed when ended_at is
+  // null.
+  const endedAt = call.ended_at ? Date.parse(call.ended_at) : NaN;
+  const endedRecently =
+    Number.isFinite(endedAt) && Date.now() - endedAt < 120_000;
+
+  // A marker without a number can never be consumed: placement DECLINES
+  // rather than falling back to a different number (that fallback is exactly
+  // the spam pattern the same-number rule exists to avoid), so stamping one
+  // here would only occupy a queue slot at the front of its tier — for up to
+  // 10 minutes, for a call that will never go out.
+  const redialNumberId = call.twilio_number_id;
+
   if (
+    endedRecently &&
+    redialNumberId &&
     shouldScheduleRedial({
       doubleCallEnabled: campaign?.double_call_enabled ?? false,
       outcome: call.outcome,
@@ -370,7 +412,7 @@ export async function applyRetryForCall(
     })
   ) {
     update.redial_at = new Date().toISOString();
-    update.redial_number_id = call.twilio_number_id;
+    update.redial_number_id = redialNumberId;
   }
 
   const { error: leadError } = await supabase
