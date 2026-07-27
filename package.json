@@ -13,6 +13,7 @@
     "test:e2e": "playwright test",
     "test:unit": "vitest run",
     "seed": "node --env-file=.env.local scripts/seed.mjs",
+    "seed:presell-fields": "node --experimental-strip-types --env-file=.env.local scripts/seed-presell-research-fields.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
