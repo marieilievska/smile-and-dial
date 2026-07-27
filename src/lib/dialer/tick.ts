@@ -457,16 +457,13 @@ async function placeLiveDialerCall(
     c.business_phone,
     c.lead_id, // stable spread key
   );
-  if (!picked) {
-    await supabase.from("system_events").insert({
-      kind: "pool_exhausted",
-      actor_user_id: null,
-      ref_table: "campaigns",
-      ref_id: c.campaign_id,
-      payload: { campaign_id: c.campaign_id, lead_id: c.lead_id },
-    });
-    return { callId: null, poolExhausted: true };
-  }
+  // Deliberately NOT logged to system_events. A capped pool is routine
+  // throttling, not an event worth auditing: this runs once per blocked lead
+  // per tick, so a pool that's smaller than the campaign's appetite buries the
+  // lead Activity feed under its own noise (20.5k rows in 5 days on a 3-number
+  // pool). The tick summary already reports it as blockedReasons.pool_exhausted
+  // for the run, which is the right granularity to notice an undersized pool.
+  if (!picked) return { callId: null, poolExhausted: true };
 
   const { data: pending, error: pendingError } = await supabase
     .from("calls")
