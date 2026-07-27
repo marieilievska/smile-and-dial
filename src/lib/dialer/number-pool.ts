@@ -190,3 +190,34 @@ export async function selectPoolNumber(
       }
     : null;
 }
+
+/**
+ * Resolve a SPECIFIC pool number for a double-call redial, or null when it is no
+ * longer dialable. Applies the same health gates as `selectPoolNumber` — still
+ * attached to this campaign, active, not released, not flagged, not resting, and
+ * imported into ElevenLabs — but deliberately ignores usage and area code: the
+ * whole point is that the lead sees the SAME number ring twice.
+ */
+export async function usableRedialNumber(
+  db: Admin,
+  campaignId: string,
+  numberId: string,
+): Promise<{ numberId: string; elevenlabsPhoneNumberId: string } | null> {
+  const nowIso = new Date().toISOString();
+  const { data } = await db
+    .from("twilio_numbers")
+    .select("id, elevenlabs_phone_number_id")
+    .eq("id", numberId)
+    .eq("attached_campaign_id", campaignId)
+    .is("released_at", null)
+    .eq("pool_status", "active")
+    .eq("flagged_for_rotation", false)
+    .not("elevenlabs_phone_number_id", "is", null)
+    .or(`rested_until.is.null,rested_until.lte.${nowIso}`)
+    .maybeSingle();
+  if (!data?.elevenlabs_phone_number_id) return null;
+  return {
+    numberId: data.id,
+    elevenlabsPhoneNumberId: data.elevenlabs_phone_number_id,
+  };
+}
