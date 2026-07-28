@@ -296,6 +296,16 @@ export async function runDialerTick(
     // window. queue_order is then only the tiebreak within a band.
     .order("dial_priority", { ascending: true })
     .order("is_redial_due", { ascending: false })
+    // LOCAL MATCH: dial the leads we can call locally first — US before Canada
+    // (dest_rank), then exact area code before same-state before neither
+    // (local_match_rank). Both collapse to 0 for genuine retries, so those keep
+    // the time-ordered slot the retry cycle gave them.
+    //
+    // These MUST be repeated here. PostgREST applies the client's .order()
+    // calls IN PLACE OF the view's own ORDER BY, so leaving them out doesn't
+    // fall back to the view's ranking — it silently discards it.
+    .order("dest_rank", { ascending: true })
+    .order("local_match_rank", { ascending: true })
     .order("queue_order", { ascending: true, nullsFirst: true })
     .limit(options.limit ?? 50);
   if (options.leadIds && options.leadIds.length > 0) {
