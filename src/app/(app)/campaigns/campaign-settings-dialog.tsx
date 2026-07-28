@@ -725,12 +725,13 @@ export function CampaignSettingsDialog({
                   Double call on voicemail
                 </span>
                 <span className="text-muted-foreground text-xs">
-                  When a call reaches voicemail, ring the same number again
-                  about 30 seconds later, so the lead sees two missed calls
-                  rather than one. Applies to the first and last attempt of each
-                  retry cycle, not every call. Raises dials on unanswered leads
-                  by roughly two thirds — watch your connect rate under Settings
-                  → Twilio numbers.
+                  When a call reaches voicemail, ring the same number again a
+                  minute or two later, so the lead sees two missed calls rather
+                  than one. Applies to the first and last attempt of each retry
+                  cycle, not every call. Raises dials on unanswered leads by
+                  roughly two thirds — watch your connect rate under Settings →
+                  Twilio numbers. Unticking this stops second calls straight
+                  away, including any already lined up.
                 </span>
               </div>
             </label>
