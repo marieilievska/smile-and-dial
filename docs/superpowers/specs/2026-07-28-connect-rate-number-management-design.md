@@ -17,6 +17,8 @@ itself:
 | D   | Every call records which local-presence tier it was dialed on                        | Migration + code |
 | E   | Per-number daily caps restored (80 mature / 20 warm-up start / 14 days)              | Config           |
 | F   | Twilio Trust Hub playbook for the operator                                           | Doc              |
+| G   | Dial locally-matchable leads first; US before Canada                                 | SQL + code       |
+| H   | Smart calling extended to first calls, with exploration and segment-splitting        | Code             |
 
 Phase 2 (not in this spec) is a **Numbers** tab in Reporting, built on the data D
 starts collecting.
@@ -51,6 +53,17 @@ directional, not proven.
   lead-local are 38.7% / 40.4% / 38.8%. An apparent 10:00 penalty was entirely
   the Canadian leads sitting in that bucket. Calling hours are therefore **not**
   being changed.
+- **Smart scheduling is already ON and doing nothing.**
+  `campaigns.smart_scheduling` is `true`, but it is only read by
+  `applyRetryForCall` (`retry-engine.ts:256`) — it picks the best hour for a
+  **retry**. Cold leads get `next_call_at = null`, so every first call is "due
+  now" and fires the moment the window opens. On a fresh list that is nearly all
+  dialing. The cached heatmap holds **15 calls across 168 buckets, with 0 buckets
+  meeting the 8-sample minimum**; it refreshes nightly at 08:07 UTC, before the
+  day's calling, so it always lags a day.
+- **Only 1,491 dialable leads (15.7%) match a number we already own** — 120 exact
+  (732:102, 954:14, 213:4) and 1,371 same-state (CA 628, FL 483, NJ 260). 6,184
+  US leads have no match; 1,800 are Canadian or non-geographic.
 
 ### Why state-level presence, not area-code-level
 
@@ -127,9 +140,29 @@ keeps headroom under the flag threshold. The current warm-up start of 50 is too
 hot for a fresh number. Rejected: 100 (rides the threshold), 50 (needs 6 numbers
 for today's volume for little extra safety).
 
-**Calling hours, the mobile lock, and the retry cycle are untouched.** The mobile
-lock is a TCPA control. The timing concern that would have justified changing
-calling hours did not survive the confound check.
+**Match-first ordering applies to cold leads only, and lands before the buy.**
+Retries and callbacks keep their scheduled slot — they were promised a time by the
+retry cycle, and reordering them would drift the cadence and let matched leads
+cycle repeatedly while unmatched ones wait. Rejected: applying it to retries too
+(marginally better coverage, materially worse fairness).
+
+**Country outranks match tier: US always before Canada.** Once Canadian numbers
+exist, Canadian leads would hold _exact_ matches and sort to the front of a
+pure match-tier queue — increasing Canadian volume precisely while the ADAD
+consent question is open. Country is therefore the outer sort key. Rejected: pure
+match-tier (simpler, but silently escalates the unresolved compliance exposure);
+suspending Canadian dialing entirely (not asked for).
+
+**Smart calling ships as one change, not three.** Wiring `pickNextBestWindow`
+without the exploration slice and the segment split would train the scheduler on a
+closed loop — every call so far landed in a 6-hour band, so the heatmap can only
+conclude that band is optimal — and on a Canada-contaminated signal. Any one of
+the three alone makes the system confidently wrong rather than usefully right.
+
+**Calling hours, the mobile lock, and the retry cadence are untouched.** The
+mobile lock is a TCPA control. The window itself does not move: the timing concern
+that would have justified changing it did not survive the confound check. H
+changes only _where inside_ the existing window a first call is placed.
 
 ## Design
 
@@ -219,6 +252,65 @@ registration → branded caller ID display name. Includes the display-name decis
 (which legal entity appears on caller ID) and the Canadian caveat that Canadian
 numbers sit under a separate CRTC regime.
 
+### G. Match-first dial ordering (`dial_queue`)
+
+`dial_queue` currently ends `order by q.dial_priority, q.next_call_at nulls
+first`, so cold leads are dialed in arbitrary physical order. Add two sort keys
+between those, applied **to cold leads only** (`dial_priority = 1`):
+
+1. **Country** — US (0) before Canada / non-geographic (1).
+2. **Match tier** — exact area-code match against an available pool number (0),
+   same state/province (1), no match (2).
+
+Callbacks (`dial_priority = 0`) and retries keep their scheduled time untouched:
+they were promised a slot by the retry cycle, and reordering them would drift the
+2d/2d/15d cadence.
+
+"Available" means the same gates `selectPoolNumber` applies — attached to the
+campaign, active, not released, not flagged, not resting, imported to ElevenLabs.
+A rested number must not pull its leads forward; the 213 number is rested until
+2026-07-29T15:00Z, so California leads are correctly not matchable until it wakes.
+
+This is **resequencing, not exclusion**. The dialable list is finite (9,475 leads
+≈ 32 days at 300/day), so unmatched leads are still called, just later. No
+starvation valve is needed.
+
+Cheap and reversible, and it is the fastest way to earn the evidence the rest of
+this spec rests on: the local-presence case currently stands on 11 same-state
+calls. Roughly 5 days of deliberately-local dialing settles whether local presence
+actually moves the connect rate **before** any numbers are bought. If it does not,
+A/B/E should be reconsidered rather than built.
+
+### H. Smart calling for first calls
+
+Three parts, all of which must land together — the first without the other two
+would bake in today's behavior as if it were optimal.
+
+**Wire cold leads into best-hour scheduling.** `pickNextBestWindow`
+(`best-time.ts:324`) already does exactly this and is called by nothing. Cold
+leads get a `next_call_at` in their best local hour instead of `null`.
+
+**Spread, don't stack.** Scheduling every cold lead into the single best hour
+creates a thundering herd at 11:00 local and idle capacity elsewhere. Leads are
+distributed across the in-hours window _weighted_ by each hour's score, so the
+best hours get proportionally more volume rather than all of it.
+
+**Explore, don't just exploit.** Every one of the 337 calls landed between 09:29
+and 15:31 ET. A heatmap built only from the hours we already dial can only ever
+conclude those hours are best — the feedback loop is closed. A fixed slice of
+daily volume (~10%) is deliberately scheduled into under-sampled buckets so the
+heatmap learns about hours we have never tried.
+
+**Split the heatmap by segment.** `computeConnectHeatmap` buckets by lead-local
+day/hour globally, so Canadian leads at 10:00 Halifax mix with US leads at 10:00
+local. At 13% vs 38–40% this drags a good hour down and would teach the scheduler
+the wrong lesson — the same confound documented in the evidence section. The
+heatmap is computed per destination country, falling back to the global grid when
+a segment lacks samples.
+
+Note the interaction with G: H decides _when_ a lead becomes due, G decides
+_which_ due lead dials first. They compose without conflict.
+
 ## Compliance note (not a legal opinion)
 
 Canadian telemarketing made with an automatic dialing-announcing device requires
@@ -238,12 +330,9 @@ today.
 - The Numbers tab in Reporting (Phase 2, depends on D).
 - Automating Trust Hub registration via API — the underlying profile needs manual
   vetting first, so automation cannot be step one.
-- The mobile lock (TCPA control), calling hours (no measured effect), and the
-  retry cycle.
-- The `pickNextBestWindow` helper in `best-time.ts` is dead code — nothing calls
-  it, and cold leads are never scheduled into their best hour. Left alone: the
-  heatmap needs ≥8 samples per bucket and there are only 337 calls, so wiring it
-  today would change nothing. Worth revisiting once volume builds.
+- The mobile lock (TCPA control), the calling-hours window itself (no measured
+  effect — H changes _when inside_ the window a lead is dialed, not the window),
+  and the retry cycle's 2d/2d/15d cadence.
 - A minor observation, not fixed here: 321 calls were placed on 2026-07-28
   against a 300/day cap. `pre_call_check` tests `>=` at claim time, so with
   concurrency 10 a small overshoot is expected.
@@ -252,7 +341,14 @@ today.
 
 Pure functions get vitest units, matching the existing pool tests:
 `siblingAreaCodes` (metro before state, exact excluded, Canada), `buildStatePlan`
-(picks the densest area code per state), and the expected-rate calculation.
+(picks the densest area code per state), the expected-rate calculation, the
+weighted hour-spreading and exploration slice in H, and the per-country heatmap
+split (a Canada-heavy bucket must not drag the US grid down).
+
+`dial_queue`'s new ordering (G) is verified against production data before and
+after: the share of calls with `local_match = 'exact'` or `'state'` should climb
+from ~1% toward the 15.7% ceiling the current 3 numbers allow, and Canadian calls
+should stop appearing in the opening hour.
 
 Playwright specs are the contract for UI behavior but run against the live
 environment, so they are written and not run locally.
@@ -262,13 +358,23 @@ first live buy happens with the operator present.
 
 ## Rollout order
 
-Sequencing is load-bearing — E must not land before the numbers exist.
+Sequencing is load-bearing, in two ways: E must not land before the numbers
+exist, and **G must land before the money is spent** — it is what proves the
+premise the buying work rests on.
 
-1. **PR 1** — A + B (+ Canada in `nanp-states.ts`, new `nanp-metros.ts`). No
+1. **PR 1 — D + G.** Record the local-match tier on every call, and dial
+   locally-matchable leads first (US before Canada). Together these turn the
+   local-presence question from an 11-call guess into a measured answer within
+   about a week, at zero spend.
+2. **Checkpoint.** Read the connect rate by match tier. If local presence does not
+   move it, revisit A/B/E before buying anything.
+3. **PR 2** — A + B (+ Canada in `nanp-states.ts`, new `nanp-metros.ts`). No
    behavior change until someone buys.
-2. **PR 2** — D (migration + stamping). Starts collecting evidence immediately.
-3. **PR 3** — C (health monitor). Depends on D for the segment column.
-4. **Operator step** — buy ~25–30 US numbers via the new planner, ~10 Canadian
+4. **PR 3** — C, the health monitor, using D's `dest_country` column.
+5. **Operator step** — buy ~25–30 US numbers via the new planner, ~10 Canadian
    (pending the address/bundle requirement).
-5. **Operator step** — E, the cap change, once the pool is large enough.
-6. **F** — the playbook, executable in parallel at any point.
+6. **Operator step** — E, the cap change, once the pool is large enough.
+7. **PR 4** — H, smart calling for first calls. Deliberately last among the code
+   changes: the heatmap needs samples, and the exploration slice needs the wider
+   pool from step 5 to spread across without concentrating volume on few numbers.
+8. **F** — the playbook, executable in parallel at any point.
