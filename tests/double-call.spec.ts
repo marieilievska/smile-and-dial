@@ -559,4 +559,94 @@ test.describe("Double calling", () => {
     expect(lead?.redial_at).toBeNull();
     expect(lead?.redial_number_id).toBeNull();
   });
+
+  // ---------------------------------------------------------------------
+  // Toggle: unticking "Double call on voicemail" must stop redials that are
+  // already marked, not just future ones.
+  //
+  // The opt-in used to be read exactly once — by the retry engine, when call 1
+  // ended. Nothing downstream re-checked it, so an operator who turned the
+  // feature off kept getting second calls for up to another 10 minutes: one
+  // per marker stamped before the switch flipped, which is precisely the
+  // moment they were trying to stop. Both of these seed a live marker and then
+  // flip the campaign, so a regression shows up as a redial surviving the
+  // toggle rather than as a timing flake.
+  //
+  // These mutate the shared opted-in campaign, so each restores
+  // double_call_enabled before finishing (the describe block is serial).
+  // ---------------------------------------------------------------------
+
+  async function setDoubleCall(enabled: boolean): Promise<void> {
+    await admin
+      .from("campaigns")
+      .update({ double_call_enabled: enabled })
+      .eq("id", campaignId);
+  }
+
+  test("turning the toggle off drops an already-marked redial from the queue, and back on restores it", async () => {
+    const leadId = await seedLead("12");
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+    const fresh = new Date(Date.now() - 30 * 1000).toISOString();
+    await admin
+      .from("leads")
+      .update({
+        next_call_at: future,
+        redial_at: fresh,
+        redial_number_id: twilioNumberId,
+      })
+      .eq("id", leadId);
+
+    // Opted in: the marker is the only thing making this lead due.
+    expect((await queueRowFor(leadId))?.is_redial_due).toBe(true);
+
+    // Opted out: the same still-live marker no longer surfaces the lead at
+    // all — next_call_at is two days out, so the redial branch was its only
+    // way into the queue.
+    await setDoubleCall(false);
+    expect(await queueRowFor(leadId)).toBeNull();
+
+    // The marker itself is untouched — turning the toggle off suppresses the
+    // redial, it doesn't rewrite the lead. Re-ticking inside the window brings
+    // it straight back.
+    await setDoubleCall(true);
+    expect((await queueRowFor(leadId))?.is_redial_due).toBe(true);
+  });
+
+  test("an already-marked redial cannot be claimed once the toggle is off", async () => {
+    const leadId = await seedLead("13");
+    const future = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+    const fresh = new Date(Date.now() - 30 * 1000).toISOString();
+    await admin
+      .from("leads")
+      .update({
+        next_call_at: future,
+        redial_at: fresh,
+        redial_number_id: twilioNumberId,
+      })
+      .eq("id", leadId);
+
+    await setDoubleCall(false);
+    try {
+      // next_call_at is still in the future, so with the opt-in gone there is
+      // no branch left to win on.
+      const { data: won } = await admin.rpc("claim_lead_for_dial", {
+        in_lead_id: leadId,
+        in_campaign_id: campaignId,
+      });
+      expect(won).toBe(false);
+
+      // A lost claim must not have touched the row — in particular it must not
+      // have consumed the marker or leased next_call_at.
+      const { data: lead } = await admin
+        .from("leads")
+        .select("next_call_at, redial_at, redial_number_id")
+        .eq("id", leadId)
+        .single();
+      expect(Date.parse(lead!.next_call_at!)).toBe(Date.parse(future));
+      expect(Date.parse(lead!.redial_at!)).toBe(Date.parse(fresh));
+      expect(lead?.redial_number_id).toBe(twilioNumberId);
+    } finally {
+      await setDoubleCall(true);
+    }
+  });
 });
