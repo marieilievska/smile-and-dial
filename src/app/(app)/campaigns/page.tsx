@@ -92,7 +92,7 @@ export default async function CampaignsPage({
     supabase
       .from("campaigns")
       .select(
-        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, dial_interval_seconds, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, calendly_event_id, email_template_id, sms_template_id, audience_search, smart_list_id, inbound_greeting, created_at, agent:agents(name), goal:goals(name)",
+        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, dial_interval_seconds, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, double_call_enabled, calendly_event_id, email_template_id, sms_template_id, audience_search, smart_list_id, inbound_greeting, created_at, agent:agents(name), goal:goals(name)",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -282,6 +282,8 @@ export default async function CampaignsPage({
     autopilot_enabled: c.autopilot_enabled ?? true,
     smart_scheduling:
       (c as { smart_scheduling?: boolean }).smart_scheduling ?? false,
+    double_call_enabled:
+      (c as { double_call_enabled?: boolean }).double_call_enabled ?? false,
     calendly_event_id: c.calendly_event_id ?? null,
     email_template_id: c.email_template_id ?? null,
     sms_template_id: c.sms_template_id ?? null,
@@ -344,6 +346,7 @@ export default async function CampaignsPage({
       monthly_spend_cap: campaign.monthly_spend_cap,
       autopilot_enabled: campaign.autopilot_enabled,
       smart_scheduling: campaign.smart_scheduling,
+      double_call_enabled: campaign.double_call_enabled,
       calendly_event_id: campaign.calendly_event_id,
       email_template_id: campaign.email_template_id,
       sms_template_id: campaign.sms_template_id,

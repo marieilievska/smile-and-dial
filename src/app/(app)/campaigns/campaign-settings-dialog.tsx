@@ -79,6 +79,7 @@ export type CampaignData = {
   monthly_spend_cap: number | null;
   autopilot_enabled: boolean;
   smart_scheduling: boolean;
+  double_call_enabled: boolean;
   calendly_event_id: string | null;
   email_template_id: string | null;
   sms_template_id: string | null;
@@ -215,6 +216,9 @@ export function CampaignSettingsDialog({
   const [smartSchedulingEnabled, setSmartSchedulingEnabled] = useState(
     campaign?.smart_scheduling ?? false,
   );
+  const [doubleCallEnabled, setDoubleCallEnabled] = useState(
+    campaign?.double_call_enabled ?? false,
+  );
   const [calendlyEventId, setCalendlyEventId] = useState(
     campaign?.calendly_event_id ?? NO_EVENT,
   );
@@ -319,6 +323,7 @@ export function CampaignSettingsDialog({
         monthlySpendCap,
         autopilotEnabled,
         smartSchedulingEnabled,
+        doubleCallEnabled,
         calendlyEventId: calendlyEventId === NO_EVENT ? "" : calendlyEventId,
         emailTemplateId: emailTemplateId === NO_TEMPLATE ? "" : emailTemplateId,
         smsTemplateId: smsTemplateId === NO_TEMPLATE ? "" : smsTemplateId,
@@ -702,6 +707,30 @@ export function CampaignSettingsDialog({
                   (in their timezone) instead of a fixed time. Uses your
                   connect-rate history; falls back to mid-morning until
                   there&apos;s enough data.
+                </span>
+              </div>
+            </label>
+            <label
+              htmlFor="campaign-double-call"
+              className="border-border hover:bg-muted/40 flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+            >
+              <Checkbox
+                id="campaign-double-call"
+                checked={doubleCallEnabled}
+                onCheckedChange={(v) => setDoubleCallEnabled(v === true)}
+                className="mt-0.5"
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-foreground text-sm font-medium">
+                  Double call on voicemail
+                </span>
+                <span className="text-muted-foreground text-xs">
+                  When a call reaches voicemail, ring the same number again
+                  about 30 seconds later, so the lead sees two missed calls
+                  rather than one. Applies to the first and last attempt of each
+                  retry cycle, not every call. Raises dials on unanswered leads
+                  by roughly two thirds — watch your connect rate under Settings
+                  → Twilio numbers.
                 </span>
               </div>
             </label>

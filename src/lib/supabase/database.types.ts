@@ -609,6 +609,7 @@ export type Database = {
           extracted_data: Json | null;
           goal_met: boolean;
           id: string;
+          is_redial: boolean;
           lead_id: string;
           outcome: string | null;
           outcome_source: string | null;
@@ -642,6 +643,7 @@ export type Database = {
           extracted_data?: Json | null;
           goal_met?: boolean;
           id?: string;
+          is_redial?: boolean;
           lead_id: string;
           outcome?: string | null;
           outcome_source?: string | null;
@@ -675,6 +677,7 @@ export type Database = {
           extracted_data?: Json | null;
           goal_met?: boolean;
           id?: string;
+          is_redial?: boolean;
           lead_id?: string;
           outcome?: string | null;
           outcome_source?: string | null;
@@ -759,6 +762,7 @@ export type Database = {
           dial_interval_seconds: number;
           daily_spend_cap: number | null;
           description: string | null;
+          double_call_enabled: boolean;
           email_template_id: string | null;
           ended_at: string | null;
           sms_template_id: string | null;
@@ -790,6 +794,7 @@ export type Database = {
           created_at?: string;
           daily_spend_cap?: number | null;
           description?: string | null;
+          double_call_enabled?: boolean;
           email_template_id?: string | null;
           ended_at?: string | null;
           sms_template_id?: string | null;
@@ -821,6 +826,7 @@ export type Database = {
           created_at?: string;
           daily_spend_cap?: number | null;
           description?: string | null;
+          double_call_enabled?: boolean;
           email_template_id?: string | null;
           ended_at?: string | null;
           sms_template_id?: string | null;
@@ -1915,6 +1921,8 @@ export type Database = {
           owner_id: string;
           owner_name: string | null;
           owner_phone: string | null;
+          redial_at: string | null;
+          redial_number_id: string | null;
           resting_until: string | null;
           retry_counter: number;
           retry_position: number;
@@ -1954,6 +1962,8 @@ export type Database = {
           owner_id: string;
           owner_name?: string | null;
           owner_phone?: string | null;
+          redial_at?: string | null;
+          redial_number_id?: string | null;
           resting_until?: string | null;
           retry_counter?: number;
           retry_position?: number;
@@ -1993,6 +2003,8 @@ export type Database = {
           owner_id?: string;
           owner_name?: string | null;
           owner_phone?: string | null;
+          redial_at?: string | null;
+          redial_number_id?: string | null;
           resting_until?: string | null;
           retry_counter?: number;
           retry_position?: number;
@@ -2009,6 +2021,13 @@ export type Database = {
             columns: ["list_id"];
             isOneToOne: false;
             referencedRelation: "lists";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "leads_redial_number_id_fkey";
+            columns: ["redial_number_id"];
+            isOneToOne: false;
+            referencedRelation: "twilio_numbers";
             referencedColumns: ["id"];
           },
         ];
@@ -2565,11 +2584,14 @@ export type Database = {
           concurrency_cap_per_user: number | null;
           daily_spend_cap: number | null;
           dial_priority: number | null;
+          is_redial_due: boolean | null;
           lead_id: string | null;
           lead_timezone: string | null;
           monthly_spend_cap: number | null;
           next_call_at: string | null;
           owner_id: string | null;
+          queue_order: string | null;
+          redial_number_id: string | null;
           twilio_number_id: string | null;
         };
         Relationships: [
@@ -2583,6 +2605,13 @@ export type Database = {
           {
             foreignKeyName: "campaigns_twilio_number_id_fkey";
             columns: ["twilio_number_id"];
+            isOneToOne: false;
+            referencedRelation: "twilio_numbers";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "leads_redial_number_id_fkey";
+            columns: ["redial_number_id"];
             isOneToOne: false;
             referencedRelation: "twilio_numbers";
             referencedColumns: ["id"];
