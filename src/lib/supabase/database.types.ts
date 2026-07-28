@@ -601,6 +601,7 @@ export type Database = {
           campaign_id: string | null;
           cost_breakdown: Json | null;
           created_at: string;
+          dest_country: string | null;
           dialed_target: string | null;
           direction: string;
           duration_seconds: number | null;
@@ -611,6 +612,7 @@ export type Database = {
           id: string;
           is_redial: boolean;
           lead_id: string;
+          local_match: string | null;
           outcome: string | null;
           outcome_source: string | null;
           placed_by: string | null;
@@ -635,6 +637,7 @@ export type Database = {
           campaign_id?: string | null;
           cost_breakdown?: Json | null;
           created_at?: string;
+          dest_country?: string | null;
           dialed_target?: string | null;
           direction: string;
           duration_seconds?: number | null;
@@ -645,6 +648,7 @@ export type Database = {
           id?: string;
           is_redial?: boolean;
           lead_id: string;
+          local_match?: string | null;
           outcome?: string | null;
           outcome_source?: string | null;
           placed_by?: string | null;
@@ -669,6 +673,7 @@ export type Database = {
           campaign_id?: string | null;
           cost_breakdown?: Json | null;
           created_at?: string;
+          dest_country?: string | null;
           dialed_target?: string | null;
           direction?: string;
           duration_seconds?: number | null;
@@ -679,6 +684,7 @@ export type Database = {
           id?: string;
           is_redial?: boolean;
           lead_id?: string;
+          local_match?: string | null;
           outcome?: string | null;
           outcome_source?: string | null;
           placed_by?: string | null;
