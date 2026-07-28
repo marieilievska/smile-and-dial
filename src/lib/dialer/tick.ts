@@ -5,7 +5,12 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { resolveDueCallbacksForLead } from "@/lib/callbacks/sync-next-call";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
-import { selectPoolNumber, usableRedialNumber } from "@/lib/dialer/number-pool";
+import { countryForAreaCode } from "@/lib/dialer/nanp-states";
+import {
+  areaCodeOf,
+  selectPoolNumber,
+  usableRedialNumber,
+} from "@/lib/dialer/number-pool";
 import { finalizeFailedCall } from "@/lib/dialer/retry-engine";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 
@@ -510,7 +515,12 @@ async function placeLiveDialerCall(
   // already scheduled two days out, so skipping costs nothing.
   const reserved =
     c.is_redial && c.redial_number_id
-      ? await usableRedialNumber(supabase, c.campaign_id, c.redial_number_id)
+      ? await usableRedialNumber(
+          supabase,
+          c.campaign_id,
+          c.redial_number_id,
+          c.business_phone,
+        )
       : null;
   if (c.is_redial && !reserved)
     return { callId: null, redialNumberUnusable: true };
@@ -542,6 +552,11 @@ async function placeLiveDialerCall(
       campaign_id: c.campaign_id,
       agent_id: c.agent_id,
       twilio_number_id: picked.numberId,
+      // How local this caller ID was to the lead, recorded at placement rather
+      // than re-derived later (a lead's phone can change, and a number can move
+      // campaigns). This is what makes local presence measurable.
+      local_match: picked.matchTier,
+      dest_country: countryForAreaCode(areaCodeOf(c.business_phone)),
       direction: "outbound",
       status: "queued",
       outcome: null,
