@@ -43,6 +43,14 @@ export type PreCallReason =
  * This is the "lightweight" filter pass — cap, spend, and concurrency
  * checks happen in `preCallCheck` because they require aggregating from
  * the calls table, which is more expensive.
+ *
+ * NOT CURRENTLY CALLED anywhere in the repo. `runDialerTick`
+ * (src/lib/dialer/tick.ts) builds its own inline `dial_queue` query instead
+ * of using this function, and the two have already drifted (this one still
+ * selects `twilio_number_id`; the tick's inline query doesn't). Treat
+ * tick.ts's inline query as the live one — if you're changing queue
+ * selection/ordering semantics, change it there, and update this copy too
+ * (or delete it) rather than editing only one.
  */
 export async function readDialQueue(limit = 50): Promise<DialQueueEntry[]> {
   const supabase = await createClient();
