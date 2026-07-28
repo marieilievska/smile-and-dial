@@ -2,38 +2,44 @@ import { createClient } from "@supabase/supabase-js";
 
 import { priceOpenAiTokens } from "@/lib/costs/rates";
 
+import {
+  MIN_LEAD_WORDS,
+  buildNote,
+  countLeadWords,
+  parseKnown,
+  parseStatus,
+  type ModelNote,
+} from "./summary-note";
 import { openAiKey } from "./live";
 
 /**
- * Rolling call-context generator (BUILD_PLAN §13, reworked 2026-07-15).
+ * Rolling call-context generator (BUILD_PLAN §13, rewritten 2026-07-28 — see
+ * docs/superpowers/specs/2026-07-28-call-summary-rewrite-design.md).
  *
- * After each CONNECTED call we regenerate two things for the NEXT caller:
+ * After each connected call we regenerate, in ONE model pass over the call
+ * TRANSCRIPT:
  *
- *   1. last_call_summary  — a rolling, factual running memory about this
- *      business for this campaign (lead_campaign_summaries.ai_summary). It
- *      leads with WHO we reached and their ROLE, who actually decides / handles
- *      leads, what the lead themselves said, and ends with an explicit
- *      "Already answered — don't re-ask:" list so the agent stops
- *      re-interrogating on the next call.
+ *   1. the rolling per-campaign note (lead_campaign_summaries.ai_summary) — a
+ *      short "Status / Left off / Known — don't re-ask" note for whoever calls
+ *      this business next, and
+ *   2. this call's pickup note (calls.callback_notes), surfaced when the call
+ *      scheduled a callback.
  *
- *   2. last_callback_notes — a short pickup note for THIS call (stored on
- *      calls.callback_notes), surfaced only when this call scheduled a
- *      callback: what was agreed and where we left off.
+ * The model's output is UNTRUSTED. Person-names are limited to first names that
+ * are either already on the lead record or backed by a transcript quote we
+ * verify ourselves — see summary-note.ts, which does the enforcing. A call the
+ * lead barely spoke on is skipped entirely: the note is left alone and no model
+ * call is made.
  *
- * Both are generated in ONE model pass from the call TRANSCRIPT (not the terse
- * ElevenLabs recap), so the role / decision-gateway / "anchor" detail actually
- * makes it into the note. Model is gpt-5.4-mini (same tier the Call Reviewer's
- * first pass uses), overridable via SUMMARY_MODEL.
- *
- * Facts-only by design: it records what happened and lets the agent decide what
- * to do — it never invents a sales strategy or a next-step. Cost is priced from
- * the real token usage via the central rates module. Live whenever an OpenAI key
- * is configured; deterministic mock otherwise (tests never hit the network).
+ * Facts-only by design: it records what happened and lets the next caller
+ * decide. Cost is priced from real token usage. Live whenever an OpenAI key is
+ * configured; deterministic mock otherwise (tests never hit the network).
  */
 
-/** The model that writes the running note. gpt-5.4-mini is a reasoning model —
- *  we send neither temperature nor max_tokens (it only accepts the defaults),
- *  matching how the Call Reviewer calls it. */
+/** The model that writes the note. gpt-5.4-mini is a reasoning model — we send
+ *  neither temperature nor max_tokens (it only accepts the defaults), matching
+ *  how the Call Reviewer calls it. Because output is not stabilisable that way,
+ *  the name rules are enforced in code rather than by prompt wording. */
 export const SUMMARY_MODEL =
   process.env.SUMMARY_MODEL?.trim() || "gpt-5.4-mini";
 
@@ -51,7 +57,7 @@ export async function mergeLeadSummary(input: {
   newSummary: string | null;
   callbackNotes: string | null;
   cost: number;
-  mode: "mock" | "live";
+  mode: "mock" | "live" | "skipped";
 }> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -62,7 +68,20 @@ export async function mergeLeadSummary(input: {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Read the existing rolling note from the per-campaign row.
+  const transcript = (input.transcript ?? "").trim();
+  const latest = (input.latestSummary ?? "").trim();
+  if (!transcript && !latest) {
+    return { newSummary: null, callbackNotes: null, cost: 0, mode: "mock" };
+  }
+
+  // A call the LEAD barely spoke on has nothing to teach us. Leave the note
+  // exactly as it was and spend nothing. Only applies when we actually have a
+  // transcript — the terse-recap fallback has no speaker labels to count.
+  if (transcript && countLeadWords(transcript) < MIN_LEAD_WORDS) {
+    return { newSummary: null, callbackNotes: null, cost: 0, mode: "skipped" };
+  }
+
+  // The note so far, split back into the parts the prompt carries forward.
   const { data: existingRow } = await supabase
     .from("lead_campaign_summaries")
     .select("ai_summary")
@@ -70,11 +89,12 @@ export async function mergeLeadSummary(input: {
     .eq("campaign_id", input.campaignId)
     .maybeSingle();
   const existing = (existingRow?.ai_summary ?? "").trim();
+  const previousStatus = parseStatus(existing);
+  const previousKnown = parseKnown(existing);
 
-  // The lead's REAL business name + any contact names we already hold. ASR
-  // routinely mis-hears the company name on the call (e.g. "Evolve Thermal Spa"
-  // heard as "Mangerie Bravo"), so we anchor the note to the lead record and
-  // tell the model to use it, not whatever name the transcript picked up.
+  // The lead's REAL business name and the contact names we already hold. ASR
+  // routinely mis-hears the company name on the call, so the note is anchored
+  // to the lead record, never to whatever the transcript picked up.
   const { data: leadRow } = await supabase
     .from("leads")
     .select("company, owner_name, manager_name, employee_name")
@@ -82,36 +102,33 @@ export async function mergeLeadSummary(input: {
     .maybeSingle();
   const company = (leadRow?.company ?? "").trim();
   const contacts = [
-    leadRow?.owner_name && `owner ${leadRow.owner_name}`,
-    leadRow?.manager_name && `manager ${leadRow.manager_name}`,
-    leadRow?.employee_name && `staff ${leadRow.employee_name}`,
+    leadRow?.owner_name,
+    leadRow?.manager_name,
+    leadRow?.employee_name,
   ]
-    .filter(Boolean)
-    .join(", ");
-
-  // Prefer the transcript; fall back to the terse recap. Nothing to do without
-  // either — bail without writing (matches the old no-op behaviour).
-  const transcript = (input.transcript ?? "").trim();
-  const latest = (input.latestSummary ?? "").trim();
-  if (!transcript && !latest) {
-    return { newSummary: null, callbackNotes: null, cost: 0, mode: "mock" };
-  }
+    .map((c) => (c ?? "").trim())
+    .filter(Boolean);
 
   const apiKey = openAiKey();
-  const live = Boolean(apiKey);
   let newSummary: string;
   let callbackNotes: string;
   let cost = 0;
   if (apiKey) {
     const result = await callOpenAi(apiKey, {
-      existing,
+      previousStatus,
+      previousKnown,
       transcript,
       latest,
       company,
       contacts,
     });
-    newSummary = result.rollingSummary;
-    callbackNotes = result.callbackNotes;
+    const note = buildNote(
+      result.note,
+      { transcript, company, contacts },
+      { previousStatus, previousKnown },
+    );
+    newSummary = note.text;
+    callbackNotes = note.callbackNotes;
     cost = priceOpenAiTokens(
       result.promptTokens,
       result.completionTokens,
@@ -122,8 +139,8 @@ export async function mergeLeadSummary(input: {
     callbackNotes = "";
   }
 
-  // Upsert the per-campaign summary row. The per-campaign row is
-  // authoritative — the next outbound call for this campaign reads it.
+  // The per-campaign row is authoritative — the next outbound call for this
+  // campaign reads it back as {{last_call_summary}}.
   await supabase.from("lead_campaign_summaries").upsert(
     {
       lead_id: input.leadId,
@@ -143,7 +160,12 @@ export async function mergeLeadSummary(input: {
       .eq("id", input.callId);
   }
 
-  return { newSummary, callbackNotes, cost, mode: live ? "live" : "mock" };
+  return {
+    newSummary,
+    callbackNotes,
+    cost,
+    mode: apiKey ? "live" : "mock",
+  };
 }
 
 /** Deterministic concatenation used in mock mode (no OpenAI key). Kept in the
@@ -170,97 +192,135 @@ function clampWords(s: string, max: number): string {
   return words.slice(0, max).join(" ") + "…";
 }
 
-/** System prompt: attribution discipline + facts-only. Deliberately generic —
- *  no agent name is hard-coded, so it reads correctly for every agent. */
-const SYSTEM_PROMPT =
-  "You maintain a short, factual running memory about a business our team is " +
-  "phoning, for whoever calls them next. Every call is between OUR agent and " +
-  "the business (the lead). The agent's pitch, questions, and talking points " +
-  "are NOT the lead's views — never write that the lead wants, likes, is " +
-  "interested in, or agreed to something unless the LEAD clearly said so. If " +
-  "the agent asked something the lead didn't answer, the lead's position is " +
-  "still unknown — say so. Never invent names, roles, numbers, prices, or " +
-  "claims that aren't in the transcript. Write in past tense (these calls " +
-  "already happened). Do NOT tell the next caller what to do — record the " +
-  "facts and let them decide. When in doubt, under-claim.";
+/** System prompt. The name rule is stated here AND enforced in summary-note.ts;
+ *  the prompt alone is not reliable enough to depend on.
+ *
+ *  Examples use <ANGLE_BRACKET> placeholders on purpose. An earlier draft whose
+ *  example read "the owner is Nicole, she's usually in Wednesdays" made the
+ *  model emit "Owner is usually in on Wednesdays" for a business whose
+ *  transcript said tomorrow — it copied the example instead of reading the
+ *  call. Never put a sample value in here. */
+const SYSTEM_PROMPT = `You keep a short, factual running note about a business our team is cold-calling, for whoever calls them next.
 
-/** Strict two-field JSON output. */
+NAMES — the rule you are most likely to get wrong. Phone transcription mishears names constantly, and the usual failure is ADOPTING a name nobody actually gave: mishearing a business's greeting and treating it as a person, or turning the company name into a person's name.
+
+You may write a person's name in exactly two situations:
+  1. It appears in the "Contacts on file" list you are given, or
+  2. A speaker EXPLICITLY identified that person by name — patterns like "the owner is <NAME>", "you'd want to talk to <NAME>", "this is <NAME> speaking", "ask for <NAME>".
+
+For case 2 you must supply the verbatim transcript line that states it, in "evidence". The line is checked against the real transcript; if it does not appear there word for word, the name is thrown away along with every line that mentions it.
+
+Use FIRST NAMES only. Never write a surname.
+
+Everything else is a ROLE, never a name: "the person who answered", "the front desk", "the owner", "a staff member". In particular:
+  - A name you got from how they ANSWERED the phone is not an explicit identification. A greeting like "thanks for calling <SOMETHING>" names no person — that is the business name, probably misheard. Do not turn it into a person.
+  - Never infer a person's name from the company name.
+  - Our own caller's name is never recorded. Only people at the business.
+  - The business is ALWAYS the name on file. Never repeat a business name heard on the call, not even to correct it.
+When you cannot record the name, keep the useful FACT and drop the name: "the owner is <NAME>, she's usually in on <DAY>" becomes "Owner is usually in on <DAY>" with the real day.
+
+The angle-bracket placeholders above illustrate a PATTERN. Never copy them, and never copy a day, time or detail out of them — every fact you write must come from the transcript you are given.
+
+Every call is between OUR agent and the business. The agent's own pitch, questions and talking points are NOT the lead's views — record only what the LEAD said. Past tense, third person, plain English. Never quote the transcript in a bullet. Invent nothing. Don't tell the next caller what to do. When in doubt, leave it out.`;
+
+/** Strict JSON output. `names` carries the evidence we verify in code. */
 const SUMMARY_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["rolling_summary", "callback_notes"],
+  required: ["status", "left_off", "known", "callback_notes", "names"],
   properties: {
-    rolling_summary: { type: "string" },
+    status: { type: "string" },
+    left_off: { type: "string" },
+    known: { type: "array", items: { type: "string" } },
     callback_notes: { type: "string" },
+    names: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "evidence"],
+        properties: {
+          name: { type: "string" },
+          evidence: { type: "string" },
+        },
+      },
+    },
   },
 };
 
-function buildUserPrompt(args: {
-  existing: string;
+type PromptArgs = {
+  previousStatus: string;
+  previousKnown: string[];
   transcript: string;
   latest: string;
   company: string;
-  contacts: string;
-}): string {
-  const companyLine = args.company
-    ? `Business we're calling: "${args.company}". Use THIS name; if the transcript shows a different business name it was mis-heard on the call — ignore it and use "${args.company}".`
-    : "";
-  const contactsLine = args.contacts
-    ? `Contacts already on file: ${args.contacts}.`
-    : "";
+  contacts: string[];
+};
+
+function buildUserPrompt(args: PromptArgs): string {
+  const priorStatus = args.previousStatus
+    ? `Where we stood: ${args.previousStatus}`
+    : "This is the first call to this business.";
+  const priorKnown =
+    args.previousKnown.length > 0
+      ? `Facts already recorded (these are the exact strings you must carry forward):\n${args.previousKnown
+          .map((k) => `  ${k}`)
+          .join("\n")}`
+      : // Parenthesised and lowercase on purpose: phrased as a bullet ("No facts
+        // recorded yet.") the model copies it back out as if it were a fact.
+        "Facts already recorded: (none)";
   const source = args.transcript
-    ? `Transcript of the latest call:\n${args.transcript}`
-    : `Latest call recap:\n${args.latest}`;
+    ? `Transcript of the call that just happened:\n${args.transcript}`
+    : `Recap of the call that just happened:\n${args.latest}`;
 
-  return `${companyLine}
-${contactsLine}
+  return `Business on file: "${args.company}".
+Contacts on file: ${args.contacts.join(", ") || "NONE — you may not write any personal name at all."}
 
-Running memory so far (from earlier calls):
-${args.existing || "(none yet)"}
+${priorStatus}
+${priorKnown}
 
 ${source}
 
-Update the running memory and write a pickup note. Return JSON with two string fields:
+Return JSON:
 
-"rolling_summary" — the factual running memory for whoever calls this business next. Capture, in past tense, ONLY what the transcript / known facts support:
-- WHO we reached and their ROLE — owner / office manager / front desk / receptionist / unclear — named if given.
-- The REAL decision-gateway: who actually decides, or who handles new leads, even when that's NOT the owner (e.g. "owner never on-site; front-desk manager Jane handles leads"). State reachability as facts — who we can and can't reach, and the best contact or email.
-- What the LEAD actually said — their questions, objections, or stated interest/disinterest. If they didn't engage (put us on hold, hung up, went to voicemail, or we only reached a gatekeeper), say plainly what blocked us.
-- The lead's own pain point ONLY if the LEAD raised it. Never guess one.
-- A commitment ONLY if the lead explicitly agreed to one (a callback time, permission to send info). If none, say no commitment was made.
-- Finish with a line starting "Already answered — don't re-ask:" listing everything the lead has already told us across all calls, so the next caller never re-interrogates them. Common items: how fast they follow up on new leads or missed calls (the "anchor" question our agent opens with), what scheduling / CRM software they use, whether the owner will take a call, and who handles leads. Omit this line only if nothing has been answered yet.
+"status" — at most 10 words for where we stand with this business overall, counting all calls so far. Examples of the SHAPE: "Gatekeeper — owner not reached yet", "Interested, callback booked", "Not interested", "Asked to be removed", "Never got past the front desk".
 
-"callback_notes" — a SHORT pickup note (1–2 sentences) for the next caller, ONLY if this call left a concrete place to pick up: a promised callback, permission to send info, or "call back after 5 to reach the owner". Say what was agreed and where we left off, and remind not to re-ask what's already answered. If there is no concrete pickup point, return an empty string.
+"left_off" — ONE short sentence naming a concrete thing waiting to be picked up: an agreed callback, permission to send something, a time they told us to try. If there is no such thing, return an empty string. "They weren't the owner" and "they hung up" are NOT pickup points — that belongs in status, so return empty.
 
-Do NOT invent details. Do NOT include dates or "X days ago" timing — the caller is told separately how long ago the last call was. No filler. Keep "rolling_summary" under ~180 words.`;
+"known" — bullets recording what the LEAD has told us, so the next caller never re-asks. Rules, in order of importance:
+  - Copy every string under "Facts already recorded" through EXACTLY as written. Do not reword, merge, or reorder them.
+  - Then add up to 5 new bullets for things the LEAD said on this call. Prioritise concrete operational facts over impressions: the booking/scheduling/CRM software they named, their hours, who handles new leads, the best time to reach the decision-maker, how they handle missed calls.
+  - A bullet is at most 10 words, third person, plain English. Never a quote or a first-person sentence from the transcript.
+  - NEVER write a bullet about what we failed to learn. Absence of information is not a fact. If this call taught us nothing, add nothing and return only the carried-forward bullets.
+  - Never restate what "status" already says.
+  - Never write a bullet that just repeats something in "Contacts on file" or the business name. We already have those. Record what the lead TOLD us.
+  - Max 8 bullets; if you would exceed that, drop the oldest.
+
+"callback_notes" — 1-2 sentences ONLY if this call left a concrete pickup point. Otherwise empty string.
+
+"names" — one entry for every person-name you used anywhere above that is NOT in "Contacts on file". Each entry needs the name and, in "evidence", the transcript line that explicitly identified that person, copied word for word from the transcript above. Empty array if you used no such names. A name whose evidence does not match the transcript is deleted along with every line that mentions it, so do not guess.`;
 }
 
-/** Live mode: one gpt-5.4-mini pass returning the updated running note + the
- *  per-call pickup note. Plain fetch (no SDK dependency for a single call). On
- *  any failure we fall back to the deterministic mock for the rolling note and
- *  an empty callback note, so a live outage never loses the summary — and we
- *  charge nothing. */
+/** Live mode: one gpt-5.4-mini pass returning the note parts plus the names it
+ *  wants to use. Plain fetch (no SDK dependency for a single call). On any
+ *  failure we return an empty note and charge nothing — buildNote then falls
+ *  back to the previous status and facts, so an outage never wipes the note. */
 async function callOpenAi(
   apiKey: string,
-  args: {
-    existing: string;
-    transcript: string;
-    latest: string;
-    company: string;
-    contacts: string;
-  },
+  args: PromptArgs,
 ): Promise<{
-  rollingSummary: string;
-  callbackNotes: string;
+  note: ModelNote;
   promptTokens: number;
   completionTokens: number;
 }> {
-  const fallback = {
-    rollingSummary: mockMerge(args.existing, args.latest || args.transcript),
+  const empty: ModelNote = {
+    status: "",
+    leftOff: "",
+    known: [],
     callbackNotes: "",
-    promptTokens: 0,
-    completionTokens: 0,
+    names: [],
   };
+  const fallback = { note: empty, promptTokens: 0, completionTokens: 0 };
 
   let res: Response;
   try {
@@ -279,7 +339,7 @@ async function callOpenAi(
         response_format: {
           type: "json_schema",
           json_schema: {
-            name: "call_context",
+            name: "call_note",
             strict: true,
             schema: SUMMARY_SCHEMA,
           },
@@ -298,24 +358,31 @@ async function callOpenAi(
   const content = data.choices?.[0]?.message?.content;
   const promptTokens = data.usage?.prompt_tokens ?? 0;
   const completionTokens = data.usage?.completion_tokens ?? 0;
-  if (!content) {
-    return { ...fallback, promptTokens, completionTokens };
-  }
+  if (!content) return { ...fallback, promptTokens, completionTokens };
+
   try {
-    const parsed = JSON.parse(content) as {
-      rolling_summary?: unknown;
-      callback_notes?: unknown;
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+    const note: ModelNote = {
+      status: str(parsed.status),
+      leftOff: str(parsed.left_off),
+      known: Array.isArray(parsed.known)
+        ? parsed.known.filter((k): k is string => typeof k === "string")
+        : [],
+      callbackNotes: str(parsed.callback_notes),
+      names: Array.isArray(parsed.names)
+        ? parsed.names
+            .filter(
+              (n): n is { name: string; evidence: string } =>
+                !!n &&
+                typeof n === "object" &&
+                typeof (n as { name?: unknown }).name === "string" &&
+                typeof (n as { evidence?: unknown }).evidence === "string",
+            )
+            .map((n) => ({ name: n.name, evidence: n.evidence }))
+        : [],
     };
-    const rollingSummary =
-      typeof parsed.rolling_summary === "string" &&
-      parsed.rolling_summary.trim()
-        ? parsed.rolling_summary.trim()
-        : fallback.rollingSummary;
-    const callbackNotes =
-      typeof parsed.callback_notes === "string"
-        ? parsed.callback_notes.trim()
-        : "";
-    return { rollingSummary, callbackNotes, promptTokens, completionTokens };
+    return { note, promptTokens, completionTokens };
   } catch {
     return { ...fallback, promptTokens, completionTokens };
   }
