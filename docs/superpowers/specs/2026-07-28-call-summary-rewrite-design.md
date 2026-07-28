@@ -8,9 +8,10 @@
 Two changes to the rolling per-campaign note (`lead_campaign_summaries.ai_summary`)
 — the memory each lead's next call reads back as `{{last_call_summary}}`:
 
-1. **No name the AI heard on a call is ever written down.** Only names already on
-   the lead record (i.e. from the imported CSV) may appear. Enforced in code, not
-   just in the prompt.
+1. **A person's name is recorded only when someone explicitly said it**, proved by
+   a verbatim transcript quote that is checked in code. A name the model inferred
+   — from a greeting, from the company name, from our own caller — is thrown away
+   along with every line that mentions it.
 2. **A structured note instead of a prose paragraph** — status, one pickup line,
    and carried-forward fact bullets — and nothing written at all when a call
    taught us nothing.
@@ -60,20 +61,21 @@ the never-overwrite rule locks them in.**
 - The same field goes to the live agent as `{{owner_name}}`, so the AI asks for
   "Repz" and "Palm" on real calls.
 
-**Names the AI _does_ hear are also unreliable.** Observed: `Jin → "Jinmi"`,
-`Rosalynn → "Rosalind"`, `River City Bicycles → "Versity E-Bikes"`,
-`Rejuvamed → "Richard the Man"`. A lead answering with their business name was
-transcribed as "Piggy" and the note then referred to them as Piggy. **A name in a
-transcript is not evidence.**
+**Names the model _adopts_ rather than hears stated are unreliable.** Observed:
+`Jin → "Jinmi"`, `Rosalynn → "Rosalind"`, `River City Bicycles → "Versity
+E-Bikes"`, `Rejuvamed → "Richard the Man"`. A lead answering with their business
+name was transcribed as "Piggy", and the note then referred to the person as
+Piggy. In one prototype run the model tried to record **"Jack" — our own agent's
+name** — as a contact at the business. The failure mode is not "a name was heard",
+it is "a name was assumed by someone who was never actually named".
 
 **The note reads like an incident report.** Median **117 words** (n=61; max 207).
 **75%** contain "nothing happened" phrasing. **39 of the last 61** summarised
-calls were `gatekeeper` — someone said "I'm not the owner" and hung up — and each
-produced ~110 words cataloguing what we failed to learn ("no decision process,
-lead-handling process, contact method, or business software was confirmed"). The
-`"Already answered — don't re-ask:"` line often reads _"nothing has been answered
-yet."_ This is poor raw material for a prompt instruction that says "reference
-where you left off in one short line."
+calls were `gatekeeper` — and each produced ~110 words cataloguing what we failed
+to learn ("no decision process, lead-handling process, contact method, or business
+software was confirmed"). The `"Already answered — don't re-ask:"` line often
+reads _"nothing has been answered yet."_ This is poor raw material for a prompt
+instruction that says "reference where you left off in one short line."
 
 **It is a game of telephone.** Each call rewrites the whole note from the previous
 note plus the new transcript, so wording drifts and facts are silently reworded or
@@ -83,32 +85,51 @@ lost across calls.
 
 Each was chosen over a stated alternative.
 
-**Prompt rule _and_ a code-level scrubber — not the prompt alone.** Prototyped
-against real transcripts, the same prompt on the same input leaked the unverified
-name "Amanda" on one run and not on the next; `gpt-5.4-mini` is a reasoning model
-and the existing call sends no `temperature`, so output is not stabilisable that
-way. A deterministic post-check is what makes the guarantee real. Verified on real
-fixtures: catches "Amanda", "Nicole", "Piggy"; keeps "Vagaro", and keeps on-file
-names "Paula", "Michelle", "Trey".
+**A name is allowed, but it must come with evidence.** The model may write a
+person's name when (a) it is already on the lead record, or (b) a speaker
+explicitly identified that person — "the owner is …", "this is … speaking", "ask
+for …". For case (b) the model must return the **verbatim transcript line** that
+states it. This was chosen over a blanket ban on heard names, which was the first
+draft: when a gatekeeper clearly says who the owner is, that is the single most
+valuable thing on the call and throwing it away made the note materially worse.
 
-**Scrubber drops the whole line, not just the name.** Excising a word leaves
-"Owner is usually in on Wednesdays" reading as though we know who — or produces
-"The owner is and she is in tomorrow." Dropping the line loses a fact; keeping a
-half-sentence risks asserting something false. The note is allowed to be shorter.
+**The evidence is verified in code, not trusted.** Each quote must actually appear
+in the transcript (case- and punctuation-insensitive) and must contain the name.
+A name also fails if it is a word from the company name — that is precisely the
+mishearing pattern ("Piggy", "Rhapsody", "Repz"). A rejected name causes **every
+line mentioning it to be dropped**, not just the name. Excising the word leaves
+"The owner is and she is in tomorrow"; dropping the line loses a fact but can
+never assert a false one. Verified on real calls: accepts "Amanda Ziegler" on the
+evidence _"Lead: Amanda, Amanda Ziegler."_, rejects "Jack" as not in the
+transcript, and drops "Piggy"-class names as company-name fragments.
 
-**Keep the fact, drop the name.** _"the owner is Nicole, she's in Wednesdays"_ →
-**"Owner is usually in on Wednesdays."** The alternative — recording the name with
-a hedge ("someone said the owner may be Nicole") — still puts an ASR guess in
-front of the next caller, which is the failure being fixed.
+**A deterministic gate, not prompt wording.** Prototyped against real transcripts,
+the same prompt on the same input leaked an unverified name on one run and not the
+next; `gpt-5.4-mini` is a reasoning model and the existing call sends no
+`temperature`, so output is not stabilisable that way.
+
+**Prompt examples use angle-bracket placeholders, never sample values.** A draft
+whose example read _"the owner is Nicole, she's usually in Wednesdays"_ caused the
+model to emit **"Owner is usually in on Wednesdays"** for a business whose
+transcript said _tomorrow_ — it copied the example instead of reading the
+transcript. Examples now read `<NAME>` / `<DAY>` with an explicit instruction never
+to copy a detail out of them. This is load-bearing: the bug produced a confident,
+plausible, wholly invented fact.
 
 **Stop auto-writing heard names and emails onto the lead.** `owner_name`,
 `manager_name`, `employee_name`, `business_email` are no longer written by
 `autoFillLeadFromExtraction`. The values remain on `calls.extracted_data` and
-visible in the call detail, so nothing is lost — they simply stop silently
-becoming the lead's identity. `callback_datetime` is untouched: it is operational
-and books the callback. The alternative — a review queue for conflicting names —
-was explicitly rejected: it is thousands of rows of manual work, and the CSV is
-the intended source of truth.
+visible in the call detail. Deliberate asymmetry: the note may _record_ that
+someone said the owner is Amanda Ziegler, but the lead's identity fields stay
+owned by the CSV. The alternative — a review queue for conflicting names — was
+explicitly rejected: thousands of rows of manual work, and the CSV is the intended
+source of truth. Consequence to accept: the note can name an owner the agent's
+`{{owner_name}}` variable does not know about, until the CSV is corrected.
+`callback_datetime` is untouched — it is operational and books the callback.
+
+**No bullet may restate a contact already on file.** A draft produced bullets like
+"owner Trey" and "Owner Jacob" — data we already hold, padding the list the next
+caller has to read.
 
 **Fact bullets carry forward verbatim.** The prompt is given the previous bullets
 as exact strings to copy unchanged, and may only append. This is what stops the
@@ -119,26 +140,24 @@ most of the benefit for none of the risk, and can be upgraded later.
 **Two separate "nothing happened" guards, because measurement contradicted the
 first draft.** `gatekeeper` calls are _not_ mostly silent hangups: across the last
 61 summarised calls their median is **37 lead-spoken words** (min 4, max 187).
-That is how Palace Spa told us it opens at 9:30 and the owner is in tomorrow. So:
+That is how Palace Spa told us it opens at 9:30. So:
 
 - _Deterministic skip, before any OpenAI call:_ if the lead spoke **fewer than 15
-  words**, there is nothing to learn — leave the note completely untouched and
-  make no model call. Measured: skips 9 of 61 (15%), and skips **zero** calls
-  whose outcome was `callback`, `goal_met`, `not_interested` or
-  `call_back_later`. The threshold is a named constant so it can be retuned.
+  words**, leave the note completely untouched and make no model call. Measured:
+  skips 9 of 61 (15%), and skips **zero** calls whose outcome was `callback`,
+  `goal_met`, `not_interested` or `call_back_later`. The threshold is a named
+  constant so it can be retuned.
 - _Model-level:_ every other call still goes to the model, but a call that yields
   nothing new returns no bullets, so the previous fact list is preserved and only
-  `status` / `left_off` change. The volume reduction comes from the format rules,
-  not from skipping: in the prototype a nothing-happened gatekeeper call went from
-  110 words to 7.
+  `status` / `left_off` change.
 
-**The Close handoff sends the whole note; delete the splitter.** `close/actions.ts:414`
-currently splits on the literal `"Already answered"`. That string disappears, so
-left alone the splitter silently stops matching and everything flows through
-anyway. The bullets are plain facts a closer wants (opens at 9:30, uses Vagaro,
-interested in after-hours answering) and the heading "don't re-ask" is reasonable
-advice for a closer too. Removing the split is simpler than re-targeting it at a
-new marker and matches the "same shape for every reader" decision.
+**The Close handoff sends the whole note; delete the splitter.**
+`close/actions.ts:414` currently splits on the literal `"Already answered"`. That
+string disappears, so left alone the splitter silently stops matching and
+everything flows through anyway. The bullets are plain facts a closer wants and
+"don't re-ask" is reasonable advice for a closer too. Removing the split is
+simpler than re-targeting it at a new marker, and matches the "same shape for
+every reader" decision.
 
 **Existing summaries are left alone.** All 61 self-heal on the lead's next call.
 Regenerating them was offered and declined; a backfill script already exists
@@ -150,48 +169,51 @@ Stored as text in the same column, rendered by the same components:
 
 ```
 Status: Interested, callback booked
-Left off: Owner usually in on Wednesdays.
+Left off: Amanda was scheduled for a callback Wednesday morning.
 Known — don't re-ask:
-  • Front desk handles the phones.
+  • Staff Paula answered the phone.
+  • May be interested in AI answering after hours.
   • After-hours calls sometimes go to voicemail.
-  • Interested in an AI answering after hours.
+  • Owner is usually here on Wednesdays.
 ```
 
 - **Status** — at most 10 words, reflects the whole history, always present.
 - **Left off** — one sentence naming a concrete pickup point, or omitted.
   "They weren't the owner" is not a pickup point.
 - **Known — don't re-ask** — bullets of what the _lead_ said. Each ≤10 words,
-  third person, never a transcript quote. Max 8; oldest dropped first. Never a
-  bullet about what we failed to learn. Omitted when empty.
+  third person, never a transcript quote, never a restatement of on-file data.
+  Max 8; oldest dropped first. Never a bullet about what we failed to learn.
+  Omitted when empty.
 
 Measured against real production calls (before → after):
 
-| Business                        | Before | After |
-| ------------------------------- | ------ | ----- |
-| River City Bicycles             | 110 w  | 7 w   |
-| Youglow wellness & spa          | 118 w  | 28 w  |
-| RECVR oc Active Recovery Lounge | 92 w   | 27 w  |
-| Palace Spa & Massage            | 133 w  | 30 w  |
-| Rhapsody Salon                  | 156 w  | 46 w  |
+| Business                        | Before | After | Note                              |
+| ------------------------------- | ------ | ----- | --------------------------------- |
+| River City Bicycles             | 110 w  | 7 w   | mis-heard "Versity E-Bikes" gone  |
+| Youglow wellness & spa          | 118 w  | 7 w   | junk owner "Prisada" gone         |
+| RECVR oc Active Recovery Lounge | 92 w   | 31 w  | objection kept, padding gone      |
+| Palace Spa & Massage            | 133 w  | 41 w  | hours + objection kept            |
+| Rhapsody Salon                  | 156 w  | 55 w  | "Amanda Ziegler" kept, with quote |
 
 ## Files touched
 
 - `src/lib/openai/summary-merger.ts` — new system + user prompt, new JSON schema
-  (`status` / `left_off` / `known[]` / `callback_notes`), the scrubber, the
-  render-to-text step, and the <15-lead-word skip.
+  (`status` / `left_off` / `known[]` / `callback_notes` / `names[]` with
+  evidence), the evidence verifier and line-dropper, the render-to-text step, and
+  the <15-lead-word skip.
 - `src/lib/elevenlabs/post-call-webhook.ts` — `autoFillLeadFromExtraction` stops
   writing the four identity fields; comment at :1080 updated.
 - `src/lib/close/actions.ts` — drop the `"Already answered"` split.
-- `tests/` — a Playwright spec covering: an unverified name never reaching the
-  stored note, an on-file name surviving, and a no-new-facts call leaving the
-  previous note unchanged.
+- `tests/` — a Playwright spec covering: a name with a fabricated quote never
+  reaching the stored note, a name with a real quote surviving, an on-file name
+  surviving, and a no-new-facts call leaving the previous note unchanged.
 
 ## Out of scope
 
 - **Cleaning the imported `owner_name` values.** ~16% are business-name
   fragments and the agent says them out loud on live calls. This is a data
   problem the CSV owner fixes; the code change stops it getting worse but does
-  not repair existing rows. A list of suspect rows can be exported on request.
+  not repair existing rows.
 - **The per-call recap shown in the Calls list** (`calls.summary`) — still
   ElevenLabs' `transcript_summary` verbatim, still occasionally wrong
   ("called Richard the Man", "Summary couldn't be generated for this call").
@@ -202,10 +224,11 @@ Measured against real production calls (before → after):
 ## Verification
 
 - `npx tsc --noEmit`, `npx eslint`, `npm run build` clean on changed files.
-- Scrubber unit-tested against the real leaked strings collected during design:
-  "Amanda", "Nicole", "Piggy" dropped; "Vagaro", "Paula", "Michelle", "Trey" kept.
+- Evidence verifier tested against the real strings collected during design:
+  accepts "Amanda Ziegler" (quote present) and on-file "Paula"/"Michelle"/"Trey";
+  rejects "Jack" (quote absent) and company-name fragments.
 - The <15-lead-word skip leaves an existing note byte-for-byte unchanged and
   makes no model call.
 - After deploy, re-run the design-time inspection against production: median note
-  length well under 117 words, and no note containing a personal name absent from
-  its lead record.
+  length well under 117 words, and every personal name in a note either on its
+  lead record or quoted in that call's transcript.
