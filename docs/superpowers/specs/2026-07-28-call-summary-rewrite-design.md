@@ -9,9 +9,10 @@ Two changes to the rolling per-campaign note (`lead_campaign_summaries.ai_summar
 — the memory each lead's next call reads back as `{{last_call_summary}}`:
 
 1. **A person's name is recorded only when someone explicitly said it**, proved by
-   a verbatim transcript quote that is checked in code. A name the model inferred
-   — from a greeting, from the company name, from our own caller — is thrown away
-   along with every line that mentions it.
+   a verbatim transcript quote that is checked in code, and stored as a **first
+   name only**. A name the model inferred — from a greeting, from the company
+   name, from our own caller — is thrown away along with every line that mentions
+   it.
 2. **A structured note instead of a prose paragraph** — status, one pickup line,
    and carried-forward fact bullets — and nothing written at all when a call
    taught us nothing.
@@ -103,6 +104,15 @@ never assert a false one. Verified on real calls: accepts "Amanda Ziegler" on th
 evidence _"Lead: Amanda, Amanda Ziegler."_, rejects "Jack" as not in the
 transcript, and drops "Piggy"-class names as company-name fragments.
 
+**First names only.** An accepted name contributes only its first token to the
+note; "Amanda Ziegler" is stored and spoken as "Amanda". The shortening runs in
+code over every field before the unverified-token check, so a surname can never
+survive by being attached to a verified first name — and a surname left stranded
+on its own drops its line like any other unverified token. Surnames add nothing
+the next caller can use on the phone and double the surface area for an ASR error
+(the observed mishears were `Jin → "Jinmi"`, `Rosalynn → "Rosalind"`). Applied to
+on-file contacts too, so the note is consistent regardless of what the CSV holds.
+
 **A deterministic gate, not prompt wording.** Prototyped against real transcripts,
 the same prompt on the same input leaked an unverified name on one run and not the
 next; `gpt-5.4-mini` is a reasoning model and the existing call sends no
@@ -169,12 +179,11 @@ Stored as text in the same column, rendered by the same components:
 
 ```
 Status: Interested, callback booked
-Left off: Amanda was scheduled for a callback Wednesday morning.
+Left off: Callback was set with Amanda for Wednesday morning.
 Known — don't re-ask:
-  • Staff Paula answered the phone.
-  • May be interested in AI answering after hours.
-  • After-hours calls sometimes go to voicemail.
   • Owner is usually here on Wednesdays.
+  • Some missed calls go to voicemail.
+  • She returns voicemails in the mornings.
 ```
 
 - **Status** — at most 10 words, reflects the whole history, always present.
@@ -191,16 +200,16 @@ Measured against real production calls (before → after):
 | ------------------------------- | ------ | ----- | --------------------------------- |
 | River City Bicycles             | 110 w  | 7 w   | mis-heard "Versity E-Bikes" gone  |
 | Youglow wellness & spa          | 118 w  | 7 w   | junk owner "Prisada" gone         |
-| RECVR oc Active Recovery Lounge | 92 w   | 31 w  | objection kept, padding gone      |
-| Palace Spa & Massage            | 133 w  | 41 w  | hours + objection kept            |
-| Rhapsody Salon                  | 156 w  | 55 w  | "Amanda Ziegler" kept, with quote |
+| RECVR oc Active Recovery Lounge | 92 w   | 36 w  | objection kept, padding gone      |
+| Palace Spa & Massage            | 133 w  | 52 w  | hours + objection + owner kept    |
+| Rhapsody Salon                  | 156 w  | 37 w  | "Amanda" kept, quoted + shortened |
 
 ## Files touched
 
 - `src/lib/openai/summary-merger.ts` — new system + user prompt, new JSON schema
   (`status` / `left_off` / `known[]` / `callback_notes` / `names[]` with
-  evidence), the evidence verifier and line-dropper, the render-to-text step, and
-  the <15-lead-word skip.
+  evidence), the evidence verifier, the first-name shortener, the line-dropper,
+  the render-to-text step, and the <15-lead-word skip.
 - `src/lib/elevenlabs/post-call-webhook.ts` — `autoFillLeadFromExtraction` stops
   writing the four identity fields; comment at :1080 updated.
 - `src/lib/close/actions.ts` — drop the `"Already answered"` split.
@@ -226,7 +235,9 @@ Measured against real production calls (before → after):
 - `npx tsc --noEmit`, `npx eslint`, `npm run build` clean on changed files.
 - Evidence verifier tested against the real strings collected during design:
   accepts "Amanda Ziegler" (quote present) and on-file "Paula"/"Michelle"/"Trey";
-  rejects "Jack" (quote absent) and company-name fragments.
+  rejects "Jack" (quote absent) and company-name fragments. "Amanda Ziegler" is
+  stored as "Amanda" everywhere, including the callback pickup note, and a bare
+  "Ziegler" drops its line.
 - The <15-lead-word skip leaves an existing note byte-for-byte unchanged and
   makes no model call.
 - After deploy, re-run the design-time inspection against production: median note
