@@ -26,8 +26,8 @@ export type HandoffNoteInput = {
   decisionMakerReached: string | null;
   appointment: { scheduledAt: string | null; eventLink: string | null } | null;
   /** The rolling, cross-call digest of what the lead actually said / wants (from
-   *  lead_campaign_summaries.ai_summary), already trimmed of any AI-facing tail.
-   *  Null when we have no summary. This is the closer's main context. */
+   *  lead_campaign_summaries.ai_summary), sent whole. Null when we have no
+   *  summary. This is the closer's main context. */
   contextSummary: string | null;
   customFields: { label: string; value: string }[];
 };

@@ -27,7 +27,6 @@ import type { Database, Json } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
 type CallOutcome = Database["public"]["Tables"]["calls"]["Row"]["outcome"];
-type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
 
 /**
  * The disposition values our agents are configured to extract via
@@ -1077,12 +1076,13 @@ async function processTranscription(
     return { ok: false, reason: "could_not_update_call" };
   }
 
-  // Identity/contact details are always worth filling: a name or email the
-  // agent heard is real whether or not the call became a full conversation
-  // (someone saying "this is Wilson" then hanging up still tells us the owner).
-  // autoFillLeadFromExtraction only writes non-blank values into empty lead
-  // fields, so it's safe to run on every call.
-  await autoFillLeadFromExtraction(supabase, call.lead_id, payload);
+  // NOTE: we deliberately do NOT copy heard names or emails onto the lead.
+  // Transcription mishears them (Jin -> "Jinmi", a business greeting heard as a
+  // person's name), and the lead's identity fields are owned by the imported
+  // CSV. The captured values stay on calls.extracted_data and are visible in
+  // the call detail; the rolling note may record one when a speaker explicitly
+  // stated it, verified against the transcript. See
+  // docs/superpowers/specs/2026-07-28-call-summary-rewrite-design.md.
 
   // The judgment fields + research answers (decision maker, sentiment, …) only
   // mean something when a human actually talked with us, so mirror those onto
@@ -1322,50 +1322,6 @@ async function processInitiationFailure(
   await finalizeFailedCall(supabase, call.id);
 
   return { ok: true, status: "applied" };
-}
-
-/**
- * Auto-populate currently-empty lead contact fields from ElevenLabs's
- * extracted data. Per BUILD_PLAN §8 line 810, this NEVER overwrites a
- * field that's already filled — manual edits and prior calls take
- * precedence over a fresh extraction.
- */
-async function autoFillLeadFromExtraction(
-  supabase: SupabaseAdmin,
-  leadId: string,
-  payload: ElevenLabsPostCallPayload,
-): Promise<void> {
-  const ex = extractedDataOf(payload.analysis) ?? {};
-  const asStr = (v: unknown): string | undefined =>
-    typeof v === "string" && v.trim() ? v.trim() : undefined;
-  const candidates: Partial<Record<keyof LeadUpdate, string>> = {};
-  const businessEmail = asStr(ex.business_email);
-  if (businessEmail) candidates.business_email = businessEmail;
-  const ownerName = asStr(ex.owner_name);
-  if (ownerName) candidates.owner_name = ownerName;
-  const managerName = asStr(ex.manager_name);
-  if (managerName) candidates.manager_name = managerName;
-  const employeeName = asStr(ex.employee_name);
-  if (employeeName) candidates.employee_name = employeeName;
-  if (Object.keys(candidates).length === 0) return;
-
-  const { data: lead } = await supabase
-    .from("leads")
-    .select("business_email, owner_name, manager_name, employee_name")
-    .eq("id", leadId)
-    .single();
-  if (!lead) return;
-
-  const patch: LeadUpdate = {};
-  for (const key of Object.keys(candidates) as (keyof typeof candidates)[]) {
-    // Only fill if the lead's existing value is null/empty.
-    if (!lead[key as keyof typeof lead]) {
-      (patch as Record<string, string>)[key] = candidates[key]!;
-    }
-  }
-  if (Object.keys(patch).length > 0) {
-    await supabase.from("leads").update(patch).eq("id", leadId);
-  }
 }
 
 /**

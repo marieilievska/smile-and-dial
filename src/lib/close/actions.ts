@@ -393,9 +393,13 @@ export async function handoffLeadToClose(
 
   // Rolling per-campaign summary — the richest "what the lead said / is
   // interested in" digest we have (facts-only, cross-call). Prefer the summary
-  // for the packaged call's campaign; else the most recently updated one. Strip
-  // the trailing "Already answered — don't re-ask…" list, which is guidance for
-  // the next AI caller, not for the closer.
+  // for the packaged call's campaign; else the most recently updated one.
+  //
+  // Sent WHOLE. This used to strip everything after the literal string
+  // "Already answered", which the note no longer contains — so the split would
+  // have silently stopped matching anyway. The note's fact bullets are exactly
+  // what a closer wants (their hours, their booking software, their objection)
+  // and "don't re-ask" is good advice for a human closer too.
   const primaryCampaignId = primary?.campaign_id ?? null;
   const { data: summaryRows } = await admin
     .from("lead_campaign_summaries")
@@ -410,9 +414,7 @@ export async function handoffLeadToClose(
     null;
   const rawSummary =
     typeof summaryRow?.ai_summary === "string" ? summaryRow.ai_summary : null;
-  const contextSummary = rawSummary
-    ? rawSummary.split(/\bAlready answered\b/)[0].trim() || null
-    : null;
+  const contextSummary = rawSummary ? rawSummary.trim() || null : null;
 
   // Build per-call history (oldest→newest; DB query was desc, so reverse).
   const callHistory = [...calls].reverse().map((c) => {

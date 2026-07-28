@@ -2,6 +2,11 @@ import { test, expect } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { mergeLeadSummary, mockMerge } from "../src/lib/openai/summary-merger";
+import {
+  buildNote,
+  countLeadWords,
+  parseKnown,
+} from "../src/lib/openai/summary-note";
 
 test.describe.configure({ mode: "serial" });
 
@@ -133,5 +138,88 @@ test.describe("OpenAI summary merger (mock)", () => {
     });
     expect(result.newSummary).toBeNull();
     expect(result.cost).toBe(0);
+  });
+
+  test("a call the lead barely spoke on leaves the stored note untouched", async () => {
+    // Seed a note we can prove was not overwritten.
+    await admin.from("lead_campaign_summaries").upsert(
+      {
+        lead_id: leadId,
+        campaign_id: campaignId,
+        ai_summary: "Status: Gatekeeper — owner not reached yet",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "lead_id,campaign_id" },
+    );
+
+    const result = await mergeLeadSummary({
+      leadId,
+      campaignId,
+      transcript: "Agent: Is the owner in?\nLead: Nope.\nAgent: Thanks.",
+    });
+    expect(result.mode).toBe("skipped");
+    expect(result.cost).toBe(0);
+    expect(result.newSummary).toBeNull();
+
+    const { data: row } = await admin
+      .from("lead_campaign_summaries")
+      .select("ai_summary")
+      .eq("lead_id", leadId)
+      .eq("campaign_id", campaignId)
+      .maybeSingle();
+    expect(row?.ai_summary).toBe("Status: Gatekeeper — owner not reached yet");
+  });
+
+  test("a name with a real transcript quote survives, shortened to its first name", () => {
+    const transcript =
+      "Lead: The owner is Amanda Ziegler, she's in Wednesdays.";
+    const note = buildNote(
+      {
+        status: "Gatekeeper — owner not reached yet",
+        leftOff: "",
+        known: ["Owner is Amanda Ziegler.", "Owner is in on Wednesdays."],
+        callbackNotes: "",
+        names: [
+          {
+            name: "Amanda Ziegler",
+            evidence: "Lead: The owner is Amanda Ziegler, she's in Wednesdays.",
+          },
+        ],
+      },
+      { transcript, company: "Rhapsody Salon", contacts: [] },
+      { previousStatus: "", previousKnown: [] },
+    );
+    expect(parseKnown(note.text)).toEqual([
+      "Owner is Amanda.",
+      "Owner is in on Wednesdays.",
+    ]);
+    expect(note.text).not.toContain("Ziegler");
+  });
+
+  test("a name the model invented never reaches the stored note", () => {
+    const transcript = "Lead: She's not in today, try tomorrow morning please.";
+    const note = buildNote(
+      {
+        status: "Gatekeeper — owner not reached yet",
+        leftOff: "Call back for Nicole tomorrow morning.",
+        known: ["Owner is Nicole.", "Try again tomorrow morning."],
+        callbackNotes: "",
+        // No such line exists in the transcript.
+        names: [{ name: "Nicole", evidence: "Lead: The owner is Nicole." }],
+      },
+      { transcript, company: "Palace Spa", contacts: [] },
+      { previousStatus: "", previousKnown: [] },
+    );
+    expect(note.text).not.toContain("Nicole");
+    expect(parseKnown(note.text)).toEqual(["Try again tomorrow morning."]);
+    expect(note.rejected[0].reason).toBe(
+      "quote not found in what the lead said",
+    );
+  });
+
+  test("countLeadWords ignores the agent's half of the call", () => {
+    expect(
+      countLeadWords("Agent: A long question from us here.\nLead: Two words"),
+    ).toBe(2);
   });
 });
