@@ -92,10 +92,31 @@ No backfill. Every existing campaign stays off; every existing lead has a null
 3. If they hold, it writes `redial_at = now()` and `redial_number_id` = call 1's
    `twilio_number_id` onto the lead.
 4. The next tick (≤60s) sees the lead through the queue's new redial branch.
-5. Placement uses `redial_number_id` when that number is still usable, sets
-   `calls.is_redial = true`, and clears `redial_at` / `redial_number_id`.
+5. Placement re-resolves `redial_number_id`. If it is still usable, the call goes
+   out on it and is marked `calls.is_redial = true`. **If it is not usable, no
+   call is placed at all** — a redial from a different number is not the feature.
+   Either way the marker is cleared.
 6. Call 2 ends. The engine sees `is_redial` and skips **both** the cycle advance
    and the redial check.
+
+   The cycle skip covers **only** the unified retry cycle. If call 2 actually
+   reaches a human, its disposition still applies in full — a redial answered
+   with "not interested" must still put the lead to rest for 30 days. Only the
+   retry-cycle advance is redundant, because call 1 already did it. Getting this
+   wrong is expensive and silent: at retry position 2, call 1 schedules +15 days
+   and a second advance overwrites it with +2, collapsing the cool-off.
+
+**A redial is only ever stamped for a call that just ended.** The marker
+additionally requires that the call ended within the last two minutes and that it
+recorded a `twilio_number_id`. Both guards are about paths other than the happy
+one: `reapplyRetryForCall` deliberately clears the idempotency stamp and re-runs
+the engine — reachable from an operator changing a call's outcome, and from
+removing a scheduled callback — and on that re-run the lead's retry position has
+already advanced, so the predicate would see a different value and could stamp a
+redial the original correctly declined, hours or days later. A redial that isn't
+seconds behind call 1 is not a double call at all. And a marker with no number
+can never be consumed (placement skips rather than substituting a number), so it
+would just occupy a queue slot at the front of its tier until it expired.
 
 An **unconsumed marker is left in place, not cleaned up**. Once `redial_at` is
 older than the 10-minute window it is inert — the queue ignores it — and the next
@@ -108,34 +129,48 @@ qualifying voicemail overwrites it. There is no sweeper and none is needed.
 ```sql
 and (
       (l.next_call_at is null or l.next_call_at <= now())
-   or (l.redial_at is not null and l.redial_at > now() - interval '10 minutes')
+   or (l.redial_at is not null
+       and l.redial_at > now() - interval '10 minutes'
+       and l.redial_at <= now())
 )
 ```
 
-ordered by `dial_priority, coalesce(l.redial_at, l.next_call_at)`.
+ordered by `dial_priority, is_redial_due desc, queue_order nulls first`.
 
-**This ordering is load-bearing.** Because the cycle advances on call 1, the
-redial lead's `next_call_at` is two days in the _future_. Under the existing
-`order by next_call_at asc` it would sort behind every one of the ~33k due leads
-and never fire inside its window. Sorting on `redial_at` when present puts it at
-the front of its priority tier. Callbacks keep priority 0 — they are promises to
-real people and stay ahead of redials.
+**This ordering is load-bearing, and the obvious version of it is wrong.**
+Because the cycle advances on call 1, the redial lead's `next_call_at` is two
+days in the _future_, so it must be surfaced on a different key. But simply
+sorting on that key ascending puts the redial **last**, not first: a redial's
+timestamp is ~30 seconds old, while a backlog lead's `next_call_at` may be days
+old, and ascending order means oldest wins. With ~33k due leads and a 50-row
+limit per tick, the redial would never surface inside its window — precisely the
+starvation this ordering exists to prevent.
 
-The 10-minute box is the safety property: a marker that can't be consumed simply
-expires.
+The fix is an explicit band: `is_redial_due desc` puts due redials ahead of
+everything else in their priority tier, and `queue_order` is only the tiebreak
+within a band. Callbacks keep `dial_priority` 0 — they are promises to real
+people and stay ahead of redials.
+
+**The window is two-sided.** `redial_at <= now()` matters as much as the
+10-minute floor: `redial_at` is stamped from the app server's clock and compared
+against the database's, so a future value — clock skew, a manual fix, a backfill,
+a test seed — would satisfy a one-sided predicate forever and pin that lead in
+the queue on every tick. The "an unfired redial costs nothing" property depends
+entirely on the marker aging out, and there is deliberately no sweeper to catch
+one that never does.
 
 ## Failure modes
 
-| Situation                                             | Behaviour                                                                                                                                  |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Redial falls outside calling hours                    | `pre_call_check` blocks it; window expires; lead already scheduled 2 days out                                                              |
-| Campaign paused / autopilot off between the two calls | Lead drops out of the queue; window expires; no stuck state                                                                                |
-| Hourly, daily, concurrency or spend cap hit           | Same — window expires, nothing to unwind                                                                                                   |
-| `redial_number_id` retired, rested or flagged         | Fall back to normal pool selection. A second call from another number is worth less than one from the same number, but more than no call   |
-| Pool empty                                            | Window expires                                                                                                                             |
-| Lead has a pending callback                           | Untouched. Voicemail on a callback lead escalates the callback (+30min → next day → missed) and returns before the redial check is reached |
-| Call 2 reaches a human                                | Normal outcome handling. Whatever call 2 dispositions to governs the lead                                                                  |
-| Call 2 hits voicemail again                           | Cycle already advanced on call 1; lead waits for its next scheduled step                                                                   |
+| Situation                                             | Behaviour                                                                                                                                                                                                                                             |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Redial falls outside calling hours                    | `pre_call_check` blocks it; window expires; lead already scheduled 2 days out                                                                                                                                                                         |
+| Campaign paused / autopilot off between the two calls | Lead drops out of the queue; window expires; no stuck state                                                                                                                                                                                           |
+| Hourly, daily, concurrency or spend cap hit           | Same — window expires, nothing to unwind                                                                                                                                                                                                              |
+| `redial_number_id` retired, rested or flagged         | **Skip the redial.** Do NOT fall back to pool selection — two calls a minute apart from two different caller IDs is the spam pattern the same-number rule exists to avoid, and is worse than one clean call. The lead is already scheduled 2 days out |
+| Pool empty                                            | Window expires                                                                                                                                                                                                                                        |
+| Lead has a pending callback                           | Untouched. Voicemail on a callback lead escalates the callback (+30min → next day → missed) and returns before the redial check is reached                                                                                                            |
+| Call 2 reaches a human                                | Normal outcome handling. Whatever call 2 dispositions to governs the lead                                                                                                                                                                             |
+| Call 2 hits voicemail again                           | Cycle already advanced on call 1; lead waits for its next scheduled step                                                                                                                                                                              |
 
 ## Cost
 

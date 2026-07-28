@@ -4,7 +4,7 @@
 
 **Goal:** When an outbound call hits voicemail on an opted-in campaign, redial the same lead from the same number within ~30 seconds.
 
-**Architecture:** The retry engine advances the lead's retry cycle exactly as it does today, and additionally stamps a short-lived `redial_at` marker on the lead. The `dial_queue` view gains a second eligibility branch for markers younger than 10 minutes, sorted so redials aren't starved behind due leads. Placement reuses the first call's number and marks the new call `is_redial`, which stops it spawning a third.
+**Architecture:** On call 1 the retry engine advances the lead's retry cycle exactly as it does today, and additionally stamps a short-lived `redial_at` marker. The `dial_queue` view gains a second eligibility branch for markers younger than 10 minutes, sorted so redials aren't starved behind due leads. Placement reuses the first call's number and marks the new call `is_redial`. On call 2 that flag does two things: it stops a third redial, and it suppresses the retry-cycle advance — call 1 already advanced, and advancing twice would overwrite call 1's schedule (at retry position 2 that turns a 15-day cool-off into 2 days) and double-count the attempt.
 
 **Tech Stack:** Next.js (App Router), TypeScript, Supabase/Postgres (pg_cron, RLS, views), Vitest (unit), Playwright (integration against live DB).
 
@@ -83,10 +83,12 @@ comment on column public.calls.is_redial is
   'never advances the retry cycle (call 1 already did) and never schedules '
   'another redial.';
 
--- Partial: only a handful of leads carry a live marker at any moment.
-create index if not exists leads_redial_at_idx
-  on public.leads (redial_at)
-  where redial_at is not null;
+-- Deliberately NO index on redial_at. Its predicate sits inside a top-level OR
+-- in the view, and Postgres can only use an index across an OR via BitmapOr,
+-- which needs an indexable path for EVERY branch — leads has no next_call_at
+-- index. Nothing else filters on redial_at (the retry engine writes by id, and
+-- there is no sweeper by design), so an index here would be write amplification
+-- on a hot table with no read to serve.
 
 -- ---------------------------------------------------------------------------
 -- dial_queue: add the redial branch
@@ -136,15 +138,23 @@ from (
     -- DOUBLE CALL: a marker inside its 10-minute window. Computed here rather
     -- than inferred in TS, because a lead can surface via next_call_at while
     -- carrying a STALE marker — that is not a redial and must not be marked one.
-    (l.redial_at is not null and l.redial_at > now() - interval '10 minutes')
-      as is_redial_due,
+    -- The upper bound is NOT redundant: redial_at is stamped from the app
+    -- server's clock and compared against the database's, so a future value
+    -- (clock skew, a manual fix, a test seed) would satisfy a one-sided
+    -- predicate forever and pin this lead in the queue on every tick. There is
+    -- deliberately no sweeper to catch that.
+    (l.redial_at is not null
+      and l.redial_at > now() - interval '10 minutes'
+      and l.redial_at <= now()) as is_redial_due,
     l.redial_number_id,
     -- DOUBLE CALL: sort key. A redial's next_call_at is two days in the FUTURE
     -- (the cycle advanced on call 1), so ordering on next_call_at alone would
     -- bury it behind every due lead and it would never fire inside its window.
     coalesce(
       case
-        when l.redial_at is not null and l.redial_at > now() - interval '10 minutes'
+        when l.redial_at is not null
+         and l.redial_at > now() - interval '10 minutes'
+         and l.redial_at <= now()
         then l.redial_at
       end,
       l.next_call_at
@@ -188,7 +198,9 @@ from (
     -- DOUBLE CALL: due on the normal clock, OR carrying a live redial marker.
     and (
           (l.next_call_at is null or l.next_call_at <= now())
-       or (l.redial_at is not null and l.redial_at > now() - interval '10 minutes')
+       or (l.redial_at is not null
+           and l.redial_at > now() - interval '10 minutes'
+           and l.redial_at <= now())
     )
     -- Pool gate (the number itself is chosen at placement by selectPoolNumber).
     and exists (
@@ -214,7 +226,12 @@ from (
       )
     )
 ) q
-order by q.dial_priority, q.queue_order nulls first;
+-- The band matters more than the sort key. queue_order ALONE puts a due redial
+-- LAST: its timestamp is ~30s old while a backlog lead's next_call_at is days
+-- old, and ascending means oldest first. is_redial_due desc lifts due redials to
+-- the front of their priority tier; queue_order is only the tiebreak WITHIN a
+-- band. Callbacks stay ahead of everything via dial_priority.
+order by q.dial_priority, q.is_redial_due desc, q.queue_order nulls first;
 
 comment on view public.dial_queue is
   'Leads eligible for the AUTO-dialer: ready, due (or carrying a live '
@@ -222,8 +239,8 @@ comment on view public.dial_queue is
   '(or unowned), targeted by an attached list / audience search / smart list, on '
   'an active campaign with >=1 usable pool number. Autopilot gates COLD leads '
   'only -- scheduled callbacks run regardless. dial_priority orders callbacks (0) '
-  'ahead of cold leads (1); within a tier, queue_order puts a due redial ahead of '
-  'leads whose next_call_at is further out. The specific number is chosen at '
+  'ahead of cold leads (1); within a tier, is_redial_due puts a due redial first '
+  'and queue_order is only the tiebreak within a band. The specific number is chosen at '
   'placement by selectPoolNumber, except on a redial which reuses call 1''s.';
 ```
 
@@ -622,6 +639,11 @@ const { data } = await supabase
     "lead_id, owner_id, business_phone, campaign_id, agent_id, twilio_number_id, is_redial_due, redial_number_id",
   )
   .order("dial_priority", { ascending: true })
+  // The band matters more than the sort key. queue_order ALONE puts a redial
+  // LAST: its timestamp is ~30s old while a backlog lead's next_call_at is days
+  // old, and ascending means oldest first. With ~33k due leads and a 50-row
+  // limit it would never surface inside its window.
+  .order("is_redial_due", { ascending: false })
   .order("queue_order", { ascending: true, nullsFirst: true })
   .limit(limit);
 ```
@@ -695,15 +717,19 @@ async function placeLiveDialerCall(
 ): Promise<LivePlaceResult> {
   if (!c.business_phone) return { callId: null };
 
-  // A double-call redial reuses call 1's number so the lead sees the same caller
-  // ring twice — that recognition is the entire point of the second call. Falls
-  // back to normal pool selection when that number is no longer dialable
-  // (retired, rested, flagged): a second call from another number is worth less
-  // than one from the same number, but more than no call at all.
+  // A double-call redial reuses call 1's number so the lead sees the SAME caller
+  // ring twice — that recognition is the entire point of the second call.
+  //
+  // If that number is no longer dialable (retired, rested, flagged) we place NO
+  // call rather than falling back to the pool: two calls a minute apart from two
+  // different caller IDs is the spam pattern the same-number rule exists to
+  // avoid, and is worse for the lead than a single clean call. The lead is
+  // already scheduled two days out, so skipping costs nothing.
   const reserved =
     c.is_redial && c.redial_number_id
       ? await usableRedialNumber(supabase, c.campaign_id, c.redial_number_id)
       : null;
+  if (c.is_redial && !reserved) return { callId: null };
 
   // Pick a healthy, under-cap, area-matched number from the campaign's pool.
   // Null → the whole pool is capped/rested right now: skip WITHOUT inserting a
@@ -937,7 +963,9 @@ test.describe("Double calling", () => {
   async function leadRow() {
     const { data } = await admin
       .from("leads")
-      .select("redial_at, redial_number_id, retry_position")
+      .select(
+        "redial_at, redial_number_id, retry_position, retry_counter, next_call_at",
+      )
       .eq("id", leadId)
       .single();
     return data;
@@ -1099,6 +1127,53 @@ test.describe("Double calling", () => {
     expect(lead?.redial_number_id).toBe(numberId);
     // The pair counts once: the cycle still advanced on call 1 (0 → 1).
     expect(lead?.retry_position).toBe(1);
+  });
+
+  test("the pair advances the retry cycle exactly once", async () => {
+    // The expensive silent failure: without the is_redial skip, call 2 advances
+    // again and overwrites call 1's schedule. At retry position 2 that turns a
+    // 15-day cool-off into a 2-day one.
+    await setDoubleCall(true);
+    await seedLead({
+      status: "ready_to_call",
+      retry_position: 2,
+      retry_counter: 0,
+      redial_at: null,
+      redial_number_id: null,
+    });
+
+    await seedCallAndFire(`dc-conv-p2a-${stamp}`, "voicemail");
+    const afterFirst = await leadRow();
+    expect(afterFirst?.retry_position).toBe(0); // 2 -> 0
+    const scheduledAfterFirst = afterFirst?.next_call_at;
+
+    // Call 2 of the pair, flagged as the redial.
+    await admin.from("calls").insert({
+      lead_id: leadId,
+      campaign_id: campaignId,
+      agent_id: agentId,
+      twilio_number_id: numberId,
+      direction: "outbound",
+      status: "completed",
+      is_redial: true,
+      elevenlabs_conversation_id: `dc-conv-p2b-${stamp}`,
+    });
+    const baseUrl = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
+    await fetch(`${baseUrl}/api/elevenlabs/post-call`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        conversation_id: `dc-conv-p2b-${stamp}`,
+        analysis: { data_collection: { disposition: "voicemail" } },
+      }),
+    });
+
+    const afterSecond = await leadRow();
+    // Unchanged: the pair is ONE attempt.
+    expect(afterSecond?.retry_position).toBe(0);
+    expect(afterSecond?.next_call_at).toBe(scheduledAfterFirst);
+    // And a redial never spawns another redial.
+    expect(afterSecond?.redial_at).toBeNull();
   });
 
   test("a voicemail on an opted-OUT campaign writes nothing", async () => {
