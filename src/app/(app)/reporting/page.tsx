@@ -36,6 +36,7 @@ import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
 import { HotLeadsTable } from "./hot-leads-table";
 import { PromptLogTable } from "./prompt-log-table";
+import { NumbersPanel } from "./numbers-panel";
 import { ReportingTabs, reportingTabsFor } from "./reporting-tabs";
 import { ScopePicker } from "./scope-picker";
 import { VoiceTable } from "./voice-table";
@@ -165,6 +166,8 @@ export default async function AgentAnalyticsPage({
         <VoiceTab scope={scope} detected={detected} slug={slug} />
       ) : tab === "hot-leads" ? (
         <HotLeadsTab scope={scope} detected={detected} slug={slug} />
+      ) : tab === "numbers" ? (
+        <NumbersPanel />
       ) : tab === "changelog" ? (
         <ChangelogTab />
       ) : tab === "prompt-log" ? (
