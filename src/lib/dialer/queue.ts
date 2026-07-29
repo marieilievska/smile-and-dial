@@ -65,6 +65,11 @@ export async function readDialQueue(limit = 50): Promise<DialQueueEntry[]> {
     // days old, and ascending means oldest first. With ~33k due leads and a
     // 50-row limit it would never surface inside its 10-minute window.
     .order("is_redial_due", { ascending: false })
+    // LOCAL MATCH: mirrors tick.ts so the preview shows the order the dialer
+    // will actually use. PostgREST replaces the view's ORDER BY with these, so
+    // omitting them here would silently show a different order than we dial.
+    .order("dest_rank", { ascending: true })
+    .order("local_match_rank", { ascending: true })
     .order("queue_order", { ascending: true, nullsFirst: true })
     .limit(limit);
   // `lead_id`, `owner_id`, `business_phone`, `campaign_id` are non-null in

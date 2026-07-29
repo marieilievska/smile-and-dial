@@ -67,6 +67,21 @@ export type PoolCandidate = {
   connectRate: number | null;
 };
 
+/** How local the chosen caller ID is to the lead. Mirrors calls.local_match,
+ *  and is recorded on every placed call so local presence can be measured
+ *  instead of re-derived later from a lead's phone (which can change). */
+export type MatchTier = "exact" | "state" | "none";
+
+/** A chosen pool number, plus which tier won it. */
+export type PickedPoolNumber = PoolCandidate & { matchTier: MatchTier };
+
+/** A resolved from-number ready to dial, as the tick consumes it. */
+export type ResolvedPoolNumber = {
+  numberId: string;
+  elevenlabsPhoneNumberId: string;
+  matchTier: MatchTier;
+};
+
 /** Choose the best number to dial from, in three tiers: (A) exact area-code
  *  match (local presence), (B) same US state as the lead's area code (still
  *  not a robocall-looking out-of-state number), (C) any under-cap number as
@@ -79,7 +94,7 @@ export function pickPoolNumber(
   candidates: PoolCandidate[],
   leadAreaCode: string | null,
   spreadKey: string,
-): PoolCandidate | null {
+): PickedPoolNumber | null {
   const underCap = candidates.filter((c) => c.calls24h < c.effectiveCap);
   if (underCap.length === 0) return null;
 
@@ -96,15 +111,20 @@ export function pickPoolNumber(
     : [];
   const tier =
     exact.length > 0 ? exact : sameState.length > 0 ? sameState : underCap;
+  // Which tier won is exactly what calls.local_match records, so report it
+  // rather than making the caller re-derive it.
+  const matchTier: MatchTier =
+    exact.length > 0 ? "exact" : sameState.length > 0 ? "state" : "none";
 
   const hash = (s: string): number =>
     s.split("").reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
-  return [...tier].sort(
+  const chosen = [...tier].sort(
     (a, b) =>
       a.calls24h - b.calls24h ||
       (b.connectRate ?? -1) - (a.connectRate ?? -1) ||
       hash(spreadKey + a.id) - hash(spreadKey + b.id),
   )[0];
+  return { ...chosen, matchTier };
 }
 
 /** Read the pool tunables from app_settings, falling back to defaults. */
@@ -129,7 +149,7 @@ export async function selectPoolNumber(
   campaignId: string,
   leadPhone: string | null,
   spreadKey: string,
-): Promise<{ numberId: string; elevenlabsPhoneNumberId: string } | null> {
+): Promise<ResolvedPoolNumber | null> {
   const nowIso = new Date().toISOString();
   const [{ data: nums }, settings] = await Promise.all([
     db
@@ -187,6 +207,7 @@ export async function selectPoolNumber(
     ? {
         numberId: chosen.id,
         elevenlabsPhoneNumberId: chosen.elevenlabsPhoneNumberId,
+        matchTier: chosen.matchTier,
       }
     : null;
 }
@@ -202,11 +223,12 @@ export async function usableRedialNumber(
   db: Admin,
   campaignId: string,
   numberId: string,
-): Promise<{ numberId: string; elevenlabsPhoneNumberId: string } | null> {
+  leadPhone: string | null,
+): Promise<ResolvedPoolNumber | null> {
   const nowIso = new Date().toISOString();
   const { data } = await db
     .from("twilio_numbers")
-    .select("id, elevenlabs_phone_number_id")
+    .select("id, elevenlabs_phone_number_id, area_code")
     .eq("id", numberId)
     .eq("attached_campaign_id", campaignId)
     .is("released_at", null)
@@ -216,8 +238,21 @@ export async function usableRedialNumber(
     .or(`rested_until.is.null,rested_until.lte.${nowIso}`)
     .maybeSingle();
   if (!data?.elevenlabs_phone_number_id) return null;
+  // A redial reuses call 1's number whatever its locality, so the tier is
+  // reported honestly from that number rather than assumed — the recorded
+  // local_match must describe the call that actually went out.
+  const leadAreaCode = areaCodeOf(leadPhone);
+  const leadState = stateForAreaCode(leadAreaCode);
+  const numberState = stateForAreaCode(data.area_code);
+  const matchTier: MatchTier =
+    leadAreaCode && data.area_code === leadAreaCode
+      ? "exact"
+      : leadState !== null && numberState === leadState
+        ? "state"
+        : "none";
   return {
     numberId: data.id,
     elevenlabsPhoneNumberId: data.elevenlabs_phone_number_id,
+    matchTier,
   };
 }

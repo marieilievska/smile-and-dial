@@ -208,3 +208,45 @@ describe("pickPoolNumber", () => {
     expect(chosen?.id).toBe("fl-exact");
   });
 });
+
+describe("pickPoolNumber match tier", () => {
+  it("reports 'exact' when the area code matches", () => {
+    const picked = pickPoolNumber(
+      [cand({ id: "a", areaCode: "954" }), cand({ id: "b", areaCode: "213" })],
+      "954",
+      "seed",
+    );
+    expect(picked?.id).toBe("a");
+    expect(picked?.matchTier).toBe("exact");
+  });
+
+  it("reports 'state' when only a same-state number is available", () => {
+    // 754 is Florida, same state as the 954 lead, different area code.
+    const picked = pickPoolNumber(
+      [cand({ id: "a", areaCode: "754" }), cand({ id: "b", areaCode: "213" })],
+      "954",
+      "seed",
+    );
+    expect(picked?.id).toBe("a");
+    expect(picked?.matchTier).toBe("state");
+  });
+
+  it("reports 'none' when nothing is local", () => {
+    const picked = pickPoolNumber(
+      [cand({ id: "b", areaCode: "213" })],
+      "954",
+      "seed",
+    );
+    expect(picked?.id).toBe("b");
+    expect(picked?.matchTier).toBe("none");
+  });
+
+  it("reports 'none' when the lead area code is unknown", () => {
+    const picked = pickPoolNumber(
+      [cand({ id: "b", areaCode: "213" })],
+      null,
+      "seed",
+    );
+    expect(picked?.matchTier).toBe("none");
+  });
+});

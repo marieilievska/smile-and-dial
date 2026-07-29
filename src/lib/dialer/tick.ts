@@ -5,7 +5,12 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { resolveDueCallbacksForLead } from "@/lib/callbacks/sync-next-call";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
-import { selectPoolNumber, usableRedialNumber } from "@/lib/dialer/number-pool";
+import { countryForAreaCode } from "@/lib/dialer/nanp-states";
+import {
+  areaCodeOf,
+  selectPoolNumber,
+  usableRedialNumber,
+} from "@/lib/dialer/number-pool";
 import { finalizeFailedCall } from "@/lib/dialer/retry-engine";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 
@@ -291,6 +296,16 @@ export async function runDialerTick(
     // window. queue_order is then only the tiebreak within a band.
     .order("dial_priority", { ascending: true })
     .order("is_redial_due", { ascending: false })
+    // LOCAL MATCH: dial the leads we can call locally first — US before Canada
+    // (dest_rank), then exact area code before same-state before neither
+    // (local_match_rank). Both collapse to 0 for genuine retries, so those keep
+    // the time-ordered slot the retry cycle gave them.
+    //
+    // These MUST be repeated here. PostgREST applies the client's .order()
+    // calls IN PLACE OF the view's own ORDER BY, so leaving them out doesn't
+    // fall back to the view's ranking — it silently discards it.
+    .order("dest_rank", { ascending: true })
+    .order("local_match_rank", { ascending: true })
     .order("queue_order", { ascending: true, nullsFirst: true })
     .limit(options.limit ?? 50);
   if (options.leadIds && options.leadIds.length > 0) {
@@ -510,7 +525,12 @@ async function placeLiveDialerCall(
   // already scheduled two days out, so skipping costs nothing.
   const reserved =
     c.is_redial && c.redial_number_id
-      ? await usableRedialNumber(supabase, c.campaign_id, c.redial_number_id)
+      ? await usableRedialNumber(
+          supabase,
+          c.campaign_id,
+          c.redial_number_id,
+          c.business_phone,
+        )
       : null;
   if (c.is_redial && !reserved)
     return { callId: null, redialNumberUnusable: true };
@@ -542,6 +562,11 @@ async function placeLiveDialerCall(
       campaign_id: c.campaign_id,
       agent_id: c.agent_id,
       twilio_number_id: picked.numberId,
+      // How local this caller ID was to the lead, recorded at placement rather
+      // than re-derived later (a lead's phone can change, and a number can move
+      // campaigns). This is what makes local presence measurable.
+      local_match: picked.matchTier,
+      dest_country: countryForAreaCode(areaCodeOf(c.business_phone)),
       direction: "outbound",
       status: "queued",
       outcome: null,

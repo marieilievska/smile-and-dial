@@ -247,3 +247,79 @@ export function stateForAreaCode(areaCode: string | null): string | null {
   if (!areaCode) return null;
   return AREA_CODE_TO_STATE[areaCode] ?? null;
 }
+
+/**
+ * Canadian NANP area codes. Kept SEPARATE from `STATE_AREA_CODES` on purpose:
+ * `stateForAreaCode` must keep returning null for these for now, because making
+ * it province-aware would change which number `pickPoolNumber` selects — and the
+ * PR that introduced this only changes lead ordering and what gets recorded, so
+ * the connect-rate effect stays attributable to one change at a time. The
+ * follow-up that adds same-province selection merges these in.
+ */
+export const CANADA_AREA_CODES: ReadonlySet<string> = new Set([
+  "204",
+  "226",
+  "236",
+  "249",
+  "250",
+  "263",
+  "289",
+  "306",
+  "343",
+  "354",
+  "365",
+  "367",
+  "368",
+  "382",
+  "387",
+  "403",
+  "416",
+  "418",
+  "428",
+  "431",
+  "437",
+  "438",
+  "450",
+  "468",
+  "474",
+  "506",
+  "514",
+  "519",
+  "548",
+  "579",
+  "581",
+  "584",
+  "587",
+  "604",
+  "613",
+  "639",
+  "647",
+  "672",
+  "683",
+  "705",
+  "709",
+  "742",
+  "753",
+  "778",
+  "780",
+  "782",
+  "807",
+  "819",
+  "825",
+  "867",
+  "873",
+  "879",
+  "902",
+  "905",
+]);
+
+/** 'US' | 'CA' for a geographic NANP area code, else null (toll-free,
+ *  premium, and other non-geographic codes have no destination country we
+ *  can act on). Pure. */
+export function countryForAreaCode(
+  areaCode: string | null | undefined,
+): "US" | "CA" | null {
+  if (!areaCode) return null;
+  if (stateForAreaCode(areaCode)) return "US";
+  return CANADA_AREA_CODES.has(areaCode) ? "CA" : null;
+}
