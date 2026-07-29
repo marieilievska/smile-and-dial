@@ -12,6 +12,7 @@ import {
   usableRedialNumber,
 } from "@/lib/dialer/number-pool";
 import { finalizeFailedCall } from "@/lib/dialer/retry-engine";
+import { isCampaignLevelBlock } from "@/lib/dialer/block-scope";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 
 import { type PreCallReason } from "./queue";
@@ -24,6 +25,9 @@ export type TickSummary = {
   blocked: number;
   errors: number;
   blockedReasons: Record<string, number>;
+  /** Candidates skipped without a pre_call_check round trip because their
+   *  campaign had already refused for a campaign-level reason this tick. */
+  skippedCampaignBlocked: number;
   liveMode: { twilio: boolean; elevenlabs: boolean };
 };
 
@@ -327,6 +331,7 @@ export async function runDialerTick(
     blocked: 0,
     errors: 0,
     blockedReasons: {},
+    skippedCampaignBlocked: 0,
     liveMode: { twilio: twilioLive, elevenlabs: elevenLive },
   };
 
@@ -341,6 +346,10 @@ export async function runDialerTick(
   // the spacing across ticks, so correctness never depends on the sleep.
   const MAX_TICK_SLEEP_MS = 45_000;
   let sleptMs = 0;
+  // Campaigns that already refused for a CAMPAIGN-level reason this tick (capped
+  // out, out of budget, no numbers). Every remaining candidate of that campaign
+  // would hit the identical wall, so they're skipped without another round trip.
+  const campaignBlocked = new Map<string, PreCallReason>();
 
   for (const c of candidates) {
     // The queue can produce rows where the typed columns are nominally
@@ -348,6 +357,14 @@ export async function runDialerTick(
     // anything that slips through.
     if (!c.lead_id || !c.campaign_id) {
       summary.errors++;
+      continue;
+    }
+
+    // This campaign already hit a campaign-level wall this tick — don't ask
+    // again, and above all don't touch the lead.
+    const alreadyBlocked = campaignBlocked.get(c.campaign_id);
+    if (alreadyBlocked) {
+      summary.skippedCampaignBlocked++;
       continue;
     }
 
@@ -407,6 +424,21 @@ export async function runDialerTick(
       // the redial may still succeed on a later tick once the cap clears —
       // exactly the "window expires, nothing to unwind" behaviour the
       // double-call design promises. Do not reinstate this for redials.
+      //
+      // A CAMPAIGN-level refusal (capped out, out of budget, no numbers) is a
+      // third exemption, and the most consequential one. The lead did nothing
+      // wrong — bumping it writes a schedule it never earned, and because the
+      // whole 50-row read refuses together, it did that ~50 times a minute for
+      // as long as the campaign stayed capped. Measured on 2026-07-29 before
+      // this fix: 9,183 never-called leads carried a next_call_at written
+      // entirely by these blocks, 93.8% of all stamps landed in bulk bursts,
+      // and next_call_at had become useless as a "never scheduled" signal (the
+      // dial_queue first-call gate had to switch to retry_counter because of
+      // it). Record the campaign and stop walking its candidates instead.
+      if (isCampaignLevelBlock(reason)) {
+        campaignBlocked.set(c.campaign_id, reason as PreCallReason);
+        continue;
+      }
       if (reason !== "pacing_wait" && !c.is_redial_due) {
         await supabase
           .from("leads")
