@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   Bot,
+  PhoneCall,
   ClipboardCheck,
   Flame,
   History,
@@ -16,6 +17,7 @@ export const REPORTING_TABS = [
   { key: "call-review", label: "Call Review", icon: ClipboardCheck },
   { key: "voice", label: "Voice of Customer", icon: MessageSquare },
   { key: "hot-leads", label: "Hot Leads", icon: Flame },
+  { key: "numbers", label: "Numbers", icon: PhoneCall },
   { key: "changelog", label: "App Changelog", icon: History },
   { key: "prompt-log", label: "Agent Prompt Log", icon: Bot },
 ] as const;
@@ -27,20 +29,26 @@ export type ReportingTabKey = (typeof REPORTING_TABS)[number]["key"];
  *  gate (Phase 3 generalizes it). Call Review is admin-only — the public
  *  token-gated share surface must pass `showCallReview: false` so external
  *  recipients never see the tab (it has no share render branch, and buckets are
- *  admin-only by design). */
+ *  admin-only by design). Numbers is gated the same way: it lists our own phone
+ *  numbers, their campaigns, and which are burned or resting — operational
+ *  detail an external recipient has no business seeing, and a shopping list for
+ *  anyone wanting to report our numbers as spam. */
 export function reportingTabsFor({
   showVoice,
   showHotLeads,
   showCallReview = true,
+  showNumbers = true,
 }: {
   showVoice: boolean;
   showHotLeads: boolean;
   showCallReview?: boolean;
+  showNumbers?: boolean;
 }): readonly (typeof REPORTING_TABS)[number][] {
   return REPORTING_TABS.filter((t) => {
     if (t.key === "voice") return showVoice;
     if (t.key === "hot-leads") return showHotLeads;
     if (t.key === "call-review") return showCallReview;
+    if (t.key === "numbers") return showNumbers;
     return true;
   });
 }

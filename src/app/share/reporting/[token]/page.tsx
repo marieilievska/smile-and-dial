@@ -101,6 +101,7 @@ export default async function PublicReporting({
     showVoice,
     showHotLeads,
     showCallReview: false,
+    showNumbers: false,
   });
   const tab = visibleTabs.some((t) => t.key === str(sp.tab))
     ? str(sp.tab)
