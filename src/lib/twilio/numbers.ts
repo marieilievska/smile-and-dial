@@ -224,15 +224,22 @@ export async function listOwnedNumbers(): Promise<{
   }
 }
 
-/** Search for purchasable numbers. Mocked unless TWILIO_LIVE=live. */
+/** Search for purchasable numbers. Mocked unless TWILIO_LIVE=live.
+ *
+ *  `limit` is how many candidates to ask Twilio for. It used to be pinned at 10,
+ *  which silently capped every bulk buy at 10 numbers however many were
+ *  requested (the pool batch limit is 25). Twilio accepts a PageSize up to 1000;
+ *  we clamp to a sane range. */
 export async function searchAvailableNumbers(
   country: Country,
   areaCode: string,
+  limit = 10,
 ): Promise<{ numbers: AvailableNumber[]; error: string | null }> {
+  const pageSize = Math.max(1, Math.min(100, Math.floor(limit) || 10));
   if (!isLive()) {
-    return { numbers: mockSearch(country, areaCode), error: null };
+    return { numbers: mockSearch(country, areaCode, pageSize), error: null };
   }
-  return liveSearch(country, areaCode);
+  return liveSearch(country, areaCode, pageSize);
 }
 
 /** Purchase a number. Mocked unless TWILIO_LIVE=live. */
@@ -255,7 +262,25 @@ export async function purchaseTwilioNumber(
         body: new URLSearchParams({ PhoneNumber: phoneNumber }),
       },
     );
-    if (!res.ok) return { twilioSid: null, error: "Twilio purchase failed." };
+    if (!res.ok) {
+      // Surface Twilio's own message. Canadian numbers in particular fail for
+      // actionable reasons — they require a validated local Canadian address
+      // (no P.O. boxes or virtual addresses) and sometimes a regulatory bundle.
+      // A bare "purchase failed" sends the operator hunting for a bug that
+      // isn't there.
+      let detail = "";
+      try {
+        const body = (await res.json()) as { message?: string; code?: number };
+        detail = body.message ? ` ${body.message}` : "";
+        if (body.code) detail += ` (Twilio code ${body.code})`;
+      } catch {
+        /* non-JSON error body — the status alone will have to do */
+      }
+      return {
+        twilioSid: null,
+        error: `Twilio purchase failed (${res.status}).${detail}`,
+      };
+    }
     const body = (await res.json()) as { sid?: string };
     return { twilioSid: body.sid ?? null, error: null };
   } catch {
@@ -289,13 +314,17 @@ export async function releaseTwilioNumber(
  * Deterministic stand-in for Twilio's number search. Returns five numbers in
  * the requested area code (defaulting to 415 for US, 416 for CA).
  */
-function mockSearch(country: Country, areaCode: string): AvailableNumber[] {
+function mockSearch(
+  country: Country,
+  areaCode: string,
+  limit = 5,
+): AvailableNumber[] {
   const ac = /^\d{3}$/.test(areaCode)
     ? areaCode
     : country === "CA"
       ? "416"
       : "415";
-  return Array.from({ length: 5 }, (_, index) => {
+  return Array.from({ length: Math.min(limit, 5) }, (_, index) => {
     const phoneNumber = `+1${ac}555${1000 + index}`;
     return {
       phoneNumber,
@@ -308,6 +337,7 @@ function mockSearch(country: Country, areaCode: string): AvailableNumber[] {
 async function liveSearch(
   country: Country,
   areaCode: string,
+  pageSize: number,
 ): Promise<{ numbers: AvailableNumber[]; error: string | null }> {
   const auth = twilioAuth();
   if (!auth) return { numbers: [], error: "Twilio is not configured." };
@@ -316,7 +346,7 @@ async function liveSearch(
       `${TWILIO_API}/${auth.account}/AvailablePhoneNumbers/${country}/Local.json`,
     );
     if (/^\d{3}$/.test(areaCode)) url.searchParams.set("AreaCode", areaCode);
-    url.searchParams.set("PageSize", "10");
+    url.searchParams.set("PageSize", String(pageSize));
 
     const res = await fetch(url, { headers: { Authorization: auth.header } });
     if (!res.ok) return { numbers: [], error: "Twilio search failed." };

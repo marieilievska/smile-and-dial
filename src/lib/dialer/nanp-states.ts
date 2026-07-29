@@ -249,77 +249,94 @@ export function stateForAreaCode(areaCode: string | null): string | null {
 }
 
 /**
- * Canadian NANP area codes. Kept SEPARATE from `STATE_AREA_CODES` on purpose:
- * `stateForAreaCode` must keep returning null for these for now, because making
- * it province-aware would change which number `pickPoolNumber` selects — and the
- * PR that introduced this only changes lead ordering and what gets recorded, so
- * the connect-rate effect stays attributable to one change at a time. The
- * follow-up that adds same-province selection merges these in.
+ * Canadian NANP area codes by province, in the same shape as
+ * `STATE_AREA_CODES`. Two deliberate simplifications: 902/782 serve BOTH Nova
+ * Scotia and Prince Edward Island and are filed under NS (they are one calling
+ * region for local-presence purposes), and 867 covers Northwest Territories,
+ * Nunavut and Yukon and is filed under NT.
+ *
+ * No province abbreviation collides with a USPS state abbreviation, so the two
+ * maps can share one lookup without ambiguity.
  */
-export const CANADA_AREA_CODES: ReadonlySet<string> = new Set([
-  "204",
-  "226",
-  "236",
-  "249",
-  "250",
-  "263",
-  "289",
-  "306",
-  "343",
-  "354",
-  "365",
-  "367",
-  "368",
-  "382",
-  "387",
-  "403",
-  "416",
-  "418",
-  "428",
-  "431",
-  "437",
-  "438",
-  "450",
-  "468",
-  "474",
-  "506",
-  "514",
-  "519",
-  "548",
-  "579",
-  "581",
-  "584",
-  "587",
-  "604",
-  "613",
-  "639",
-  "647",
-  "672",
-  "683",
-  "705",
-  "709",
-  "742",
-  "753",
-  "778",
-  "780",
-  "782",
-  "807",
-  "819",
-  "825",
-  "867",
-  "873",
-  "879",
-  "902",
-  "905",
-]);
+export const PROVINCE_AREA_CODES: Record<string, string[]> = {
+  AB: ["368", "403", "587", "780", "825"],
+  BC: ["236", "250", "604", "672", "778"],
+  MB: ["204", "431", "584"],
+  NB: ["428", "506"],
+  NL: ["709", "879"],
+  NS: ["782", "902"],
+  NT: ["867"],
+  ON: [
+    "226",
+    "249",
+    "289",
+    "343",
+    "365",
+    "382",
+    "387",
+    "416",
+    "437",
+    "519",
+    "548",
+    "613",
+    "647",
+    "683",
+    "705",
+    "742",
+    "753",
+    "807",
+    "905",
+  ],
+  QC: [
+    "263",
+    "354",
+    "367",
+    "418",
+    "438",
+    "450",
+    "468",
+    "514",
+    "579",
+    "581",
+    "819",
+    "873",
+  ],
+  SK: ["306", "474", "639"],
+};
+
+const AREA_CODE_TO_PROVINCE: Record<string, string> = Object.fromEntries(
+  Object.entries(PROVINCE_AREA_CODES).flatMap(([province, codes]) =>
+    codes.map((code) => [code, province] as const),
+  ),
+);
+
+/** Every Canadian NANP area code, derived from the province map. */
+export const CANADA_AREA_CODES: ReadonlySet<string> = new Set(
+  Object.keys(AREA_CODE_TO_PROVINCE),
+);
+
+/** Map a Canadian NANP area code to its 2-letter province abbreviation, or null.
+ *  Pure. */
+export function provinceForAreaCode(areaCode: string | null): string | null {
+  if (!areaCode) return null;
+  return AREA_CODE_TO_PROVINCE[areaCode] ?? null;
+}
+
+/** The state OR province for a geographic NANP area code — the unit the dialer
+ *  treats as "same region" when no exact area-code match is available. Null for
+ *  non-geographic codes (toll-free, premium). Pure. */
+export function regionForAreaCode(areaCode: string | null): string | null {
+  return stateForAreaCode(areaCode) ?? provinceForAreaCode(areaCode);
+}
 
 /** 'US' | 'CA' for a geographic NANP area code, else null (toll-free,
  *  premium, and other non-geographic codes have no destination country we
- *  can act on). Pure. */
+ *  can act on). Canada is checked FIRST — since provinces joined the region
+ *  lookup, a Canadian code also resolves to a region. Pure. */
 export function countryForAreaCode(
   areaCode: string | null | undefined,
 ): "US" | "CA" | null {
   if (!areaCode) return null;
-  if (stateForAreaCode(areaCode)) return "US";
-  return CANADA_AREA_CODES.has(areaCode) ? "CA" : null;
+  if (CANADA_AREA_CODES.has(areaCode)) return "CA";
+  return stateForAreaCode(areaCode) ? "US" : null;
 }
