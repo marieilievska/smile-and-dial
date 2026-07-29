@@ -23,8 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { stateForAreaCode } from "@/lib/dialer/nanp-states";
-import type { AreaCodePlan } from "@/lib/dialer/pool-plan";
+import type { StatePlan } from "@/lib/dialer/pool-plan";
 import { addNumbersToPool, suggestPoolPlan } from "@/lib/twilio/pool-actions";
 
 import { DialogSection } from "../dialog-section";
@@ -49,13 +48,14 @@ export function BuyIntoPoolDialog({
   const [campaignId, setCampaignId] = useState("");
   const [areaCode, setAreaCode] = useState("");
   const [count, setCount] = useState("5");
-  const [plan, setPlan] = useState<AreaCodePlan[] | null>(null);
+  const [plan, setPlan] = useState<StatePlan[] | null>(null);
   const [totalLeads, setTotalLeads] = useState(0);
   const [planning, startPlanning] = useTransition();
   const [buying, startBuying] = useTransition();
   const [result, setResult] = useState<{
     bought: number;
     failed: number;
+    byAreaCode: Record<string, number>;
   } | null>(null);
 
   const areaCodeValid = /^\d{3}$/.test(areaCode);
@@ -74,13 +74,13 @@ export function BuyIntoPoolDialog({
         return;
       }
       setTotalLeads(res.totalLeads);
-      setPlan(res.plan);
+      setPlan(res.byState);
     });
   }
 
   // Named to avoid the "use..." hook-naming convention (react-hooks/rules-of-hooks
   // flags it otherwise) — this is a plain event handler, not a hook.
-  function applySuggestion(row: AreaCodePlan) {
+  function applySuggestion(row: StatePlan) {
     setAreaCode(row.areaCode);
     setCount(String(Math.max(1, Math.min(MAX_BATCH, row.suggested || 1))));
   }
@@ -98,7 +98,11 @@ export function BuyIntoPoolDialog({
         toast.error(res.error);
         return;
       }
-      setResult({ bought: res.bought, failed: res.failed });
+      setResult({
+        bought: res.bought,
+        failed: res.failed,
+        byAreaCode: res.byAreaCode,
+      });
       if (res.bought > 0) {
         toast.success(
           res.failed > 0
@@ -186,22 +190,24 @@ export function BuyIntoPoolDialog({
                   <div className="flex flex-col gap-1.5">
                     <p className="text-muted-foreground text-xs">
                       {totalLeads} lead{totalLeads === 1 ? "" : "s"} with a
-                      phone number across {plan.length} area code
-                      {plan.length === 1 ? "" : "s"}.
+                      phone number across {plan.length} state
+                      {plan.length === 1 ? "" : "s"}. One number per state
+                      covers far more leads than chasing individual area codes —
+                      it&apos;s bought in that state&apos;s busiest area code,
+                      so it doubles as an exact match there.
                     </p>
                     <ul className="flex flex-col gap-1">
-                      {plan.slice(0, 8).map((row) => (
+                      {plan.slice(0, 10).map((row) => (
                         <li
-                          key={row.areaCode}
+                          key={row.region}
                           className="border-border flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-xs"
                         >
                           <span className="text-foreground">
-                            {row.areaCode} ·{" "}
-                            {stateForAreaCode(row.areaCode) ?? "—"} —{" "}
+                            <span className="font-medium">{row.region}</span> —{" "}
                             {row.leads} lead{row.leads === 1 ? "" : "s"}, own{" "}
                             {row.owned}
                             {row.suggested > 0
-                              ? `, buy ${row.suggested} more`
+                              ? `, buy ${row.suggested} in ${row.areaCode}`
                               : ", covered"}
                           </span>
                           {row.suggested > 0 ? (
@@ -269,6 +275,20 @@ export function BuyIntoPoolDialog({
               }
             >
               Bought {result.bought}, failed {result.failed}.
+              {/* Which area codes actually landed. The buy falls back to metro
+                  neighbours then the rest of the state when the requested code
+                  is sold out, so saying so beats silently handing back a
+                  different city. */}
+              {Object.keys(result.byAreaCode).length > 0 ? (
+                <>
+                  {" "}
+                  {Object.entries(result.byAreaCode)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([ac, n]) => `${n} × ${ac}`)
+                    .join(", ")}
+                  .
+                </>
+              ) : null}
             </p>
           ) : null}
         </div>

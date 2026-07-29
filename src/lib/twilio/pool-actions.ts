@@ -2,8 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 
+import { siblingAreaCodes } from "@/lib/dialer/nanp-metros";
+import {
+  countryForAreaCode,
+  regionForAreaCode,
+} from "@/lib/dialer/nanp-states";
 import { areaCodeOf } from "@/lib/dialer/number-pool";
-import { buildPoolPlan, type AreaCodePlan } from "@/lib/dialer/pool-plan";
+import {
+  buildPoolPlan,
+  buildStatePlan,
+  type AreaCodePlan,
+  type StatePlan,
+} from "@/lib/dialer/pool-plan";
 import { createClient } from "@/lib/supabase/server";
 import {
   assignAgentToNumber,
@@ -14,6 +24,8 @@ import {
   pointNumberWebhooks,
   purchaseTwilioNumber,
   searchAvailableNumbers,
+  type AvailableNumber,
+  type Country,
 } from "./numbers";
 
 /**
@@ -63,15 +75,28 @@ export async function addNumbersToPool(input: {
   campaignId: string;
   areaCode: string;
   count: number;
-}): Promise<{ bought: number; failed: number; error: string | null }> {
+}): Promise<{
+  bought: number;
+  failed: number;
+  /** How many landed per area code, so the UI can say "8 bought: 5 x 305,
+   *  3 x 786" instead of silently substituting a different city. */
+  byAreaCode: Record<string, number>;
+  error: string | null;
+}> {
+  const empty = { bought: 0, failed: 0, byAreaCode: {} };
   const { supabase, error: adminError } = await requireAdmin();
-  if (adminError) return { bought: 0, failed: 0, error: adminError };
+  if (adminError) return { ...empty, error: adminError };
 
   const count = Math.max(1, Math.min(MAX_BATCH, Math.floor(input.count || 0)));
   const areaCode = input.areaCode.replace(/\D/g, "").slice(0, 3);
   if (areaCode.length !== 3) {
-    return { bought: 0, failed: 0, error: "Enter a 3-digit area code." };
+    return { ...empty, error: "Enter a 3-digit area code." };
   }
+
+  // Canadian numbers come from a different Twilio catalogue and carry their own
+  // address requirements, so the country follows the area code rather than
+  // being assumed.
+  const country: Country = countryForAreaCode(areaCode) === "CA" ? "CA" : "US";
 
   // Campaign + its ElevenLabs agent (for the inbound assignment).
   const { data: campaign } = await supabase
@@ -79,33 +104,56 @@ export async function addNumbersToPool(input: {
     .select("id, agent:agents(elevenlabs_agent_id)")
     .eq("id", input.campaignId)
     .maybeSingle();
-  if (!campaign) return { bought: 0, failed: 0, error: "Campaign not found." };
+  if (!campaign) return { ...empty, error: "Campaign not found." };
   const agentElId =
     (campaign.agent as { elevenlabs_agent_id: string | null } | null)
       ?.elevenlabs_agent_id ?? null;
 
-  const { numbers, error: searchErr } = await searchAvailableNumbers(
-    "US",
-    areaCode,
-  );
-  if (searchErr) return { bought: 0, failed: 0, error: searchErr };
-  const toBuy = numbers.slice(0, count);
+  // Local presence, nearest first: the requested area code, then the rest of
+  // its metro, then the rest of its state or province. Miami's 305 sold out
+  // falls to 786/954/754 before it ever considers Pensacola. Never leaves the
+  // state — a random out-of-state number is the robocall pattern this exists to
+  // avoid, so running out means reporting it, not substituting.
+  const candidateAreaCodes = [areaCode, ...siblingAreaCodes(areaCode)];
+
+  const toBuy: AvailableNumber[] = [];
+  let firstSearchError: string | null = null;
+  for (const ac of candidateAreaCodes) {
+    if (toBuy.length >= count) break;
+    const { numbers, error: searchErr } = await searchAvailableNumbers(
+      country,
+      ac,
+      count - toBuy.length,
+    );
+    // One area code failing to search shouldn't abort the whole plan; remember
+    // the first error in case nothing at all is found.
+    if (searchErr) {
+      firstSearchError ??= searchErr;
+      continue;
+    }
+    toBuy.push(...numbers.slice(0, count - toBuy.length));
+  }
+
   if (toBuy.length === 0) {
     return {
-      bought: 0,
-      failed: 0,
-      error: `No numbers available in area code ${areaCode}.`,
+      ...empty,
+      error:
+        firstSearchError ??
+        `No numbers available in ${areaCode} or anywhere else in ${regionForAreaCode(areaCode) ?? "that region"}.`,
     };
   }
 
   let bought = 0;
   let failed = 0;
+  const byAreaCode: Record<string, number> = {};
+  let firstBuyError: string | null = null;
   for (const n of toBuy) {
     const { twilioSid, error: buyErr } = await purchaseTwilioNumber(
       n.phoneNumber,
     );
     if (buyErr) {
       failed++;
+      firstBuyError ??= buyErr;
       continue;
     }
 
@@ -122,7 +170,7 @@ export async function addNumbersToPool(input: {
       .insert({
         phone_number: n.phoneNumber,
         friendly_name: n.friendlyName,
-        country: "US",
+        country,
         monthly_cost: n.monthlyCost,
         twilio_sid: twilioSid,
         voice_webhook_url: voiceUrl,
@@ -151,11 +199,22 @@ export async function addNumbersToPool(input: {
       }
     }
     bought++;
+    const boughtAc = areaCodeOf(n.phoneNumber) ?? areaCode;
+    byAreaCode[boughtAc] = (byAreaCode[boughtAc] ?? 0) + 1;
   }
 
   revalidatePath(NUMBERS_PATH);
   revalidatePath(CAMPAIGNS_PATH);
-  return { bought, failed, error: null };
+  // Nothing landed at all — surface why rather than reporting a silent success.
+  if (bought === 0) {
+    return {
+      bought,
+      failed,
+      byAreaCode,
+      error: firstBuyError ?? "No numbers could be purchased.",
+    };
+  }
+  return { bought, failed, byAreaCode, error: null };
 }
 
 /** Retire a number from the pool (permanent until reactivated) — selection skips
@@ -297,11 +356,16 @@ export async function movePoolNumberToCampaign(
 /** Suggest how many numbers to buy per area code so a campaign's leads are dialed
  *  locally, based on the campaign's lead geography vs. what its pool already owns.
  *  Read-only. */
-export async function suggestPoolPlan(
-  campaignId: string,
-): Promise<{ plan: AreaCodePlan[]; totalLeads: number; error: string | null }> {
+export async function suggestPoolPlan(campaignId: string): Promise<{
+  /** Recommended: one row per state/province, buying in its densest area code. */
+  byState: StatePlan[];
+  /** Per-area-code detail, useful for a geographically concentrated campaign. */
+  plan: AreaCodePlan[];
+  totalLeads: number;
+  error: string | null;
+}> {
   const { supabase, error } = await requireAdmin();
-  if (error) return { plan: [], totalLeads: 0, error };
+  if (error) return { byState: [], plan: [], totalLeads: 0, error };
 
   // Lists attached to this campaign.
   const { data: atts } = await supabase
@@ -310,7 +374,8 @@ export async function suggestPoolPlan(
     .eq("campaign_id", campaignId)
     .is("detached_at", null);
   const listIds = (atts ?? []).map((a) => a.list_id);
-  if (listIds.length === 0) return { plan: [], totalLeads: 0, error: null };
+  if (listIds.length === 0)
+    return { byState: [], plan: [], totalLeads: 0, error: null };
 
   // Lead area codes (paginate business_phone — an occasional admin action, so
   // scanning the list is fine; PostgREST caps each page at 1,000 rows).
@@ -366,5 +431,12 @@ export async function suggestPoolPlan(
     dailyCap,
     workdays: 5,
   });
-  return { plan, totalLeads: leadAreaCodes.length, error: null };
+  const byState = buildStatePlan({
+    leadAreaCodes,
+    ownedByAreaCode,
+    regionOf: regionForAreaCode,
+    dailyCap,
+    workdays: 5,
+  });
+  return { byState, plan, totalLeads: leadAreaCodes.length, error: null };
 }

@@ -2,7 +2,7 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
-import { stateForAreaCode } from "@/lib/dialer/nanp-states";
+import { regionForAreaCode } from "@/lib/dialer/nanp-states";
 
 type Admin = ReturnType<typeof createClient<Database>>;
 
@@ -98,7 +98,7 @@ export function pickPoolNumber(
   const underCap = candidates.filter((c) => c.calls24h < c.effectiveCap);
   if (underCap.length === 0) return null;
 
-  const leadState = stateForAreaCode(leadAreaCode);
+  const leadState = regionForAreaCode(leadAreaCode);
   const exact = leadAreaCode
     ? underCap.filter((c) => c.areaCode === leadAreaCode)
     : [];
@@ -106,7 +106,7 @@ export function pickPoolNumber(
     ? underCap.filter(
         (c) =>
           c.areaCode !== leadAreaCode &&
-          stateForAreaCode(c.areaCode) === leadState,
+          regionForAreaCode(c.areaCode) === leadState,
       )
     : [];
   const tier =
@@ -242,8 +242,8 @@ export async function usableRedialNumber(
   // reported honestly from that number rather than assumed — the recorded
   // local_match must describe the call that actually went out.
   const leadAreaCode = areaCodeOf(leadPhone);
-  const leadState = stateForAreaCode(leadAreaCode);
-  const numberState = stateForAreaCode(data.area_code);
+  const leadState = regionForAreaCode(leadAreaCode);
+  const numberState = regionForAreaCode(data.area_code);
   const matchTier: MatchTier =
     leadAreaCode && data.area_code === leadAreaCode
       ? "exact"
