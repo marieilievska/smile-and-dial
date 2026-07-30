@@ -329,6 +329,17 @@ export async function createInvitee(
      *  omit only when it has none. Build it from getEventTypeLocations via
      *  buildInviteeLocation (see ./booking). */
     location?: { kind: string };
+    /** UTM attribution stamped on the booking (Calendly's invitee `tracking`
+     *  object). Surfaces in Calendly reporting/exports + the post-call webhook.
+     *  Build it from bookingTracking (see ./booking). */
+    tracking?: {
+      utm_source?: string;
+      utm_medium?: string;
+      utm_campaign?: string;
+      utm_content?: string;
+      utm_term?: string;
+      salesforce_uuid?: string;
+    };
   },
   token: string,
 ): Promise<CreateInviteeResult> {
@@ -347,6 +358,11 @@ export async function createInvitee(
   // has one ("location_configuration.kind invalid location choice"). Include it
   // when we have it; omit entirely for locationless event types.
   if (input.location) payload.location = input.location;
+  // UTM attribution (Calendly's invitee `tracking`). Only send when at least one
+  // field is set, so a bookingless/untagged call never posts an empty object.
+  if (input.tracking && Object.values(input.tracking).some((v) => v)) {
+    payload.tracking = input.tracking;
+  }
 
   try {
     const res = await fetch(`${CAL_API}/invitees`, {

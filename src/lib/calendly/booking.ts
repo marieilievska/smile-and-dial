@@ -53,3 +53,53 @@ export function availabilityWindows(
   }
   return out;
 }
+
+/** The UTM fields Calendly stores on a booking (its invitee `tracking` object). */
+export type CalendlyTracking = {
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_content?: string;
+  utm_term?: string;
+};
+
+/** Per-campaign booking attribution, keyed by campaign id (an id survives a
+ *  rename; a name doesn't). Mirrors CAMPAIGN_LINK_UTM in ../shortlinks/destination.
+ *
+ *  ⚠️ Same sharp edge as the link map: a database reset recreates the campaign
+ *  with a NEW id and this silently stops matching — bookings still tag, just with
+ *  the fallback (campaign name) instead of the intended `utm_campaign`. If the
+ *  Calendly report stops showing `voice_ai_webinar`, check this id first. */
+const CAMPAIGN_BOOKING_UTM: Record<
+  string,
+  { source: string; campaign: string }
+> = {
+  // HireAI Webinar
+  "17a7a2e8-c56b-4c3e-841c-a1db2fbf1529": {
+    source: "smile_dial",
+    campaign: "voice_ai_webinar",
+  },
+};
+
+/**
+ * The UTM attribution to stamp on a Calendly booking (the invitee `tracking`
+ * object in POST /invitees). Bookings always come from an AI phone call, so
+ * `utm_medium` is fixed to "voice". `utm_source` defaults to "smile_dial" and
+ * `utm_campaign` to the campaign's own name; a campaign in CAMPAIGN_BOOKING_UTM
+ * overrides both. Pure, so the wiring is unit-tested.
+ */
+export function bookingTracking(args: {
+  campaignId: string | null;
+  campaignName: string | null;
+}): CalendlyTracking {
+  const override = args.campaignId
+    ? CAMPAIGN_BOOKING_UTM[args.campaignId]
+    : undefined;
+  const campaign = override?.campaign ?? args.campaignName ?? undefined;
+  const tracking: CalendlyTracking = {
+    utm_source: override?.source ?? "smile_dial",
+    utm_medium: "voice",
+  };
+  if (campaign) tracking.utm_campaign = campaign;
+  return tracking;
+}
