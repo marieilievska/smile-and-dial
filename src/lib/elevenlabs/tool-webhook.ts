@@ -13,6 +13,7 @@ import {
 } from "@/lib/calendly/api";
 import {
   availabilityWindows,
+  bookingTracking,
   buildInviteeLocation,
 } from "@/lib/calendly/booking";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
@@ -211,7 +212,11 @@ function fmtSlot(iso: string, timeZone: string | null | undefined): string {
   });
 }
 
-type CampaignCalendly = { token: string; eventTypeUri: string | null };
+type CampaignCalendly = {
+  token: string;
+  eventTypeUri: string | null;
+  campaignName: string | null;
+};
 
 /**
  * Resolve the Calendly credentials + event type for a call: the CAMPAIGN
@@ -232,7 +237,7 @@ async function resolveCampaignCalendly(
 ): Promise<CampaignCalendly | null> {
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("owner_id, calendly_event_id")
+    .select("owner_id, calendly_event_id, name")
     .eq("id", campaignId)
     .maybeSingle();
   if (!campaign?.owner_id) return null;
@@ -254,7 +259,7 @@ async function resolveCampaignCalendly(
       .maybeSingle();
     eventTypeUri = et?.event_uri ?? null;
   }
-  return { token, eventTypeUri };
+  return { token, eventTypeUri, campaignName: campaign.name ?? null };
 }
 
 /**
@@ -1092,6 +1097,13 @@ async function bookAppointment(
     const location = buildInviteeLocation(
       await getEventTypeLocations(cal.eventTypeUri, cal.token),
     );
+    // UTM attribution so booked appointments are traceable to Smile & Dial in
+    // Calendly's reporting (utm_source=smile_dial, utm_medium=voice, campaign
+    // per bookingTracking). Surfaces on the invitee + the post-call webhook.
+    const tracking = bookingTracking({
+      campaignId: ctx.campaignId,
+      campaignName: cal.campaignName,
+    });
     const result = await createInvitee(
       {
         eventTypeUri: cal.eventTypeUri,
@@ -1100,6 +1112,7 @@ async function bookAppointment(
         name: name || undefined,
         timezone: ctx.lead.timezone || "America/New_York",
         location,
+        tracking,
       },
       cal.token,
     );

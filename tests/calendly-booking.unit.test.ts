@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   availabilityWindows,
+  bookingTracking,
   buildInviteeLocation,
 } from "../src/lib/calendly/booking";
 
@@ -70,5 +71,40 @@ describe("availabilityWindows", () => {
 
   it("honors the requested window count", () => {
     expect(availabilityWindows(now, { windows: 3 })).toHaveLength(3);
+  });
+});
+
+describe("bookingTracking", () => {
+  it("tags the HireAI Webinar campaign with the fixed voice_ai_webinar UTMs", () => {
+    expect(
+      bookingTracking({
+        campaignId: "17a7a2e8-c56b-4c3e-841c-a1db2fbf1529",
+        campaignName: "HireAI Webinar",
+      }),
+    ).toEqual({
+      utm_source: "smile_dial",
+      utm_medium: "voice",
+      utm_campaign: "voice_ai_webinar",
+    });
+  });
+
+  it("falls back to smile_dial + the campaign's own name for other campaigns", () => {
+    expect(
+      bookingTracking({
+        campaignId: "some-other-id",
+        campaignName: "Med Spa Q3",
+      }),
+    ).toEqual({
+      utm_source: "smile_dial",
+      utm_medium: "voice",
+      utm_campaign: "Med Spa Q3",
+    });
+  });
+
+  it("always tags source + voice medium, and omits campaign when there's none", () => {
+    expect(bookingTracking({ campaignId: null, campaignName: null })).toEqual({
+      utm_source: "smile_dial",
+      utm_medium: "voice",
+    });
   });
 });
