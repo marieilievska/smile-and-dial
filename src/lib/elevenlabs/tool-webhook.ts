@@ -8,7 +8,13 @@ import {
   cancelScheduledEvent,
   createInvitee,
   getAvailableTimes as calendlyGetAvailableTimes,
+  getEventTypeLocations,
+  type CalendlySlot,
 } from "@/lib/calendly/api";
+import {
+  availabilityWindows,
+  buildInviteeLocation,
+} from "@/lib/calendly/booking";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import {
   localHourDaysAheadIso,
@@ -936,18 +942,29 @@ async function getAvailableTimesResult(
       };
     }
     if (cal?.eventTypeUri) {
-      const start = new Date(new Date().getTime() + 15 * 60 * 1000);
-      const end = new Date(new Date().getTime() + 6 * 24 * 60 * 60 * 1000);
-      const live = await calendlyGetAvailableTimes(
-        cal.eventTypeUri,
-        start.toISOString(),
-        end.toISOString(),
-        cal.token,
-      );
-      const slots = live.slice(0, 3).map((s) => ({
+      // Scan forward across several ~7-day windows (Calendly caps each query at
+      // 7 days) so a fixed date weeks out — e.g. a webinar — is actually found,
+      // instead of quietly falling back to invented generic times. Collect up
+      // to 3 real openings, stopping early once we have them.
+      const collected: CalendlySlot[] = [];
+      for (const w of availabilityWindows(Date.now())) {
+        const live = await calendlyGetAvailableTimes(
+          cal.eventTypeUri,
+          w.startISO,
+          w.endISO,
+          cal.token,
+        );
+        collected.push(...live);
+        if (collected.length >= 3) break;
+      }
+      const slots = collected.slice(0, 3).map((s) => ({
         slot_id: s.startTime,
-        label: fmtSlot(s.startTime, ctx?.lead.timezone),
+        label: fmtSlot(s.startTime, ctx.lead.timezone),
       }));
+      // A real Calendly event is attached, so offer its TRUE openings — or say
+      // there are none. Never invent generic slots here: fake times contradict
+      // the real date the agent quotes and produce un-bookable slot_ids (the
+      // "why is it offering other times?" bug).
       if (slots.length > 0) {
         return {
           success: true,
@@ -955,8 +972,15 @@ async function getAvailableTimesResult(
           slots,
         };
       }
+      return {
+        success: false,
+        message:
+          "I'm not seeing any open times on the calendar over the next few weeks.",
+      };
     }
   }
+  // Only reached with no resolved call, or an owner who hasn't connected
+  // Calendly at all → generic demo/mock slots keep the conversation moving.
   return genericAvailableTimes(ctx?.lead.timezone);
 }
 
@@ -1062,6 +1086,12 @@ async function bookAppointment(
       };
     }
 
+    // Echo the event type's location back (Zoom/Meet/etc.), or Calendly rejects
+    // the booking with "location_configuration.kind invalid location choice" —
+    // the bug that silently broke booking for every event that has a location.
+    const location = buildInviteeLocation(
+      await getEventTypeLocations(cal.eventTypeUri, cal.token),
+    );
     const result = await createInvitee(
       {
         eventTypeUri: cal.eventTypeUri,
@@ -1069,6 +1099,7 @@ async function bookAppointment(
         email,
         name: name || undefined,
         timezone: ctx.lead.timezone || "America/New_York",
+        location,
       },
       cal.token,
     );

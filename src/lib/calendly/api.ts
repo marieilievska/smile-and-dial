@@ -181,6 +181,35 @@ export async function listEventTypes(
   return [...byUri.values()];
 }
 
+type EventTypeResource = {
+  resource?: { locations?: { kind?: string | null }[] | null };
+};
+
+/**
+ * Fetch a single event type's configured locations (GET /event_types/{uuid}).
+ * Used at booking time to echo the location back to Calendly — a booking that
+ * omits the location for an event type that has one is rejected. Returns [] on
+ * any failure (then the caller omits location, so only locationless events
+ * still book — no worse than before, and location events are the ones we fix).
+ */
+export async function getEventTypeLocations(
+  eventTypeUri: string,
+  token: string,
+): Promise<{ kind: string }[]> {
+  try {
+    const res = await fetch(eventTypeUri, { headers: authHeaders(token) });
+    if (!res.ok) return [];
+    const data = (await res.json()) as EventTypeResource;
+    return (data.resource?.locations ?? []).flatMap((l) =>
+      typeof l?.kind === "string" && l.kind.length > 0
+        ? [{ kind: l.kind }]
+        : [],
+    );
+  } catch {
+    return [];
+  }
+}
+
 type AvailableTimesResponse = {
   collection?: {
     status?: string;
@@ -295,6 +324,11 @@ export async function createInvitee(
     email: string;
     name?: string;
     timezone: string;
+    /** The event type's location, echoed back so Calendly accepts the booking.
+     *  REQUIRED whenever the event type has a location (Zoom/Meet/phone/etc.);
+     *  omit only when it has none. Build it from getEventTypeLocations via
+     *  buildInviteeLocation (see ./booking). */
+    location?: { kind: string };
   },
   token: string,
 ): Promise<CreateInviteeResult> {
@@ -304,15 +338,21 @@ export async function createInvitee(
   };
   if (input.name) invitee.name = input.name;
 
+  const payload: Record<string, unknown> = {
+    event_type: input.eventTypeUri,
+    start_time: input.startTime,
+    invitee,
+  };
+  // Calendly rejects a booking that omits the location for an event type that
+  // has one ("location_configuration.kind invalid location choice"). Include it
+  // when we have it; omit entirely for locationless event types.
+  if (input.location) payload.location = input.location;
+
   try {
     const res = await fetch(`${CAL_API}/invitees`, {
       method: "POST",
       headers: authHeaders(token),
-      body: JSON.stringify({
-        event_type: input.eventTypeUri,
-        start_time: input.startTime,
-        invitee,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = (await res
       .json()
