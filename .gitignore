@@ -53,3 +53,5 @@ next-env.d.ts
 .vercel
 
 .vercel
+.shaken-sync.log
+scripts/_shaken-sync-hidden.vbs
