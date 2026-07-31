@@ -386,6 +386,66 @@ async function applyExtractionToCustomFields(
   }
 }
 
+/** Lead identity columns the AI may hear on a call. */
+const LEAD_IDENTITY_COLUMNS = [
+  "owner_name",
+  "manager_name",
+  "employee_name",
+  "business_email",
+] as const;
+
+/**
+ * Fill the lead's identity fields (names, email) from what the call heard —
+ * but ONLY where the lead's own value is blank. Imported CSV data always wins,
+ * so a mis-transcribed name ("Jin" → "Jinmi") can never overwrite a good value;
+ * a field the import left empty simply gets populated from the call.
+ *
+ * This deliberately reverses the earlier "never copy heard names/emails onto the
+ * lead" rule (call-summary rewrite, 2026-07-28) at the operator's request — the
+ * heard values were only visible on the call, never on the lead. The
+ * fill-blank-only guard keeps the overwrite protection that motivated the
+ * original rule. Applies regardless of whether a full conversation happened:
+ * identity can come from a voicemail greeting or a "this is Wilson" + hang-up.
+ */
+async function fillLeadIdentityFromCall(
+  supabase: SupabaseAdmin,
+  leadId: string,
+  extracted: Record<string, unknown>,
+): Promise<void> {
+  const heard: Record<string, string> = {};
+  for (const col of LEAD_IDENTITY_COLUMNS) {
+    const v = extracted[col];
+    if (typeof v === "string" && v.trim()) heard[col] = v.trim();
+  }
+  // Emails are spelled out on calls and easily mis-heard — drop anything that
+  // doesn't even look like an address rather than filling a field with garbage.
+  if (
+    heard.business_email &&
+    !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(heard.business_email)
+  ) {
+    delete heard.business_email;
+  }
+  if (Object.keys(heard).length === 0) return;
+
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("owner_name, manager_name, employee_name, business_email")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (!lead) return;
+
+  const update: Database["public"]["Tables"]["leads"]["Update"] = {};
+  for (const col of LEAD_IDENTITY_COLUMNS) {
+    const value = heard[col];
+    if (!value) continue;
+    const current = lead[col];
+    if (current == null || String(current).trim() === "") update[col] = value;
+  }
+  if (Object.keys(update).length > 0) {
+    await supabase.from("leads").update(update).eq("id", leadId);
+  }
+}
+
 /**
  * The shape of the webhook body we accept. ElevenLabs's actual payload has
  * more fields than this; we only pluck what we need. Fields are loose-typed
@@ -1076,13 +1136,18 @@ async function processTranscription(
     return { ok: false, reason: "could_not_update_call" };
   }
 
-  // NOTE: we deliberately do NOT copy heard names or emails onto the lead.
-  // Transcription mishears them (Jin -> "Jinmi", a business greeting heard as a
-  // person's name), and the lead's identity fields are owned by the imported
-  // CSV. The captured values stay on calls.extracted_data and are visible in
-  // the call detail; the rolling note may record one when a speaker explicitly
-  // stated it, verified against the transcript. See
-  // docs/superpowers/specs/2026-07-28-call-summary-rewrite-design.md.
+  // Surface the identity the call heard (names, email) on the lead, filling
+  // only fields the lead left BLANK — imported CSV data always wins, so a
+  // mis-transcription can't overwrite a good value. Runs regardless of whether
+  // a full conversation happened (a voicemail greeting can name the owner).
+  // This reverses the earlier "never copy heard names/emails" rule (call-summary
+  // rewrite, 2026-07-28) at the operator's request; the fill-blank-only guard
+  // preserves the overwrite protection that rule was built for.
+  await fillLeadIdentityFromCall(
+    supabase,
+    call.lead_id,
+    extractedDataOf(payload.analysis) ?? {},
+  );
 
   // The judgment fields + research answers (decision maker, sentiment, …) only
   // mean something when a human actually talked with us, so mirror those onto
