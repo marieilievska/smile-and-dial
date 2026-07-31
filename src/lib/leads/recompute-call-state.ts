@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import { anyCallReachedDm } from "@/lib/calls/decision-maker";
 import { CONVERSATION_OUTCOMES } from "@/lib/calls/outcomes";
+import { reapplyRetryForCall } from "@/lib/dialer/retry-engine";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Admin = ReturnType<typeof createClient<Database>>;
@@ -17,8 +18,11 @@ const DNC_OUTCOMES = new Set(["dnc", "invalid_number", "language_barrier"]);
  * Recompute one lead's call-derived fields from its REMAINING calls, after some
  * of its calls were deleted. No calls remain → fresh reset. Calls remain →
  * rewind to reflect them, never un-winning a booked lead or un-blocking a DNC'd
- * one. The forward retry ladder resets to neutral (intentional — the lead
- * re-enters normal rotation; we don't replay the engine).
+ * one, and — for a lead heading back into normal rotation — re-derive its
+ * next-call date from the MOST RECENT remaining call's outcome (so deleting one
+ * call doesn't blank the schedule its other calls set up and make the lead
+ * due-now). We don't replay the whole engine; we just re-run the retry on the
+ * latest remaining dispositioned call, the same way a removed callback does.
  */
 export async function recomputeLeadCallState(
   admin: Admin,
@@ -26,7 +30,7 @@ export async function recomputeLeadCallState(
 ): Promise<void> {
   const { data: calls } = await admin
     .from("calls")
-    .select("created_at, ended_at, outcome, summary, extracted_data")
+    .select("id, created_at, ended_at, outcome, summary, extracted_data")
     .eq("lead_id", leadId);
   const remaining = calls ?? [];
 
@@ -107,6 +111,29 @@ export async function recomputeLeadCallState(
     // lead we already reached just because the remaining calls didn't.
     if (dmReached) leadUpdate.decision_maker_reached = true;
     await admin.from("leads").update(leadUpdate).eq("id", leadId);
+
+    // Re-derive the next-call date from the calls that REMAIN, instead of
+    // leaving it blank (which made the lead due-now — the "deleting a call wipes
+    // the schedule" surprise). Only for a lead going back into normal rotation:
+    // goal_met / dnc are terminal and stay unscheduled, and a lead with a live
+    // callback is repointed by the pendingCb block below. Run the retry engine
+    // on the most recent remaining DISPOSITIONED call — the same mechanism
+    // resyncLeadAfterCallbackRemoval uses. If that call's outcome schedules
+    // nothing (e.g. it too was owned elsewhere), the lead simply keeps the blank
+    // next_call_at set above.
+    if (status === "ready_to_call") {
+      const latestDispositioned = [...remaining]
+        .filter((c) => c.outcome)
+        .sort((a, b) => {
+          const ta = a.ended_at ?? a.created_at ?? "";
+          const tb = b.ended_at ?? b.created_at ?? "";
+          return ta < tb ? -1 : ta > tb ? 1 : 0;
+        })
+        .at(-1);
+      if (latestDispositioned?.id) {
+        await reapplyRetryForCall(latestDispositioned.id);
+      }
+    }
   }
 
   // A callback from a call we did NOT delete keeps the lead in 'callback' and

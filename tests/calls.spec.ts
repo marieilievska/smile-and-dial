@@ -626,4 +626,73 @@ test.describe("Calls page", () => {
       .maybeSingle();
     expect(gone).toBeNull();
   });
+
+  test("deleting one of a lead's calls re-derives its next date from the call that remains", async ({
+    page,
+  }) => {
+    // A lead with TWO voicemail calls and a blank schedule. Deleting ONE must
+    // reschedule the lead from the voicemail that REMAINS (a ~2-day retry),
+    // never leave it blank / due-now — that was the "deleting a call wipes the
+    // next date" bug.
+    const rLead = await admin
+      .from("leads")
+      .insert({
+        owner_id: ownerId,
+        list_id: listId,
+        company: `E2E Calls Rederive ${stamp}`,
+        business_phone: `+1444${tail}50`,
+        next_call_at: null,
+        retry_counter: 0,
+      })
+      .select("id")
+      .single();
+    const rLeadId = rLead.data!.id;
+    leadIds.push(rLeadId);
+    const mkCall = async () =>
+      (
+        await admin
+          .from("calls")
+          .insert({
+            lead_id: rLeadId,
+            campaign_id: campaignId,
+            agent_id: agentId,
+            twilio_number_id: twilioNumberId,
+            direction: "outbound",
+            status: "completed",
+            outcome: "voicemail",
+          })
+          .select("id")
+          .single()
+      ).data!.id;
+    const keepCall = await mkCall();
+    const dropCall = await mkCall();
+    callIds.push(keepCall, dropCall);
+
+    // Delete just ONE of the two via the UI (first matching row).
+    await page.goto(
+      `/calls?q=${encodeURIComponent(`E2E Calls Rederive ${stamp}`)}`,
+    );
+    await page.getByLabel("Select call").first().click();
+    await page.getByTestId("calls-bulk-delete").click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await expect(page.getByText(/Deleted 1 call/)).toBeVisible();
+
+    // One call remains, and the lead's next date was re-derived from it (the
+    // remaining voicemail schedules a retry) — NOT left blank.
+    const { count } = await admin
+      .from("calls")
+      .select("id", { count: "exact", head: true })
+      .eq("lead_id", rLeadId);
+    expect(count).toBe(1);
+    const { data: lead } = await admin
+      .from("leads")
+      .select("next_call_at, retry_counter, status")
+      .eq("id", rLeadId)
+      .single();
+    expect(lead?.next_call_at).not.toBeNull();
+    expect(lead?.status).toBe("ready_to_call");
+  });
 });
