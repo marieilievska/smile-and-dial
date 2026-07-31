@@ -48,7 +48,7 @@ const TOOL_DESCRIPTIONS: Record<ServerToolKey, string> = {
   get_available_times:
     "Get available appointment times to offer the lead. Returns a list of slots, each with a slot_id.",
   book_appointment:
-    "Book an appointment in a time slot the lead chose from get_available_times.",
+    "Book an appointment for the lead. When the lead is choosing a time, pass the slot_id of the slot they picked from get_available_times. For a fixed-time event (e.g. a webinar with one set session), just pass name and email — omit slot_id and the system books the event's scheduled time.",
   mark_dnc:
     "Add the lead to the do-not-call list when they ask not to be contacted again.",
   demo_front_desk:
@@ -134,8 +134,10 @@ function bodySchemaFor(
     case "book_appointment":
       add(
         "slot_id",
-        "The slot_id of the chosen time from get_available_times.",
-        true,
+        "The slot_id of the time the lead chose from get_available_times. Omit " +
+          "for a fixed-time event (e.g. a webinar): the system books the event's " +
+          "own scheduled time, so name and email are all you need.",
+        false,
       );
       add(
         "email",

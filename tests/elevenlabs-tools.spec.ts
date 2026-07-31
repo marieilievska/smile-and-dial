@@ -338,6 +338,26 @@ test.describe("ElevenLabs server-tool webhooks", () => {
     }
   });
 
+  test("book_appointment without a slot_id still asks for a time on a non-fixed campaign", async () => {
+    // slot_id is optional on the tool now (so a fixed-time webinar can book from
+    // name + email alone). This guards the OTHER direction: an ordinary
+    // lead-picks-a-time campaign must NOT book blindly when no slot is given —
+    // it asks which time, exactly as before the schema change.
+    const { leadId, callId } = await seedLeadAndCall();
+    try {
+      const { status, body } = await post("book_appointment", {
+        call_id: callId,
+        email: `book-noslot-${stamp}@example.com`,
+        name: "Jane",
+      });
+      expect(status).toBe(200);
+      expect(body.success).toBe(false);
+      expect(String(body.message).toLowerCase()).toContain("time");
+    } finally {
+      await cleanupLeadAndCall(leadId, callId);
+    }
+  });
+
   /**
    * demo_front_desk researches the lead's business on the web, so what this
    * exercises depends on the environment: with no OPENAI_API_KEY it takes the

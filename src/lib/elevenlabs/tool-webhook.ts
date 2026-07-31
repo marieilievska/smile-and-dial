@@ -216,6 +216,9 @@ type CampaignCalendly = {
   token: string;
   eventTypeUri: string | null;
   campaignName: string | null;
+  /** Fixed-time event (webinar): book the event's soonest opening without the
+   *  lead choosing a time. See bookAppointment. */
+  fixedTimeBooking: boolean;
 };
 
 /**
@@ -237,7 +240,7 @@ async function resolveCampaignCalendly(
 ): Promise<CampaignCalendly | null> {
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("owner_id, calendly_event_id, name")
+    .select("owner_id, calendly_event_id, name, fixed_time_booking")
     .eq("id", campaignId)
     .maybeSingle();
   if (!campaign?.owner_id) return null;
@@ -259,7 +262,33 @@ async function resolveCampaignCalendly(
       .maybeSingle();
     eventTypeUri = et?.event_uri ?? null;
   }
-  return { token, eventTypeUri, campaignName: campaign.name ?? null };
+  return {
+    token,
+    eventTypeUri,
+    campaignName: campaign.name ?? null,
+    fixedTimeBooking: campaign.fixed_time_booking === true,
+  };
+}
+
+/** The soonest upcoming Calendly opening for an event type, or null when there
+ *  are none in the scanned window. Reuses the same forward-window scan as
+ *  get_available_times (Calendly caps each query at 7 days), so a webinar weeks
+ *  out is still found. Openings come back chronological, so the first hit is the
+ *  soonest — which for a fixed-time event is the session to book everyone into. */
+async function soonestCalendlyOpening(
+  eventTypeUri: string,
+  token: string,
+): Promise<string | null> {
+  for (const w of availabilityWindows(Date.now())) {
+    const live = await calendlyGetAvailableTimes(
+      eventTypeUri,
+      w.startISO,
+      w.endISO,
+      token,
+    );
+    if (live.length > 0) return live[0].startTime;
+  }
+  return null;
 }
 
 /**
@@ -1024,7 +1053,7 @@ async function bookAppointment(
   ctx: CallContext,
   body: Record<string, unknown>,
 ): Promise<ToolWebhookResult> {
-  const slotId = str(body.slot_id);
+  let slotId = str(body.slot_id);
   const email = str(body.email) || (ctx.lead.business_email ?? "");
   // Calendly REQUIRES an invitee name — a booking sent without one is rejected
   // ("invitee either name or first_name must be filled"), and the generic
@@ -1038,18 +1067,10 @@ async function bookAppointment(
     (ctx.lead.owner_name ?? "") ||
     (ctx.lead.manager_name ?? "") ||
     (ctx.lead.employee_name ?? "");
-  if (!slotId) {
-    return {
-      success: false,
-      message: "Which of the times I offered would you like to book?",
-    };
-  }
 
-  const when = new Date(slotId);
-  const label = Number.isNaN(when.getTime())
-    ? slotId
-    : fmtSlot(slotId, ctx.lead.timezone);
-
+  // Resolve the campaign's Calendly BEFORE the slot check: a fixed-time event
+  // supplies its own time, so we need to know that before deciding a missing
+  // slot_id is a problem.
   const cal = await resolveCampaignCalendly(ctx.supabase, ctx.campaignId);
 
   // Calendly is connected but this campaign has no event chosen → booking is
@@ -1066,6 +1087,39 @@ async function bookAppointment(
         "I'm not able to book a meeting on this call, but I'll make sure the team follows up.",
     };
   }
+
+  // Fixed-time event (webinar): one known session, so the agent books with just
+  // name + email and never calls get_available_times. Resolve the event's
+  // soonest opening ourselves rather than making the model invent a slot_id it
+  // was never given.
+  if (!slotId && cal?.eventTypeUri && cal.fixedTimeBooking) {
+    const soonest = await soonestCalendlyOpening(cal.eventTypeUri, cal.token);
+    if (!soonest) {
+      await logToolEvent(ctx, "tool_book_appointment", {
+        email,
+        fixed_time: true,
+        no_opening: true,
+      });
+      return {
+        success: false,
+        message:
+          "That session isn't open for booking right now — I'll have the team follow up.",
+      };
+    }
+    slotId = soonest;
+  }
+
+  if (!slotId) {
+    return {
+      success: false,
+      message: "Which of the times I offered would you like to book?",
+    };
+  }
+
+  const when = new Date(slotId);
+  const label = Number.isNaN(when.getTime())
+    ? slotId
+    : fmtSlot(slotId, ctx.lead.timezone);
 
   // Live: book the slot directly on the campaign owner's Calendly.
   if (cal?.eventTypeUri) {

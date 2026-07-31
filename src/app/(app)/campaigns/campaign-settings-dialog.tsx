@@ -81,6 +81,7 @@ export type CampaignData = {
   smart_scheduling: boolean;
   double_call_enabled: boolean;
   calendly_event_id: string | null;
+  fixed_time_booking: boolean;
   email_template_id: string | null;
   sms_template_id: string | null;
   audience_search: string | null;
@@ -219,6 +220,9 @@ export function CampaignSettingsDialog({
   const [doubleCallEnabled, setDoubleCallEnabled] = useState(
     campaign?.double_call_enabled ?? false,
   );
+  const [fixedTimeBooking, setFixedTimeBooking] = useState(
+    campaign?.fixed_time_booking ?? false,
+  );
   const [calendlyEventId, setCalendlyEventId] = useState(
     campaign?.calendly_event_id ?? NO_EVENT,
   );
@@ -325,6 +329,9 @@ export function CampaignSettingsDialog({
         smartSchedulingEnabled,
         doubleCallEnabled,
         calendlyEventId: calendlyEventId === NO_EVENT ? "" : calendlyEventId,
+        // Only meaningful with an event chosen; harmless otherwise (the webhook
+        // needs an eventTypeUri to resolve a fixed time).
+        fixedTimeBooking: calendlyEventId !== NO_EVENT && fixedTimeBooking,
         emailTemplateId: emailTemplateId === NO_TEMPLATE ? "" : emailTemplateId,
         smsTemplateId: smsTemplateId === NO_TEMPLATE ? "" : smsTemplateId,
         audienceSearch,
@@ -365,6 +372,7 @@ export function CampaignSettingsDialog({
         setAutopilotEnabled(true);
         setSmartSchedulingEnabled(false);
         setCalendlyEventId(NO_EVENT);
+        setFixedTimeBooking(false);
         setEmailTemplateId(NO_TEMPLATE);
         setSmsTemplateId(NO_TEMPLATE);
         setSelectedListIds([]);
@@ -940,6 +948,31 @@ export function CampaignSettingsDialog({
                 offer times and book — it checks availability for and books into
                 the chosen event.
               </p>
+              {calendlyEventId !== NO_EVENT ? (
+                <label
+                  htmlFor="campaign-fixed-time"
+                  className="border-border hover:bg-muted/40 mt-1 flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+                >
+                  <Checkbox
+                    id="campaign-fixed-time"
+                    checked={fixedTimeBooking}
+                    onCheckedChange={(v) => setFixedTimeBooking(v === true)}
+                    className="mt-0.5"
+                  />
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-foreground text-sm font-medium">
+                      Fixed-time event (webinar)
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      For a single set session everyone joins. The agent books
+                      the lead into this event&apos;s next opening from just
+                      their first name and email — no offering a choice of
+                      times. Leave off for one-on-one meetings where the lead
+                      picks a slot.
+                    </span>
+                  </div>
+                </label>
+              ) : null}
             </div>
 
             <div className="mt-4 flex flex-col gap-2">
