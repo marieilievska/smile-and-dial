@@ -769,6 +769,7 @@ export type Database = {
           daily_spend_cap: number | null;
           description: string | null;
           double_call_enabled: boolean;
+          fixed_time_booking: boolean;
           email_template_id: string | null;
           ended_at: string | null;
           sms_template_id: string | null;
@@ -801,6 +802,7 @@ export type Database = {
           daily_spend_cap?: number | null;
           description?: string | null;
           double_call_enabled?: boolean;
+          fixed_time_booking?: boolean;
           email_template_id?: string | null;
           ended_at?: string | null;
           sms_template_id?: string | null;
@@ -833,6 +835,7 @@ export type Database = {
           daily_spend_cap?: number | null;
           description?: string | null;
           double_call_enabled?: boolean;
+          fixed_time_booking?: boolean;
           email_template_id?: string | null;
           ended_at?: string | null;
           sms_template_id?: string | null;

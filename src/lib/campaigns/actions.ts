@@ -94,6 +94,10 @@ export type CampaignInput = {
    *  availability against and book into. Empty = booking is OFF for this
    *  campaign (the agent won't offer times or book; no fallback event). */
   calendlyEventId?: string;
+  /** Fixed-time event (webinar): book the Calendly event's soonest opening
+   *  without the lead choosing a time, so book_appointment works from name +
+   *  email alone. Needs a calendlyEventId. Optional, defaults to false. */
+  fixedTimeBooking?: boolean;
   /** Email template (email_templates.id) the send_email tool sends. Empty =
    *  no template, the tool only records intent. */
   emailTemplateId?: string;
@@ -155,6 +159,7 @@ function buildUpdate(input: CampaignInput) {
     smart_scheduling: input.smartSchedulingEnabled ?? false,
     double_call_enabled: input.doubleCallEnabled ?? false,
     calendly_event_id: input.calendlyEventId?.trim() || null,
+    fixed_time_booking: input.fixedTimeBooking ?? false,
     email_template_id: input.emailTemplateId?.trim() || null,
     sms_template_id: input.smsTemplateId?.trim() || null,
     audience_search: sanitizeAudienceSearch(input.audienceSearch ?? "") || null,
