@@ -54,13 +54,21 @@ export function availabilityWindows(
   return out;
 }
 
-/** The UTM fields Calendly stores on a booking (its invitee `tracking` object). */
+/** The tracking fields Calendly stores on a booking (its invitee `tracking`
+ *  object). Calendly's Create Invitee API treats this object as ALL-OR-NOTHING:
+ *  once you send `tracking` at all, EVERY field must be present, or it rejects
+ *  the booking with "utm_content/utm_term/salesforce_uuid is missing" — even
+ *  though nobody marked them required in the event settings. So every field is
+ *  non-optional here. (`salesforce_uuid` is just a free tracking token per
+ *  Calendly's docs — "a userID or anything else you need to track" — no
+ *  Salesforce involved.) */
 export type CalendlyTracking = {
-  utm_source?: string;
-  utm_medium?: string;
-  utm_campaign?: string;
-  utm_content?: string;
-  utm_term?: string;
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+  utm_content: string;
+  utm_term: string;
+  salesforce_uuid: string;
 };
 
 /** Per-campaign booking attribution, keyed by campaign id (an id survives a
@@ -82,24 +90,33 @@ const CAMPAIGN_BOOKING_UTM: Record<
 };
 
 /**
- * The UTM attribution to stamp on a Calendly booking (the invitee `tracking`
- * object in POST /invitees). Bookings always come from an AI phone call, so
+ * The attribution to stamp on a Calendly booking (the invitee `tracking` object
+ * in POST /invitees). Bookings always come from an AI phone call, so
  * `utm_medium` is fixed to "voice". `utm_source` defaults to "smile_dial" and
  * `utm_campaign` to the campaign's own name; a campaign in CAMPAIGN_BOOKING_UTM
- * overrides both. Pure, so the wiring is unit-tested.
+ * overrides both.
+ *
+ * Every field is filled with a non-empty value because Calendly rejects a
+ * PARTIAL tracking object (see CalendlyTracking). `utm_content` carries the
+ * campaign again so each variant (e.g. AI-disclosure A/B) is distinguishable in
+ * reporting; `utm_term` is a stable channel tag; `salesforce_uuid` is the lead
+ * id — a unique per-booking token, no Salesforce needed. Pure, so unit-tested.
  */
 export function bookingTracking(args: {
   campaignId: string | null;
   campaignName: string | null;
+  leadId: string;
 }): CalendlyTracking {
   const override = args.campaignId
     ? CAMPAIGN_BOOKING_UTM[args.campaignId]
     : undefined;
-  const campaign = override?.campaign ?? args.campaignName ?? undefined;
-  const tracking: CalendlyTracking = {
+  const campaign = override?.campaign ?? args.campaignName ?? "voice_ai";
+  return {
     utm_source: override?.source ?? "smile_dial",
     utm_medium: "voice",
+    utm_campaign: campaign,
+    utm_content: campaign,
+    utm_term: "voice_ai",
+    salesforce_uuid: args.leadId,
   };
-  if (campaign) tracking.utm_campaign = campaign;
-  return tracking;
 }

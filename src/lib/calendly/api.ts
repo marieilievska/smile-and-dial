@@ -364,28 +364,41 @@ export async function createInvitee(
     payload.tracking = input.tracking;
   }
 
-  try {
+  const post = async (body: Record<string, unknown>) => {
     const res = await fetch(`${CAL_API}/invitees`, {
       method: "POST",
       headers: authHeaders(token),
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
     const data = (await res
       .json()
       .catch(() => null)) as CreateInviteeResponse | null;
-    if (!res.ok) {
-      const detail =
-        data?.details
-          ?.map((d) => `${d.parameter ?? ""} ${d.message ?? ""}`.trim())
-          .join(", ") ||
-        data?.message ||
-        `Calendly booking failed (${res.status}).`;
-      return { ok: false, error: detail };
+    const detail =
+      data?.details
+        ?.map((d) => `${d.parameter ?? ""} ${d.message ?? ""}`.trim())
+        .join(", ") ||
+      data?.message ||
+      `Calendly booking failed (${res.status}).`;
+    return { ok: res.ok, data, detail };
+  };
+
+  try {
+    let result = await post(payload);
+    // Attribution must NEVER cost a real booking. Calendly's Create Invitee API
+    // treats the `tracking` object as all-or-nothing, so a stray/partial one
+    // gets the whole booking rejected ("tracking.utm_* is missing"). If that's
+    // why it failed, drop tracking and retry once — the booking is the goal, the
+    // UTM tag is a nice-to-have.
+    if (!result.ok && payload.tracking && /tracking/i.test(result.detail)) {
+      const retry = { ...payload };
+      delete retry.tracking;
+      result = await post(retry);
     }
+    if (!result.ok) return { ok: false, error: result.detail };
     return {
       ok: true,
-      inviteeUri: data?.resource?.uri ?? null,
-      eventUri: data?.resource?.event ?? null,
+      inviteeUri: result.data?.resource?.uri ?? null,
+      eventUri: result.data?.resource?.event ?? null,
     };
   } catch {
     return { ok: false, error: "Calendly booking request failed." };

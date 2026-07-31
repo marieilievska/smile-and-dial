@@ -1156,6 +1156,7 @@ async function bookAppointment(
     const tracking = bookingTracking({
       campaignId: ctx.campaignId,
       campaignName: cal.campaignName,
+      leadId: ctx.lead.id,
     });
     const result = await createInvitee(
       {
