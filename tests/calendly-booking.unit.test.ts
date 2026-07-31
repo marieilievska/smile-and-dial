@@ -80,11 +80,15 @@ describe("bookingTracking", () => {
       bookingTracking({
         campaignId: "17a7a2e8-c56b-4c3e-841c-a1db2fbf1529",
         campaignName: "HireAI Webinar",
+        leadId: "lead-1",
       }),
     ).toEqual({
       utm_source: "smile_dial",
       utm_medium: "voice",
       utm_campaign: "voice_ai_webinar",
+      utm_content: "voice_ai_webinar",
+      utm_term: "voice_ai",
+      salesforce_uuid: "lead-1",
     });
   });
 
@@ -93,18 +97,28 @@ describe("bookingTracking", () => {
       bookingTracking({
         campaignId: "some-other-id",
         campaignName: "Med Spa Q3",
+        leadId: "lead-2",
       }),
     ).toEqual({
       utm_source: "smile_dial",
       utm_medium: "voice",
       utm_campaign: "Med Spa Q3",
+      utm_content: "Med Spa Q3",
+      utm_term: "voice_ai",
+      salesforce_uuid: "lead-2",
     });
   });
 
-  it("always tags source + voice medium, and omits campaign when there's none", () => {
-    expect(bookingTracking({ campaignId: null, campaignName: null })).toEqual({
-      utm_source: "smile_dial",
-      utm_medium: "voice",
+  it("returns a COMPLETE (non-partial) object even with no campaign — Calendly rejects a partial tracking object", () => {
+    const t = bookingTracking({
+      campaignId: null,
+      campaignName: null,
+      leadId: "lead-3",
     });
+    // Every field non-empty; a partial object is what broke booking.
+    for (const v of Object.values(t)) expect(v).toBeTruthy();
+    expect(t.salesforce_uuid).toBe("lead-3");
+    expect(t.utm_source).toBe("smile_dial");
+    expect(t.utm_medium).toBe("voice");
   });
 });
