@@ -5,7 +5,6 @@ import { timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 import {
-  cancelScheduledEvent,
   createInvitee,
   getAvailableTimes as calendlyGetAvailableTimes,
   getEventTypeLocations,
@@ -1185,55 +1184,27 @@ async function bookAppointment(
     }
 
     // Record the booking and move the lead into the 'scheduled' pipeline.
-    let newEventId: string | null = null;
+    //
+    // We deliberately do NOT cancel any prior booking for this lead. The old
+    // de-dup cancelled the lead's other still-scheduled event to avoid a double
+    // booking — safe for a 1:1 meeting, but catastrophic for a GROUP event
+    // (webinar), where the "scheduled_event" is the SHARED session: cancelling
+    // it drops EVERY registrant (it wiped 3 real ones during a test). Operator's
+    // call (2026-07-31): never cancel — allow a duplicate booking instead. A
+    // repeat invite is harmless; a cancelled session is not. The rare 1:1 rebook
+    // now leaves two holds for a human to reconcile, which is the accepted trade.
     if (result.inviteeUri) {
-      const { data: inserted } = await ctx.supabase
-        .from("calendly_events")
-        .insert({
-          owner_id: ctx.lead.owner_id,
-          lead_id: ctx.lead.id,
-          invitee_uri: result.inviteeUri,
-          event_uri: result.eventUri ?? "",
-          event_type_uri: cal.eventTypeUri,
-          invitee_email: email,
-          invitee_name: name || null,
-          scheduled_at: when.toISOString(),
-          status: "scheduled",
-        })
-        .select("id")
-        .maybeSingle();
-      newEventId = inserted?.id ?? null;
-    }
-
-    // De-dup: cancel any OTHER still-scheduled Calendly event for this lead — a
-    // prior booking from earlier in THIS call (the agent rebooked because the
-    // attendee or time changed mid-conversation). Without this the customer is
-    // left double-booked, which is exactly what happened on the Aqua-Tots Lone
-    // Tree call. Best-effort per event: a cancel that fails still gets marked
-    // canceled locally + logged, and never blocks the new booking.
-    if (newEventId) {
-      const { data: priorEvents } = await ctx.supabase
-        .from("calendly_events")
-        .select("id, event_uri")
-        .eq("lead_id", ctx.lead.id)
-        .eq("status", "scheduled")
-        .neq("id", newEventId);
-      for (const prior of priorEvents ?? []) {
-        const canceled = prior.event_uri
-          ? await cancelScheduledEvent(prior.event_uri, cal.token)
-          : { ok: false as const, error: "no event_uri on record" };
-        await ctx.supabase
-          .from("calendly_events")
-          .update({ status: "canceled" })
-          .eq("id", prior.id);
-        await logToolEvent(ctx, "tool_book_appointment_dedup", {
-          canceled_event_id: prior.id,
-          event_uri: prior.event_uri,
-          superseded_by: newEventId,
-          calendly_cancel_ok: canceled.ok,
-          calendly_cancel_error: canceled.ok ? null : canceled.error,
-        });
-      }
+      await ctx.supabase.from("calendly_events").insert({
+        owner_id: ctx.lead.owner_id,
+        lead_id: ctx.lead.id,
+        invitee_uri: result.inviteeUri,
+        event_uri: result.eventUri ?? "",
+        event_type_uri: cal.eventTypeUri,
+        invitee_email: email,
+        invitee_name: name || null,
+        scheduled_at: when.toISOString(),
+        status: "scheduled",
+      });
     }
 
     await ctx.supabase
