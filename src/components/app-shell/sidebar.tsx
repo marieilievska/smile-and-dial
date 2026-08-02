@@ -114,17 +114,22 @@ export function AppSidebar({
 
   return (
     <aside className="border-sidebar-border bg-sidebar flex w-60 shrink-0 flex-col border-r">
-      <div className="border-sidebar-border flex h-16 shrink-0 items-center gap-2.5 border-b px-5">
-        {/* Round 25 — Referrizer-aligned shell. Round 38 — added a small
-         *  brand mark; the wordmark stays primary-foreground white so it
-         *  reads as one unit, not a coral accent on a dark surface. */}
+      {/* Round 25 — Referrizer-aligned shell. Round 38 — added a small
+       *  brand mark; the wordmark stays primary-foreground white so it
+       *  reads as one unit, not a coral accent on a dark surface. The whole
+       *  lockup is a link home (Today) — the expected logo affordance. */}
+      <Link
+        href="/today"
+        aria-label="Smile and Dial — go to Today"
+        className="border-sidebar-border hover:bg-sidebar-accent/40 flex h-16 shrink-0 items-center gap-2.5 border-b px-5 transition-colors"
+      >
         <span className="bg-sidebar-primary text-sidebar-primary-foreground flex size-7 shrink-0 items-center justify-center rounded-lg shadow-sm">
           <PhoneOutgoing className="size-4" />
         </span>
         <span className="text-sidebar-primary-foreground text-lg font-bold tracking-tight">
           Smile &amp; Dial
         </span>
-      </div>
+      </Link>
       <nav
         aria-label="Main"
         className="flex flex-1 flex-col gap-4 overflow-y-auto p-3"

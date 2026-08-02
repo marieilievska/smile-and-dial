@@ -59,13 +59,13 @@ export function AskSmile() {
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          className="text-muted-foreground hover:text-foreground gap-1.5"
-          aria-label="Ask Smile"
+          className="border-primary/30 bg-primary/[0.04] text-foreground hover:bg-primary/[0.1] hover:text-foreground gap-1.5"
+          aria-label="Ask Smile — help and answers about your workspace"
           data-testid="ask-smile-trigger"
         >
-          <Sparkles className="size-4" />
+          <Sparkles className="text-primary size-4" />
           <span className="hidden sm:inline">Ask Smile</span>
         </Button>
       </SheetTrigger>

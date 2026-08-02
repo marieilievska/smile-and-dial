@@ -62,28 +62,38 @@ export function ActiveCampaignChip({
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="hidden h-8 max-w-[14rem] gap-2 px-2.5 md:inline-flex"
-          disabled={pending}
-          aria-label={
-            activeCampaign
-              ? `Active campaign: ${activeCampaign.name}. Change campaign.`
-              : "Pick an active campaign"
-          }
-        >
-          <Megaphone className="text-primary size-3.5 shrink-0" />
-          <span className="truncate text-xs">
-            {activeCampaign?.name ?? "No active campaign"}
-          </span>
-          {activeStatus && activeStatus !== "active" ? (
-            <span className="bg-warning/10 text-warning hidden rounded-full px-1.5 py-0 text-[10px] font-medium uppercase lg:inline">
-              {activeStatus}
-            </span>
-          ) : null}
-          <ChevronDown className="text-muted-foreground size-3 shrink-0" />
-        </Button>
+        {activeCampaign ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="hidden h-8 max-w-[14rem] gap-2 px-2.5 md:inline-flex"
+            disabled={pending}
+            aria-label={`Active campaign: ${activeCampaign.name}. Change campaign.`}
+          >
+            <Megaphone className="text-primary size-3.5 shrink-0" />
+            <span className="truncate text-xs">{activeCampaign.name}</span>
+            {activeStatus && activeStatus !== "active" ? (
+              <span className="bg-warning/10 text-warning hidden rounded-full px-1.5 py-0 text-[10px] font-medium uppercase lg:inline">
+                {activeStatus}
+              </span>
+            ) : null}
+            <ChevronDown className="text-muted-foreground size-3 shrink-0" />
+          </Button>
+        ) : (
+          // Demoted empty state: a quiet icon, not an alarming "No active
+          // campaign" pill. Setting a default campaign is an optional
+          // convenience for manual Call-Now, so it recedes until used.
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground hidden size-8 md:inline-flex"
+            disabled={pending}
+            aria-label="Set a default campaign for manual calls"
+            title="Set a default campaign for manual calls"
+          >
+            <Megaphone className="size-4" />
+          </Button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuLabel className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
