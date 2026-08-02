@@ -59,7 +59,7 @@ export function TopBar({
     <header className="border-border/60 bg-card flex h-16 shrink-0 items-center gap-3 border-b px-4 shadow-sm sm:px-6">
       {mobileNav}
       <div className="flex-1">
-        <GlobalSearch />
+        <GlobalSearch isAdmin={role === "admin"} userEmail={email} />
       </div>
       {/* Round 27 — operator-scoped chrome: ask-smile co-pilot, active
        *  campaign chip, theme toggle, notifications, user. Active
