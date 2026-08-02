@@ -27,13 +27,13 @@ const WORKSPACE_TABS: Tab[] = [
   { label: "Email templates", href: "/settings/email-templates" },
   { label: "Text templates", href: "/settings/sms-templates" },
   { label: "Agents", href: "/settings/agents" },
+  { label: "Custom fields", href: "/settings/custom-fields" },
+  { label: "Twilio numbers", href: "/settings/twilio-numbers" },
+  { label: "Integrations", href: "/settings/integrations" },
 ];
 
 const ADMIN_TABS: Tab[] = [
   { label: "Users", href: "/settings/users" },
-  { label: "Custom fields", href: "/settings/custom-fields" },
-  { label: "Twilio numbers", href: "/settings/twilio-numbers" },
-  { label: "Integrations", href: "/settings/integrations" },
   { label: "API keys", href: "/settings/api" },
 ];
 

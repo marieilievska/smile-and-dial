@@ -36,7 +36,9 @@ export default async function CustomFieldsPage() {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") redirect("/leads");
+  // Members (builders) can create + edit fields (needed for lead import);
+  // only deleting a field (destroys its data workspace-wide) is admin-only.
+  const isAdmin = me?.role === "admin";
 
   const { data } = await supabase
     .from("custom_field_defs")
@@ -105,6 +107,7 @@ export default async function CustomFieldsPage() {
                         field={field}
                         isFirst={index === 0}
                         isLast={index === fields.length - 1}
+                        isAdmin={isAdmin}
                       />
                     </div>
                   </TableCell>

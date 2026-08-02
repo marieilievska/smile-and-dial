@@ -170,6 +170,48 @@ export default async function SettingsOverviewPage() {
           ? `${agents.toLocaleString()} ready`
           : "None yet — build one to call",
     },
+    {
+      title: "Custom fields",
+      description: "Extra columns on every lead in the workspace.",
+      href: "/settings/custom-fields",
+      icon: <SlidersHorizontal className="size-5" />,
+      count: fields,
+      ctaLabel: "Manage fields",
+      configured: fields > 0,
+      statusLabel:
+        fields > 0
+          ? `${fields.toLocaleString()} defined`
+          : "Optional — none defined",
+    },
+    {
+      title: "Twilio numbers",
+      description: "The pool of phone numbers campaigns dial from.",
+      href: "/settings/twilio-numbers",
+      icon: <Phone className="size-5" />,
+      count: numbers,
+      ctaLabel: "Manage numbers",
+      essential: true,
+      configured: numbers > 0,
+      statusLabel:
+        numbers > 0
+          ? `${numbers.toLocaleString()} in pool`
+          : "None yet — add a number",
+    },
+    {
+      title: "Integrations",
+      description: "Voice, email, and scheduling. ElevenLabs powers calls.",
+      href: "/settings/integrations",
+      icon: <Plug className="size-5" />,
+      count: null,
+      ctaLabel: "Manage integrations",
+      essential: true,
+      configured: elevenLabsConnected,
+      statusLabel: elevenLabsConnected
+        ? extraIntegrations > 0
+          ? `Voice + ${extraIntegrations} more connected`
+          : "Voice connected"
+        : "ElevenLabs not connected",
+    },
   ];
 
   const adminCards: SectionCard[] = isAdmin
@@ -183,48 +225,6 @@ export default async function SettingsOverviewPage() {
           ctaLabel: "Manage users",
           configured: users > 0,
           statusLabel: `${users.toLocaleString()} active`,
-        },
-        {
-          title: "Custom fields",
-          description: "Extra columns on every lead in the workspace.",
-          href: "/settings/custom-fields",
-          icon: <SlidersHorizontal className="size-5" />,
-          count: fields,
-          ctaLabel: "Manage fields",
-          configured: fields > 0,
-          statusLabel:
-            fields > 0
-              ? `${fields.toLocaleString()} defined`
-              : "Optional — none defined",
-        },
-        {
-          title: "Twilio numbers",
-          description: "The pool of phone numbers campaigns dial from.",
-          href: "/settings/twilio-numbers",
-          icon: <Phone className="size-5" />,
-          count: numbers,
-          ctaLabel: "Manage numbers",
-          essential: true,
-          configured: numbers > 0,
-          statusLabel:
-            numbers > 0
-              ? `${numbers.toLocaleString()} in pool`
-              : "None yet — add a number",
-        },
-        {
-          title: "Integrations",
-          description: "Voice, email, and scheduling. ElevenLabs powers calls.",
-          href: "/settings/integrations",
-          icon: <Plug className="size-5" />,
-          count: null,
-          ctaLabel: "Manage integrations",
-          essential: true,
-          configured: elevenLabsConnected,
-          statusLabel: elevenLabsConnected
-            ? extraIntegrations > 0
-              ? `Voice + ${extraIntegrations} more connected`
-              : "Voice connected"
-            : "ElevenLabs not connected",
         },
         {
           title: "API keys",
