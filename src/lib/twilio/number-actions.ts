@@ -48,12 +48,46 @@ async function requireAdmin(): Promise<{
   return { supabase, error: null };
 }
 
+/** Confirm the caller is signed in, and report whether they're an admin.
+ *  Members (builders) may manage numbers; a few actions still gate on admin,
+ *  and releasing a number checks the attached campaign's owner. */
+async function requireSignedIn(): Promise<{
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string | null;
+  isAdmin: boolean;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return {
+      supabase,
+      userId: null,
+      isAdmin: false,
+      error: "You are not signed in.",
+    };
+  }
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  return {
+    supabase,
+    userId: user.id,
+    isAdmin: me?.role === "admin",
+    error: null,
+  };
+}
+
 /** Search for purchasable phone numbers. */
 export async function searchNumbers(input: {
   country: Country;
   areaCode: string;
 }): Promise<{ numbers: AvailableNumber[]; error: string | null }> {
-  const { error } = await requireAdmin();
+  const { error } = await requireSignedIn();
   if (error) return { numbers: [], error };
   return searchAvailableNumbers(input.country, input.areaCode);
 }
@@ -72,8 +106,8 @@ export async function purchaseNumber(input: {
   country: Country;
   monthlyCost: number;
 }): Promise<ActionResult> {
-  const { supabase, error: adminError } = await requireAdmin();
-  if (adminError) return { error: adminError };
+  const { supabase, error: authError } = await requireSignedIn();
+  if (authError) return { error: authError };
 
   const { twilioSid, error: buyError } = await purchaseTwilioNumber(
     input.phoneNumber,
@@ -123,8 +157,8 @@ export async function renameNumber(input: {
   id: string;
   name: string;
 }): Promise<ActionResult> {
-  const { supabase, error: adminError } = await requireAdmin();
-  if (adminError) return { error: adminError };
+  const { supabase, error: authError } = await requireSignedIn();
+  if (authError) return { error: authError };
 
   const name = input.name.trim().slice(0, MAX_NAME_LENGTH);
 
@@ -154,16 +188,36 @@ export async function renameNumber(input: {
 
 /** Release a number — gives it up at Twilio and marks it released. */
 export async function releaseNumber(id: string): Promise<ActionResult> {
-  const { supabase, error: adminError } = await requireAdmin();
-  if (adminError) return { error: adminError };
+  const {
+    supabase,
+    userId,
+    isAdmin,
+    error: authError,
+  } = await requireSignedIn();
+  if (authError) return { error: authError };
 
   const { data: number } = await supabase
     .from("twilio_numbers")
-    .select("twilio_sid, released_at")
+    .select("twilio_sid, released_at, attached_campaign_id")
     .eq("id", id)
     .maybeSingle();
   if (!number) return { error: "That number no longer exists." };
   if (number.released_at) return { error: "That number is already released." };
+
+  // Guardrail: a member can release an unattached number or one on their own
+  // campaign, but not one attached to a teammate's campaign.
+  if (!isAdmin && number.attached_campaign_id) {
+    const { data: campaign } = await supabase
+      .from("campaigns")
+      .select("owner_id")
+      .eq("id", number.attached_campaign_id)
+      .maybeSingle();
+    if (!campaign || campaign.owner_id !== userId) {
+      return {
+        error: "That number is attached to another teammate's campaign.",
+      };
+    }
+  }
 
   const { error: releaseError } = await releaseTwilioNumber(number.twilio_sid);
   if (releaseError) return { error: releaseError };
@@ -215,8 +269,8 @@ export async function deleteTwilioNumber(id: string): Promise<ActionResult> {
  *  (which breaks inbound — see expectedNumberWebhooks) or the purchase-time
  *  pointing call failed. */
 export async function repointNumberWebhooks(id: string): Promise<ActionResult> {
-  const { supabase, error: adminError } = await requireAdmin();
-  if (adminError) return { error: adminError };
+  const { supabase, error: authError } = await requireSignedIn();
+  if (authError) return { error: authError };
 
   const { data: number } = await supabase
     .from("twilio_numbers")
@@ -255,8 +309,8 @@ export async function syncFromTwilio(): Promise<{
   refreshed: number;
   error: string | null;
 }> {
-  const { supabase, error: adminError } = await requireAdmin();
-  if (adminError) return { added: 0, refreshed: 0, error: adminError };
+  const { supabase, error: authError } = await requireSignedIn();
+  if (authError) return { added: 0, refreshed: 0, error: authError };
 
   const { numbers, error: listError } = await listOwnedNumbers();
   if (listError) return { added: 0, refreshed: 0, error: listError };
@@ -319,8 +373,8 @@ export async function syncFromTwilio(): Promise<{
 export async function connectNumberToElevenLabs(
   id: string,
 ): Promise<ActionResult> {
-  const { supabase, error: adminError } = await requireAdmin();
-  if (adminError) return { error: adminError };
+  const { supabase, error: authError } = await requireSignedIn();
+  if (authError) return { error: authError };
 
   const result = await ensureNumberImportedToElevenLabs(supabase, id);
   if (!result.ok) return { error: result.error };

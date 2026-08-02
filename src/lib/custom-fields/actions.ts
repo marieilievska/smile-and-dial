@@ -35,6 +35,16 @@ async function requireAdmin(
   return { ok: true };
 }
 
+async function requireSignedIn(
+  supabase: Supabase,
+): Promise<{ ok: true } | { error: string }> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+  return { ok: true };
+}
+
 function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -48,11 +58,10 @@ function slugify(name: string): string {
  *  inline-create affordance) can auto-map the column to the new field
  *  without a round-trip through Settings.
  *
- *  Creating a field requires admin (RLS on custom_field_defs); the inline
- *  dialog is only offered to admins and the import wizard's "newcustom"
- *  path is gated the same way in importLeads. Limits the type set to the
- *  four primitive types since picking options for a "select" field
- *  requires more UI than the inline dialog should carry. */
+ *  Open to any signed-in teammate (members included) — the RLS insert
+ *  policy allows members; only field DELETE stays admin-only. Limits the
+ *  type set to the four primitive types since picking options for a
+ *  "select" field requires more UI than the inline dialog should carry. */
 export async function createCustomFieldInline(input: {
   name: string;
   type: "text" | "number" | "date" | "boolean";
@@ -115,7 +124,7 @@ export async function createCustomField(
   input: CustomFieldInput,
 ): Promise<FieldActionResult> {
   const supabase = await createClient();
-  const auth = await requireAdmin(supabase);
+  const auth = await requireSignedIn(supabase);
   if ("error" in auth) return { error: auth.error };
 
   const name = input.name.trim();
@@ -151,7 +160,7 @@ export async function updateCustomField(
   input: CustomFieldInput,
 ): Promise<FieldActionResult> {
   const supabase = await createClient();
-  const auth = await requireAdmin(supabase);
+  const auth = await requireSignedIn(supabase);
   if ("error" in auth) return { error: auth.error };
 
   const name = input.name.trim();
@@ -194,7 +203,7 @@ export async function moveCustomField(
   direction: "up" | "down",
 ): Promise<FieldActionResult> {
   const supabase = await createClient();
-  const auth = await requireAdmin(supabase);
+  const auth = await requireSignedIn(supabase);
   if ("error" in auth) return { error: auth.error };
 
   const { data: fields } = await supabase
