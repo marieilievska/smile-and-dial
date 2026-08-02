@@ -2186,7 +2186,9 @@ export type Database = {
           last_login_at: string | null;
           notify_on_email_reply: boolean;
           notify_on_goal_met: boolean;
+          onboarding_dismissed_at: string | null;
           role: string;
+          welcome_seen_at: string | null;
         };
         Insert: {
           active?: boolean;
@@ -2199,7 +2201,9 @@ export type Database = {
           last_login_at?: string | null;
           notify_on_email_reply?: boolean;
           notify_on_goal_met?: boolean;
+          onboarding_dismissed_at?: string | null;
           role?: string;
+          welcome_seen_at?: string | null;
         };
         Update: {
           active?: boolean;
@@ -2212,7 +2216,9 @@ export type Database = {
           last_login_at?: string | null;
           notify_on_email_reply?: boolean;
           notify_on_goal_met?: boolean;
+          onboarding_dismissed_at?: string | null;
           role?: string;
+          welcome_seen_at?: string | null;
         };
         Relationships: [
           {
