@@ -11,6 +11,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AutoRefresh } from "@/components/auto-refresh";
+import { GettingStarted } from "@/components/onboarding/getting-started";
+import { WelcomeDialog } from "@/components/onboarding/welcome-dialog";
 import { Button } from "@/components/ui/button";
 
 import {
@@ -21,6 +23,7 @@ import {
   fetchHeroCounts,
   type ActionItem,
 } from "@/lib/today/queries";
+import { fetchOnboardingProgress } from "@/lib/onboarding/queries";
 import { createClient } from "@/lib/supabase/server";
 import { etHour } from "@/lib/time/eastern";
 
@@ -113,18 +116,20 @@ export default async function TodayPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, role")
+    .select("full_name, role, welcome_seen_at, onboarding_dismissed_at")
     .eq("id", user.id)
     .single();
   const isAdmin = profile?.role === "admin";
 
-  const [counts, queue, activeCalls, pace, autopilot] = await Promise.all([
-    fetchHeroCounts(supabase, { isAdmin, ownerId: user.id }),
-    fetchActionQueue(supabase, { isAdmin, ownerId: user.id }),
-    fetchActiveCalls(supabase, 5),
-    fetchAppointmentPace(supabase),
-    fetchAutopilotStatus(supabase),
-  ]);
+  const [counts, queue, activeCalls, pace, autopilot, onboarding] =
+    await Promise.all([
+      fetchHeroCounts(supabase, { isAdmin, ownerId: user.id }),
+      fetchActionQueue(supabase, { isAdmin, ownerId: user.id }),
+      fetchActiveCalls(supabase, 5),
+      fetchAppointmentPace(supabase),
+      fetchAutopilotStatus(supabase),
+      fetchOnboardingProgress(supabase, user.id),
+    ]);
 
   // Greeting — time-of-day adjusted (Eastern), first name only.
   const hour = etHour();
@@ -139,6 +144,8 @@ export default async function TodayPage() {
     timeZone: "America/New_York",
   });
   const mockMode = isMockMode();
+  const campaignLaunched =
+    onboarding.steps.find((s) => s.key === "campaign")?.done ?? false;
 
   // Autopilot pace — the TRUE current rate: how many calls actually went out
   // in the last 60 minutes. (The old version divided today's calls by hours
@@ -212,6 +219,9 @@ export default async function TodayPage() {
           without a manual reload. Scoped to this page (not app-wide), and
           only polls quickly while calls are actually in flight. */}
       <AutoRefresh active={activeCalls.total > 0} realtime />
+      {!profile?.welcome_seen_at ? (
+        <WelcomeDialog firstName={firstName} />
+      ) : null}
       {/* Command bar — greeting, AI-aware subtitle, date, the live waveform,
        *  and autopilot status, all in one elevated ambient header. */}
       <TodayHero
@@ -225,6 +235,10 @@ export default async function TodayPage() {
         liveCount={activeCalls.total}
         mockMode={mockMode}
       />
+
+      {!profile?.onboarding_dismissed_at ? (
+        <GettingStarted progress={onboarding} />
+      ) : null}
 
       {/* Bento grid — asymmetric on large screens. The hero metric leads
        *  the wide left, the live-calls heartbeat sits in the right rail,
@@ -272,7 +286,11 @@ export default async function TodayPage() {
           </div>
 
           {queue.length === 0 ? (
-            <EmptyState mockMode={mockMode} idle={activeCalls.total === 0} />
+            <EmptyState
+              mockMode={mockMode}
+              idle={activeCalls.total === 0}
+              launched={campaignLaunched}
+            />
           ) : (
             <div className="flex flex-col gap-3">
               {queue.map((item) => {
@@ -297,12 +315,22 @@ export default async function TodayPage() {
   );
 }
 
-function EmptyState({ mockMode, idle }: { mockMode: boolean; idle: boolean }) {
-  const detail = mockMode
-    ? "Mock mode running quietly. Real action items show up here when calls land."
-    : idle
-      ? "The dialer is idle and nothing needs your attention."
-      : "The AI is handling things in the background. You're free to step away.";
+function EmptyState({
+  mockMode,
+  idle,
+  launched,
+}: {
+  mockMode: boolean;
+  idle: boolean;
+  launched: boolean;
+}) {
+  const detail = !launched
+    ? "Once your first campaign is live, anything that needs you shows up here."
+    : mockMode
+      ? "Mock mode running quietly. Real action items show up here when calls land."
+      : idle
+        ? "The dialer is idle and nothing needs your attention."
+        : "The AI is handling things in the background. You're free to step away.";
 
   return (
     <div
