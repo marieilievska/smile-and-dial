@@ -36,7 +36,7 @@ export const ARCHIVED_OWNER_EMAIL = "aicoach@referrizer.com";
 export const NAV_SECTION_LABELS: Record<NavSection, string> = {
   workflow: "Workflow",
   operations: "Operations",
-  admin: "Admin",
+  admin: "Manage",
 };
 
 /** Primary sidebar navigation. Grouped for scanability — daily-use items
@@ -84,7 +84,7 @@ export const navItems: NavItem[] = [
     section: "operations",
     adminOnly: true,
   },
-  { label: "DNC", href: "/dnc", icon: Ban, section: "operations" },
+  { label: "Do not call", href: "/dnc", icon: Ban, section: "operations" },
   { label: "Costs", href: "/costs", icon: DollarSign, section: "operations" },
   { label: "Settings", href: "/settings", icon: Settings, section: "admin" },
 ];
