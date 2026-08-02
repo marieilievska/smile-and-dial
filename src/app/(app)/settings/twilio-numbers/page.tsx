@@ -53,7 +53,9 @@ export default async function TwilioNumbersPage({
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") redirect("/leads");
+  // Members (builders) manage the number pool; only permanent delete of a
+  // released number is admin-only (gated on the Delete control below).
+  const isAdmin = me?.role === "admin";
 
   const params = await searchParams;
   const status = ["all", "in_pool", "released"].includes(str(params.status))
@@ -305,12 +307,14 @@ export default async function TwilioNumbersPage({
                             }}
                           />
                           {number.released_at ? (
-                            <DeleteNumberDialog
-                              number={{
-                                id: number.id,
-                                phone_number: number.phone_number,
-                              }}
-                            />
+                            isAdmin ? (
+                              <DeleteNumberDialog
+                                number={{
+                                  id: number.id,
+                                  phone_number: number.phone_number,
+                                }}
+                              />
+                            ) : null
                           ) : (
                             <>
                               {!number.elevenlabs_phone_number_id ? (

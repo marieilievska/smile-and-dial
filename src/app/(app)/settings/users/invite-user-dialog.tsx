@@ -37,13 +37,14 @@ const ROLE_META: Record<
 > = {
   member: {
     label: "Member",
-    helper: "Can run campaigns, import leads, and manage their own assets.",
+    helper:
+      "Builds and runs calls: agents, leads, numbers, custom fields, campaigns, and reporting.",
     icon: <User className="size-3.5" />,
   },
   admin: {
     label: "Admin",
     helper:
-      "Member access plus settings: users, integrations, custom fields, Twilio numbers, API keys.",
+      "Everything a member can do, plus teammates, API keys, and system settings.",
     icon: <ShieldCheck className="size-3.5" />,
   },
 };

@@ -28,10 +28,13 @@ export function CustomFieldRowActions({
   field,
   isFirst,
   isLast,
+  isAdmin,
 }: {
   field: CustomFieldData;
   isFirst: boolean;
   isLast: boolean;
+  /** Only admins may delete a field — it drops that column for every lead. */
+  isAdmin: boolean;
 }) {
   const [pending, startTransition] = useTransition();
 
@@ -68,36 +71,42 @@ export function CustomFieldRowActions({
         <ArrowDown className="size-4" />
       </Button>
       <CustomFieldDialog mode="edit" field={field} />
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <Button variant="ghost" size="sm" aria-label={`Delete ${field.name}`}>
-            <Trash2 className="size-4" />
-            Delete
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Delete &ldquo;{field.name}&rdquo;?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes the field from every lead. This action cannot be
-              undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() =>
-                run(() => deleteCustomField(field.id), "Field deleted.")
-              }
-              disabled={pending}
+      {isAdmin ? (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Delete ${field.name}`}
             >
+              <Trash2 className="size-4" />
               Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Delete &ldquo;{field.name}&rdquo;?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes the field from every lead. This action cannot be
+                undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() =>
+                  run(() => deleteCustomField(field.id), "Field deleted.")
+                }
+                disabled={pending}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
     </div>
   );
 }
