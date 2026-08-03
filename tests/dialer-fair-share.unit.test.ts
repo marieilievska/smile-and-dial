@@ -7,13 +7,17 @@ import { mergeFairShare, type QueueRow } from "@/lib/dialer/tick";
  *
  * THE BUG THIS GUARDS (prod, 2026-08-03): the dialer took the global top 50
  * rows of `dial_queue`. Two campaigns attached to the same list produce two
- * rows per lead — one each — and both tie on every sort key, so the tie broke
- * whichever way the query plan happened to emit rows. It broke the same way
- * every time: 50 of 50 slots went to ONE campaign. The other had 61,735
- * eligible leads, 20 usable numbers and `pre_call_check` returning "clear to
- * dial", and had never been auto-dialled once. Lead ownership
- * (`claim_lead_for_dial`) was never the problem — a campaign that never
- * appears in the window never gets far enough to claim anything.
+ * rows per lead — one each — and both tie on every sort key, so the split was
+ * whatever the query plan happened to emit, and it DRIFTS with the data. For
+ * ~40 minutes it sat at 50 of 50 slots to ONE campaign, stable across every
+ * sample; half an hour later the identical query gave 39/11. The starved
+ * campaign had 61,735 eligible leads, 20 usable numbers and `pre_call_check`
+ * returning "clear to dial", and had never been auto-dialled once. Lead
+ * ownership (`claim_lead_for_dial`) was never the problem — a campaign that
+ * never appears in the window never gets far enough to claim anything.
+ *
+ * So the property to hold is not "the split is usually fine" — it is that no
+ * campaign can be shut out at all, on any input.
  *
  * Then it got worse: the campaign holding all 50 slots hit its hourly cap, the
  * campaign-level short-circuit correctly skipped the other 49 candidates of
