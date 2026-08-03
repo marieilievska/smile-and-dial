@@ -17,9 +17,29 @@ export function twilioVoiceUsdPerMinute(): number {
 }
 
 /** ElevenLabs Conversational AI, USD per credit. The credit figure bundles
- *  voice (TTS/ASR) + LLM + telephony — ElevenLabs does not break it out. */
+ *  voice (TTS/ASR) + LLM + telephony — ElevenLabs does not break it out.
+ *
+ *  PLAN-DEPENDENT. The convention is the amortized rate: monthly plan price ÷
+ *  credits included in the plan. Read both off the live account rather than
+ *  ElevenLabs's public pricing page, which does not always match what a given
+ *  workspace is actually billed:
+ *
+ *      curl -H "xi-api-key: $ELEVENLABS_API_KEY" \
+ *        https://api.elevenlabs.io/v1/user/subscription
+ *      -> next_invoice.amount_due_cents  (plan price, cents)
+ *         character_limit                (credits included; EL renamed
+ *                                         characters to credits, field didn't)
+ *
+ *  2026-08-03 — upgraded Pro -> Scale (`tier: "growing_business"`):
+ *    was  $99  / 500,000 credits = 0.000198
+ *    now  $299 / 1,800,000       = 0.00016611  (299/1800000, ~19.2% cheaper)
+ *
+ *  Historical `calls.cost_breakdown` rows are deliberately NOT backfilled: a
+ *  call placed while the workspace was on Pro really did cost the Pro rate, so
+ *  rewriting it would make past spend wrong, not right. Only calls priced after
+ *  the plan change use the new rate. */
 export function elevenLabsUsdPerCredit(): number {
-  return envNum("ELEVENLABS_USD_PER_CREDIT", 0.000198);
+  return envNum("ELEVENLABS_USD_PER_CREDIT", 0.00016611);
 }
 
 /** Twilio Lookup (Line Type Intelligence), USD per lookup. */

@@ -107,9 +107,10 @@ test.describe("Load: 50 concurrent leads", () => {
         goal_id: goalId,
         twilio_number_id: twilioNumberId,
         // Generous caps so the load test isn't artificially throttled.
-        // concurrency_cap_per_user is constrained to [1, 5] by the schema
-        // so 5 is the max we can ask for; calls happen serially per lead
-        // anyway since each tick inserts status=completed immediately.
+        // concurrency_cap_per_user is constrained to [1, 30] by the schema
+        // (the ElevenLabs Scale workspace limit). 5 is plenty here — calls
+        // happen serially per lead anyway, since each tick inserts
+        // status=completed immediately.
         calls_per_hour_cap: 500,
         calls_per_day_cap: 5000,
         concurrency_cap_per_user: 5,
