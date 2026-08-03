@@ -52,12 +52,15 @@ export type PreCallReason =
  * the calls table, which is more expensive.
  *
  * NOT CURRENTLY CALLED anywhere in the repo. `runDialerTick`
- * (src/lib/dialer/tick.ts) builds its own inline `dial_queue` query instead
- * of using this function, and the two have already drifted (this one still
- * selects `twilio_number_id`; the tick's inline query doesn't). Treat
- * tick.ts's inline query as the live one — if you're changing queue
- * selection/ordering semantics, change it there, and update this copy too
- * (or delete it) rather than editing only one.
+ * (src/lib/dialer/tick.ts) builds its own `dial_queue` query instead of using
+ * this function, and the two have drifted further than the column list: this
+ * is a single GLOBAL top-N read, while the tick now reads a FAIR SHARE per
+ * active campaign and round-robin merges them (`readFairQueue`). A global
+ * top-N read is exactly the bug that let one campaign monopolize every
+ * candidate slot when two campaigns share a list — so do NOT copy this shape
+ * into anything that dials. Treat readFairQueue as the live one; if you're
+ * changing queue selection/ordering semantics, change it there, and update
+ * this copy too (or delete it) rather than editing only one.
  */
 export async function readDialQueue(limit = 50): Promise<DialQueueEntry[]> {
   const supabase = await createClient();
