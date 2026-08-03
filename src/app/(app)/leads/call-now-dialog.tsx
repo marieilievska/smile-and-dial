@@ -40,6 +40,7 @@ export function CallNowDialog({
   open: openProp,
   onOpenChange,
   target = "business",
+  triggerLabel = "Call now",
   trigger,
 }: {
   leadId: string;
@@ -52,6 +53,9 @@ export function CallNowDialog({
   onOpenChange?: (open: boolean) => void;
   /** Which lead number to dial. "owner" routes the AI call to owner_phone. */
   target?: "business" | "owner";
+  /** Label for the default trigger button. Defaults to "Call now"; the lead
+   *  hero passes "AI call" to distinguish it from the manual softphone. */
+  triggerLabel?: string;
   /** Custom trigger element. When provided, replaces the default "Call now"
    *  button — used by the owner call control to render a compact button. */
   trigger?: React.ReactNode;
@@ -105,7 +109,7 @@ export function CallNowDialog({
               className="bg-primary hover:bg-primary/90 text-white"
             >
               <PhoneCall className="size-4" />
-              Call now
+              {triggerLabel}
             </Button>
           </DialogTrigger>
         </span>
