@@ -1,7 +1,5 @@
-import { Headphones } from "lucide-react";
 import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
 import type { ActiveCall } from "@/lib/today/queries";
 
 const STATUS_LABEL: Record<ActiveCall["status"], string> = {
@@ -143,17 +141,6 @@ export function LiveCallsBand({
               <span className="text-muted-foreground font-mono text-xs tabular-nums">
                 {elapsed(call.started_at)}
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled
-                className="opacity-0 transition-opacity group-hover:opacity-100"
-                title="Listening to live AI calls requires live Twilio + ElevenLabs mode."
-              >
-                <Headphones className="size-3" />
-                Listen
-              </Button>
             </Link>
           </li>
         ))}

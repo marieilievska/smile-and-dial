@@ -1,67 +1,56 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
-/** Route-level loading shell for /today. Round 32 (V3) — Today fans
- *  out across hero counts, active calls, action queue, and pace —
- *  four parallel queries. Placeholder mirrors the actual greeting +
- *  live-calls band + hero pace + pace strip + action queue layout. */
+/** Route-level loading shell for /today. Round 41 — mirrors the reordered
+ *  layout: a compact greeting, then "Up next" in the wide left column with
+ *  the live-calls rail, then the consolidated metric row below. */
 export default function TodayLoading() {
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6 lg:p-8">
-      {/* Greeting */}
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-7 w-72" />
-        <Skeleton className="h-4 w-56" />
-        <Skeleton className="mt-1 h-3 w-40" />
-      </div>
-
-      {/* Live calls band */}
-      <div className="border-border bg-card flex items-center justify-between gap-4 rounded-2xl border p-5 shadow-sm">
-        <div className="flex items-center gap-3">
-          <Skeleton className="size-10 rounded-full" />
-          <div className="flex flex-col gap-1.5">
-            <Skeleton className="h-3 w-28" />
-            <Skeleton className="h-4 w-48" />
-          </div>
-        </div>
-        <Skeleton className="h-9 w-24" />
-      </div>
-
-      {/* Hero pace */}
-      <div className="border-border bg-card flex flex-col gap-4 rounded-2xl border p-6 shadow-sm md:flex-row md:items-end md:justify-between">
+      {/* Compact greeting header */}
+      <div className="border-border bg-card flex items-center justify-between rounded-2xl border p-5 shadow-sm">
         <div className="flex flex-col gap-2">
-          <Skeleton className="h-3 w-32" />
-          <Skeleton className="h-10 w-20" />
+          <Skeleton className="h-3 w-40" />
+          <Skeleton className="h-7 w-64" />
           <Skeleton className="h-4 w-56" />
         </div>
-        <Skeleton className="h-20 w-full md:w-80" />
+        <Skeleton className="hidden h-4 w-52 md:block" />
       </div>
 
-      {/* Pace strip — 3 tiles */}
-      <div className="border-border bg-card grid grid-cols-1 gap-x-4 gap-y-3 rounded-2xl border px-5 py-4 shadow-sm sm:grid-cols-3">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="flex flex-col gap-1.5 py-1">
-            <Skeleton className="h-3 w-20" />
-            <Skeleton className="h-6 w-12" />
-          </div>
-        ))}
-      </div>
-
-      {/* Action queue */}
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-5 w-24" />
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div
-            key={i}
-            className="border-border bg-card flex items-center gap-4 rounded-2xl border p-4 shadow-sm"
-          >
-            <Skeleton className="size-9 rounded-lg" />
-            <div className="flex flex-1 flex-col gap-1.5">
-              <Skeleton className="h-4 w-64" />
-              <Skeleton className="h-3 w-40" />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
+        {/* Up next — wide left column */}
+        <div className="flex flex-col gap-3 lg:col-span-2">
+          <Skeleton className="h-5 w-24" />
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="border-border bg-card flex items-center gap-4 rounded-xl border p-4 shadow-sm"
+            >
+              <Skeleton className="size-10 rounded-full" />
+              <div className="flex flex-1 flex-col gap-1.5">
+                <Skeleton className="h-4 w-64" />
+                <Skeleton className="h-3 w-40" />
+              </div>
             </div>
-            <Skeleton className="h-8 w-20" />
+          ))}
+        </div>
+
+        {/* Live calls rail */}
+        <div className="border-border bg-card flex items-center gap-3 rounded-2xl border px-4 py-3 shadow-sm lg:col-span-1">
+          <Skeleton className="size-2.5 rounded-full" />
+          <Skeleton className="h-4 w-40" />
+        </div>
+
+        {/* Consolidated metric row — 4 tiles */}
+        <div className="lg:col-span-3">
+          <div className="border-border bg-card grid grid-cols-2 gap-x-4 gap-y-5 rounded-2xl border px-6 py-5 shadow-sm sm:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex flex-col gap-1.5">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-6 w-12" />
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
     </div>
   );

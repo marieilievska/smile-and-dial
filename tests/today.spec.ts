@@ -135,7 +135,7 @@ test.describe("Today page", () => {
     await expect(page).toHaveURL(/\/today(\?|$)/);
   });
 
-  test("Today page renders greeting + hero pace + live calls band", async ({
+  test("Today page renders greeting + metrics + live calls band", async ({
     page,
   }) => {
     await page.goto("/today");
@@ -143,9 +143,8 @@ test.describe("Today page", () => {
     await expect(
       page.getByRole("heading", { name: /good (morning|afternoon|evening)/i }),
     ).toBeVisible();
-    // Hero pace block (single big number — Appointments today).
-    await expect(page.getByTestId("hero-pace")).toBeVisible();
-    // Pace strip (supporting metrics).
+    // Consolidated metric row — "goals met" folded in as the lead tile.
+    await expect(page.getByTestId("pace-strip")).toContainText("goals met");
     await expect(page.getByTestId("pace-strip")).toContainText("calls");
     await expect(page.getByTestId("pace-strip")).toContainText("connect rate");
     // Action queue section visible.
