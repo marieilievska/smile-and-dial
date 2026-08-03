@@ -5,12 +5,14 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
   Download,
   FileSpreadsheet,
   Info,
   Loader2,
   PhoneCall,
   Plus,
+  SlidersHorizontal,
   Smartphone,
   Sparkles,
 } from "lucide-react";
@@ -127,6 +129,9 @@ export function ImportWizard({
   const [splitMobiles, setSplitMobiles] = useState(false);
   const [mobileListId, setMobileListId] = useState("");
   const [createMobileListOpen, setCreateMobileListOpen] = useState(false);
+  // Advanced options (skip-verification, split-mobiles) collapse behind a
+  // disclosure so the common first import is just: drop a CSV, pick a list.
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [analysis, setAnalysis] = useState<ImportAnalysis | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -497,6 +502,15 @@ export function ImportWizard({
             onFile={onFile}
             onClear={clearFile}
           />
+          {!parsed ? (
+            <p className="text-muted-foreground text-xs">
+              Your CSV needs a{" "}
+              <span className="text-foreground font-medium">
+                business phone
+              </span>{" "}
+              column. Company and email help the AI, but aren&apos;t required.
+            </p>
+          ) : null}
           <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 text-xs">
             <Link
               href="/leads/import/sample"
@@ -590,100 +604,123 @@ export function ImportWizard({
           </p>
         </div>
 
-        {/* Skip-Twilio-Lookup toggle. When checked, analyzeImport
+        {/* Advanced options — skip-verification + split-mobiles. Collapsed by
+            default so the common path is just: drop a CSV, pick a list, go. */}
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((o) => !o)}
+            aria-expanded={showAdvanced}
+            className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1.5 text-sm"
+          >
+            <SlidersHorizontal className="size-4" />
+            Advanced options
+            <ChevronDown
+              className={`size-4 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+            />
+          </button>
+          {showAdvanced ? (
+            <>
+              {/* Skip-Twilio-Lookup toggle. When checked, analyzeImport
             bypasses lookups so all rows pass through with no per-row
             cost. There is NO later line-type gate, so skipping means
             mobile numbers won't be detected or filtered — they may be
             imported and dialed. This is the only place mobiles are
             caught, so only skip when you already trust the data. */}
-        <div className="border-border bg-muted/20 flex items-start gap-3 rounded-xl border px-4 py-3">
-          <Checkbox
-            id="skip-lookup"
-            checked={skipLookup}
-            disabled={splitMobiles}
-            onCheckedChange={(value) => {
-              const on = value === true;
-              setSkipLookup(on);
-              if (on) setSplitMobiles(false);
-            }}
-            className="mt-0.5"
-          />
-          <div className="flex flex-col gap-0.5">
-            <Label
-              htmlFor="skip-lookup"
-              className="cursor-pointer text-sm font-medium"
-            >
-              Skip Twilio number verification
-            </Label>
-            <p className="text-muted-foreground text-xs">
-              Use this when you already trust the data — internal lists,
-              re-imports of leads you&apos;ve called before, or imports where
-              speed matters more than catching mobile numbers up front. Saves
-              $0.005 per row.
-            </p>
-          </div>
-        </div>
+              <div className="border-border bg-muted/20 flex items-start gap-3 rounded-xl border px-4 py-3">
+                <Checkbox
+                  id="skip-lookup"
+                  checked={skipLookup}
+                  disabled={splitMobiles}
+                  onCheckedChange={(value) => {
+                    const on = value === true;
+                    setSkipLookup(on);
+                    if (on) setSplitMobiles(false);
+                  }}
+                  className="mt-0.5"
+                />
+                <div className="flex flex-col gap-0.5">
+                  <Label
+                    htmlFor="skip-lookup"
+                    className="cursor-pointer text-sm font-medium"
+                  >
+                    Skip Twilio number verification
+                  </Label>
+                  <p className="text-muted-foreground text-xs">
+                    Use this when you already trust the data — internal lists,
+                    re-imports of leads you&apos;ve called before, or imports
+                    where speed matters more than catching mobile numbers up
+                    front. Saves $0.005 per row.
+                  </p>
+                </div>
+              </div>
 
-        {/* Split mobiles into a separate, never-auto-dialed list. Requires the
+              {/* Split mobiles into a separate, never-auto-dialed list. Requires the
             Twilio lookup (mutually exclusive with "Skip verification"): without
             it we can't tell which numbers are mobile. */}
-        <div className="border-border bg-muted/20 flex flex-col gap-3 rounded-xl border px-4 py-3">
-          <div className="flex items-start gap-3">
-            <Checkbox
-              id="split-mobiles"
-              checked={splitMobiles}
-              disabled={skipLookup}
-              onCheckedChange={(value) => {
-                const on = value === true;
-                setSplitMobiles(on);
-                if (on) setSkipLookup(false);
-                if (!on) setMobileListId("");
-              }}
-              className="mt-0.5"
-            />
-            <div className="flex flex-col gap-0.5">
-              <Label
-                htmlFor="split-mobiles"
-                className="cursor-pointer text-sm font-medium"
-              >
-                Also import mobile numbers into a separate list
-              </Label>
-              <p className="text-muted-foreground text-xs">
-                Mobiles are kept in their own list and are never auto-dialed
-                (call or text them manually). Landlines still go to your main
-                list above.
-                {skipLookup
-                  ? " Turn off “Skip Twilio number verification” to use this."
-                  : ""}
-              </p>
-            </div>
-          </div>
+              <div className="border-border bg-muted/20 flex flex-col gap-3 rounded-xl border px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="split-mobiles"
+                    checked={splitMobiles}
+                    disabled={skipLookup}
+                    onCheckedChange={(value) => {
+                      const on = value === true;
+                      setSplitMobiles(on);
+                      if (on) setSkipLookup(false);
+                      if (!on) setMobileListId("");
+                    }}
+                    className="mt-0.5"
+                  />
+                  <div className="flex flex-col gap-0.5">
+                    <Label
+                      htmlFor="split-mobiles"
+                      className="cursor-pointer text-sm font-medium"
+                    >
+                      Also import mobile numbers into a separate list
+                    </Label>
+                    <p className="text-muted-foreground text-xs">
+                      Mobiles are kept in their own list and are never
+                      auto-dialed (call or text them manually). Landlines still
+                      go to your main list above.
+                      {skipLookup
+                        ? " Turn off “Skip Twilio number verification” to use this."
+                        : ""}
+                    </p>
+                  </div>
+                </div>
 
-          {splitMobiles ? (
-            <div className="flex flex-col gap-2 pl-7">
-              <Label htmlFor="mobile-list">Put mobile numbers in</Label>
-              <Select value={mobileListId} onValueChange={onMobileListPicked}>
-                <SelectTrigger id="mobile-list">
-                  <SelectValue placeholder="Choose a list for mobiles" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectLabel>Your lists</SelectLabel>
-                    {lists
-                      .filter((list) => list.id !== listId)
-                      .map((list) => (
-                        <SelectItem key={list.id} value={list.id}>
-                          {list.name}
+                {splitMobiles ? (
+                  <div className="flex flex-col gap-2 pl-7">
+                    <Label htmlFor="mobile-list">Put mobile numbers in</Label>
+                    <Select
+                      value={mobileListId}
+                      onValueChange={onMobileListPicked}
+                    >
+                      <SelectTrigger id="mobile-list">
+                        <SelectValue placeholder="Choose a list for mobiles" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectLabel>Your lists</SelectLabel>
+                          {lists
+                            .filter((list) => list.id !== listId)
+                            .map((list) => (
+                              <SelectItem key={list.id} value={list.id}>
+                                {list.name}
+                              </SelectItem>
+                            ))}
+                        </SelectGroup>
+                        <SelectSeparator />
+                        <SelectItem value={CREATE_LIST_SENTINEL}>
+                          + Create a new list…
                         </SelectItem>
-                      ))}
-                  </SelectGroup>
-                  <SelectSeparator />
-                  <SelectItem value={CREATE_LIST_SENTINEL}>
-                    + Create a new list…
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+              </div>
+            </>
           ) : null}
         </div>
 
