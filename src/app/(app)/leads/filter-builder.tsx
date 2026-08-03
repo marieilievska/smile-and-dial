@@ -39,11 +39,15 @@ export function FilterBuilder({
   statusOptions,
   ownerOptions,
   customFields,
+  canSaveSmartList,
 }: {
   initialRecipe: Group;
   statusOptions: { value: string; label: string }[];
   ownerOptions: { value: string; label: string }[];
   customFields: CustomFieldOption[];
+  /** Saving a reusable Smart List is admin-only; members build ad-hoc
+   *  filters and persist them as a saved view instead. */
+  canSaveSmartList: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -90,7 +94,7 @@ export function FilterBuilder({
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold">Advanced filter</span>
         <div className="flex items-center gap-2">
-          {active ? (
+          {active && canSaveSmartList ? (
             <SaveSmartListButton recipeJson={JSON.stringify(recipe)} />
           ) : null}
           {active ? (
