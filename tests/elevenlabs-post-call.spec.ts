@@ -317,11 +317,13 @@ test.describe("ElevenLabs post-call webhook", () => {
     };
     // 92s → ceil(92/60)=2 min × $0.0185 = $0.037 (assumes default rate).
     expect(cost.twilio).toBe(0.037);
-    // 100 credits × $0.000198 = $0.0198.
-    expect(cost.elevenlabs).toBe(0.0198);
+    // 100 credits × $0.00016611 = $0.016611, rounded to 4dp = $0.0166.
+    // The rate is PLAN-DEPENDENT (Scale, as of 2026-08-03) — if ElevenLabs
+    // billing changes, src/lib/costs/rates.ts moves and so does this number.
+    expect(cost.elevenlabs).toBe(0.0166);
     expect(cost.openai).toBe(0);
-    // total = 0.037 + 0.0198.
-    expect(cost.total).toBeCloseTo(0.0568, 4);
+    // total = 0.037 + 0.0166.
+    expect(cost.total).toBeCloseTo(0.0536, 4);
 
     await admin.from("calls").delete().eq("id", freshCall!.id);
     await admin
