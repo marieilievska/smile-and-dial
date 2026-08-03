@@ -1,4 +1,5 @@
 import {
+  ArrowUpRight,
   CalendarClock,
   MailOpen,
   PauseCircle,
@@ -28,7 +29,6 @@ import { createClient } from "@/lib/supabase/server";
 import { etHour } from "@/lib/time/eastern";
 
 import { ActionCard } from "./action-card";
-import { HeroPace } from "./hero-pace";
 import { LiveCallsBand } from "./live-calls-band";
 import { PaceStrip, type PaceItem } from "./pace-strip";
 import { TodayHero } from "./today-hero";
@@ -181,12 +181,15 @@ export default async function TodayPage() {
     subtitle = "The AI is handling things. You're free to step away.";
   }
 
-  // Pace strip — supporting metrics with deltas.
+  // One consolidated metric row — the former "Goals met" hero folded in as
+  // the lead tile, so the page shows four metrics once (below the action
+  // queue) instead of a hero band plus a separate strip. Fills all four
+  // columns, so there is no empty tile.
   const paceItems: PaceItem[] = [
     {
-      label: "calls",
-      value: counts.callsToday.toLocaleString(),
-      delta: pctDelta(counts.callsToday, counts.callsYesterday),
+      label: "goals met",
+      value: counts.appointmentsToday.toLocaleString(),
+      delta: pctDelta(counts.appointmentsToday, pace.yesterdayByNow),
     },
     {
       label: "connect rate",
@@ -197,6 +200,11 @@ export default async function TodayPage() {
           : null,
     },
     {
+      label: "calls",
+      value: counts.callsToday.toLocaleString(),
+      delta: pctDelta(counts.callsToday, counts.callsYesterday),
+    },
+    {
       label: "pending callbacks",
       value: counts.pendingCallbacks.toLocaleString(),
       delta:
@@ -205,12 +213,6 @@ export default async function TodayPage() {
             -counts.overdueCallbacks / Math.max(counts.pendingCallbacks, 1)
           : undefined,
     },
-    // Round 30 — dropped the "per appointment" cost tile from the
-    // pace strip. Today is operational ("are we moving?"); cost-per
-    // belongs on /costs and /analytics where the framing is
-    // financial. Keeping three metrics tightens the band visually
-    // and avoids competing with the HeroPace appointment metric
-    // directly above.
   ];
 
   return (
@@ -222,8 +224,8 @@ export default async function TodayPage() {
       {!profile?.welcome_seen_at ? (
         <WelcomeDialog firstName={firstName} />
       ) : null}
-      {/* Command bar — greeting, AI-aware subtitle, date, the live waveform,
-       *  and autopilot status, all in one elevated ambient header. */}
+      {/* Command bar — greeting, AI-aware subtitle, date, and autopilot
+       *  status in one compact header. */}
       <TodayHero
         greeting={greeting}
         subtitle={subtitle}
@@ -232,7 +234,6 @@ export default async function TodayPage() {
         activeCampaigns={autopilot.activeCampaigns}
         pausedCampaigns={autopilot.pausedCampaigns}
         pacePerHour={pacePerHour}
-        liveCount={activeCalls.total}
         mockMode={mockMode}
       />
 
@@ -240,39 +241,14 @@ export default async function TodayPage() {
         <GettingStarted progress={onboarding} />
       ) : null}
 
-      {/* Bento grid — asymmetric on large screens. The hero metric leads
-       *  the wide left, the live-calls heartbeat sits in the right rail,
-       *  then the pace strip and action queue run full-width below. */}
+      {/* Operational grid — what needs the teammate leads the wide left
+       *  column (Up next), the live-calls heartbeat sits in the right rail,
+       *  and the consolidated metric row runs full-width below. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
-        {/* Hero appointment metric with inline hourly sparkline */}
-        <div className="lg:col-span-2">
-          <HeroPace
-            current={counts.appointmentsToday}
-            yesterdayByNow={pace.yesterdayByNow}
-            yesterdayTotal={pace.yesterdayTotal}
-            hourly={pace.hourly}
-          />
-        </div>
-
-        {/* Live calls band — the AI heartbeat. Quiet one-liner when idle,
-         *  expands to the call list while active. */}
-        <div className="lg:col-span-1">
-          <LiveCallsBand
-            rows={activeCalls.rows}
-            total={activeCalls.total}
-            mockMode={mockMode}
-          />
-        </div>
-
-        {/* Pace strip — supporting metrics, glanceable as a band */}
-        <div className="lg:col-span-3">
-          <PaceStrip items={paceItems} />
-        </div>
-
-        {/* Action queue — cards, not rows */}
+        {/* Up next — the point of the page: what needs attention now. */}
         <section
           data-testid="action-queue"
-          className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-4 delay-300 duration-500 lg:col-span-3"
+          className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-4 delay-100 duration-500 lg:col-span-2"
         >
           <div className="flex items-baseline justify-between">
             <h2 className="text-foreground text-lg font-semibold tracking-tight">
@@ -309,6 +285,33 @@ export default async function TodayPage() {
               })}
             </div>
           )}
+        </section>
+
+        {/* Live calls band — the AI heartbeat. Quiet one-liner when idle,
+         *  expands to the call list while active. */}
+        <div className="lg:col-span-1">
+          <LiveCallsBand
+            rows={activeCalls.rows}
+            total={activeCalls.total}
+            mockMode={mockMode}
+          />
+        </div>
+
+        {/* At a glance — one consolidated metric row (was a hero + a strip). */}
+        <section className="flex flex-col gap-3 lg:col-span-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-foreground text-lg font-semibold tracking-tight">
+              At a glance
+            </h2>
+            <Link
+              href="/analytics"
+              className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors"
+            >
+              See analytics
+              <ArrowUpRight className="size-3" />
+            </Link>
+          </div>
+          <PaceStrip items={paceItems} />
         </section>
       </div>
     </div>
