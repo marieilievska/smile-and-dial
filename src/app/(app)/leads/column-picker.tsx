@@ -46,7 +46,7 @@ export function ColumnPicker() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline">
+        <Button variant="outline" title="Show or hide table columns">
           <Columns3 className="size-4" />
           Columns
         </Button>

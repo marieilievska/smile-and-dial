@@ -67,7 +67,7 @@ export function LeadRowActions({
       data-testid="lead-row-actions"
       onClick={stop}
       onKeyDown={stop}
-      className="ml-auto flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+      className="ml-auto flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
     >
       <Button
         type="button"
