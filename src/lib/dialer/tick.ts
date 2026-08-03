@@ -28,6 +28,15 @@ export type TickSummary = {
   /** Candidates skipped without a pre_call_check round trip because their
    *  campaign had already refused for a campaign-level reason this tick. */
   skippedCampaignBlocked: number;
+  /** How many active campaigns this tick read candidates for, and how many
+   *  each contributed. Makes the fair share visible in the cron response:
+   *  a campaign sitting at 0 while another is at 25 is the shape of the
+   *  starvation bug this replaced. */
+  campaignsRead: number;
+  candidatesByCampaign: Record<string, number>;
+  /** Set when there were more active campaigns than MAX_CAMPAIGN_FANOUT, so
+   *  some got no candidates at all this tick. Never silently truncate. */
+  campaignsSkippedForFanoutCap?: number;
   liveMode: { twilio: boolean; elevenlabs: boolean };
 };
 
@@ -262,6 +271,181 @@ async function campaignDialInterval(
   return v;
 }
 
+/** Columns the tick needs out of `dial_queue`. `dial_priority` is not dialled
+ *  on directly — it is read so the fair-share merge can restore the
+ *  callbacks-first band that per-campaign reads would otherwise lose. */
+const QUEUE_COLUMNS =
+  "lead_id, owner_id, business_phone, campaign_id, agent_id, is_redial_due, redial_number_id, dial_priority";
+
+/** Upper bound on how many campaigns one tick fans out to. Each campaign costs
+ *  one `dial_queue` read; they run in parallel, but the bound keeps a runaway
+ *  campaign count from turning one tick into hundreds of concurrent queries.
+ *  Campaigns beyond this are reported in `campaignsSkippedForFanoutCap` rather
+ *  than dropped silently. Well above any realistic count (2 today). */
+const MAX_CAMPAIGN_FANOUT = 25;
+
+export type QueueRow = {
+  lead_id: string | null;
+  owner_id: string | null;
+  business_phone: string | null;
+  campaign_id: string | null;
+  agent_id: string | null;
+  is_redial_due: boolean | null;
+  redial_number_id: string | null;
+  dial_priority: number | null;
+};
+
+/**
+ * Merge one already-ordered candidate slice per campaign into a single tick
+ * window of at most `limit` rows, giving every campaign an equal turn.
+ *
+ * Exported for tests: this is the whole fair-share guarantee, and it is pure —
+ * no DB, no clock — so it can be tested directly rather than inferred from a
+ * live dialer run. See `readFairQueue` for why per-campaign slices exist.
+ */
+export function mergeFairShare(
+  perCampaign: QueueRow[][],
+  limit: number,
+): QueueRow[] {
+  // Round-robin: one candidate from each campaign, then the next from each,
+  // until we have `limit` or every campaign is exhausted.
+  //
+  // `taken` deduplicates BY LEAD across campaigns. Campaigns attached to the
+  // same list see the same un-owned leads, so the same lead_id can sit in two
+  // slices at once. Both copies in one window is not a correctness problem —
+  // `claim_lead_for_dial` lets exactly one campaign win and the loser records
+  // `already_claimed` — but it burns a candidate slot on a claim that cannot
+  // succeed. Skipping it here lets the losing campaign spend that slot on its
+  // next lead instead. Each campaign's cursor advances past leads another
+  // campaign already took this tick, so a shared list still costs nobody
+  // their fair share.
+  const merged: QueueRow[] = [];
+  const taken = new Set<string>();
+  const cursors = perCampaign.map(() => 0);
+  while (merged.length < limit) {
+    let tookAny = false;
+    for (let c = 0; c < perCampaign.length; c++) {
+      const rows = perCampaign[c];
+      while (cursors[c] < rows.length) {
+        const id = rows[cursors[c]].lead_id;
+        if (id !== null && !taken.has(id)) break;
+        cursors[c]++;
+      }
+      if (cursors[c] >= rows.length) continue;
+      const row = rows[cursors[c]++];
+      taken.add(row.lead_id as string);
+      merged.push(row);
+      tookAny = true;
+      if (merged.length >= limit) break;
+    }
+    if (!tookAny) break;
+  }
+
+  // Restore the two global bands the per-campaign reads can't see across each
+  // other: a scheduled callback (dial_priority 0) is a promise to a person and
+  // must still outrank every cold lead in every campaign, and a due
+  // double-call redial must still fire inside its 10-minute window. Array.sort
+  // is stable, so the round-robin fair share survives untouched WITHIN each
+  // band — this only lifts callbacks and due redials to the front.
+  merged.sort((a, b) => {
+    const pa = a.dial_priority ?? 1;
+    const pb = b.dial_priority ?? 1;
+    if (pa !== pb) return pa - pb;
+    const ra = a.is_redial_due === true ? 0 : 1;
+    const rb = b.is_redial_due === true ? 0 : 1;
+    return ra - rb;
+  });
+
+  return merged;
+}
+
+/**
+ * Read this tick's candidates with a FAIR SHARE per campaign.
+ *
+ * WHY THIS IS NOT ONE GLOBAL READ (the bug this replaced): the tick used to
+ * take the global top N rows of `dial_queue`. When two campaigns are attached
+ * to the same list, every lead appears TWICE — once per campaign — and both
+ * copies tie on every sort key (`dial_priority`, `is_redial_due`, `dest_rank`,
+ * `local_match_rank`, and `queue_order`, which is null for every never-called
+ * lead). A full tie means Postgres returns them in whatever order the plan
+ * produces, and in practice that order was stable: measured in prod on
+ * 2026-08-03, 50 of 50 rows in the window belonged to ONE of two campaigns,
+ * across every sample. The other campaign had 61,735 eligible leads, 20 usable
+ * numbers, and `pre_call_check` returning "clear to dial" — and had never been
+ * auto-dialled at all. Lead OWNERSHIP (`claim_lead_for_dial`) was working
+ * correctly the whole time; a campaign that never appears in the window never
+ * gets as far as claiming anything.
+ *
+ * It also broke the campaign-level short-circuit in the worst way: when the one
+ * campaign filling the window hit its hourly cap, `isCampaignLevelBlock` quite
+ * correctly skipped the remaining 49 candidates — which were all the same capped
+ * campaign — so the tick dialled NOTHING while another campaign sat ready.
+ *
+ * So: read up to `limit` rows PER active campaign, then round-robin merge. Each
+ * campaign contributes its own best candidates, and a campaign with only a few
+ * eligible leads gives its unused share back to the others instead of wasting
+ * it. Filtering by campaign_id is also cheaper than the global read, not more
+ * expensive — the planner prunes on it (measured: 1990ms global vs 894ms for
+ * two campaigns in parallel).
+ */
+async function readFairQueue(
+  supabase: SupabaseAdmin,
+  options: { limit: number; leadIds?: string[] },
+): Promise<{
+  rows: QueueRow[];
+  campaignsRead: number;
+  campaignsSkippedForFanoutCap: number;
+}> {
+  // Only ACTIVE campaigns can produce queue rows (dial_queue joins on
+  // `c.status = 'active'`), so this is the complete candidate set and nothing
+  // narrower. Ordered by created_at purely for a deterministic fan-out set.
+  const { data: activeCampaigns } = await supabase
+    .from("campaigns")
+    .select("id")
+    .eq("status", "active")
+    .order("created_at", { ascending: true });
+
+  const allIds = (activeCampaigns ?? []).map((c) => c.id);
+  const ids = allIds.slice(0, MAX_CAMPAIGN_FANOUT);
+  if (ids.length === 0) {
+    return { rows: [], campaignsRead: 0, campaignsSkippedForFanoutCap: 0 };
+  }
+
+  const perCampaign = await Promise.all(
+    ids.map(async (campaignId) => {
+      let query = supabase
+        .from("dial_queue")
+        .select(QUEUE_COLUMNS)
+        .eq("campaign_id", campaignId)
+        // Same ordering as before, and it must stay spelled out here: PostgREST
+        // applies the client's .order() calls IN PLACE OF the view's own ORDER
+        // BY, so omitting any of these silently discards that ranking rather
+        // than falling back to it.
+        .order("dial_priority", { ascending: true })
+        .order("is_redial_due", { ascending: false })
+        .order("dest_rank", { ascending: true })
+        .order("local_match_rank", { ascending: true })
+        .order("queue_order", { ascending: true, nullsFirst: true })
+        // Each campaign may offer up to the FULL tick limit, not limit/N. The
+        // round-robin merge below is what enforces the fair share; reading the
+        // full limit is what lets a quiet campaign's unused slots flow to a
+        // busy one instead of being wasted.
+        .limit(options.limit);
+      if (options.leadIds && options.leadIds.length > 0) {
+        query = query.in("lead_id", options.leadIds);
+      }
+      const { data } = await query;
+      return (data ?? []) as QueueRow[];
+    }),
+  );
+
+  return {
+    rows: mergeFairShare(perCampaign, options.limit),
+    campaignsRead: ids.length,
+    campaignsSkippedForFanoutCap: allIds.length - ids.length,
+  };
+}
+
 /**
  * One dial-loop tick. Read the queue, pre-check each candidate, and place a
  * call for everything that passes. `TWILIO_LIVE=live` flips each candidate to
@@ -282,48 +466,34 @@ export async function runDialerTick(
   // webhook can't permanently consume the owner's concurrency cap.
   await closeStaleActiveCalls(supabase);
 
-  // Light filter pass: leads currently eligible to dial. When `leadIds` is
-  // passed (Playwright tests use this to keep cross-test leads out of the
-  // tick), narrow the queue to just those rows.
-  let query = supabase
-    .from("dial_queue")
-    .select(
-      "lead_id, owner_id, business_phone, campaign_id, agent_id, is_redial_due, redial_number_id",
-    )
-    // Scheduled callbacks (dial_priority = 0) jump ahead of cold leads
-    // (dial_priority = 1) so an agreed appointment is never buried behind a
-    // large import. Within each priority band, is_redial_due desc puts a due
-    // double-call redial ahead of the rest of the tier — queue_order ALONE
-    // would put it LAST (its redial_at is ~30s old while a backlog lead's
-    // next_call_at can be days old, and ascending order means oldest first),
-    // so without this band it would never surface inside its 10-minute
-    // window. queue_order is then only the tiebreak within a band.
-    .order("dial_priority", { ascending: true })
-    .order("is_redial_due", { ascending: false })
-    // LOCAL MATCH: dial the leads we can call locally first — US before Canada
-    // (dest_rank), then exact area code before same-state before neither
-    // (local_match_rank). Both collapse to 0 for genuine retries, so those keep
-    // the time-ordered slot the retry cycle gave them.
-    //
-    // These MUST be repeated here. PostgREST applies the client's .order()
-    // calls IN PLACE OF the view's own ORDER BY, so leaving them out doesn't
-    // fall back to the view's ranking — it silently discards it.
-    .order("dest_rank", { ascending: true })
-    .order("local_match_rank", { ascending: true })
-    .order("queue_order", { ascending: true, nullsFirst: true })
-    .limit(options.limit ?? 50);
-  if (options.leadIds && options.leadIds.length > 0) {
-    query = query.in("lead_id", options.leadIds);
-  }
-  const { data: queue } = await query;
+  // Light filter pass: leads currently eligible to dial, read with a fair share
+  // per active campaign (see readFairQueue for why this is not one global read).
+  // Scheduled callbacks (dial_priority = 0) still jump ahead of cold leads
+  // (dial_priority = 1) so an agreed appointment is never buried behind a large
+  // import, and a due double-call redial still outranks the rest of its tier —
+  // readFairQueue restores both bands after the merge. When `leadIds` is passed
+  // (Playwright tests use this to keep cross-test leads out of the tick), each
+  // per-campaign read is narrowed to just those rows.
+  const fair = await readFairQueue(supabase, {
+    limit: options.limit ?? 50,
+    leadIds: options.leadIds,
+  });
 
   // The view's is_redial_due is a nullable boolean; normalize to a definite
   // one here so downstream checks (and the is_redial param passed to
   // placeLiveDialerCall) don't have to treat null as a third state.
-  const candidates = (queue ?? []).map((row) => ({
+  const candidates = fair.rows.map((row) => ({
     ...row,
     is_redial_due: row.is_redial_due === true,
   }));
+
+  const candidatesByCampaign: Record<string, number> = {};
+  for (const c of candidates) {
+    if (c.campaign_id) {
+      candidatesByCampaign[c.campaign_id] =
+        (candidatesByCampaign[c.campaign_id] ?? 0) + 1;
+    }
+  }
 
   const summary: TickSummary = {
     candidates: candidates.length,
@@ -332,8 +502,13 @@ export async function runDialerTick(
     errors: 0,
     blockedReasons: {},
     skippedCampaignBlocked: 0,
+    campaignsRead: fair.campaignsRead,
+    candidatesByCampaign,
     liveMode: { twilio: twilioLive, elevenlabs: elevenLive },
   };
+  if (fair.campaignsSkippedForFanoutCap > 0) {
+    summary.campaignsSkippedForFanoutCap = fair.campaignsSkippedForFanoutCap;
+  }
 
   // Per-tick pacing state: each campaign's dial interval (cached) and the last
   // time we placed a call for it, so we space this campaign's dials out inside
