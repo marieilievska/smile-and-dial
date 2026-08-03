@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -94,7 +94,7 @@ export function InlineStatusCell({
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
           disabled={pending}
-          className="focus-visible:ring-ring/60 inline-flex cursor-pointer items-center rounded-full transition-opacity focus-visible:ring-2 focus-visible:outline-none disabled:opacity-60"
+          className="group/status focus-visible:ring-ring/60 inline-flex cursor-pointer items-center gap-1 rounded-md transition-opacity focus-visible:ring-2 focus-visible:outline-none disabled:opacity-60"
           // The aria-label avoids the word "Stage" to keep the
           // Playwright `getByLabel("Stage")` contract on the filter
           // dialog working — Playwright matches by substring, so any
@@ -106,6 +106,7 @@ export function InlineStatusCell({
           <Badge variant={statusVariant(localStatus)} dot>
             {LEAD_STATUS_LABELS[localStatus] ?? localStatus}
           </Badge>
+          <ChevronDown className="text-muted-foreground size-3 shrink-0 opacity-0 transition-opacity group-hover/status:opacity-100" />
         </button>
       </PopoverTrigger>
       <PopoverContent

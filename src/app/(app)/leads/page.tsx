@@ -35,7 +35,9 @@ import {
   resolveRestrictLeadIds,
   str,
 } from "./leads-query";
+import { AdvancedFilters } from "./advanced-filters";
 import { FilterBuilder } from "./filter-builder";
+import { LeadsSearchHint } from "./search-hint";
 import { SmartListPicker } from "./smart-list-picker";
 import { STATUSES } from "./leads-statuses";
 import { leadStatusLabel } from "@/lib/labels";
@@ -289,6 +291,7 @@ export default async function LeadsPage({
       <div className="animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex flex-col gap-3 delay-150 duration-500">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5">
+            <LeadsSearchHint />
             <LeadsFilters lists={lists ?? []} />
             <ColumnPicker />
             <SaveCurrentViewButton />
@@ -316,21 +319,25 @@ export default async function LeadsPage({
         <ActiveFilterChips lists={lists ?? []} />
       </div>
 
-      {/* Advanced filter / Smart Lists — admin-only. */}
-      {isAdmin ? (
-        <div className="flex flex-col gap-2">
+      {/* Advanced filter — opt-in panel, available to everyone. The recipe
+          resolves through the leads' own RLS (security-invoker function), so a
+          member only ever matches their own leads. Smart-list saving/loading
+          stays admin-only; members persist an advanced filter as a saved view. */}
+      <AdvancedFilters defaultOpen={initialRecipe.children.length > 0}>
+        {isAdmin ? (
           <SmartListPicker
             lists={smartLists}
             activeRecipeJson={str(params.recipe)}
           />
-          <FilterBuilder
-            initialRecipe={initialRecipe}
-            statusOptions={statusOptions}
-            ownerOptions={ownerOptions}
-            customFields={customFieldOptions}
-          />
-        </div>
-      ) : null}
+        ) : null}
+        <FilterBuilder
+          initialRecipe={initialRecipe}
+          statusOptions={statusOptions}
+          ownerOptions={ownerOptions}
+          customFields={customFieldOptions}
+          canSaveSmartList={isAdmin}
+        />
+      </AdvancedFilters>
 
       <SelectionProvider allIds={leads.map((l) => l.id)}>
         <LeadsJKNavigation
