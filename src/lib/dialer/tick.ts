@@ -368,13 +368,17 @@ export function mergeFairShare(
  * copies tie on every sort key (`dial_priority`, `is_redial_due`, `dest_rank`,
  * `local_match_rank`, and `queue_order`, which is null for every never-called
  * lead). A full tie means Postgres returns them in whatever order the plan
- * produces, and in practice that order was stable: measured in prod on
- * 2026-08-03, 50 of 50 rows in the window belonged to ONE of two campaigns,
- * across every sample. The other campaign had 61,735 eligible leads, 20 usable
- * numbers, and `pre_call_check` returning "clear to dial" — and had never been
- * auto-dialled at all. Lead OWNERSHIP (`claim_lead_for_dial`) was working
- * correctly the whole time; a campaign that never appears in the window never
- * gets as far as claiming anything.
+ * produces — which is arbitrary, and DRIFTS as the data underneath changes.
+ * Measured in prod on 2026-08-03: for ~40 minutes the window was 50 of 50 rows
+ * to ONE of two campaigns, stable across every sample; half an hour later the
+ * identical query split 39/11. So the failure is not a permanent bias you
+ * could sit out — it is the total absence of any fairness guarantee, and a
+ * campaign can be starved completely for as long as the tie happens to hold.
+ * During that 40-minute window the starved campaign had 61,735 eligible leads,
+ * 20 usable numbers, and `pre_call_check` returning "clear to dial", and had
+ * never been auto-dialled at all. Lead OWNERSHIP (`claim_lead_for_dial`) was
+ * working correctly the whole time; a campaign that never appears in the
+ * window never gets as far as claiming anything.
  *
  * It also broke the campaign-level short-circuit in the worst way: when the one
  * campaign filling the window hit its hourly cap, `isCampaignLevelBlock` quite
