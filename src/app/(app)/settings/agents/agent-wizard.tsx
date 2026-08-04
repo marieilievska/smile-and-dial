@@ -57,25 +57,10 @@ import {
 } from "@/lib/agents/prompt";
 import type { FixedVoice } from "@/lib/elevenlabs/voices";
 
-/** Per-model helper line so the dropdown isn't a guessing game. */
-const AI_MODELS: { value: string; helper: string }[] = [
-  {
-    value: "gpt-4o",
-    helper: "OpenAI's flagship. Best for nuanced sales conversations.",
-  },
-  {
-    value: "gpt-4o-mini",
-    helper: "Cheaper, snappier. Good default for simple booking flows.",
-  },
-  {
-    value: "claude-sonnet-4",
-    helper: "Anthropic. Calmer tone, fewer hallucinations on long prompts.",
-  },
-  {
-    value: "gemini-2.5-flash",
-    helper: "Google. Fast and inexpensive; less polished for live voice.",
-  },
-];
+/** Every Smile & Dial agent runs the same model (one shared ElevenLabs account),
+ *  so the model is fixed here rather than a per-agent choice — the old dropdown
+ *  offered stale ids (gpt-4o etc.) that no longer matched what actually runs. */
+const AGENT_MODEL = "gpt-5.4";
 
 /** One-line summary per tool — surfaced under the tools step so the
  *  operator knows what each tool actually does at call time. */
@@ -208,7 +193,8 @@ export function AgentWizard({
   const [step, setStep] = useState(1);
   const [name, setName] = useState(agent?.name ?? "");
   const [voiceId, setVoiceId] = useState(agent?.voiceId || voices[0]?.id || "");
-  const [aiModel, setAiModel] = useState(agent?.aiModel || AI_MODELS[0].value);
+  // Standardized across the product — not a per-agent choice (see AGENT_MODEL).
+  const aiModel = AGENT_MODEL;
   const [personality, setPersonality] = useState(agent?.personality ?? "");
   const [environment, setEnvironment] = useState(agent?.environment ?? "");
   const [tone, setTone] = useState(agent?.tone ?? "");
@@ -334,7 +320,6 @@ export function AgentWizard({
 
   const canProceed = step !== 1 || name.trim().length > 0;
   const current = STEPS[step - 1];
-  const modelHelper = AI_MODELS.find((m) => m.value === aiModel)?.helper ?? "";
 
   return (
     <div className="flex flex-col gap-5 p-6">
@@ -480,8 +465,9 @@ export function AgentWizard({
                       </SelectContent>
                     </Select>
                     <p className="text-muted-foreground text-xs">
-                      Preview these voices in the ElevenLabs dashboard. The
-                      roster is the same across Smile &amp; Dial.
+                      Pick by character — each voice&apos;s gender, accent, and
+                      vibe are shown above. The roster is the same across Smile
+                      &amp; Dial.
                     </p>
                   </>
                 ) : (
@@ -491,20 +477,15 @@ export function AgentWizard({
                 )}
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="agent-model">AI model</Label>
-                <Select value={aiModel} onValueChange={setAiModel}>
-                  <SelectTrigger id="agent-model">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {AI_MODELS.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>
-                        {m.value}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-muted-foreground text-xs">{modelHelper}</p>
+                <Label>AI model</Label>
+                <div className="border-border bg-muted/20 rounded-md border px-3 py-2 text-sm">
+                  <span className="text-foreground font-medium">gpt-5.4</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — the standard model across Smile &amp; Dial. Every agent
+                    uses it, so there&apos;s nothing to choose here.
+                  </span>
+                </div>
               </div>
             </>
           ) : null}

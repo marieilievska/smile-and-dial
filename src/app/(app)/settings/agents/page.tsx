@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { findVoice } from "@/lib/elevenlabs/voices";
 import { createClient } from "@/lib/supabase/server";
 
 import { formatCreatedAt } from "../format-created";
@@ -104,11 +105,16 @@ export default async function AgentsPage() {
                         {agent.name}
                       </TableCell>
                       <TableCell
-                        className="text-muted-foreground font-mono text-xs"
+                        className="text-muted-foreground"
                         title={agent.voice_id ?? undefined}
                       >
+                        {/* Show the voice's NAME (Lauren, Adam…) via the roster
+                            lookup, not the opaque ElevenLabs id. Falls back to a
+                            truncated id for a connected agent whose voice isn't
+                            in our fixed roster; the raw id stays in the title. */}
                         {agent.voice_id
-                          ? `${agent.voice_id.slice(0, 8)}…`
+                          ? (findVoice(agent.voice_id)?.name ??
+                            `${agent.voice_id.slice(0, 8)}…`)
                           : "—"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
@@ -139,7 +145,7 @@ export default async function AgentsPage() {
                         {formatCreatedAt(agent.created_at, now)}
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        <div className="flex justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                           <SyncAgentButton id={agent.id} name={agent.name} />
                           <Button
                             variant="ghost"
