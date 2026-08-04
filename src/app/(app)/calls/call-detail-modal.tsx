@@ -539,7 +539,7 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
             <div className="flex flex-col gap-6">
               {/* M8 — Hero metric row: the four numbers an SDR actually
                   scans for. Tabular, larger type, equal weight. */}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <HeroMetric
                   label="Duration"
                   value={fmtDuration(call.durationSeconds)}
@@ -549,11 +549,11 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
                   value={fmtDuration(call.talkTimeSeconds)}
                   sub={talkRatio != null ? `${talkRatio}% of call` : undefined}
                 />
-                <HeroMetric label="Cost" value={fmtCost(call.costBreakdown)} />
                 <HeroMetric
                   label="Score"
                   value={call.score == null ? "—" : call.score.toFixed(1)}
                   valueClassName={scoreTone(call.score)}
+                  tooltip="AI-scored call quality, 0–10 (higher is better), from the agent's checklist for this call."
                 />
               </div>
 
@@ -565,6 +565,10 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
                   label="Started"
                   value={relativeTime(call.startedAt)}
                   title={exactDateTime(call.startedAt)}
+                />
+                <SecondaryMetric
+                  label="Cost"
+                  value={fmtCost(call.costBreakdown)}
                 />
               </dl>
 
@@ -599,7 +603,9 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
                   saved without downloading the in-app copy. Only shown when we
                   have both the EL agent and conversation ids (legacy / human
                   browser calls have neither). */}
-                {call.elevenlabsAgentId && call.elevenlabsConversationId ? (
+                {isAdmin &&
+                call.elevenlabsAgentId &&
+                call.elevenlabsConversationId ? (
                   <a
                     href={`https://elevenlabs.io/app/agents/agents/${call.elevenlabsAgentId}/history/${call.elevenlabsConversationId}`}
                     target="_blank"
@@ -639,10 +645,11 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
                 </section>
               ) : null}
 
-              {/* Admin-only "Call Review" panel — confirm/reject the AI's
-                  flags and mark the call reviewed. Loads its own data, so the
-                  member path never queries it. */}
-              {isAdmin && call ? <CallReviewPanel callId={call.id} /> : null}
+              {/* "Call Review" panel — confirm/reject the AI's flags and mark
+                  the call reviewed. Open to the call's owner (and admins); the
+                  actions it calls verify ownership server-side, and it renders
+                  nothing when the call has no review row. */}
+              {call ? <CallReviewPanel callId={call.id} /> : null}
 
               {/* M9 — Transcript with clickable timestamp pills. */}
               {call.transcript.length > 0 ? (
@@ -792,42 +799,40 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
             own weight. */}
         {call ? (
           <div className="border-border bg-card flex flex-wrap items-center justify-end gap-2 border-t px-6 py-4">
-            {isAdmin ? (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={deleting}
+                  className="text-muted-foreground hover:text-destructive mr-auto"
+                >
+                  <Trash2 className="size-4" />
+                  Delete call
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete this call?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently removes the call and its recording, and
+                    drops it from cost and analytics totals. This cannot be
+                    undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={deleting}>
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={deleteThisCall}
                     disabled={deleting}
-                    className="text-muted-foreground hover:text-destructive mr-auto"
                   >
-                    <Trash2 className="size-4" />
-                    Delete call
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete this call?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This permanently removes the call and its recording, and
-                      drops it from cost and analytics totals. This cannot be
-                      undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={deleting}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={deleteThisCall}
-                      disabled={deleting}
-                    >
-                      Delete
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            ) : null}
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             <ScheduleCallbackDialog callId={call.id} />
             {call.leadId ? (
               <Button
@@ -893,6 +898,7 @@ function HeroMetric({
   value,
   sub,
   valueClassName,
+  tooltip,
 }: {
   label: string;
   value: string;
@@ -900,9 +906,14 @@ function HeroMetric({
   /** Override the value color — used to tone the Score metric
    *  (emerald / amber / rose) so a good call reads at a glance. */
   valueClassName?: string;
+  /** Optional hover explanation (e.g. what the Score measures). */
+  tooltip?: string;
 }) {
   return (
-    <div className="border-border bg-muted/30 flex flex-col gap-0.5 rounded-xl border px-3 py-2.5">
+    <div
+      className="border-border bg-muted/30 flex flex-col gap-0.5 rounded-xl border px-3 py-2.5"
+      title={tooltip}
+    >
       <span className="text-muted-foreground text-[10px] font-medium tracking-[0.1em] uppercase">
         {label}
       </span>

@@ -448,7 +448,7 @@ export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") return { error: "Only an admin can delete calls." };
+  const isAdmin = me?.role === "admin";
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -456,6 +456,27 @@ export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
   const admin = createAdminClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+
+  // A member may delete only their OWN calls (own = the call's lead belongs to
+  // them). Verify every id up front and refuse the whole batch if any isn't
+  // theirs — a hard delete must never partially run across owners. Admins skip
+  // this. These deletes run as service role, so RLS won't enforce it for us.
+  if (!isAdmin) {
+    const ownedIds = new Set<string>();
+    for (const idsChunk of chunk(clean, ID_CHUNK)) {
+      const { data: rows } = await admin
+        .from("calls")
+        .select("id, lead:leads(owner_id)")
+        .in("id", idsChunk);
+      for (const r of rows ?? []) {
+        const owner = (r.lead as { owner_id?: string | null } | null)?.owner_id;
+        if (owner === user.id) ownedIds.add(r.id);
+      }
+    }
+    if (ownedIds.size !== clean.length) {
+      return { error: "You can only delete your own calls." };
+    }
+  }
 
   // Which leads are affected, so we can reset them from their REMAINING calls
   // after deletion. Chunk the `.in()` so a large "select all matching" sweep
