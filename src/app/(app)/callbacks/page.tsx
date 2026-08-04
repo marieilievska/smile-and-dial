@@ -96,7 +96,9 @@ export default async function CallbacksPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Admin gate for the delete affordances (row + bulk).
+  // Admin gate for the BULK delete affordances (select-all checkbox + bulk
+  // bar). The per-row delete is open to members for their own callbacks — they
+  // only ever see their own on this page, and the server re-checks ownership.
   const { data: me } = await supabase
     .from("profiles")
     .select("role")
@@ -267,8 +269,8 @@ export default async function CallbacksPage({
           ) : null}
         </div>
         <p className="text-muted-foreground text-sm">
-          Scheduled redials. Pending callbacks auto-dial at their scheduled time
-          when the dialer cron is active.
+          Scheduled redials. Pending callbacks dial automatically at their
+          scheduled time, as long as the campaign is running.
         </p>
       </div>
 
@@ -315,7 +317,7 @@ export default async function CallbacksPage({
                       params={params}
                       className="w-[220px]"
                     />
-                    <TableHead className="w-[150px]">Set</TableHead>
+                    <TableHead className="w-[150px]">Created</TableHead>
                     <TableHead className="w-[180px]">Campaign</TableHead>
                     <SortableHeader
                       label="Status"
@@ -517,7 +519,6 @@ export default async function CallbacksPage({
                             leadId={cb.lead?.id ?? null}
                             currentScheduledAt={cb.scheduled_at}
                             isPending={isPending}
-                            isAdmin={isAdmin}
                           />
                         </TableCell>
                       </CallbackRow>
@@ -606,14 +607,22 @@ function NoCallbacksEmptyState({ statusFilter }: { statusFilter: string }) {
     statusFilter === "all"
       ? "No callbacks yet"
       : `No ${statusFilter} callbacks`;
+  // Each status means something different — say what, so a teammate isn't left
+  // guessing what "Missed" vs "Cancelled" is (the tab labels alone don't tell
+  // you). "Missed" is the actionable one: the AI gave up after its retries.
+  const body =
+    statusFilter === "missed"
+      ? "Missed callbacks are ones the AI tried at their scheduled time but couldn't complete after its retries — the leads worth calling yourself. None right now."
+      : statusFilter === "completed"
+        ? "Completed callbacks land here once the redial happens or someone marks it done."
+        : statusFilter === "cancelled"
+          ? "Cancelled callbacks — ones called off before they were dialed — are kept here for the record."
+          : "Callbacks are created by the AI during a call (when a lead asks to be called back) or by hand from a call's detail view.";
   return (
     <div className="border-border flex flex-col items-center gap-3 rounded-2xl border border-dashed py-16 text-center">
       <CalendarClock className="text-muted-foreground size-8" />
       <p className="text-foreground text-sm font-medium">{headline}</p>
-      <p className="text-muted-foreground max-w-md text-sm">
-        Callbacks are created by the AI agent during a call (when the lead asks
-        to be called back) or manually from the call detail modal.
-      </p>
+      <p className="text-muted-foreground max-w-md text-sm">{body}</p>
       <Button asChild variant="outline" size="sm">
         <Link href="/calls">Browse recent calls</Link>
       </Button>

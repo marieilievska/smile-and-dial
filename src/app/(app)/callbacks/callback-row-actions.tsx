@@ -60,13 +60,11 @@ export function CallbackRowActions({
   leadId,
   currentScheduledAt,
   isPending,
-  isAdmin = false,
 }: {
   callbackId: string;
   leadId: string | null;
   currentScheduledAt: string;
   isPending: boolean;
-  isAdmin?: boolean;
 }) {
   const router = useRouter();
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
@@ -258,43 +256,41 @@ export function CallbackRowActions({
         </>
       ) : null}
 
-      {/* Delete — admin-only hard delete, available on every row (any
-          status) for clearing test/junk callbacks. */}
-      {isAdmin ? (
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={pending}
-              className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
-              title="Delete callback"
-              onClick={stop}
-              data-testid="callback-row-delete"
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent onClick={stop}>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete this callback?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This permanently removes the callback. If it&apos;s still
-                pending, the lead&apos;s Next call falls back to its last
-                call&apos;s disposition. The call history is untouched. This
-                cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Keep</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmDelete} disabled={pending}>
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      ) : null}
+      {/* Delete — hard delete, available on every row (any status) for
+          clearing test/junk. You only ever see your own leads' callbacks on
+          this page, and the server re-checks ownership before deleting. */}
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+            title="Delete callback"
+            onClick={stop}
+            data-testid="callback-row-delete"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent onClick={stop}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this callback?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the callback. If it&apos;s still pending,
+              the lead&apos;s Next call falls back to its last call&apos;s
+              disposition. The call history is untouched. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} disabled={pending}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
