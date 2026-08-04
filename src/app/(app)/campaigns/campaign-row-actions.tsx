@@ -29,8 +29,8 @@ import {
  *  Layout (depends on current status):
  *   - active  → Pause (warning), Clone, End
  *   - paused  → Resume (coral primary), Clone, End
- *   - draft   → Clone, End
  *   - ended   → Clone only
+ *  (Campaigns are created live — there's no "draft" state to activate.)
  *
  *  Edit is intentionally absent — the campaign name in the primary
  *  cell IS the trigger that opens the settings sheet. Delete also

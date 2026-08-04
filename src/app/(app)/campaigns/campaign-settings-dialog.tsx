@@ -434,7 +434,7 @@ export function CampaignSettingsDialog({
           <SheetDescription>
             {isEdit
               ? "Update any section, then save. The collapsed sections show their current settings at a glance."
-              : "Fill the essentials — name, agent, and goal — to launch. Everything else has safe defaults you can tune now or later."}
+              : "Fill the essentials — name, agent, and goal. Heads up: creating the campaign makes it live right away — it starts dialing its lists during calling hours. Everything else has safe defaults you can tune now or later."}
           </SheetDescription>
         </SheetHeader>
 
@@ -1079,7 +1079,17 @@ export function CampaignSettingsDialog({
             matter which section is expanded or how far the user
             scrolled. Save is coral — same primary treatment as the
             Call again button on the call detail modal. */}
-        <SheetFooter className="border-border bg-card flex flex-row items-center justify-end gap-2 border-t px-6 py-4">
+        <SheetFooter className="border-border bg-card flex flex-row items-center justify-between gap-2 border-t px-6 py-4">
+          {/* Make the immediate go-live explicit at the click — creating a
+              campaign has no separate "launch" step; it dials right away. */}
+          {!isEdit ? (
+            <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
+              <PlayCircle className="text-primary size-3.5 shrink-0" />
+              Goes live as soon as you create it.
+            </span>
+          ) : (
+            <span aria-hidden />
+          )}
           <Button
             onClick={submit}
             disabled={pending}
