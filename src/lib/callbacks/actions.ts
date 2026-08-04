@@ -175,16 +175,19 @@ export type DeleteCallbacksResult = {
 };
 
 /**
- * Permanently delete callbacks (admin only). Callbacks are normally cancelled
+ * Permanently delete callbacks. Callbacks are normally cancelled
  * (status='cancelled') to preserve the audit trail; this is a deliberate
  * escape hatch for clearing test/junk rows. Hard delete. For any deleted row
  * that was still pending, the lead is re-pointed at its earliest remaining
  * callback, or — if none remain — its Next call falls back to its latest call
  * DISPOSITION (e.g. gatekeeper → the ~2-day retry), only handing the lead back
  * to the standard queue when there's no disposition to derive from. Either way
- * it's never left pointing at a callback time that no longer exists. Runs via
- * the service role (no delete RLS policy on callbacks) after confirming the
- * caller is an admin.
+ * it's never left pointing at a callback time that no longer exists.
+ *
+ * Runs via the service role because callbacks has no delete RLS policy, so the
+ * caller check happens in code: a member may delete only callbacks for their
+ * OWN leads (the whole batch is rejected if any row isn't theirs); an admin may
+ * delete any. Mirrors deleteCalls in @/lib/calls/actions.
  */
 export async function deleteCallbacks(
   ids: string[],
@@ -202,9 +205,7 @@ export async function deleteCallbacks(
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") {
-    return { error: "Only an admin can delete callbacks." };
-  }
+  const isAdmin = me?.role === "admin";
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -213,12 +214,30 @@ export async function deleteCallbacks(
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Leads whose pending callback we're deleting get handed back to the queue
-  // so they don't keep a stale `callback` schedule pointing at nothing.
+  // Fetch the target rows once — used both to enforce ownership (below) and to
+  // hand back any leads whose PENDING callback we're deleting so they don't keep
+  // a stale `callback` schedule pointing at nothing. The lead join carries
+  // owner_id for the member scope check.
   const { data: rows } = await admin
     .from("callbacks")
-    .select("lead_id, status")
+    .select("id, lead_id, status, lead:leads(owner_id)")
     .in("id", clean);
+
+  // Members may delete only their own leads' callbacks. A hard delete must never
+  // partial-run across owners, so reject the WHOLE batch if any selected row
+  // isn't theirs (or doesn't exist). Admins skip this and can clear any row.
+  if (!isAdmin) {
+    const allOwned =
+      (rows ?? []).length === clean.length &&
+      (rows ?? []).every(
+        (r) =>
+          (r.lead as { owner_id?: string | null } | null)?.owner_id === user.id,
+      );
+    if (!allOwned) {
+      return { error: "You can only delete your own callbacks." };
+    }
+  }
+
   const pendingLeadIds = [
     ...new Set(
       (rows ?? [])

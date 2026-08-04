@@ -15,11 +15,27 @@ import { callbacksHref } from "./callbacks-url";
  *   - The browser handles middle-click → new tab naturally
  *   - Right-click → open in new window is preserved
  *   - JS doesn't need to be ready for the tabs to work */
-const TABS: { value: string; label: string }[] = [
-  { value: "pending", label: "Pending" },
-  { value: "completed", label: "Completed" },
-  { value: "missed", label: "Missed" },
-  { value: "cancelled", label: "Cancelled" },
+const TABS: { value: string; label: string; hint?: string }[] = [
+  {
+    value: "pending",
+    label: "Pending",
+    hint: "Waiting to be dialed automatically at their scheduled time.",
+  },
+  {
+    value: "completed",
+    label: "Completed",
+    hint: "The redial happened, or someone marked it done.",
+  },
+  {
+    value: "missed",
+    label: "Missed",
+    hint: "The AI tried at the callback time but couldn't reach anyone after its retries — good ones to call yourself.",
+  },
+  {
+    value: "cancelled",
+    label: "Cancelled",
+    hint: "Called off before it was dialed. Kept for the record.",
+  },
   { value: "all", label: "All" },
 ];
 
@@ -57,6 +73,7 @@ export function CallbacksStatusTabs({
             href={href}
             role="tab"
             aria-selected={active}
+            title={tab.hint}
             className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${
               active
                 ? "bg-foreground text-background"

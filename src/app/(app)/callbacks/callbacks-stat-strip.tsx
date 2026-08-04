@@ -23,6 +23,7 @@ export function CallbacksStatStrip({ stats }: { stats: CallbackStats }) {
         value={stats.dueToday.toLocaleString()}
         href="/callbacks?status=pending&range=today"
         tone="coral"
+        hint="Callbacks scheduled to dial today."
       />
       <StatLink
         icon={<CalendarDays className="size-3.5" />}
@@ -31,6 +32,7 @@ export function CallbacksStatStrip({ stats }: { stats: CallbackStats }) {
         href="/callbacks?status=pending&range=week"
         tone="neutral"
         divider
+        hint="Callbacks scheduled over the next 7 days."
       />
       <StatLink
         icon={<TriangleAlert className="size-3.5" />}
@@ -39,10 +41,11 @@ export function CallbacksStatStrip({ stats }: { stats: CallbackStats }) {
         href="/callbacks?status=pending&range=overdue"
         tone="red"
         divider
-        // When anything is overdue this is a live alarm — the cron
-        // should have dialed these already. A gentle pulse pulls the
-        // eye to the one tile that needs human attention right now.
+        // Overdue pending callbacks aren't broken — they're queued. The
+        // autopilot dials them on its next pass, so a gentle pulse pulls
+        // the eye without implying something has failed.
         pulse={stats.overdue > 0}
+        hint="Past their scheduled time. The autopilot dials these on its next pass — or use Call now on a row to handle one yourself."
       />
       <StatLink
         icon={<Mic className="size-3.5" />}
@@ -51,6 +54,7 @@ export function CallbacksStatStrip({ stats }: { stats: CallbackStats }) {
         href="/callbacks?status=pending&voicemail=repeat"
         tone="coral"
         divider
+        hint="The AI has already left 2+ voicemails on these — a human may need to step in."
       />
     </section>
   );
@@ -64,6 +68,7 @@ function StatLink({
   tone,
   divider,
   pulse,
+  hint,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -72,6 +77,7 @@ function StatLink({
   tone: "coral" | "red" | "neutral";
   divider?: boolean;
   pulse?: boolean;
+  hint?: string;
 }) {
   const accent = {
     coral: "text-primary",
@@ -82,6 +88,7 @@ function StatLink({
   return (
     <Link
       href={href}
+      title={hint}
       className={`group focus-visible:ring-ring/60 hover:bg-muted/40 -mx-2 flex flex-col gap-1 rounded-lg px-2 py-1 transition-colors focus-visible:ring-2 focus-visible:outline-none ${
         divider ? "sm:border-border/60 sm:border-l sm:pl-4" : ""
       }`}
