@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronsUpDown, LogOut } from "lucide-react";
+import { ChevronsUpDown, LogOut, Rocket } from "lucide-react";
+import Link from "next/link";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ export function TopBar({
   unreadCount,
   activeCampaign,
   campaigns,
+  setup,
   mobileNav,
 }: {
   name: string;
@@ -50,6 +52,9 @@ export function TopBar({
   unreadCount: number;
   activeCampaign: { id: string; name: string } | null;
   campaigns: ActiveCampaignOption[];
+  /** First-run "Setup N/4" progress for teammates still onboarding. Null once
+   *  setup is complete (or the user has dismissed onboarding) — then no pill. */
+  setup?: { done: number; total: number } | null;
   /** Round 35 (R1) — hamburger trigger for the sidebar drawer below
    *  `md`. Slotted from the layout so the trigger has the same
    *  isAdmin / saved-views payload as the persistent sidebar. */
@@ -61,6 +66,22 @@ export function TopBar({
       <div className="flex-1">
         <GlobalSearch isAdmin={role === "admin"} userEmail={email} />
       </div>
+      {/* First-run setup nudge — links to the Today checklist. Only present
+       *  while a teammate is still onboarding + setup is incomplete; vanishes
+       *  on its own once they've launched their first campaign. */}
+      {setup ? (
+        <Link
+          href="/today"
+          data-testid="setup-progress-pill"
+          title="Finish setting up your workspace"
+          className="border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+        >
+          <Rocket className="size-3.5" />
+          <span className="hidden sm:inline">Setup</span> {setup.done}/
+          {setup.total}
+        </Link>
+      ) : null}
+
       {/* Round 27 — operator-scoped chrome: ask-smile co-pilot, active
        *  campaign chip, theme toggle, notifications, user. Active
        *  campaign drives manual call destinations. */}
