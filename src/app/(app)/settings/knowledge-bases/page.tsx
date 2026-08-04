@@ -113,7 +113,7 @@ export default async function KnowledgeBasesPage() {
                           kb={{ id: kb.id, name: kb.name }}
                           sources={kb.sources}
                         />
-                        <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        <div className="flex gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                           <KbFormDialog mode="edit" kb={kb} />
                           <DeleteKbDialog kb={{ id: kb.id, name: kb.name }} />
                         </div>

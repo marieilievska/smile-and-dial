@@ -62,6 +62,25 @@ export default async function ListsPage() {
     arr.sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  // Lead count per list (excluding soft-deleted) so the table can flag EMPTY
+  // lists — an empty list attached to a campaign silently won't dial, and there
+  // was no way to spot that from here. One head-count per list; list counts are
+  // small, so the fan-out stays cheap. RLS scopes each count to the caller.
+  const listIds = (lists ?? []).map((l) => l.id);
+  const leadCountByList = new Map<string, number>();
+  if (listIds.length > 0) {
+    const counts = await Promise.all(
+      listIds.map((id) =>
+        supabase
+          .from("leads")
+          .select("id", { count: "exact", head: true })
+          .eq("list_id", id)
+          .is("deleted_at", null),
+      ),
+    );
+    listIds.forEach((id, i) => leadCountByList.set(id, counts[i].count ?? 0));
+  }
+
   const activeCampaigns = (campaigns ?? []).map((c) => ({
     id: c.id,
     name: c.name,
@@ -97,6 +116,7 @@ export default async function ListsPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
+                  <TableHead>Leads</TableHead>
                   <TableHead>Campaigns</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="w-56" />
@@ -105,11 +125,26 @@ export default async function ListsPage() {
               <TableBody>
                 {(lists ?? []).map((list) => {
                   const attached = campaignsByList.get(list.id) ?? [];
+                  const leadCount = leadCountByList.get(list.id) ?? 0;
                   return (
                     <TableRow key={list.id} className="group">
                       <TableCell className="font-medium">{list.name}</TableCell>
                       <TableCell className="text-muted-foreground">
                         {list.description || "—"}
+                      </TableCell>
+                      <TableCell className="tabular-nums">
+                        {leadCount > 0 ? (
+                          <span className="text-foreground">
+                            {leadCount.toLocaleString()}
+                          </span>
+                        ) : (
+                          <span
+                            className="text-warning"
+                            title="No leads yet — a campaign attached to this list won't dial."
+                          >
+                            0
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {attached.length > 0
@@ -123,7 +158,7 @@ export default async function ListsPage() {
                         {formatCreatedAt(list.created_at, now)}
                       </TableCell>
                       <TableCell>
-                        <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        <div className="flex justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                           <ListAttachmentControls
                             list={{ id: list.id, name: list.name }}
                             attachedCampaigns={attached}

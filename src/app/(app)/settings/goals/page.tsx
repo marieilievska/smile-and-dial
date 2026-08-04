@@ -148,7 +148,7 @@ export default async function SettingsGoalsPage() {
                       {new Date(goal.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <div className="ml-auto flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <div className="ml-auto flex items-center justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                         <GoalFormDialog mode="edit" goal={goal} />
                         <DeleteGoalDialog goal={goal} usageCount={usage} />
                       </div>
