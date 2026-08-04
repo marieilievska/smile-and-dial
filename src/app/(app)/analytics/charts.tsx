@@ -1,5 +1,6 @@
 import { Trophy } from "lucide-react";
 
+import { formatUsd } from "@/lib/format-usd";
 import type {
   FunnelStep,
   OutcomeBucket,
@@ -250,10 +251,10 @@ export function CampaignLeaderboard({ rows }: { rows: CampaignRank[] }) {
               <span className="text-foreground truncate">{r.campaignName}</span>
             </div>
             <span className="text-muted-foreground whitespace-nowrap tabular-nums">
-              {r.goalMet} {r.goalMet === 1 ? "goal" : "goals"} · $
-              {r.spend.toFixed(2)} ·{" "}
+              {r.goalMet} {r.goalMet === 1 ? "goal" : "goals"} ·{" "}
+              {formatUsd(r.spend)} ·{" "}
               {r.costPerGoalMet > 0
-                ? `$${r.costPerGoalMet.toFixed(2)}/goal`
+                ? `${formatUsd(r.costPerGoalMet)}/goal`
                 : "—"}
             </span>
           </li>

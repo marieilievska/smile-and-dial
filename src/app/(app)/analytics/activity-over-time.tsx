@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { formatUsd } from "@/lib/format-usd";
+
 /** One day-by-day series the chart can plot. `format` decides how the
  *  totals + tooltip render — counts vs dollars. Functions can't cross the
  *  server→client boundary, so the parent passes a format *tag*, not a
@@ -18,7 +20,7 @@ export type ActivitySeries = {
 };
 
 function fmt(value: number, format: ActivitySeries["format"]): string {
-  if (format === "usd") return `$${value.toFixed(2)}`;
+  if (format === "usd") return formatUsd(value);
   return value.toLocaleString();
 }
 

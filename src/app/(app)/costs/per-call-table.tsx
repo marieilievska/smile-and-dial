@@ -14,13 +14,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { pickBreakdown, type CostsRow } from "@/lib/analytics/costs";
+import { formatUsd as usd } from "@/lib/format-usd";
 
 import { formatStartedAt } from "./format-time";
-
-function usd(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  return `$${value.toFixed(2)}`;
-}
 
 function fmtDuration(seconds: number | null): string {
   if (seconds == null || !Number.isFinite(seconds)) return "—";

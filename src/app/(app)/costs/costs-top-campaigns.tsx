@@ -1,9 +1,6 @@
 import Link from "next/link";
 
-function usd(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  return `$${value.toFixed(2)}`;
-}
+import { formatUsd as usd } from "@/lib/format-usd";
 
 export type TopCampaign = {
   campaignId: string;

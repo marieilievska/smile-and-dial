@@ -1,11 +1,7 @@
 import { Phone } from "lucide-react";
 
+import { formatUsd as usd } from "@/lib/format-usd";
 import type { rollupByVendor } from "@/lib/analytics/costs";
-
-function usd(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  return `$${value.toFixed(2)}`;
-}
 
 /** Per-vendor cost breakdown — a single segmented spend bar plus a legend with
  *  $ and %. Each vendor has a fixed colour (paired with its name + % in the

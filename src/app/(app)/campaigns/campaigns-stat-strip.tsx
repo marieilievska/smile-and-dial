@@ -1,6 +1,7 @@
 import { DollarSign, Megaphone, PauseCircle, PhoneCall } from "lucide-react";
 import Link from "next/link";
 
+import { formatUsd } from "@/lib/format-usd";
 import type { CampaignStats } from "./stats-query";
 
 /** 4-stat strip on /campaigns. Active and Paused link to their
@@ -40,7 +41,7 @@ export function CampaignsStatStrip({ stats }: { stats: CampaignStats }) {
       <Stat
         icon={<DollarSign className="size-3.5" />}
         label="Spend today"
-        value={`$${stats.spendToday.toFixed(2)}`}
+        value={formatUsd(stats.spendToday)}
         tone="neutral"
         divider
       />

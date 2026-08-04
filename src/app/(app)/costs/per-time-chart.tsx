@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { formatUsd } from "@/lib/format-usd";
 import type { PerTime } from "@/lib/analytics/costs";
 
 /** Daily-spend area chart for the Per-day view. Round 20 — replaces
@@ -49,7 +50,7 @@ export function PerTimeChart({ data }: { data: PerTime[] }) {
           Spend over time
         </h2>
         <p className="text-muted-foreground text-xs tabular-nums">
-          ${totalSpend.toFixed(2)} total · ${avgPerDay.toFixed(2)}/day avg ·{" "}
+          {formatUsd(totalSpend)} total · {formatUsd(avgPerDay)}/day avg ·{" "}
           {totalCalls.toLocaleString()} calls
         </p>
       </div>
@@ -135,7 +136,7 @@ export function PerTimeChart({ data }: { data: PerTime[] }) {
           >
             <p className="text-muted-foreground">{fmtDay(data[hover].day)}</p>
             <p className="text-foreground font-medium tabular-nums">
-              ${data[hover].spend.toFixed(2)}
+              {formatUsd(data[hover].spend)}
             </p>
             <p className="text-muted-foreground tabular-nums">
               {data[hover].calls.toLocaleString()}{" "}
