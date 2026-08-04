@@ -8,18 +8,17 @@ import { createClient } from "@/lib/supabase/server";
 import { validateRecipe, type RecipeNode } from "./recipe";
 import { runFilterRpc } from "./resolve";
 
-async function requireAdmin() {
+/** Any signed-in user. Smart lists are owner-scoped: the actions set owner_id on
+ *  insert and RLS (owner-or-admin) backstops read/update/delete, so a member
+ *  only ever manages their own. The refresh_smart_list SECURITY DEFINER function
+ *  scopes membership to the list owner's leads, so a member's list can never
+ *  contain another account's leads. */
+async function requireAuth() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { supabase, ok: false as const, userId: "" };
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  return { supabase, ok: me?.role === "admin", userId: user.id };
+  return { supabase, ok: Boolean(user), userId: user?.id ?? "" };
 }
 
 /** Evaluate a recipe to matching lead ids (admin-gated). A broken recipe
@@ -27,8 +26,8 @@ async function requireAdmin() {
 export async function matchingLeadIds(
   recipe: RecipeNode,
 ): Promise<{ ids: string[]; error: string | null }> {
-  const { supabase, ok } = await requireAdmin();
-  if (!ok) return { ids: [], error: "Admins only." };
+  const { supabase, ok } = await requireAuth();
+  if (!ok) return { ids: [], error: "You are not signed in." };
   if (validateRecipe(recipe)) return { ids: [], error: "Invalid filter." };
   return runFilterRpc(supabase, recipe);
 }
@@ -39,8 +38,8 @@ export async function saveSmartList(input: {
   description?: string;
   recipe: RecipeNode;
 }): Promise<{ error: string | null }> {
-  const { supabase, ok, userId } = await requireAdmin();
-  if (!ok) return { error: "Admins only." };
+  const { supabase, ok, userId } = await requireAuth();
+  if (!ok) return { error: "You are not signed in." };
   if (!input.name.trim()) return { error: "Name is required." };
   if (validateRecipe(input.recipe)) return { error: "Invalid filter." };
 
@@ -63,8 +62,8 @@ export async function saveSmartList(input: {
 export async function deleteSmartList(input: {
   id: string;
 }): Promise<{ error: string | null }> {
-  const { supabase, ok } = await requireAdmin();
-  if (!ok) return { error: "Admins only." };
+  const { supabase, ok } = await requireAuth();
+  if (!ok) return { error: "You are not signed in." };
   const { error } = await supabase
     .from("smart_lists")
     .delete()

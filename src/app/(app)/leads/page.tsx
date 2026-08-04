@@ -335,7 +335,7 @@ export default async function LeadsPage({
           statusOptions={statusOptions}
           ownerOptions={ownerOptions}
           customFields={customFieldOptions}
-          canSaveSmartList={isAdmin}
+          canSaveSmartList
         />
       </AdvancedFilters>
 

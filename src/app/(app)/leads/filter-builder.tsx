@@ -45,8 +45,9 @@ export function FilterBuilder({
   statusOptions: { value: string; label: string }[];
   ownerOptions: { value: string; label: string }[];
   customFields: CustomFieldOption[];
-  /** Saving a reusable Smart List is admin-only; members build ad-hoc
-   *  filters and persist them as a saved view instead. */
+  /** Whether to show the "Save as smart list" affordance. Open to members now:
+   *  a smart list is owner-scoped (its membership only ever contains the
+   *  owner's leads), so each teammate manages their own. */
   canSaveSmartList: boolean;
 }) {
   const router = useRouter();
