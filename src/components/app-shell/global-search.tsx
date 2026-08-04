@@ -1,26 +1,45 @@
 "use client";
 
-import { CornerDownLeft, Loader2, Phone, Search } from "lucide-react";
+import {
+  Bot,
+  Building2,
+  CornerDownLeft,
+  FolderOpen,
+  Loader2,
+  Megaphone,
+  Search,
+} from "lucide-react";
+import { Fragment } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { Input } from "@/components/ui/input";
-import { formatPhone } from "@/lib/format-phone";
 import { navItems } from "@/lib/nav";
 
 import {
-  fetchLeadSuggestions,
-  type LeadSuggestion,
+  fetchGlobalSuggestions,
+  type GlobalSuggestions,
+  type SearchHit,
 } from "./search-suggestions-action";
 
-/** Top-bar search with a live typeahead dropdown. Two kinds of result:
- *   1. Jump-to-page — matching nav destinations (gated to what the user can
- *      reach), so the prominent box is a real "find anything" affordance and
- *      not a leads-only input that looks global.
- *   2. Leads — up to 8 matching leads fetched (debounced 200ms) from the
- *      server; picking one jumps to /leads/<id>.
- *  Pressing Enter picks the highlighted lead, else the first page match, else
- *  falls back to the full /leads?q=… search.
+/** Section header label + icon per entity kind. */
+const KIND_META: Record<
+  SearchHit["kind"],
+  { label: string; icon: typeof Building2 }
+> = {
+  lead: { label: "Leads", icon: Building2 },
+  campaign: { label: "Campaigns", icon: Megaphone },
+  agent: { label: "Agents", icon: Bot },
+  list: { label: "Lists", icon: FolderOpen },
+};
+
+/** Top-bar search with a live typeahead dropdown. Three kinds of result:
+ *   1. Entity hits — leads, campaigns, agents, and lists matching the query
+ *      (debounced 200ms, RLS-scoped on the server), grouped by kind.
+ *   2. Jump-to-page — matching nav destinations (gated to what the user can
+ *      reach), shown as a final "Go to" section.
+ *  Arrow keys cycle every row; Enter opens the highlighted one, else falls back
+ *  to the full /leads?q=… search.
  *
  *  Works from any page. On /leads and /calls the input value is kept in sync
  *  with the URL `?q=` so saved-view clicks / chip removals mirror it. */
@@ -41,7 +60,9 @@ export function GlobalSearch({
 
   const [value, setValue] = useState(urlQ);
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<LeadSuggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<GlobalSuggestions | null>(
+    null,
+  );
   const [highlight, setHighlight] = useState(0);
   const [pending, startTransition] = useTransition();
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -61,12 +82,35 @@ export function GlobalSearch({
   );
 
   const query = value.trim().toLowerCase();
-  const pageMatches =
-    query.length >= 1
-      ? accessiblePages
-          .filter((p) => p.label.toLowerCase().includes(query))
-          .slice(0, 4)
-      : [];
+  const pageMatches = useMemo(
+    () =>
+      query.length >= 1
+        ? accessiblePages
+            .filter((p) => p.label.toLowerCase().includes(query))
+            .slice(0, 4)
+        : [],
+    [accessiblePages, query],
+  );
+
+  // Entity hits flattened in display order — the index into this array is the
+  // highlight index (pages continue the count after it).
+  const entityHits = useMemo(
+    () =>
+      suggestions
+        ? [
+            ...suggestions.leads,
+            ...suggestions.campaigns,
+            ...suggestions.agents,
+            ...suggestions.lists,
+          ]
+        : [],
+    [suggestions],
+  );
+  // Every navigable row's href, in render order (entities, then pages).
+  const navHrefs = useMemo(
+    () => [...entityHits.map((h) => h.href), ...pageMatches.map((p) => p.href)],
+    [entityHits, pageMatches],
+  );
 
   // Mirror URL→input when the URL `q` changes externally.
   const [lastUrlQ, setLastUrlQ] = useState(urlQ);
@@ -112,13 +156,13 @@ export function GlobalSearch({
   function fetchAfterDebounce(next: string) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (next.trim().length < 2) {
-      setItems([]);
+      setSuggestions(null);
       return;
     }
     debounceRef.current = setTimeout(() => {
       startTransition(async () => {
-        const result = await fetchLeadSuggestions(next);
-        setItems(result.items);
+        const result = await fetchGlobalSuggestions(next);
+        setSuggestions(result);
         setHighlight(0);
       });
     }, 200);
@@ -130,12 +174,9 @@ export function GlobalSearch({
     fetchAfterDebounce(next);
   }
 
-  function gotoLead(id: string) {
-    setOpen(false);
-    router.push(`/leads/${id}`);
-  }
-
-  function gotoPage(href: string) {
+  /** Navigate to a result / page. Clearing the input is left to the
+   *  leave-list-page effect so the URL↔input sync stays correct. */
+  function go(href: string) {
     setOpen(false);
     if (!onListPage) setValue("");
     router.push(href);
@@ -160,19 +201,17 @@ export function GlobalSearch({
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      if (items.length > 0) {
+      if (navHrefs.length > 0) {
         setOpen(true);
-        setHighlight((h) => Math.min(h + 1, items.length - 1));
+        setHighlight((h) => Math.min(h + 1, navHrefs.length - 1));
       }
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       setHighlight((h) => Math.max(h - 1, 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (open && items[highlight]) {
-        gotoLead(items[highlight].id);
-      } else if (pageMatches.length > 0) {
-        gotoPage(pageMatches[0].href);
+      if (open && navHrefs[highlight]) {
+        go(navHrefs[highlight]);
       } else {
         submitFull();
       }
@@ -181,9 +220,9 @@ export function GlobalSearch({
     }
   }
 
-  const searchedLeads = value.trim().length >= 2;
+  const searched = value.trim().length >= 2;
   const showDropdown =
-    open && (pageMatches.length > 0 || items.length > 0 || searchedLeads);
+    open && (entityHits.length > 0 || pageMatches.length > 0 || searched);
 
   return (
     <div
@@ -203,8 +242,8 @@ export function GlobalSearch({
           if (value.trim().length >= 1) setOpen(true);
         }}
         onKeyDown={onKeyDown}
-        placeholder="Search leads, or jump to a page"
-        aria-label="Search leads or jump to a page"
+        placeholder="Search leads, campaigns, agents… or jump to a page"
+        aria-label="Search or jump to a page"
         aria-autocomplete="list"
         aria-expanded={showDropdown}
         aria-controls="global-search-listbox"
@@ -227,91 +266,106 @@ export function GlobalSearch({
           id="global-search-listbox"
           role="listbox"
           data-testid="global-search-dropdown"
-          className="border-border bg-popover absolute top-full right-0 left-0 z-50 mt-1.5 max-h-[420px] overflow-y-auto rounded-lg border shadow-lg"
+          className="border-border bg-popover absolute top-full right-0 left-0 z-50 mt-1.5 max-h-[440px] overflow-y-auto rounded-lg border shadow-lg"
         >
+          {/* Entity hits — grouped; a header renders when the kind changes. */}
+          {entityHits.length > 0 ? (
+            <ul className="flex flex-col py-1">
+              {entityHits.map((hit, i) => {
+                const prev = entityHits[i - 1];
+                const showHeader = !prev || prev.kind !== hit.kind;
+                const Meta = KIND_META[hit.kind];
+                return (
+                  <Fragment key={`${hit.kind}-${hit.id}`}>
+                    {showHeader ? (
+                      <li
+                        aria-hidden
+                        className="text-muted-foreground px-3 pt-2 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase"
+                      >
+                        {Meta.label}
+                      </li>
+                    ) : null}
+                    <li>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={i === highlight}
+                        onMouseEnter={() => setHighlight(i)}
+                        onClick={() => go(hit.href)}
+                        className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
+                          i === highlight ? "bg-muted" : "hover:bg-muted/60"
+                        }`}
+                      >
+                        <Meta.icon className="text-muted-foreground size-4 shrink-0" />
+                        <div className="flex min-w-0 flex-1 flex-col">
+                          <span className="text-foreground truncate text-sm font-medium">
+                            {hit.label}
+                          </span>
+                          {hit.sublabel ? (
+                            <span className="text-muted-foreground truncate text-xs">
+                              {hit.sublabel}
+                            </span>
+                          ) : null}
+                        </div>
+                      </button>
+                    </li>
+                  </Fragment>
+                );
+              })}
+            </ul>
+          ) : null}
+
+          {/* Jump-to-page — the final "Go to" section. */}
           {pageMatches.length > 0 ? (
-            <div className="border-border border-b py-1 last:border-b-0">
+            <div className="border-border border-t py-1">
               <p className="text-muted-foreground px-3 pt-1.5 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase">
-                Pages
+                Go to
               </p>
               <ul className="flex flex-col">
-                {pageMatches.map((p) => (
-                  <li key={p.href}>
-                    <button
-                      type="button"
-                      onClick={() => gotoPage(p.href)}
-                      className="hover:bg-muted/60 flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors"
-                    >
-                      <p.icon className="text-muted-foreground size-4 shrink-0" />
-                      <span className="text-foreground text-sm">
-                        Go to {p.label}
-                      </span>
-                      <CornerDownLeft className="text-muted-foreground/60 ml-auto size-3.5 shrink-0" />
-                    </button>
-                  </li>
-                ))}
+                {pageMatches.map((p, i) => {
+                  const gi = entityHits.length + i;
+                  return (
+                    <li key={p.href}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={gi === highlight}
+                        onMouseEnter={() => setHighlight(gi)}
+                        onClick={() => go(p.href)}
+                        className={`flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors ${
+                          gi === highlight ? "bg-muted" : "hover:bg-muted/60"
+                        }`}
+                      >
+                        <p.icon className="text-muted-foreground size-4 shrink-0" />
+                        <span className="text-foreground text-sm">
+                          Go to {p.label}
+                        </span>
+                        <CornerDownLeft className="text-muted-foreground/60 ml-auto size-3.5 shrink-0" />
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : null}
 
-          {items.length > 0 ? (
-            <>
-              {pageMatches.length > 0 ? (
-                <p className="text-muted-foreground px-3 pt-2 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase">
-                  Leads
-                </p>
-              ) : null}
-              <ul className="flex flex-col py-1">
-                {items.map((item, i) => (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={i === highlight}
-                      onMouseEnter={() => setHighlight(i)}
-                      onClick={() => gotoLead(item.id)}
-                      className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
-                        i === highlight ? "bg-muted" : "hover:bg-muted/60"
-                      }`}
-                    >
-                      <div className="flex min-w-0 flex-1 flex-col">
-                        <span className="text-foreground truncate text-sm font-medium">
-                          {item.company || "Untitled lead"}
-                        </span>
-                        <span className="text-muted-foreground flex items-center gap-2 truncate text-xs">
-                          {item.phone ? (
-                            <span className="inline-flex items-center gap-1 font-mono">
-                              <Phone className="size-3" />
-                              {formatPhone(item.phone)}
-                            </span>
-                          ) : null}
-                          {item.city || item.state ? (
-                            <span>
-                              {[item.city, item.state]
-                                .filter(Boolean)
-                                .join(", ")}
-                            </span>
-                          ) : null}
-                        </span>
-                      </div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+          {/* Full-search escape hatch / empty state. */}
+          {searched ? (
+            entityHits.length > 0 || pageMatches.length > 0 ? (
               <div className="border-border bg-muted/30 border-t px-3 py-2 text-xs">
                 <button
                   type="button"
                   onClick={submitFull}
                   className="text-foreground inline-flex items-center gap-1.5 font-medium underline-offset-2 hover:underline"
                 >
-                  See all results for &ldquo;{value}&rdquo; →
+                  See all leads for &ldquo;{value}&rdquo; →
                 </button>
               </div>
-            </>
-          ) : searchedLeads && !pending ? (
-            <p className="text-muted-foreground px-3 py-3 text-sm">
-              No matching leads.
-            </p>
+            ) : !pending ? (
+              <p className="text-muted-foreground px-3 py-3 text-sm">
+                No matches.
+              </p>
+            ) : null
           ) : null}
         </div>
       ) : null}
