@@ -64,7 +64,7 @@ export const navItems: NavItem[] = [
     icon: PhoneCall,
     section: "workflow",
   },
-  { label: "Goals", href: "/goals", icon: Target, section: "workflow" },
+  { label: "Pipeline", href: "/goals", icon: Target, section: "workflow" },
   {
     label: "Campaigns",
     href: "/campaigns",

@@ -208,8 +208,9 @@ export default async function GoalsPage({
           Pipeline
         </h1>
         <p className="text-muted-foreground text-sm">
-          Leads the AI promoted past a Goal Met call. Move them through attended
-          → sale → closed as the real-world outcome lands.
+          Leads where the AI hit the campaign&apos;s goal on a call — like
+          booking an appointment. Move each one through attended → sale → closed
+          as the real-world outcome lands.
         </p>
       </div>
 

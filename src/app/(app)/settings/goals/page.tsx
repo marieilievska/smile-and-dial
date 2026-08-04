@@ -1,4 +1,5 @@
 import { Megaphone, Star, Target } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
@@ -57,7 +58,14 @@ export default async function SettingsGoalsPage() {
           </h1>
           <p className="text-muted-foreground text-sm">
             What a campaign&apos;s calls are trying to achieve. Pick one when
-            you create a campaign.
+            you create a campaign, then track the leads it wins on the{" "}
+            <Link
+              href="/goals"
+              className="text-primary underline-offset-2 hover:underline"
+            >
+              Pipeline
+            </Link>
+            .
           </p>
         </div>
         <GoalFormDialog mode="create" />
