@@ -275,9 +275,9 @@ export default async function AnalyticsPage({
               }
             />
             <KpiTile
-              label="DM-reach rate"
+              label="Decision-maker rate"
               value={fmtPct(rates.dm)}
-              hint="Of conversations, reached the DM"
+              hint="Of conversations, reached the decision-maker"
               pctDelta={
                 priorRates ? pctDelta(rates.dm, priorRates.dm) : undefined
               }
@@ -285,7 +285,7 @@ export default async function AnalyticsPage({
             <KpiTile
               label="Goal rate"
               value={fmtPct(rates.goal)}
-              hint="Of DMs reached, goal met"
+              hint="Of decision-makers reached, goal met"
               pctDelta={
                 priorRates ? pctDelta(rates.goal, priorRates.goal) : undefined
               }

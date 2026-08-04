@@ -226,7 +226,10 @@ export function DashboardView({
           value={sel.convGt1min.toLocaleString()}
           hint="Connected calls only — a long voicemail or phone menu doesn't count"
         />
-        <KpiTile label="DMs reached" value={sel.dms.toLocaleString()} />
+        <KpiTile
+          label="Decision-makers reached"
+          value={sel.dms.toLocaleString()}
+        />
         <KpiTile label="Callbacks" value={sel.callbacks.toLocaleString()} />
         <KpiTile label="Goals met" value={sel.goals.toLocaleString()} />
         {showSentiment ? (
