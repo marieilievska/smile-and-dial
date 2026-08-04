@@ -234,11 +234,16 @@ export function LeadPageClient({
               {isAdmin ? (
                 <SendToCloserButton leadId={leadId} handoff={handoff} />
               ) : null}
-              <ManualCallPanel leadId={leadId} userId={userId} />
+              <ManualCallPanel
+                leadId={leadId}
+                userId={userId}
+                label="Call myself"
+              />
               <CallNowDialog
                 leadId={leadId}
                 availableCampaigns={availableCampaigns}
                 initialCampaignId={activeCampaignId}
+                triggerLabel="AI call"
                 open={callDialogOpen}
                 onOpenChange={setCallDialogOpen}
               />
@@ -252,8 +257,10 @@ export function LeadPageClient({
             </p>
           ) : null}
           {/* Quick-stats — the at-a-glance "where does this lead stand" row. */}
+          {/* At-a-glance call activity. Lead attributes (List, Time zone,
+              …) live in the Pipeline block below, so they're not repeated
+              here — this row stays focused on "how's the calling going". */}
           <div className="border-border/60 flex flex-wrap gap-x-6 gap-y-2 border-t pt-3">
-            <HeroStat label="List" value={meta.listName} />
             <HeroStat label="Attempts" value={meta.attempts.toLocaleString()} />
             <HeroStat
               label="Conversations"
@@ -263,12 +270,6 @@ export function LeadPageClient({
               label="Last call"
               value={meta.lastCallAt ? relativeTime(meta.lastCallAt) : "—"}
             />
-            {meta.timezone ? (
-              <HeroStat
-                label="Local time"
-                value={<LeadLocalTime timeZone={meta.timezone} />}
-              />
-            ) : null}
           </div>
         </div>
       </header>
@@ -289,6 +290,9 @@ export function LeadPageClient({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
         {/* LEFT */}
         <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-3 delay-150 duration-500">
+          <p className="text-muted-foreground text-xs">
+            Changes save automatically.
+          </p>
           <CollapsibleSection title="Basics" defaultOpen>
             <div className="flex flex-col gap-4">
               {renderFields(CONTACT_FIELDS)}
