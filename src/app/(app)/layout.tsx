@@ -4,6 +4,7 @@ import { MobileNavTrigger } from "@/components/app-shell/mobile-nav-trigger";
 import { AppSidebar } from "@/components/app-shell/sidebar";
 import { TopBar } from "@/components/app-shell/top-bar";
 import { Toaster } from "@/components/ui/sonner";
+import { fetchOnboardingProgress } from "@/lib/onboarding/queries";
 import { createClient } from "@/lib/supabase/server";
 
 /** Inline script that runs before React hydrates so the page renders
@@ -47,7 +48,9 @@ export default async function AppLayout({
   ] = await Promise.all([
     supabase
       .from("profiles")
-      .select("full_name, email, role, active_campaign_id")
+      .select(
+        "full_name, email, role, active_campaign_id, onboarding_dismissed_at",
+      )
       .eq("id", user.id)
       .single(),
     supabase
@@ -101,6 +104,20 @@ export default async function AppLayout({
     campaigns: pausedCampaigns ?? 0,
   };
 
+  // Top-bar "Setup N/4" pill — a compact progress nudge for teammates still in
+  // onboarding. Gated on onboarding_dismissed_at so the extra progress queries
+  // (and the pill) only run for not-yet-onboarded users; everyone else skips
+  // them entirely. Null once setup is complete, so the pill never lingers.
+  const inOnboarding =
+    profile != null && profile.onboarding_dismissed_at == null;
+  const onboarding = inOnboarding
+    ? await fetchOnboardingProgress(supabase, user.id)
+    : null;
+  const setupProgress =
+    onboarding && !onboarding.complete
+      ? { done: onboarding.doneCount, total: onboarding.total }
+      : null;
+
   return (
     <>
       {/* Run the no-flash theme script before paint. */}
@@ -136,6 +153,7 @@ export default async function AppLayout({
             unreadCount={unreadCount ?? 0}
             activeCampaign={activeCampaign}
             campaigns={allCampaigns}
+            setup={setupProgress}
             mobileNav={
               <MobileNavTrigger
                 isAdmin={role === "admin"}
