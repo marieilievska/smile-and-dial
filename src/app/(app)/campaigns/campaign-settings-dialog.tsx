@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 import { Pencil, Plus, Rocket } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -309,6 +309,20 @@ export function CampaignSettingsDialog({
   }, [selectedSmartListId]);
 
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Deep-link from global search: /campaigns?open=<id> auto-opens that
+  // campaign's settings. Only the matching edit-mode dialog reacts; the param is
+  // stripped after so closing or refreshing doesn't reopen it.
+  useEffect(() => {
+    if (isEdit && campaign?.id && searchParams.get("open") === campaign.id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOpen(true);
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("open");
+      router.replace(`/campaigns?${params.toString()}`);
+    }
+  }, [isEdit, campaign?.id, searchParams, router]);
 
   function submit(launch = false) {
     startTransition(async () => {

@@ -6,7 +6,14 @@ import { createClient } from "@/lib/supabase/server";
 /** One typeahead hit, from any searchable entity. `href` is where picking it
  *  navigates; `sublabel` is the dim secondary line. */
 export type SearchHit = {
-  kind: "lead" | "campaign" | "agent" | "list";
+  kind:
+    | "lead"
+    | "campaign"
+    | "agent"
+    | "list"
+    | "knowledge_base"
+    | "email_template"
+    | "sms_template";
   id: string;
   label: string;
   sublabel: string | null;
@@ -18,6 +25,9 @@ export type GlobalSuggestions = {
   campaigns: SearchHit[];
   agents: SearchHit[];
   lists: SearchHit[];
+  knowledgeBases: SearchHit[];
+  emailTemplates: SearchHit[];
+  smsTemplates: SearchHit[];
 };
 
 const EMPTY: GlobalSuggestions = {
@@ -25,6 +35,9 @@ const EMPTY: GlobalSuggestions = {
   campaigns: [],
   agents: [],
   lists: [],
+  knowledgeBases: [],
+  emailTemplates: [],
+  smsTemplates: [],
 };
 
 /** Humanize a campaign status for the sublabel. */
@@ -57,35 +70,58 @@ export async function fetchGlobalSuggestions(
   if (!safe) return EMPTY;
   const like = `%${safe}%`;
 
-  const [leadsRes, campaignsRes, agentsRes, listsRes] = await Promise.all([
-    supabase
-      .from("leads")
-      .select("id, company, business_phone, city, state")
-      .is("deleted_at", null)
-      .or(
-        `company.ilike.${like},business_phone.ilike.${like},business_email.ilike.${like}`,
-      )
-      .order("updated_at", { ascending: false })
-      .limit(5),
-    supabase
-      .from("campaigns")
-      .select("id, name, status")
-      .ilike("name", like)
-      .order("created_at", { ascending: false })
-      .limit(3),
-    supabase
-      .from("agents")
-      .select("id, name")
-      .ilike("name", like)
-      .order("created_at", { ascending: false })
-      .limit(3),
-    supabase
-      .from("lists")
-      .select("id, name")
-      .ilike("name", like)
-      .order("created_at", { ascending: false })
-      .limit(3),
-  ]);
+  const [leadsRes, campaignsRes, agentsRes, listsRes, kbRes, emailRes, smsRes] =
+    await Promise.all([
+      supabase
+        .from("leads")
+        .select("id, company, business_phone, city, state")
+        .is("deleted_at", null)
+        .or(
+          `company.ilike.${like},business_phone.ilike.${like},business_email.ilike.${like}`,
+        )
+        .order("updated_at", { ascending: false })
+        .limit(5),
+      supabase
+        .from("campaigns")
+        .select("id, name, status")
+        .ilike("name", like)
+        .order("created_at", { ascending: false })
+        .limit(3),
+      supabase
+        .from("agents")
+        .select("id, name")
+        .ilike("name", like)
+        .order("created_at", { ascending: false })
+        .limit(3),
+      supabase
+        .from("lists")
+        .select("id, name")
+        .ilike("name", like)
+        .order("created_at", { ascending: false })
+        .limit(3),
+      // Knowledge bases are owner-or-admin via RLS. Templates are owner-scoped
+      // explicitly (matching the campaign picker) so a member sees only their own.
+      supabase
+        .from("knowledge_bases")
+        .select("id, name")
+        .ilike("name", like)
+        .order("created_at", { ascending: false })
+        .limit(3),
+      supabase
+        .from("email_templates")
+        .select("id, name")
+        .eq("owner_id", user.id)
+        .ilike("name", like)
+        .order("created_at", { ascending: false })
+        .limit(3),
+      supabase
+        .from("sms_templates")
+        .select("id, name")
+        .eq("owner_id", user.id)
+        .ilike("name", like)
+        .order("created_at", { ascending: false })
+        .limit(3),
+    ]);
 
   return {
     leads: (leadsRes.data ?? []).map((r): SearchHit => {
@@ -105,7 +141,8 @@ export async function fetchGlobalSuggestions(
         id: r.id,
         label: r.name,
         sublabel: statusLabel(r.status),
-        href: "/campaigns",
+        // Deep-link: land on all campaigns and auto-open this one's settings.
+        href: `/campaigns?status=all&open=${r.id}`,
       }),
     ),
     agents: (agentsRes.data ?? []).map(
@@ -124,6 +161,33 @@ export async function fetchGlobalSuggestions(
         label: r.name,
         sublabel: "List",
         href: `/leads?list=${r.id}`,
+      }),
+    ),
+    knowledgeBases: (kbRes.data ?? []).map(
+      (r): SearchHit => ({
+        kind: "knowledge_base",
+        id: r.id,
+        label: r.name,
+        sublabel: "Knowledge base",
+        href: "/settings/knowledge-bases",
+      }),
+    ),
+    emailTemplates: (emailRes.data ?? []).map(
+      (r): SearchHit => ({
+        kind: "email_template",
+        id: r.id,
+        label: r.name,
+        sublabel: "Email template",
+        href: "/settings/email-templates",
+      }),
+    ),
+    smsTemplates: (smsRes.data ?? []).map(
+      (r): SearchHit => ({
+        kind: "sms_template",
+        id: r.id,
+        label: r.name,
+        sublabel: "Text template",
+        href: "/settings/sms-templates",
       }),
     ),
   };
