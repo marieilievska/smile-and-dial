@@ -272,9 +272,11 @@ async function assignCampaignAgentToNumber(
   }
 }
 
-/** Create a campaign. */
+/** Create a campaign. New campaigns are DRAFTS by default and don't dial until
+ *  launched; pass `launch: true` ("Save & launch") to create it live in one step. */
 export async function createCampaign(
   input: CampaignInput,
+  launch = false,
 ): Promise<CampaignResult> {
   if (!input.name.trim()) return { error: "Give the campaign a name." };
   if (!input.agentId) return { error: "Pick an agent." };
@@ -284,9 +286,10 @@ export async function createCampaign(
   if (authError) return { error: authError };
 
   const payload = buildUpdate(input);
+  const status = launch ? "active" : "draft";
   const { data: created, error } = await supabase
     .from("campaigns")
-    .insert({ owner_id: userId!, ...payload })
+    .insert({ owner_id: userId!, status, ...payload })
     .select("id")
     .single();
   if (error || !created) return { error: "Could not create the campaign." };
@@ -297,12 +300,51 @@ export async function createCampaign(
     payload.twilio_number_id,
     null,
   );
-  // Connecting an agent to a campaign puts it into service — make sure its
-  // ElevenLabs webhooks are current so completed calls report back to us.
-  await reapplyAgentIntegration(supabase, payload.agent_id);
+  // Going live puts the agent into service — refresh its ElevenLabs webhooks so
+  // completed calls report back to us. A draft doesn't dial, so that's deferred
+  // to launchCampaign.
+  if (launch) await reapplyAgentIntegration(supabase, payload.agent_id);
   await refreshAttachedSmartList(supabase, payload.smart_list_id);
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: created.id };
+}
+
+/** Launch a draft campaign — draft → active. It starts dialing on the next
+ *  dialer tick (respecting calling hours + autopilot). Only a draft can be
+ *  launched; a paused campaign uses resume. */
+export async function launchCampaign(id: string): Promise<CampaignResult> {
+  const { supabase, userId, error: authError } = await requireAuth();
+  if (authError) return { error: authError };
+
+  const { data: camp } = await supabase
+    .from("campaigns")
+    .select("status, agent_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!camp) return { error: "That campaign no longer exists." };
+  if (camp.status !== "draft") {
+    return { error: "Only a draft campaign can be launched." };
+  }
+
+  const { error } = await supabase
+    .from("campaigns")
+    .update({ status: "active" })
+    .eq("id", id);
+  if (error) return { error: "Could not launch the campaign." };
+
+  // Now it's live — refresh the agent's webhooks (deferred from create).
+  await reapplyAgentIntegration(supabase, camp.agent_id);
+
+  await supabase.from("system_events").insert({
+    kind: "campaign_launched",
+    actor_user_id: userId,
+    ref_table: "campaigns",
+    ref_id: id,
+    payload: {},
+  });
+
+  revalidatePath(CAMPAIGNS_PATH);
+  return { error: null, campaignId: id };
 }
 
 /** Update an existing campaign. */
@@ -488,14 +530,13 @@ export async function cloneCampaign(id: string): Promise<CampaignResult> {
       transfer_destination_phone: original.transfer_destination_phone,
       daily_spend_cap: original.daily_spend_cap,
       monthly_spend_cap: original.monthly_spend_cap,
-      status: "active",
+      // Clones are DRAFTS — you review the copy and launch it deliberately,
+      // like any new campaign, rather than it dialing the moment you clone.
+      status: "draft",
     })
     .select("id")
     .single();
   if (error || !created) return { error: "Could not clone the campaign." };
-
-  // The clone is created active with the same agent — refresh its webhooks.
-  await reapplyAgentIntegration(supabase, original.agent_id);
 
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: created.id };
