@@ -9,7 +9,6 @@ import { useSearchParams } from "next/navigation";
 const TABS: { value: string; label: string }[] = [
   { value: "active", label: "Active" },
   { value: "paused", label: "Paused" },
-  { value: "draft", label: "Draft" },
   { value: "ended", label: "Ended" },
   { value: "all", label: "All" },
 ];

@@ -18,8 +18,9 @@ function humanize(status: string): string {
  *  pipeline stage — so it intentionally stays local here.
  *  - active  → success (green, dialing right now)
  *  - paused  → warning (yellow, intentionally stopped; needs attention)
- *  - draft   → secondary (grey, not running yet)
- *  - ended   → destructive (red, permanently off; audit only) */
+ *  - ended   → destructive (red, permanently off; audit only)
+ *  (There is no "draft" state — a campaign goes live the moment it's created.
+ *   The `secondary` fallback below is just defensive.) */
 function statusVariant(
   status: string,
 ): "success" | "warning" | "destructive" | "secondary" {
