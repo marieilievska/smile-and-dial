@@ -260,7 +260,7 @@ export function buildLeadFunnel(rows: CallRow[]): FunnelStep[] {
     { label: "Called", count: called.size },
     { label: "Connected", count: connected.size },
     { label: "Conversations", count: conversations.size },
-    { label: "DMs reached", count: dms.size },
+    { label: "Decision-makers reached", count: dms.size },
     { label: "Goals met", count: goals.size },
   ];
 }
