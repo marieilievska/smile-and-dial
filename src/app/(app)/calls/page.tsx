@@ -31,6 +31,7 @@ import {
   CallsSelectionProvider,
 } from "./calls-selection";
 import { CallsFilters } from "./calls-filters";
+import { CallsSearchHint } from "./search-hint";
 import {
   buildCallsQuery,
   isUnreviewedOnly,
@@ -312,8 +313,8 @@ export default async function CallsPage({
           ) : null}
         </div>
         <p className="text-muted-foreground text-sm">
-          What the AI dialed. Sortable, searchable, every recording one click
-          away.
+          Every inbound and outbound call — sortable, searchable, every
+          recording one click away.
         </p>
       </div>
 
@@ -323,6 +324,7 @@ export default async function CallsPage({
 
       <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-3 delay-150 duration-500">
         <div className="flex flex-wrap items-center gap-1.5">
+          <CallsSearchHint />
           <CallsFilters
             campaigns={campaignOptions}
             agents={agentOptions}

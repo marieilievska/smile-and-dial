@@ -16,6 +16,17 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -423,12 +434,6 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
 
   function deleteThisCall() {
     if (!call) return;
-    if (
-      !window.confirm(
-        "Delete this call? It's removed permanently and drops out of cost/analytics totals.",
-      )
-    )
-      return;
     startDelete(async () => {
       const res = await deleteCalls([call.id]);
       if (res.error) {
@@ -788,16 +793,40 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
         {call ? (
           <div className="border-border bg-card flex flex-wrap items-center justify-end gap-2 border-t px-6 py-4">
             {isAdmin ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={deleteThisCall}
-                disabled={deleting}
-                className="text-muted-foreground hover:text-destructive mr-auto"
-              >
-                <Trash2 className="size-4" />
-                Delete call
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={deleting}
+                    className="text-muted-foreground hover:text-destructive mr-auto"
+                  >
+                    <Trash2 className="size-4" />
+                    Delete call
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this call?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This permanently removes the call and its recording, and
+                      drops it from cost and analytics totals. This cannot be
+                      undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel disabled={deleting}>
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={deleteThisCall}
+                      disabled={deleting}
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             ) : null}
             <ScheduleCallbackDialog callId={call.id} />
             {call.leadId ? (
