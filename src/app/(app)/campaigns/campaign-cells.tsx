@@ -17,11 +17,10 @@ function humanize(status: string): string {
  *  call/lead/callback status colors centralized in `@/lib/outcome-style`
  *  — it describes a whole campaign's run-state, not a single contact's
  *  pipeline stage — so it intentionally stays local here.
+ *  - draft   → secondary (grey, not launched yet — never dials)
  *  - active  → success (green, dialing right now)
  *  - paused  → warning (yellow, intentionally stopped; needs attention)
- *  - ended   → destructive (red, permanently off; audit only)
- *  (There is no "draft" state — a campaign goes live the moment it's created.
- *   The `secondary` fallback below is just defensive.) */
+ *  - ended   → destructive (red, permanently off; audit only) */
 function statusVariant(
   status: string,
 ): "success" | "warning" | "destructive" | "secondary" {

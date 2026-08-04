@@ -12,7 +12,8 @@ import {
   User,
 } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
-import { Pencil, Plus } from "lucide-react";
+import { Pencil, Plus, Rocket } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -307,7 +308,9 @@ export function CampaignSettingsDialog({
     };
   }, [selectedSmartListId]);
 
-  function submit() {
+  const router = useRouter();
+
+  function submit(launch = false) {
     startTransition(async () => {
       const input = {
         name,
@@ -341,7 +344,7 @@ export function CampaignSettingsDialog({
       const result =
         isEdit && campaign
           ? await updateCampaign(campaign.id, input)
-          : await createCampaign(input);
+          : await createCampaign(input, launch);
       if (result.error) {
         toast.error(result.error);
         return;
@@ -361,7 +364,13 @@ export function CampaignSettingsDialog({
         }
       }
 
-      toast.success(isEdit ? "Campaign updated." : "Campaign created.");
+      toast.success(
+        isEdit
+          ? "Campaign updated."
+          : launch
+            ? "Campaign launched — it starts dialing shortly."
+            : "Draft saved.",
+      );
       setOpen(false);
       if (!isEdit) {
         setName("");
@@ -378,6 +387,9 @@ export function CampaignSettingsDialog({
         setSelectedListIds([]);
         setAudienceSearch("");
         setSelectedSmartListId(NO_SMART_LIST);
+        // Surface the new campaign on its matching tab — a draft won't show on
+        // the default Active tab otherwise.
+        router.push(`/campaigns?status=${launch ? "active" : "draft"}`);
       }
     });
   }
@@ -434,7 +446,7 @@ export function CampaignSettingsDialog({
           <SheetDescription>
             {isEdit
               ? "Update any section, then save. The collapsed sections show their current settings at a glance."
-              : "Fill the essentials — name, agent, and goal. Heads up: creating the campaign makes it live right away — it starts dialing its lists during calling hours. Everything else has safe defaults you can tune now or later."}
+              : "Fill the essentials — name, agent, and goal. It saves as a draft (nothing dials yet); launch it when you're ready, or use Save & launch to go live now. Everything else has safe defaults you can tune later."}
           </SheetDescription>
         </SheetHeader>
 
@@ -1079,24 +1091,36 @@ export function CampaignSettingsDialog({
             matter which section is expanded or how far the user
             scrolled. Save is coral — same primary treatment as the
             Call again button on the call detail modal. */}
-        <SheetFooter className="border-border bg-card flex flex-row items-center justify-between gap-2 border-t px-6 py-4">
-          {/* Make the immediate go-live explicit at the click — creating a
-              campaign has no separate "launch" step; it dials right away. */}
-          {!isEdit ? (
-            <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
-              <PlayCircle className="text-primary size-3.5 shrink-0" />
-              Goes live as soon as you create it.
-            </span>
+        <SheetFooter className="border-border bg-card flex flex-row items-center justify-end gap-2 border-t px-6 py-4">
+          {isEdit ? (
+            <Button
+              onClick={() => submit()}
+              disabled={pending}
+              className="bg-primary hover:bg-primary/90 text-white"
+            >
+              {pending ? "Saving…" : "Save changes"}
+            </Button>
           ) : (
-            <span aria-hidden />
+            <>
+              {/* Draft is the safe default; Save & launch is the one-click path
+                  to go live for experienced users. */}
+              <Button
+                variant="outline"
+                onClick={() => submit(false)}
+                disabled={pending}
+              >
+                {pending ? "Saving…" : "Save draft"}
+              </Button>
+              <Button
+                onClick={() => submit(true)}
+                disabled={pending}
+                className="bg-primary hover:bg-primary/90 text-white"
+              >
+                <Rocket className="size-4" />
+                Save &amp; launch
+              </Button>
+            </>
           )}
-          <Button
-            onClick={submit}
-            disabled={pending}
-            className="bg-primary hover:bg-primary/90 text-white"
-          >
-            {pending ? "Saving…" : isEdit ? "Save changes" : "Create campaign"}
-          </Button>
         </SheetFooter>
       </SheetContent>
     </Sheet>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Pause, Play, Square } from "lucide-react";
+import { Copy, Pause, Play, Rocket, Square } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import {
   cloneCampaign,
   endCampaign,
+  launchCampaign,
   pauseCampaign,
   resumeCampaign,
 } from "@/lib/campaigns/actions";
@@ -27,10 +28,10 @@ import {
  *  matching the rest of the app's pattern.
  *
  *  Layout (depends on current status):
+ *   - draft   → Launch (coral primary), Clone, End
  *   - active  → Pause (warning), Clone, End
  *   - paused  → Resume (coral primary), Clone, End
  *   - ended   → Clone only
- *  (Campaigns are created live — there's no "draft" state to activate.)
  *
  *  Edit is intentionally absent — the campaign name in the primary
  *  cell IS the trigger that opens the settings sheet. Delete also
@@ -50,6 +51,7 @@ export function CampaignRowActions({
   const isEnded = campaign.status === "ended";
   const isActive = campaign.status === "active";
   const isPaused = campaign.status === "paused";
+  const isDraft = campaign.status === "draft";
 
   function stop(event: React.SyntheticEvent) {
     event.stopPropagation();
@@ -78,6 +80,19 @@ export function CampaignRowActions({
           : "flex flex-wrap items-center gap-1"
       }
     >
+      {isDraft ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Launch ${campaign.name}`}
+          disabled={pending}
+          onClick={() => run("launched", () => launchCampaign(campaign.id))}
+          className="text-primary hover:bg-primary/10 hover:text-primary h-7 px-2"
+        >
+          <Rocket className="size-3.5" />
+          Launch
+        </Button>
+      ) : null}
       {isActive ? (
         <Button
           variant="ghost"

@@ -69,10 +69,13 @@ export default async function AppLayout({
       .select("id, page, name, params")
       .eq("user_id", user.id)
       .order("created_at", { ascending: true }),
+    // Active-campaign picker options. Drafts aren't operable (they don't dial),
+    // so they're excluded here alongside ended — only active/paused campaigns
+    // can be the manual-call context.
     supabase
       .from("campaigns")
       .select("id, name, status")
-      .neq("status", "ended")
+      .in("status", ["active", "paused"])
       .order("name"),
     // Sidebar status dot: pending callbacks whose scheduled_at is past.
     supabase

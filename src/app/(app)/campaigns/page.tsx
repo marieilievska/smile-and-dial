@@ -43,7 +43,7 @@ import { fetchCampaignStats, fetchPerCampaignSpend } from "./stats-query";
 
 type Option = { id: string; name: string };
 
-const STATUS_VALUES = new Set(["active", "paused", "ended", "all"]);
+const STATUS_VALUES = new Set(["active", "draft", "paused", "ended", "all"]);
 
 function str(value: string | string[] | undefined): string {
   return typeof value === "string" ? value : "";
@@ -314,6 +314,7 @@ export default async function CampaignsPage({
   // as Callbacks / Goals so the badges always tell the same story.
   const tabCounts: CampaignCounts = {
     active: 0,
+    draft: 0,
     paused: 0,
     ended: 0,
     all: allCampaigns.length,

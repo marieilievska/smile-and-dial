@@ -48,10 +48,9 @@ test.describe("Campaigns", () => {
   });
 
   test("an admin can create, edit, and delete a campaign", async ({ page }) => {
-    // Round 14 — /campaigns now defaults to the Active status tab.
-    // Newly-created campaigns are Active so they show on the default
-    // tab; this URL is here to be explicit (and to make the lifecycle
-    // test below work without changing tabs).
+    // /campaigns defaults to the Active tab; ?status=all keeps this test
+    // agnostic to a new campaign's status (a draft would land on the Draft
+    // tab, an "& launch" one on Active).
     await page.goto("/campaigns?status=all");
 
     // Create — 2-step minimal dialog.
@@ -68,9 +67,9 @@ test.describe("Campaigns", () => {
     // Default goal "Schedule appointment" is fine — leave it.
     await dialog.getByRole("button", { name: "Continue" }).click();
 
-    // Step 2: skip list attachments and create.
-    await dialog.getByRole("button", { name: "Create campaign" }).click();
-    await expect(page.getByText("Campaign created.")).toBeVisible({
+    // Step 2: skip list attachments and create it live in one click.
+    await dialog.getByRole("button", { name: "Save & launch" }).click();
+    await expect(page.getByText("Campaign launched")).toBeVisible({
       timeout: 10_000,
     });
     // Round 14 — the campaign name renders as a <button> (the
