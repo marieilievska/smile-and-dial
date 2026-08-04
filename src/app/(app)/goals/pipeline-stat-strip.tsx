@@ -3,9 +3,9 @@ import Link from "next/link";
 
 /** 4-stat strip on the /goals pipeline view. Each tile is a clickable
  *  filter shortcut into the pipeline.
- *   - In pipeline       — every status except Closed
- *   - Awaiting attended — count(goal_met)
- *   - No-shows to rebook — count(no_show)
+ *   - In pipeline        — every status except Closed
+ *   - Awaiting attendance — count(goal_met)
+ *   - No-shows to rebook  — count(no_show)
  *   - Sales this week   — count(sale) WHERE moved_at >= 7d */
 export type PipelineStats = {
   inPipeline: number;
@@ -29,7 +29,7 @@ export function PipelineStatStrip({ stats }: { stats: PipelineStats }) {
       />
       <StatLink
         icon={<Sparkles className="size-3.5" />}
-        label="Awaiting attended"
+        label="Awaiting attendance"
         value={stats.awaitingAttended.toLocaleString()}
         href="/goals?status=goal_met"
         tone="coral"

@@ -6,10 +6,10 @@ const navLabels = [
   "Leads",
   "Calls",
   "Callbacks",
-  "Goals",
+  "Pipeline",
   "Campaigns",
   "Analytics",
-  "DNC",
+  "Do not call",
   "Costs",
   "Settings",
 ];
