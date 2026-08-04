@@ -102,7 +102,7 @@ export default async function CustomFieldsPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <div className="opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <CustomFieldRowActions
                         field={field}
                         isFirst={index === 0}
