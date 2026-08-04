@@ -131,8 +131,8 @@ export default async function AgentAnalyticsPage({
             Reporting
           </h1>
           <p className="text-muted-foreground mt-0.5 text-sm">
-            For upper-management reporting — agent performance, call results,
-            and app changes. Pick a campaign to scope the view.
+            Agent performance, call results, and app changes. Pick a campaign to
+            scope the view.
           </p>
         </div>
         <div className="flex items-center gap-2">

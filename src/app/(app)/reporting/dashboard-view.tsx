@@ -172,20 +172,34 @@ export function DashboardView({
     ...(showSentiment ? [pct(k.warmPct)] : []),
   ]);
 
-  const NUM_HEADERS = [
-    "Calls",
-    "Conn.",
-    ">1m",
-    "DMs",
-    "CB",
-    "CB later",
-    "Goals",
-    "Not int.",
-    "Gatekpr",
-    "Hung up",
-    "AI err",
-    "DNC",
-    ...sentimentValues.map(titleCase),
+  // The history table is 13–19 columns, so the headers must stay abbreviated —
+  // but "Gatekpr" / "CB later" / ">1m" are opaque at a glance. Pair each short
+  // label with a full-word `title` tooltip so the compact layout survives while
+  // a manager can still hover to decode any column. (The CSV export below uses
+  // the spelled-out snake_case names, so downstream data stays self-describing.)
+  const NUM_HEADERS: { label: string; title: string }[] = [
+    { label: "Calls", title: "Calls made" },
+    { label: "Conn.", title: "Connected — the call reached a live line" },
+    { label: ">1m", title: "Conversations longer than 1 minute" },
+    { label: "DMs", title: "Decision-makers reached" },
+    { label: "CB", title: "Callbacks scheduled" },
+    {
+      label: "CB later",
+      title: "“Call me back later” brush-offs (no real conversation)",
+    },
+    { label: "Goals", title: "Goals met" },
+    { label: "Not int.", title: "Not interested" },
+    {
+      label: "Gatekpr",
+      title: "Reached a gatekeeper, not the decision-maker",
+    },
+    { label: "Hung up", title: "Hung up immediately" },
+    { label: "AI err", title: "The AI agent errored mid-call" },
+    { label: "DNC", title: "Added to the Do-Not-Call list" },
+    ...sentimentValues.map((v) => ({
+      label: titleCase(v),
+      title: `Sentiment: ${titleCase(v)}`,
+    })),
   ];
 
   return (
@@ -293,10 +307,11 @@ export function DashboardView({
                     !showNotes;
                   return (
                     <th
-                      key={h}
-                      className={`px-3 py-2 text-right font-medium whitespace-nowrap ${isLast ? "rounded-r-md" : ""}`}
+                      key={h.label}
+                      title={h.title}
+                      className={`cursor-help px-3 py-2 text-right font-medium whitespace-nowrap ${isLast ? "rounded-r-md" : ""}`}
                     >
-                      {h}
+                      {h.label}
                     </th>
                   );
                 })}
