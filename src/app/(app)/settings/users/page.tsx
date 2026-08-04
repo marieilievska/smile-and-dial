@@ -166,7 +166,7 @@ export default async function UsersPage({
                     {formatCreatedAt(u.created_at, now)}
                   </TableCell>
                   <TableCell>
-                    <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <div className="opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <UserRowActions
                         userId={u.id}
                         email={u.email ?? ""}

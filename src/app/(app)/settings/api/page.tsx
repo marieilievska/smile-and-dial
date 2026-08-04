@@ -114,7 +114,7 @@ export default async function ApiPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <div className="opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                         {!k.revoked_at ? (
                           <ApiKeyRevokeButton
                             apiKeyId={k.id}
