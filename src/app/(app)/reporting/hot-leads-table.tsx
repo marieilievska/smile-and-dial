@@ -5,6 +5,17 @@ import { Trash2 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { dismissHotLead } from "@/lib/agent-analytics/actions";
@@ -43,8 +54,7 @@ export function HotLeadsTable({
     });
   }, [rows, q, removed]);
 
-  function remove(id: string) {
-    if (!window.confirm("Remove this lead from Hot Leads?")) return;
+  function doRemove(id: string) {
     setRemoved((s) => new Set(s).add(id)); // optimistic
     startTransition(async () => {
       const res = await dismissHotLead({ callId: id });
@@ -148,16 +158,7 @@ export function HotLeadsTable({
                   </td>
                   {!readOnly ? (
                     <td className="px-3 py-2 whitespace-nowrap">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => remove(r.id)}
-                        aria-label="Remove from Hot Leads"
-                        className="text-muted-foreground hover:text-destructive size-8"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
+                      <RemoveHotLead onConfirm={() => doRemove(r.id)} />
                     </td>
                   ) : null}
                 </tr>
@@ -167,5 +168,42 @@ export function HotLeadsTable({
         </div>
       )}
     </div>
+  );
+}
+
+/** Trash button + styled confirm for removing a lead from the Hot Leads
+ *  report. It's a soft hide (dismissHotLead) — the lead and its calls stay
+ *  put — but it drops off this list for good, so it gets a proper confirm
+ *  like the rest of the app (matching the AlertDialogs on Calls / Callbacks /
+ *  Lead detail) instead of a raw browser prompt. */
+function RemoveHotLead({ onConfirm }: { onConfirm: () => void }) {
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Remove from Hot Leads"
+          className="text-muted-foreground hover:text-destructive size-8"
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove from Hot Leads?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This hides the lead from the Hot Leads report. It doesn&apos;t
+            delete the lead or its calls — you just won&apos;t see it here
+            anymore.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>Remove</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

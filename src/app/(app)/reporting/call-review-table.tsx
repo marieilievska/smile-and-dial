@@ -79,10 +79,10 @@ export function CallReviewTable({
       {summary.needsEyesCalls > 0 ? (
         <Link
           href={`/calls?review_flag=${NEEDS_REVIEW_BUCKET}`}
-          className="flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 transition-colors hover:bg-amber-100"
+          className="border-warning/40 bg-warning/10 hover:bg-warning/15 flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors"
         >
           <div className="flex items-center gap-3">
-            <AlertTriangle className="size-5 text-amber-600" />
+            <AlertTriangle className="text-warning size-5" />
             <div>
               <p className="text-foreground text-sm font-semibold">
                 ⚠️ Needs your eyes
@@ -159,7 +159,7 @@ function BucketRow({
           {bucket.label}
         </span>
         {bucket.needsReview > 0 ? (
-          <Badge variant="outline" className="border-amber-300 text-amber-700">
+          <Badge variant="outline" className="border-warning/40 text-warning">
             {bucket.needsReview} needs eyes
           </Badge>
         ) : null}
@@ -206,7 +206,7 @@ function SummaryCard({
     <div
       className={`rounded-xl border px-4 py-3 ${
         tone === "warn"
-          ? "border-amber-300 bg-amber-50"
+          ? "border-warning/40 bg-warning/10"
           : "border-border bg-card"
       }`}
     >
