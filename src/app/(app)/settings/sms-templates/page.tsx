@@ -92,7 +92,7 @@ export default async function SettingsSmsTemplatesPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="ml-auto flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <div className="ml-auto flex items-center justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                         <SmsTemplateFormDialog
                           mode="edit"
                           template={{
