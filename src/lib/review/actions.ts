@@ -34,6 +34,60 @@ async function currentAdminId(): Promise<string | null> {
   return me?.role === "admin" ? user.id : null;
 }
 
+/** Signed-in actor: id + whether they're an admin. Review reads/writes are open
+ *  to the call's OWNER (verified against the lead) as well as admins. */
+async function currentActor(): Promise<{
+  id: string;
+  isAdmin: boolean;
+} | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  return { id: user.id, isAdmin: me?.role === "admin" };
+}
+
+/** True when the call's lead is owned by `userId`. Runs on the service-role
+ *  client (which bypasses RLS), so it's how we scope members to their own
+ *  calls inside these admin-client actions. */
+async function callOwnedBy(
+  db: SupabaseAdmin,
+  callId: string,
+  userId: string,
+): Promise<boolean> {
+  const { data } = await db
+    .from("calls")
+    .select("lead:leads(owner_id)")
+    .eq("id", callId)
+    .maybeSingle();
+  const owner = (data?.lead as { owner_id?: string | null } | null)?.owner_id;
+  return owner != null && owner === userId;
+}
+
+/** Subset of `callIds` whose lead is owned by `userId`. */
+async function filterOwnedCalls(
+  db: SupabaseAdmin,
+  callIds: string[],
+  userId: string,
+): Promise<string[]> {
+  const { data } = await db
+    .from("calls")
+    .select("id, lead:leads(owner_id)")
+    .in("id", callIds);
+  return (data ?? [])
+    .filter(
+      (c) =>
+        (c.lead as { owner_id?: string | null } | null)?.owner_id === userId,
+    )
+    .map((c) => c.id);
+}
+
 /** One flag on a call, for the modal's review panel. */
 export type CallReviewFlag = {
   id: string;
@@ -61,8 +115,13 @@ export type CallReviewDetail = {
 export async function getCallReview(
   callId: string,
 ): Promise<{ review: CallReviewDetail | null; error: string | null }> {
-  if (!(await currentAdminId())) return { review: null, error: "Admins only." };
+  const actor = await currentActor();
+  if (!actor) return { review: null, error: "You are not signed in." };
   const admin = adminClient();
+  // Members may load the review only for their own calls.
+  if (!actor.isAdmin && !(await callOwnedBy(admin, callId, actor.id))) {
+    return { review: null, error: null };
+  }
 
   const { data: review } = await admin
     .from("call_reviews")
@@ -121,14 +180,19 @@ export async function markCallsReviewed(input: {
   callIds: string[];
   reviewed: boolean;
 }): Promise<{ error: string | null; updated: number }> {
-  const adminId = await currentAdminId();
-  if (!adminId) return { error: "Admins only.", updated: 0 };
-  const ids = [...new Set(input.callIds)].filter(Boolean);
+  const actor = await currentActor();
+  if (!actor) return { error: "You are not signed in.", updated: 0 };
+  let ids = [...new Set(input.callIds)].filter(Boolean);
   if (ids.length === 0) return { error: null, updated: 0 };
 
   const db = adminClient();
+  // Members may review only their own calls — narrow to owned before writing.
+  if (!actor.isAdmin) {
+    ids = await filterOwnedCalls(db, ids, actor.id);
+    if (ids.length === 0) return { error: null, updated: 0 };
+  }
   const patch = {
-    reviewed_by: input.reviewed ? adminId : null,
+    reviewed_by: input.reviewed ? actor.id : null,
     reviewed_at: input.reviewed ? new Date().toISOString() : null,
   };
   let updated = 0;
@@ -202,13 +266,25 @@ export async function setFlagStatus(input: {
   flagId: string;
   status: "confirmed" | "rejected";
 }): Promise<{ error: string | null }> {
-  const adminId = await currentAdminId();
-  if (!adminId) return { error: "Admins only." };
-  const { error } = await adminClient()
+  const actor = await currentActor();
+  if (!actor) return { error: "You are not signed in." };
+  const db = adminClient();
+  // Members may curate flags only on their own calls.
+  if (!actor.isAdmin) {
+    const { data: flag } = await db
+      .from("call_review_flags")
+      .select("call_id")
+      .eq("id", input.flagId)
+      .maybeSingle();
+    if (!flag?.call_id || !(await callOwnedBy(db, flag.call_id, actor.id))) {
+      return { error: "That flag isn't on one of your calls." };
+    }
+  }
+  const { error } = await db
     .from("call_review_flags")
     .update({
       status: input.status,
-      curated_by: adminId,
+      curated_by: actor.id,
       curated_at: new Date().toISOString(),
     })
     .eq("id", input.flagId);
