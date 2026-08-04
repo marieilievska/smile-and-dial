@@ -8,6 +8,9 @@ import { createClient } from "@/lib/supabase/server";
 import { validateRecipe, type RecipeNode } from "./recipe";
 import { runFilterRpc } from "./resolve";
 
+/** Max smart lists one user may own — bounds the membership-refresh cron. */
+const SMART_LIST_CAP = 50;
+
 /** Any signed-in user. Smart lists are owner-scoped: the actions set owner_id on
  *  insert and RLS (owner-or-admin) backstops read/update/delete, so a member
  *  only ever manages their own. The refresh_smart_list SECURITY DEFINER function
@@ -42,6 +45,20 @@ export async function saveSmartList(input: {
   if (!ok) return { error: "You are not signed in." };
   if (!input.name.trim()) return { error: "Name is required." };
   if (validateRecipe(input.recipe)) return { error: "Invalid filter." };
+
+  // Cap smart lists per user so the membership-refresh cron stays bounded.
+  // Only enforced when CREATING a new list — editing an existing one is fine.
+  if (!input.id) {
+    const { count } = await supabase
+      .from("smart_lists")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_id", userId);
+    if ((count ?? 0) >= SMART_LIST_CAP) {
+      return {
+        error: `You've reached the limit of ${SMART_LIST_CAP} smart lists. Delete one to add another.`,
+      };
+    }
+  }
 
   const fields = {
     name: input.name.trim(),
