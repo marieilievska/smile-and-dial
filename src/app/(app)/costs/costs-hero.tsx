@@ -1,9 +1,6 @@
 import { TrendingDown, TrendingUp } from "lucide-react";
 
-function usd(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  return `$${value.toFixed(2)}`;
-}
+import { formatUsd as usd } from "@/lib/format-usd";
 
 /** Hero card: total spend for the range, the vs-previous-period delta (down is
  *  good on a cost page), the month-end projection + today's spend, and a static

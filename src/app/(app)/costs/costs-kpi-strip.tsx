@@ -1,9 +1,6 @@
 import { PhoneCall, Target, Trophy } from "lucide-react";
 
-function usd(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  return `$${value.toFixed(2)}`;
-}
+import { formatUsd as usd } from "@/lib/format-usd";
 
 /** Three efficiency KPIs under the hero: cost per goal met, cost per call, and
  *  goals met (with conversion rate). Values are computed on the page. */

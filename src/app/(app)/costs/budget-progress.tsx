@@ -1,10 +1,12 @@
 import { AlertTriangle } from "lucide-react";
 
+import { formatUsd } from "@/lib/format-usd";
+
 import type { CampaignCap } from "./stats-query";
 
 function usd(value: number): string {
   if (!Number.isFinite(value)) return "$0.00";
-  return `$${value.toFixed(2)}`;
+  return formatUsd(value);
 }
 
 /** Inline budget cap progress for a campaign — shown in the Spend

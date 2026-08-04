@@ -26,6 +26,7 @@ import {
   type RollupRow,
   type Slicers,
 } from "@/lib/analytics/costs";
+import { formatUsd as usd } from "@/lib/format-usd";
 import { createClient } from "@/lib/supabase/server";
 
 import { BudgetProgress } from "./budget-progress";
@@ -53,11 +54,6 @@ const ALLOWED_VIEWS = new Set([
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
-}
-
-function usd(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  return `$${value.toFixed(2)}`;
 }
 
 function isMockMode(): boolean {
@@ -813,7 +809,7 @@ function PerListView({
                 <TableCell className="text-foreground text-right">
                   <div className="flex flex-col items-end gap-1">
                     <span className="font-medium tabular-nums">
-                      ${d.spend.toFixed(2)}
+                      {usd(d.spend)}
                     </span>
                     <div className="bg-muted h-1 w-24 overflow-hidden rounded">
                       <div
@@ -830,9 +826,7 @@ function PerListView({
                   {(share * 100).toFixed(0)}%
                 </TableCell>
                 <TableCell className="text-muted-foreground text-right tabular-nums">
-                  {d.goalMet === 0
-                    ? "—"
-                    : `$${(d.spend / d.goalMet).toFixed(2)}`}
+                  {d.goalMet === 0 ? "—" : usd(d.spend / d.goalMet)}
                 </TableCell>
               </TableRow>
             );
@@ -850,15 +844,13 @@ function PerListView({
               {totalGoalMet.toLocaleString()}
             </TableCell>
             <TableCell className="text-foreground text-right font-semibold tabular-nums">
-              ${totalSpend.toFixed(2)}
+              {usd(totalSpend)}
             </TableCell>
             <TableCell className="text-muted-foreground text-right">
               —
             </TableCell>
             <TableCell className="text-muted-foreground text-right tabular-nums">
-              {totalGoalMet === 0
-                ? "—"
-                : `$${(totalSpend / totalGoalMet).toFixed(2)}`}
+              {totalGoalMet === 0 ? "—" : usd(totalSpend / totalGoalMet)}
             </TableCell>
           </TableRow>
         </TableFooter>

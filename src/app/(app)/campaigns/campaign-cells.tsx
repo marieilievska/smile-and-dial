@@ -1,6 +1,7 @@
 import { Clock } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { formatUsd } from "@/lib/format-usd";
 
 import { formatCallingHours } from "./format-hours";
 
@@ -48,7 +49,7 @@ export function SpendCapBar({
   spend: number;
   cap: number | null;
 }) {
-  const dollars = `$${spend.toFixed(2)}`;
+  const dollars = formatUsd(spend);
   if (!cap || cap <= 0) {
     return (
       <span className="text-foreground font-mono text-xs tabular-nums">

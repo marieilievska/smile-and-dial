@@ -16,6 +16,7 @@ import {
   type FunnelStep,
   type Slicers,
 } from "@/lib/analytics/stats";
+import { formatUsd as fmtUsd } from "@/lib/format-usd";
 import { createClient } from "@/lib/supabase/server";
 
 import { ActivityOverTime } from "./activity-over-time";
@@ -45,11 +46,6 @@ function fmtSeconds(seconds: number): string {
 function fmtPct(value: number): string {
   if (!Number.isFinite(value)) return "—";
   return `${(value * 100).toFixed(1)}%`;
-}
-
-function fmtUsd(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  return `$${value.toFixed(2)}`;
 }
 
 function isMockMode(): boolean {
