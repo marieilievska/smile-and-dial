@@ -1,12 +1,15 @@
 "use client";
 
 import {
+  BookOpen,
   Bot,
   Building2,
   CornerDownLeft,
   FolderOpen,
   Loader2,
+  Mail,
   Megaphone,
+  MessageSquare,
   Search,
 } from "lucide-react";
 import { Fragment } from "react";
@@ -31,6 +34,9 @@ const KIND_META: Record<
   campaign: { label: "Campaigns", icon: Megaphone },
   agent: { label: "Agents", icon: Bot },
   list: { label: "Lists", icon: FolderOpen },
+  knowledge_base: { label: "Knowledge bases", icon: BookOpen },
+  email_template: { label: "Email templates", icon: Mail },
+  sms_template: { label: "Text templates", icon: MessageSquare },
 };
 
 /** Top-bar search with a live typeahead dropdown. Three kinds of result:
@@ -102,6 +108,9 @@ export function GlobalSearch({
             ...suggestions.campaigns,
             ...suggestions.agents,
             ...suggestions.lists,
+            ...suggestions.knowledgeBases,
+            ...suggestions.emailTemplates,
+            ...suggestions.smsTemplates,
           ]
         : [],
     [suggestions],
