@@ -27,15 +27,19 @@ import {
  * only be answered by hand-joining the database. Read it before spending.
  */
 
-/** A call is "connected" when it reached a person — matching the definition in
- *  monitor_twilio_connect_rates and twilio_number_daily_stats so every surface
- *  agrees. */
+/** A call is "connected" when it reached a person. This list must stay exactly
+ *  in step with the SQL definition in monitor_twilio_connect_rates and
+ *  twilio_number_daily_stats — ('voicemail', 'no_answer', 'busy', 'failed',
+ *  'invalid_number') — so the scoreboards, the per-number Connect column, and
+ *  the trend sparkline all agree. (The outcome value is `invalid_number`, not
+ *  `invalid`; `invalid` is a line_type, and using it here silently counted
+ *  dead-number calls as connections.) */
 const NOT_CONNECTED = new Set([
   "voicemail",
   "no_answer",
   "busy",
   "failed",
-  "invalid",
+  "invalid_number",
 ]);
 
 type Row = { calls: number; connected: number };
