@@ -6,6 +6,7 @@ import { ChangelogTable } from "@/app/(app)/reporting/changelog-table";
 import { DashboardView } from "@/app/(app)/reporting/dashboard-view";
 import { HotLeadsTable } from "@/app/(app)/reporting/hot-leads-table";
 import { PromptLogTable } from "@/app/(app)/reporting/prompt-log-table";
+import { ReportingNotice } from "@/app/(app)/reporting/reporting-notice";
 import {
   ReportingTabs,
   reportingTabsFor,
@@ -14,7 +15,8 @@ import { ScopePicker } from "@/app/(app)/reporting/scope-picker";
 import { VoiceTable } from "@/app/(app)/reporting/voice-table";
 import {
   detectCampaignFields,
-  isWarm,
+  hotLeadsUnavailableReason,
+  voiceUnavailableReason,
   type DetectedFields,
 } from "@/lib/agent-analytics/field-detect";
 import {
@@ -90,16 +92,9 @@ export default async function PublicReporting({
     scope.kind === "campaign"
       ? await detectCampaignFields(supabase, scope.campaignId)
       : { sentimentKey: null, sentimentValues: [], notesKey: null };
-  const showVoice = scope.kind === "campaign" && detected.sentimentKey !== null;
-  const showHotLeads =
-    scope.kind === "campaign" &&
-    detected.sentimentKey !== null &&
-    detected.sentimentValues.some(isWarm);
-  const visibleTabs = reportingTabsFor({
-    showVoice,
-    showHotLeads,
-    showNumbers: false,
-  });
+  const voiceReason = voiceUnavailableReason(scope, detected);
+  const hotLeadsReason = hotLeadsUnavailableReason(scope, detected);
+  const visibleTabs = reportingTabsFor({ showNumbers: false });
   const tab = visibleTabs.some((t) => t.key === str(sp.tab))
     ? str(sp.tab)
     : "dashboard";
@@ -178,19 +173,27 @@ export default async function PublicReporting({
             sentimentValues={detected.sentimentValues}
           />
         ) : tab === "voice" ? (
-          <VoiceTable
-            rows={await fetchVoiceRows(supabase, scope, detected)}
-            sentimentValues={detected.sentimentValues}
-            recordingBase={`/share/reporting/${token}/recording`}
-            readOnly
-            scopeSlug="campaign"
-          />
+          voiceReason ? (
+            <ReportingNotice tab="voice" message={voiceReason} />
+          ) : (
+            <VoiceTable
+              rows={await fetchVoiceRows(supabase, scope, detected)}
+              sentimentValues={detected.sentimentValues}
+              recordingBase={`/share/reporting/${token}/recording`}
+              readOnly
+              scopeSlug="campaign"
+            />
+          )
         ) : tab === "hot-leads" ? (
-          <HotLeadsTable
-            rows={await fetchHotLeadRows(supabase, scope, detected)}
-            readOnly
-            scopeSlug="campaign"
-          />
+          hotLeadsReason ? (
+            <ReportingNotice tab="hot-leads" message={hotLeadsReason} />
+          ) : (
+            <HotLeadsTable
+              rows={await fetchHotLeadRows(supabase, scope, detected)}
+              readOnly
+              scopeSlug="campaign"
+            />
+          )
         ) : tab === "changelog" ? (
           <ChangelogTable rows={await fetchChangelogRows(supabase)} readOnly />
         ) : tab === "prompt-log" ? (

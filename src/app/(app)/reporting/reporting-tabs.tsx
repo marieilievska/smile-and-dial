@@ -22,26 +22,22 @@ export const REPORTING_TABS = [
 
 export type ReportingTabKey = (typeof REPORTING_TABS)[number]["key"];
 
-/** The tabs to show for the current scope. Voice of Customer shows when the
- *  campaign has a detected sentiment field; Hot Leads keeps its interest-driven
- *  gate (Phase 3 generalizes it). Numbers is admin-only — the public
- *  token-gated share surface must pass `showNumbers: false` so external
- *  recipients never see it: it lists our own phone numbers, their campaigns, and
- *  which are burned or resting — operational detail an external recipient has no
- *  business seeing, and a shopping list for anyone wanting to report our numbers
- *  as spam. */
+/** The tabs to show for the current scope. Voice of Customer and Hot Leads are
+ *  always present: they stay openable and explain themselves with an in-tab
+ *  notice when there's nothing to render (combined view, or a campaign with no
+ *  sentiment field) — see voiceUnavailableReason / hotLeadsUnavailableReason —
+ *  rather than silently vanishing from the nav. Numbers is admin-only: the
+ *  public token-gated share surface must pass `showNumbers: false` so external
+ *  recipients never see it, since it lists our own phone numbers, their
+ *  campaigns, and which are burned or resting — operational detail an external
+ *  recipient has no business seeing, and a shopping list for anyone wanting to
+ *  report our numbers as spam. */
 export function reportingTabsFor({
-  showVoice,
-  showHotLeads,
   showNumbers = true,
 }: {
-  showVoice: boolean;
-  showHotLeads: boolean;
   showNumbers?: boolean;
-}): readonly (typeof REPORTING_TABS)[number][] {
+} = {}): readonly (typeof REPORTING_TABS)[number][] {
   return REPORTING_TABS.filter((t) => {
-    if (t.key === "voice") return showVoice;
-    if (t.key === "hot-leads") return showHotLeads;
     if (t.key === "numbers") return showNumbers;
     return true;
   });
