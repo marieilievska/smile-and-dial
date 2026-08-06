@@ -76,11 +76,6 @@ export type Database = {
           prompt_personality: string | null;
           prompt_tone: string | null;
           system_prompt: string | null;
-          review_prompt: string | null;
-          review_prompt_at: string | null;
-          review_playbook: Json | null;
-          review_playbook_hash: string | null;
-          review_playbook_at: string | null;
           tools_enabled: Json;
           updated_at: string;
           voice_id: string | null;
@@ -102,11 +97,6 @@ export type Database = {
           prompt_personality?: string | null;
           prompt_tone?: string | null;
           system_prompt?: string | null;
-          review_prompt?: string | null;
-          review_prompt_at?: string | null;
-          review_playbook?: Json | null;
-          review_playbook_hash?: string | null;
-          review_playbook_at?: string | null;
           tools_enabled?: Json;
           updated_at?: string;
           voice_id?: string | null;
@@ -128,11 +118,6 @@ export type Database = {
           prompt_personality?: string | null;
           prompt_tone?: string | null;
           system_prompt?: string | null;
-          review_prompt?: string | null;
-          review_prompt_at?: string | null;
-          review_playbook?: Json | null;
-          review_playbook_hash?: string | null;
-          review_playbook_at?: string | null;
           tools_enabled?: Json;
           updated_at?: string;
           voice_id?: string | null;
@@ -299,14 +284,6 @@ export type Database = {
           agent_analytics_share_token: string | null;
           best_time_heatmap: Json | null;
           best_time_heatmap_at: string | null;
-          calendly_access_token: string | null;
-          calendly_connected_at: string | null;
-          calendly_last_sync_at: string | null;
-          calendly_organization_uri: string | null;
-          calendly_refresh_token: string | null;
-          calendly_user_uri: string | null;
-          close_api_key: string | null;
-          close_connected_at: string | null;
           dialer_tick_secret: string | null;
           elevenlabs_init_webhook_secret: string | null;
           elevenlabs_post_call_webhook_id: string | null;
@@ -314,14 +291,6 @@ export type Database = {
           elevenlabs_tool_webhook_secret: string | null;
           elevenlabs_voice_ids: string | null;
           id: number;
-          meta_access_token: string | null;
-          meta_ad_account_id: string | null;
-          meta_audience_terms_accepted_at: string | null;
-          meta_connected_at: string | null;
-          meta_custom_audience_id: string | null;
-          meta_last_sync_at: string | null;
-          meta_last_sync_count: number;
-          meta_last_sync_error: string | null;
           meta_sync_secret: string | null;
           number_pool_settings: Json;
           updated_at: string;
@@ -330,14 +299,6 @@ export type Database = {
           agent_analytics_share_token?: string | null;
           best_time_heatmap?: Json | null;
           best_time_heatmap_at?: string | null;
-          calendly_access_token?: string | null;
-          calendly_connected_at?: string | null;
-          calendly_last_sync_at?: string | null;
-          calendly_organization_uri?: string | null;
-          calendly_refresh_token?: string | null;
-          calendly_user_uri?: string | null;
-          close_api_key?: string | null;
-          close_connected_at?: string | null;
           dialer_tick_secret?: string | null;
           elevenlabs_init_webhook_secret?: string | null;
           elevenlabs_post_call_webhook_id?: string | null;
@@ -345,14 +306,6 @@ export type Database = {
           elevenlabs_tool_webhook_secret?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
-          meta_access_token?: string | null;
-          meta_ad_account_id?: string | null;
-          meta_audience_terms_accepted_at?: string | null;
-          meta_connected_at?: string | null;
-          meta_custom_audience_id?: string | null;
-          meta_last_sync_at?: string | null;
-          meta_last_sync_count?: number;
-          meta_last_sync_error?: string | null;
           meta_sync_secret?: string | null;
           number_pool_settings?: Json;
           updated_at?: string;
@@ -361,14 +314,6 @@ export type Database = {
           agent_analytics_share_token?: string | null;
           best_time_heatmap?: Json | null;
           best_time_heatmap_at?: string | null;
-          calendly_access_token?: string | null;
-          calendly_connected_at?: string | null;
-          calendly_last_sync_at?: string | null;
-          calendly_organization_uri?: string | null;
-          calendly_refresh_token?: string | null;
-          calendly_user_uri?: string | null;
-          close_api_key?: string | null;
-          close_connected_at?: string | null;
           dialer_tick_secret?: string | null;
           elevenlabs_init_webhook_secret?: string | null;
           elevenlabs_post_call_webhook_id?: string | null;
@@ -376,14 +321,6 @@ export type Database = {
           elevenlabs_tool_webhook_secret?: string | null;
           elevenlabs_voice_ids?: string | null;
           id?: number;
-          meta_access_token?: string | null;
-          meta_ad_account_id?: string | null;
-          meta_audience_terms_accepted_at?: string | null;
-          meta_connected_at?: string | null;
-          meta_custom_audience_id?: string | null;
-          meta_last_sync_at?: string | null;
-          meta_last_sync_count?: number;
-          meta_last_sync_error?: string | null;
           meta_sync_secret?: string | null;
           number_pool_settings?: Json;
           updated_at?: string;
@@ -618,7 +555,6 @@ export type Database = {
           placed_by: string | null;
           recording_path: string | null;
           retry_applied_at: string | null;
-          score: number | null;
           started_at: string | null;
           status: string;
           suggested_action: string | null;
@@ -654,7 +590,6 @@ export type Database = {
           placed_by?: string | null;
           recording_path?: string | null;
           retry_applied_at?: string | null;
-          score?: number | null;
           started_at?: string | null;
           status?: string;
           suggested_action?: string | null;
@@ -690,7 +625,6 @@ export type Database = {
           placed_by?: string | null;
           recording_path?: string | null;
           retry_applied_at?: string | null;
-          score?: number | null;
           started_at?: string | null;
           status?: string;
           suggested_action?: string | null;
@@ -765,14 +699,13 @@ export type Database = {
           calls_per_hour_cap: number;
           concurrency_cap_per_user: number;
           created_at: string;
-          dial_interval_seconds: number;
           daily_spend_cap: number | null;
           description: string | null;
+          dial_interval_seconds: number;
           double_call_enabled: boolean;
-          fixed_time_booking: boolean;
           email_template_id: string | null;
           ended_at: string | null;
-          sms_template_id: string | null;
+          fixed_time_booking: boolean;
           goal_id: string;
           id: string;
           inbound_greeting: string | null;
@@ -783,6 +716,7 @@ export type Database = {
           paused_reason: string | null;
           smart_list_id: string | null;
           smart_scheduling: boolean;
+          sms_template_id: string | null;
           status: string;
           transfer_destination_phone: string | null;
           twilio_number_id: string | null;
@@ -797,15 +731,14 @@ export type Database = {
           calls_per_day_cap?: number;
           calls_per_hour_cap?: number;
           concurrency_cap_per_user?: number;
-          dial_interval_seconds?: number;
           created_at?: string;
           daily_spend_cap?: number | null;
           description?: string | null;
+          dial_interval_seconds?: number;
           double_call_enabled?: boolean;
-          fixed_time_booking?: boolean;
           email_template_id?: string | null;
           ended_at?: string | null;
-          sms_template_id?: string | null;
+          fixed_time_booking?: boolean;
           goal_id: string;
           id?: string;
           inbound_greeting?: string | null;
@@ -816,6 +749,7 @@ export type Database = {
           paused_reason?: string | null;
           smart_list_id?: string | null;
           smart_scheduling?: boolean;
+          sms_template_id?: string | null;
           status?: string;
           transfer_destination_phone?: string | null;
           twilio_number_id?: string | null;
@@ -830,15 +764,14 @@ export type Database = {
           calls_per_day_cap?: number;
           calls_per_hour_cap?: number;
           concurrency_cap_per_user?: number;
-          dial_interval_seconds?: number;
           created_at?: string;
           daily_spend_cap?: number | null;
           description?: string | null;
+          dial_interval_seconds?: number;
           double_call_enabled?: boolean;
-          fixed_time_booking?: boolean;
           email_template_id?: string | null;
           ended_at?: string | null;
-          sms_template_id?: string | null;
+          fixed_time_booking?: boolean;
           goal_id?: string;
           id?: string;
           inbound_greeting?: string | null;
@@ -849,6 +782,7 @@ export type Database = {
           paused_reason?: string | null;
           smart_list_id?: string | null;
           smart_scheduling?: boolean;
+          sms_template_id?: string | null;
           status?: string;
           transfer_destination_phone?: string | null;
           twilio_number_id?: string | null;
@@ -873,6 +807,13 @@ export type Database = {
             columns: ["smart_list_id"];
             isOneToOne: false;
             referencedRelation: "smart_lists";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "campaigns_sms_template_id_fkey";
+            columns: ["sms_template_id"];
+            isOneToOne: false;
+            referencedRelation: "sms_templates";
             referencedColumns: ["id"];
           },
           {
@@ -1229,192 +1170,6 @@ export type Database = {
           },
         ];
       };
-      short_links: {
-        Row: {
-          campaign_id: string | null;
-          channel: string;
-          code: string | null;
-          created_at: string;
-          id: string;
-          lead_id: string;
-          long_url: string;
-          owner_id: string;
-          short_url: string;
-        };
-        Insert: {
-          campaign_id?: string | null;
-          channel: string;
-          code?: string | null;
-          created_at?: string;
-          id?: string;
-          lead_id: string;
-          long_url: string;
-          owner_id: string;
-          short_url: string;
-        };
-        Update: {
-          campaign_id?: string | null;
-          channel?: string;
-          code?: string | null;
-          created_at?: string;
-          id?: string;
-          lead_id?: string;
-          long_url?: string;
-          owner_id?: string;
-          short_url?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "short_links_campaign_id_fkey";
-            columns: ["campaign_id"];
-            isOneToOne: false;
-            referencedRelation: "campaigns";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "short_links_lead_id_fkey";
-            columns: ["lead_id"];
-            isOneToOne: false;
-            referencedRelation: "leads";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "short_links_owner_id_fkey";
-            columns: ["owner_id"];
-            isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      sms_templates: {
-        Row: {
-          body: string;
-          created_at: string;
-          id: string;
-          last_used_at: string | null;
-          name: string;
-          owner_id: string;
-          updated_at: string;
-        };
-        Insert: {
-          body: string;
-          created_at?: string;
-          id?: string;
-          last_used_at?: string | null;
-          name: string;
-          owner_id: string;
-          updated_at?: string;
-        };
-        Update: {
-          body?: string;
-          created_at?: string;
-          id?: string;
-          last_used_at?: string | null;
-          name?: string;
-          owner_id?: string;
-          updated_at?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "sms_templates_owner_id_fkey";
-            columns: ["owner_id"];
-            isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      texts: {
-        Row: {
-          body: string | null;
-          call_id: string | null;
-          campaign_id: string | null;
-          close_message_id: string | null;
-          created_at: string;
-          direction: string;
-          from_number: string | null;
-          id: string;
-          lead_id: string;
-          owner_id: string;
-          raw: Json | null;
-          status: string;
-          template_id: string | null;
-          to_number: string | null;
-          updated_at: string;
-        };
-        Insert: {
-          body?: string | null;
-          call_id?: string | null;
-          campaign_id?: string | null;
-          close_message_id?: string | null;
-          created_at?: string;
-          direction: string;
-          from_number?: string | null;
-          id?: string;
-          lead_id: string;
-          owner_id: string;
-          raw?: Json | null;
-          status?: string;
-          template_id?: string | null;
-          to_number?: string | null;
-          updated_at?: string;
-        };
-        Update: {
-          body?: string | null;
-          call_id?: string | null;
-          campaign_id?: string | null;
-          close_message_id?: string | null;
-          created_at?: string;
-          direction?: string;
-          from_number?: string | null;
-          id?: string;
-          lead_id?: string;
-          owner_id?: string;
-          raw?: Json | null;
-          status?: string;
-          template_id?: string | null;
-          to_number?: string | null;
-          updated_at?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "texts_call_id_fkey";
-            columns: ["call_id"];
-            isOneToOne: false;
-            referencedRelation: "calls";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "texts_campaign_id_fkey";
-            columns: ["campaign_id"];
-            isOneToOne: false;
-            referencedRelation: "campaigns";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "texts_lead_id_fkey";
-            columns: ["lead_id"];
-            isOneToOne: false;
-            referencedRelation: "leads";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "texts_owner_id_fkey";
-            columns: ["owner_id"];
-            isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "texts_template_id_fkey";
-            columns: ["template_id"];
-            isOneToOne: false;
-            referencedRelation: "sms_templates";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
       goals: {
         Row: {
           created_at: string;
@@ -1442,207 +1197,6 @@ export type Database = {
         };
         Relationships: [];
       };
-      review_flag_defs: {
-        Row: {
-          active: boolean;
-          created_at: string;
-          dismissed_at: string | null;
-          example_call_ids: string[];
-          guidance: string;
-          id: string;
-          is_candidate: boolean;
-          key: string;
-          label: string;
-          lens: string;
-          proposed_at: string | null;
-          rationale: string | null;
-          severity: number;
-          sort_order: number;
-        };
-        Insert: {
-          active?: boolean;
-          created_at?: string;
-          dismissed_at?: string | null;
-          example_call_ids?: string[];
-          guidance: string;
-          id?: string;
-          is_candidate?: boolean;
-          key: string;
-          label: string;
-          lens: string;
-          proposed_at?: string | null;
-          rationale?: string | null;
-          severity?: number;
-          sort_order?: number;
-        };
-        Update: {
-          active?: boolean;
-          created_at?: string;
-          dismissed_at?: string | null;
-          example_call_ids?: string[];
-          guidance?: string;
-          id?: string;
-          is_candidate?: boolean;
-          key?: string;
-          label?: string;
-          lens?: string;
-          proposed_at?: string | null;
-          rationale?: string | null;
-          severity?: number;
-          sort_order?: number;
-        };
-        Relationships: [];
-      };
-      review_prompt_suggestions: {
-        Row: {
-          agent_id: string;
-          applied_at: string | null;
-          based_on_prompt: string;
-          cost: number;
-          created_at: string;
-          decided_at: string | null;
-          decided_by: string | null;
-          edits: Json;
-          example_count: number;
-          flag_key: string;
-          id: string;
-          model: string | null;
-          proposed_prompt: string;
-          rationale: string;
-          reverted_at: string | null;
-          status: string;
-          summary: string;
-        };
-        Insert: {
-          agent_id: string;
-          applied_at?: string | null;
-          based_on_prompt: string;
-          cost?: number;
-          created_at?: string;
-          decided_at?: string | null;
-          decided_by?: string | null;
-          edits: Json;
-          example_count?: number;
-          flag_key: string;
-          id?: string;
-          model?: string | null;
-          proposed_prompt: string;
-          rationale: string;
-          reverted_at?: string | null;
-          status?: string;
-          summary: string;
-        };
-        Update: {
-          agent_id?: string;
-          applied_at?: string | null;
-          based_on_prompt?: string;
-          cost?: number;
-          created_at?: string;
-          decided_at?: string | null;
-          decided_by?: string | null;
-          edits?: Json;
-          example_count?: number;
-          flag_key?: string;
-          id?: string;
-          model?: string | null;
-          proposed_prompt?: string;
-          rationale?: string;
-          reverted_at?: string | null;
-          status?: string;
-          summary?: string;
-        };
-        Relationships: [];
-      };
-      call_reviews: {
-        Row: {
-          analyzed_at: string | null;
-          call_id: string;
-          cost: number;
-          created_at: string;
-          error: string | null;
-          needs_review: boolean;
-          pass1_model: string | null;
-          pass2_model: string | null;
-          reached_human: boolean;
-          reviewed_at: string | null;
-          reviewed_by: string | null;
-          status: string;
-        };
-        Insert: {
-          analyzed_at?: string | null;
-          call_id: string;
-          cost?: number;
-          created_at?: string;
-          error?: string | null;
-          needs_review?: boolean;
-          pass1_model?: string | null;
-          pass2_model?: string | null;
-          reached_human?: boolean;
-          reviewed_at?: string | null;
-          reviewed_by?: string | null;
-          status?: string;
-        };
-        Update: {
-          analyzed_at?: string | null;
-          call_id?: string;
-          cost?: number;
-          created_at?: string;
-          error?: string | null;
-          needs_review?: boolean;
-          pass1_model?: string | null;
-          pass2_model?: string | null;
-          reached_human?: boolean;
-          reviewed_at?: string | null;
-          reviewed_by?: string | null;
-          status?: string;
-        };
-        Relationships: [];
-      };
-      call_review_flags: {
-        Row: {
-          call_id: string;
-          confidence: number | null;
-          created_at: string;
-          curated_at: string | null;
-          curated_by: string | null;
-          evidence_quote: string | null;
-          flag_key: string;
-          id: string;
-          status: string;
-          step_key: string;
-          step_title: string | null;
-          suggestion_id: string | null;
-        };
-        Insert: {
-          call_id: string;
-          confidence?: number | null;
-          created_at?: string;
-          curated_at?: string | null;
-          curated_by?: string | null;
-          evidence_quote?: string | null;
-          flag_key: string;
-          id?: string;
-          status?: string;
-          step_key?: string;
-          step_title?: string | null;
-          suggestion_id?: string | null;
-        };
-        Update: {
-          call_id?: string;
-          confidence?: number | null;
-          created_at?: string;
-          curated_at?: string | null;
-          curated_by?: string | null;
-          evidence_quote?: string | null;
-          flag_key?: string;
-          id?: string;
-          status?: string;
-          step_key?: string;
-          step_title?: string | null;
-          suggestion_id?: string | null;
-        };
-        Relationships: [];
-      };
       hot_lead_dismissals: {
         Row: {
           call_id: string;
@@ -1665,79 +1219,6 @@ export type Database = {
             columns: ["call_id"];
             isOneToOne: true;
             referencedRelation: "calls";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      hot_leads: {
-        Row: {
-          call_id: string;
-          call_length_seconds: number | null;
-          contact_name: string | null;
-          created_at: string;
-          current_ai_tool: string | null;
-          date_contacted: string | null;
-          id: string;
-          interest: string | null;
-          lead_id: string | null;
-          next_step: string | null;
-          owner: string | null;
-          session_date: string | null;
-          status: string;
-          why_hot: string | null;
-        };
-        Insert: {
-          call_id: string;
-          call_length_seconds?: number | null;
-          contact_name?: string | null;
-          created_at?: string;
-          current_ai_tool?: string | null;
-          date_contacted?: string | null;
-          id?: string;
-          interest?: string | null;
-          lead_id?: string | null;
-          next_step?: string | null;
-          owner?: string | null;
-          session_date?: string | null;
-          status?: string;
-          why_hot?: string | null;
-        };
-        Update: {
-          call_id?: string;
-          call_length_seconds?: number | null;
-          contact_name?: string | null;
-          created_at?: string;
-          current_ai_tool?: string | null;
-          date_contacted?: string | null;
-          id?: string;
-          interest?: string | null;
-          lead_id?: string | null;
-          next_step?: string | null;
-          owner?: string | null;
-          session_date?: string | null;
-          status?: string;
-          why_hot?: string | null;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "hot_leads_call_id_fkey";
-            columns: ["call_id"];
-            isOneToOne: true;
-            referencedRelation: "calls";
-            referencedColumns: ["id"];
-          },
-          {
-            foreignKeyName: "hot_leads_lead_id_fkey";
-            columns: ["lead_id"];
-            isOneToOne: false;
-            referencedRelation: "dial_queue";
-            referencedColumns: ["lead_id"];
-          },
-          {
-            foreignKeyName: "hot_leads_lead_id_fkey";
-            columns: ["lead_id"];
-            isOneToOne: false;
-            referencedRelation: "leads";
             referencedColumns: ["id"];
           },
         ];
@@ -1922,9 +1403,9 @@ export type Database = {
           last_call_at: string | null;
           line_type: string | null;
           list_id: string;
-          mobile_phone: string | null;
           manager_name: string | null;
           meta_synced_at: string | null;
+          mobile_phone: string | null;
           next_call_at: string | null;
           owner_campaign_id: string | null;
           owner_id: string;
@@ -1963,9 +1444,9 @@ export type Database = {
           last_call_at?: string | null;
           line_type?: string | null;
           list_id: string;
-          mobile_phone?: string | null;
           manager_name?: string | null;
           meta_synced_at?: string | null;
+          mobile_phone?: string | null;
           next_call_at?: string | null;
           owner_campaign_id?: string | null;
           owner_id: string;
@@ -2004,9 +1485,9 @@ export type Database = {
           last_call_at?: string | null;
           line_type?: string | null;
           list_id?: string;
-          mobile_phone?: string | null;
           manager_name?: string | null;
           meta_synced_at?: string | null;
+          mobile_phone?: string | null;
           next_call_at?: string | null;
           owner_campaign_id?: string | null;
           owner_id?: string;
@@ -2031,6 +1512,20 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "lists";
             referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "leads_owner_campaign_id_fkey";
+            columns: ["owner_campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "leads_owner_campaign_id_fkey";
+            columns: ["owner_campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
           },
           {
             foreignKeyName: "leads_redial_number_id_fkey";
@@ -2138,6 +1633,24 @@ export type Database = {
           lookups?: number;
           owner_id?: string;
           source?: string;
+        };
+        Relationships: [];
+      };
+      nanp_area_codes: {
+        Row: {
+          area_code: string;
+          country: string;
+          state: string | null;
+        };
+        Insert: {
+          area_code: string;
+          country: string;
+          state?: string | null;
+        };
+        Update: {
+          area_code?: string;
+          country?: string;
+          state?: string | null;
         };
         Relationships: [];
       };
@@ -2264,6 +1777,78 @@ export type Database = {
         };
         Relationships: [];
       };
+      short_links: {
+        Row: {
+          campaign_id: string | null;
+          channel: string;
+          code: string | null;
+          created_at: string;
+          id: string;
+          lead_id: string;
+          long_url: string;
+          owner_id: string;
+          short_url: string;
+        };
+        Insert: {
+          campaign_id?: string | null;
+          channel: string;
+          code?: string | null;
+          created_at?: string;
+          id?: string;
+          lead_id: string;
+          long_url: string;
+          owner_id: string;
+          short_url: string;
+        };
+        Update: {
+          campaign_id?: string | null;
+          channel?: string;
+          code?: string | null;
+          created_at?: string;
+          id?: string;
+          lead_id?: string;
+          long_url?: string;
+          owner_id?: string;
+          short_url?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "short_links_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "short_links_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
+            foreignKeyName: "short_links_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "short_links_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "short_links_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       smart_list_members: {
         Row: {
           lead_id: string;
@@ -2331,6 +1916,44 @@ export type Database = {
         };
         Relationships: [];
       };
+      sms_templates: {
+        Row: {
+          body: string;
+          created_at: string;
+          id: string;
+          last_used_at: string | null;
+          name: string;
+          owner_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          body: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          name: string;
+          owner_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string;
+          created_at?: string;
+          id?: string;
+          last_used_at?: string | null;
+          name?: string;
+          owner_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sms_templates_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       system_events: {
         Row: {
           actor_user_id: string | null;
@@ -2360,6 +1983,145 @@ export type Database = {
           ref_table?: string | null;
         };
         Relationships: [];
+      };
+      texts: {
+        Row: {
+          body: string | null;
+          call_id: string | null;
+          campaign_id: string | null;
+          close_message_id: string | null;
+          created_at: string;
+          direction: string;
+          from_number: string | null;
+          id: string;
+          lead_id: string;
+          owner_id: string;
+          raw: Json | null;
+          status: string;
+          template_id: string | null;
+          to_number: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          body?: string | null;
+          call_id?: string | null;
+          campaign_id?: string | null;
+          close_message_id?: string | null;
+          created_at?: string;
+          direction: string;
+          from_number?: string | null;
+          id?: string;
+          lead_id: string;
+          owner_id: string;
+          raw?: Json | null;
+          status?: string;
+          template_id?: string | null;
+          to_number?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          body?: string | null;
+          call_id?: string | null;
+          campaign_id?: string | null;
+          close_message_id?: string | null;
+          created_at?: string;
+          direction?: string;
+          from_number?: string | null;
+          id?: string;
+          lead_id?: string;
+          owner_id?: string;
+          raw?: Json | null;
+          status?: string;
+          template_id?: string | null;
+          to_number?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "texts_call_id_fkey";
+            columns: ["call_id"];
+            isOneToOne: false;
+            referencedRelation: "calls";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "texts_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "texts_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["campaign_id"];
+          },
+          {
+            foreignKeyName: "texts_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "dial_queue";
+            referencedColumns: ["lead_id"];
+          },
+          {
+            foreignKeyName: "texts_lead_id_fkey";
+            columns: ["lead_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "texts_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "texts_template_id_fkey";
+            columns: ["template_id"];
+            isOneToOne: false;
+            referencedRelation: "sms_templates";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      twilio_number_daily_stats: {
+        Row: {
+          calls: number;
+          connect_rate: number | null;
+          connected: number;
+          day: string;
+          twilio_number_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          calls?: number;
+          connect_rate?: number | null;
+          connected?: number;
+          day: string;
+          twilio_number_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          calls?: number;
+          connect_rate?: number | null;
+          connected?: number;
+          day?: string;
+          twilio_number_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "twilio_number_daily_stats_twilio_number_id_fkey";
+            columns: ["twilio_number_id"];
+            isOneToOne: false;
+            referencedRelation: "twilio_numbers";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       twilio_numbers: {
         Row: {
@@ -2445,41 +2207,6 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "dial_queue";
             referencedColumns: ["campaign_id"];
-          },
-        ];
-      };
-      twilio_number_daily_stats: {
-        Row: {
-          calls: number;
-          connect_rate: number | null;
-          connected: number;
-          day: string;
-          twilio_number_id: string;
-          updated_at: string;
-        };
-        Insert: {
-          calls?: number;
-          connect_rate?: number | null;
-          connected?: number;
-          day: string;
-          twilio_number_id: string;
-          updated_at?: string;
-        };
-        Update: {
-          calls?: number;
-          connect_rate?: number | null;
-          connected?: number;
-          day?: string;
-          twilio_number_id?: string;
-          updated_at?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "twilio_number_daily_stats_twilio_number_id_fkey";
-            columns: ["twilio_number_id"];
-            isOneToOne: false;
-            referencedRelation: "twilio_numbers";
-            referencedColumns: ["id"];
           },
         ];
       };
@@ -2598,10 +2325,12 @@ export type Database = {
           campaign_id: string | null;
           concurrency_cap_per_user: number | null;
           daily_spend_cap: number | null;
+          dest_rank: number | null;
           dial_priority: number | null;
           is_redial_due: boolean | null;
           lead_id: string | null;
           lead_timezone: string | null;
+          local_match_rank: number | null;
           monthly_spend_cap: number | null;
           next_call_at: string | null;
           owner_id: string | null;
@@ -2632,23 +2361,6 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
-      };
-      review_bucket_counts: {
-        Row: {
-          flag_key: string | null;
-          confirmed_count: number | null;
-          needs_review_count: number | null;
-          unreviewed_count: number | null;
-        };
-        Relationships: [];
-      };
-      review_summary: {
-        Row: {
-          flagged_calls: number | null;
-          unreviewed_calls: number | null;
-          needs_eyes_calls: number | null;
-        };
-        Relationships: [];
       };
     };
     Functions: {
@@ -2685,10 +2397,25 @@ export type Database = {
       };
       is_admin: { Args: { uid: string }; Returns: boolean };
       is_phone_on_dnc: { Args: { phone_to_check: string }; Returns: boolean };
-      is_within_calling_hours: {
-        Args: { hours_end: string; hours_start: string; lead_timezone: string };
-        Returns: boolean;
-      };
+      is_within_calling_hours:
+        | {
+            Args: {
+              hours_end: string;
+              hours_start: string;
+              lead_timezone: string;
+            };
+            Returns: boolean;
+          }
+        | {
+            Args: {
+              allow_weekends: boolean;
+              hours_end: string;
+              hours_start: string;
+              lead_timezone: string;
+            };
+            Returns: boolean;
+          };
+      j_num: { Args: { j: Json; k: string }; Returns: number };
       leads_matching_filter: { Args: { in_recipe: Json }; Returns: string[] };
       merge_inbound_lead: {
         Args: {
@@ -2703,13 +2430,21 @@ export type Database = {
       monitor_twilio_connect_rates: { Args: never; Returns: number };
       pool_number_usage_24h: {
         Args: { in_campaign_id: string };
-        Returns: { twilio_number_id: string; calls_24h: number }[];
+        Returns: {
+          calls_24h: number;
+          twilio_number_id: string;
+        }[];
       };
       pre_call_check: {
         Args: { in_campaign_id: string; in_lead_id: string };
         Returns: string;
       };
+      refresh_cost_rollup: { Args: { p_days?: string[] }; Returns: undefined };
       refresh_smart_list: { Args: { in_id: string }; Returns: number };
+      refresh_twilio_number_daily_stats: {
+        Args: { in_days_back?: number };
+        Returns: number;
+      };
     };
     Enums: {
       [_ in never]: never;
