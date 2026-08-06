@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
 import {
   endOfEtDayUtcIso,
   etDateDaysAgo,
@@ -148,15 +149,20 @@ export async function fetchCostRows(
   if (slicers.ownerId || slicers.listId) {
     const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
     if (leadIds.length === 0) return [];
-    // Chunk so the lead lookup also clears the 1,000-row cap.
+    // Chunk the id filter at ID_CHUNK (200): a `.in("id", …)` of ~1,000 UUIDs
+    // overflows the request URL and PostgREST 400s — which (silently swallowed)
+    // dropped every row and made an owner/list-filtered Costs page read empty.
+    // Fail loud on a query error rather than returning a wrong (empty) total.
     const ok = new Set<string>();
-    for (let i = 0; i < leadIds.length; i += COSTS_PAGE) {
-      const chunk = leadIds.slice(i, i + COSTS_PAGE);
-      let leadQuery = supabase.from("leads").select("id").in("id", chunk);
+    for (const idChunk of chunk(leadIds, ID_CHUNK)) {
+      let leadQuery = supabase.from("leads").select("id").in("id", idChunk);
       if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
       if (slicers.ownerId)
         leadQuery = leadQuery.eq("owner_id", slicers.ownerId);
-      const { data: leads } = await leadQuery;
+      const { data: leads, error } = await leadQuery;
+      if (error) {
+        throw new Error(`Costs lead lookup failed: ${error.message}`);
+      }
       for (const l of leads ?? []) ok.add((l as { id: string }).id);
     }
     rows = rows.filter((r) => ok.has(r.lead_id));

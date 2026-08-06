@@ -6,6 +6,7 @@ import {
   CONNECTED_OUTCOMES,
   CONVERSATION_OUTCOMES,
 } from "@/lib/calls/outcomes";
+import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
 import {
   endOfEtDayUtcIso,
   etDateDaysAgo,
@@ -63,6 +64,10 @@ export type Kpis = {
   connected: number;
   connectRate: number; // 0..1
   goalMet: number;
+  /** Distinct businesses that met the goal AND where we reached the decision-
+   *  maker. A subset of goalMet — a goal can be met without a DM (a gatekeeper
+   *  books it, a survey is completed), so these two are reported separately. */
+  goalMetWithDm: number;
   goalMetRate: number; // 0..1, vs conversations
   avgDurationSeconds: number;
   avgCostPerCall: number;
@@ -141,18 +146,27 @@ export async function fetchCallsForRange(
   // correctable source of truth) so DM-reached metrics reflect manual Yes/No
   // corrections, not the call's frozen AI extraction. The same query also
   // applies the owner / list filters, which live on `leads`, not `calls`.
-  // Chunked so the lead lookup also clears the 1,000-row cap.
+  //
+  // Chunk the id filter at ID_CHUNK (200), NOT the 1,000-row page size: an
+  // `.in("id", …)` list of ~1,000 UUIDs makes a ~38 KB request URL, which
+  // PostgREST rejects with a 400. The old code chunked at 1,000 and swallowed
+  // the error, so on any window with >~250 leads EVERY DM flag silently read
+  // false — which zeroed "Decision-makers reached" and pinned Goal rate at a
+  // fake 100%. Fail LOUD on a query error instead of returning confident-but-
+  // wrong numbers.
   const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
   const dmByLead = new Map<string, boolean>();
-  for (let i = 0; i < leadIds.length; i += PAGE) {
-    const chunk = leadIds.slice(i, i + PAGE);
+  for (const idChunk of chunk(leadIds, ID_CHUNK)) {
     let leadQuery = supabase
       .from("leads")
       .select("id, decision_maker_reached")
-      .in("id", chunk);
+      .in("id", idChunk);
     if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
     if (slicers.ownerId) leadQuery = leadQuery.eq("owner_id", slicers.ownerId);
-    const { data: leads } = await leadQuery;
+    const { data: leads, error } = await leadQuery;
+    if (error) {
+      throw new Error(`Analytics lead lookup failed: ${error.message}`);
+    }
     for (const l of leads ?? []) {
       dmByLead.set(l.id, l.decision_maker_reached === true);
     }
@@ -177,6 +191,8 @@ export function computeKpis(rows: CallRow[]): Kpis {
   // Goals are counted per BUSINESS, not per call: a lead with two goal-met calls
   // (called twice, or two leads merged into one) is ONE win. Dedupe by lead_id.
   const goalLeadIds = new Set<string>();
+  // The subset of those businesses where we also reached the decision-maker.
+  const goalDmLeadIds = new Set<string>();
   let durationSum = 0;
   let durationCount = 0;
   let spend = 0;
@@ -184,7 +200,10 @@ export function computeKpis(rows: CallRow[]): Kpis {
     if (r.outcome && CONNECTED_OUTCOMES.has(r.outcome)) connected += 1;
     if (r.outcome && CONVERSATION_OUTCOMES.has(r.outcome)) conversations += 1;
     if (rowReachedDm(r)) dmsReached += 1;
-    if (r.goal_met) goalLeadIds.add(r.lead_id);
+    if (r.goal_met) {
+      goalLeadIds.add(r.lead_id);
+      if (rowReachedDm(r)) goalDmLeadIds.add(r.lead_id);
+    }
     if (r.duration_seconds != null) {
       durationSum += r.duration_seconds;
       durationCount += 1;
@@ -192,6 +211,7 @@ export function computeKpis(rows: CallRow[]): Kpis {
     spend += pickCostTotal(r.cost_breakdown);
   }
   const goalMet = goalLeadIds.size;
+  const goalMetWithDm = goalDmLeadIds.size;
   return {
     totalCalls,
     conversations,
@@ -199,6 +219,7 @@ export function computeKpis(rows: CallRow[]): Kpis {
     connected,
     connectRate: totalCalls === 0 ? 0 : connected / totalCalls,
     goalMet,
+    goalMetWithDm,
     goalMetRate: conversations === 0 ? 0 : goalMet / conversations,
     avgDurationSeconds: durationCount === 0 ? 0 : durationSum / durationCount,
     avgCostPerCall: totalCalls === 0 ? 0 : spend / totalCalls,
@@ -222,9 +243,17 @@ export function outcomeDistribution(rows: CallRow[]): OutcomeBucket[] {
 
 /** Per-BUSINESS conversion funnel — counts DISTINCT leads at each stage so the
  *  funnel narrows cleanly into a true subset chain (unlike the per-call version,
- *  where sticky lead flags like DM-reached/goal-met can make a later stage
- *  exceed an earlier one). A lead enters a stage when ANY of its calls in range
- *  qualifies. "Conversations" means a real talk: talk time passed one minute. */
+ *  where sticky lead flags like DM-reached can make a later stage exceed an
+ *  earlier one). A lead enters a stage when ANY of its calls in range qualifies.
+ *  "Conversations" means a real talk: talk time passed one minute.
+ *
+ *  The funnel is the "how far into the conversation did we get" chain and now
+ *  ENDS at decision-makers reached. Goals met is deliberately NOT the last step:
+ *  a goal can be met without reaching the decision-maker (a gatekeeper books the
+ *  slot, a survey is completed), so goals are not a subset of DMs. Forcing them
+ *  to be (the old code did) inflated the DM count to equal goals and pinned the
+ *  goal rate at a fake 100%. Goals met is now reported on its own beside the
+ *  funnel — as a total and a decision-maker subset. */
 export function buildLeadFunnel(rows: CallRow[]): FunnelStep[] {
   const called = new Set<string>();
   const connectedRaw = new Set<string>();
@@ -245,23 +274,21 @@ export function buildLeadFunnel(rows: CallRow[]): FunnelStep[] {
     if (rowReachedDm(r)) dmRaw.add(r.lead_id);
     if (r.goal_met) goalRaw.add(r.lead_id);
   }
-  // Enforce a TRUE funnel: a lead in a deeper stage implies every shallower one
-  // (you can't meet the goal without reaching the DM, having a real
-  // conversation, and connecting). The old code counted each stage
-  // independently, so sticky lead flags the agent doesn't set in lockstep let a
-  // later stage exceed an earlier one — e.g. goals(14) > DMs(12), which rendered
-  // as a nonsensical "117% of DMs reached". Folding deeper stages upward makes
-  // the chain narrow monotonically and every step rate land at ≤ 100%.
-  const goals = goalRaw;
-  const dms = new Set([...dmRaw, ...goals]);
-  const conversations = new Set([...conversationRaw, ...dms]);
+  // Enforce a TRUE funnel: a lead in a deeper stage implies every shallower one.
+  // Sticky lead flags aren't set in lockstep with in-window calls (a lead can be
+  // DM-reached from a prior call yet only hit voicemail this window), so fold
+  // each deeper stage upward to keep the chain narrowing monotonically and every
+  // step rate ≤ 100%. A met goal IS by definition a real conversation, so fold
+  // goals into the conversation stage too — this keeps the separate goal-vs-
+  // conversation rate ≤ 100% without making goals a child of the DM stage.
+  const dms = dmRaw;
+  const conversations = new Set([...conversationRaw, ...goalRaw, ...dms]);
   const connected = new Set([...connectedRaw, ...conversations]);
   return [
     { label: "Called", count: called.size },
     { label: "Connected", count: connected.size },
     { label: "Conversations", count: conversations.size },
     { label: "Decision-makers reached", count: dms.size },
-    { label: "Goals met", count: goals.size },
   ];
 }
 

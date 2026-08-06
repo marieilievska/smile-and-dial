@@ -9,7 +9,7 @@ import {
   resolveDueCallbacksForLead,
   syncLeadNextCallToEarliestCallback,
 } from "@/lib/callbacks/sync-next-call";
-import { callReachedDm } from "@/lib/calls/decision-maker";
+import { callReachedDm, outcomeImpliesDm } from "@/lib/calls/decision-maker";
 import { CONVERSATION_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
 import {
   deferSameDayCallbackIso,
@@ -1162,8 +1162,15 @@ async function processTranscription(
 
     // Sticky lead-level "we reached the decision maker" flag for the Leads
     // table. Only ever set it TRUE (a later voicemail shouldn't un-reach a DM
-    // we already spoke to), and only from a real conversation.
-    if (callReachedDm(extractedDataOf(payload.analysis))) {
+    // we already spoke to), and only from a real conversation. Set it when the
+    // AI explicitly flagged the DM, OR when the disposition definitionally means
+    // we reached them (e.g. not_interested = the decision-maker declined) — the
+    // AI rarely writes the standalone flag, so leaning on the outcome recovers
+    // the many DM conversations it silently drops.
+    if (
+      callReachedDm(extractedDataOf(payload.analysis)) ||
+      outcomeImpliesDm(outcomeFromDisposition)
+    ) {
       await supabase
         .from("leads")
         .update({ decision_maker_reached: true })

@@ -502,6 +502,74 @@ test.describe("ElevenLabs post-call webhook", () => {
     }
   });
 
+  test("disposition=not_interested marks the lead's decision-maker as reached", async () => {
+    // not_interested is DEFINED as "the decision maker declined", so the webhook
+    // must flip the lead's sticky decision_maker_reached flag even though the AI
+    // didn't set the standalone decision_maker_reached field. Fresh lead + call
+    // so the assertion is isolated from the shared-lead tests.
+    const stamp2 = Date.now();
+    const convo = `convo-${stamp}-ni-dm`;
+    const { data: niLead } = await admin
+      .from("leads")
+      .insert({
+        owner_id: ownerId,
+        list_id: listId,
+        company: `E2E NI Co ${stamp2}`,
+        business_phone: `+1555${String(stamp2).slice(-6)}40`,
+      })
+      .select("id, decision_maker_reached")
+      .single();
+    // Precondition: a brand-new lead has not reached the decision-maker yet.
+    expect(niLead?.decision_maker_reached).toBe(false);
+    const { data: niCall } = await admin
+      .from("calls")
+      .insert({
+        lead_id: niLead!.id,
+        campaign_id: campaignId,
+        agent_id: agentId,
+        twilio_number_id: twilioNumberId,
+        direction: "outbound",
+        status: "completed",
+        elevenlabs_conversation_id: convo,
+      })
+      .select("id")
+      .single();
+    try {
+      const context = await playwrightRequest.newContext({
+        baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+        storageState: undefined,
+      });
+      const res = await context.post("/api/elevenlabs/post-call", {
+        headers: { "content-type": "application/json" },
+        data: {
+          conversation_id: convo,
+          analysis: {
+            summary: "Owner said they're not interested.",
+            // Note: NO decision_maker_reached field — the outcome alone must
+            // drive the flag.
+            data_collection: { disposition: "not_interested" },
+          },
+        },
+      });
+      expect(res.ok()).toBe(true);
+
+      const { data: lead } = await admin
+        .from("leads")
+        .select("decision_maker_reached")
+        .eq("id", niLead!.id)
+        .single();
+      expect(lead?.decision_maker_reached).toBe(true);
+      await context.dispose();
+    } finally {
+      await admin
+        .from("elevenlabs_webhook_events")
+        .delete()
+        .eq("conversation_id", convo);
+      await admin.from("calls").delete().eq("id", niCall!.id);
+      await admin.from("leads").delete().eq("id", niLead!.id);
+    }
+  });
+
   test("disposition=dnc auto-inserts into DNC and sets lead status to dnc", async () => {
     // Fresh lead + call so we don't interfere with the callback-side-effect
     // lead from the earlier test.
