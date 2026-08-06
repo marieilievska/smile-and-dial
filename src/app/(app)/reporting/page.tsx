@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
   detectCampaignFields,
-  isWarm,
+  hotLeadsUnavailableReason,
+  voiceUnavailableReason,
   type DetectedFields,
 } from "@/lib/agent-analytics/field-detect";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
@@ -28,6 +29,7 @@ import { DashboardView } from "./dashboard-view";
 import { HotLeadsTable } from "./hot-leads-table";
 import { PromptLogTable } from "./prompt-log-table";
 import { NumbersPanel } from "./numbers-panel";
+import { ReportingNotice } from "./reporting-notice";
 import { ReportingTabs, reportingTabsFor } from "./reporting-tabs";
 import { ScopePicker } from "./scope-picker";
 import { VoiceTable } from "./voice-table";
@@ -90,12 +92,12 @@ export default async function AgentAnalyticsPage({
     scope.kind === "campaign"
       ? await detectCampaignFields(supabase, scope.campaignId)
       : { sentimentKey: null, sentimentValues: [], notesKey: null };
-  const showVoice = scope.kind === "campaign" && detected.sentimentKey !== null;
-  const showHotLeads =
-    scope.kind === "campaign" &&
-    detected.sentimentKey !== null &&
-    detected.sentimentValues.some(isWarm);
-  const visibleTabs = reportingTabsFor({ showVoice, showHotLeads });
+  // Voice of Customer + Hot Leads always stay in the nav; when they can't render
+  // for this scope they show an explanatory notice instead of a table (null =
+  // renderable). Keeps the tabs from silently vanishing under the combined view.
+  const voiceReason = voiceUnavailableReason(scope, detected);
+  const hotLeadsReason = hotLeadsUnavailableReason(scope, detected);
+  const visibleTabs = reportingTabsFor();
   const tab = visibleTabs.some((t) => t.key === str(params.tab))
     ? str(params.tab)
     : "dashboard";
@@ -152,9 +154,17 @@ export default async function AgentAnalyticsPage({
           sentimentValues={detected.sentimentValues}
         />
       ) : tab === "voice" ? (
-        <VoiceTab scope={scope} detected={detected} slug={slug} />
+        voiceReason ? (
+          <ReportingNotice tab="voice" message={voiceReason} />
+        ) : (
+          <VoiceTab scope={scope} detected={detected} slug={slug} />
+        )
       ) : tab === "hot-leads" ? (
-        <HotLeadsTab scope={scope} detected={detected} slug={slug} />
+        hotLeadsReason ? (
+          <ReportingNotice tab="hot-leads" message={hotLeadsReason} />
+        ) : (
+          <HotLeadsTab scope={scope} detected={detected} slug={slug} />
+        )
       ) : tab === "numbers" ? (
         <NumbersPanel />
       ) : tab === "changelog" ? (

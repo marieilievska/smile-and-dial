@@ -17,7 +17,9 @@ test.describe.configure({ mode: "serial" });
  *    maybe, not no) with Contact / Why hot / List columns (no Status / Owner),
  *    a lead link, and a permanent dismissal that removes a row.
  *  - A campaign WITHOUT sentiment data hides the dashboard sentiment columns
- *    and the interest tabs; the combined (All) view also hides the sentiment
+ *    but STILL shows the Voice of Customer + Hot Leads tabs, which open to an
+ *    explanatory notice instead of a table; the combined (All) view likewise
+ *    keeps the tabs (with a pick-a-campaign notice) and hides the sentiment
  *    columns.
  *  - The admin recording redirect route resolves a known call and 404s an
  *    unknown one.
@@ -367,26 +369,52 @@ test.describe("Reporting scope filter", () => {
     expect(missing.status()).toBe(404);
   });
 
-  test("a campaign without sentiment data hides the Yes column + interest tabs", async ({
+  test("a campaign without sentiment data hides the Yes column but keeps the interest tabs", async ({
     page,
   }) => {
     await page.goto(`/reporting?scope=campaign:${plainCampaignId}`);
     await expect(page.locator("#reporting-scope")).toBeVisible();
+    // The dashboard sentiment column is still hidden (no sentiment field)...
+    await expect(page.getByRole("columnheader", { name: "Yes" })).toHaveCount(
+      0,
+    );
+    // ...but the tabs no longer vanish — they stay openable.
+    await expect(
+      page.getByRole("link", { name: "Voice of Customer" }),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "Hot Leads" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
+  });
+
+  test("the interest tabs explain themselves when a campaign has no sentiment field", async ({
+    page,
+  }) => {
+    await page.goto(`/reporting?scope=campaign:${plainCampaignId}&tab=voice`);
+    // The notice replaces the table (no Sentiment column header renders).
+    await expect(
+      page.getByText(/hasn't captured a customer-sentiment field/i),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "Sentiment" }),
+    ).toHaveCount(0);
+  });
+
+  test("the combined view hides the Yes column but keeps the interest tabs with a pick-a-campaign notice", async ({
+    page,
+  }) => {
+    await page.goto("/reporting?scope=all");
     await expect(page.getByRole("columnheader", { name: "Yes" })).toHaveCount(
       0,
     );
     await expect(
       page.getByRole("link", { name: "Voice of Customer" }),
-    ).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Hot Leads" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
-  });
-
-  test("the combined view hides the Yes column", async ({ page }) => {
-    await page.goto("/reporting?scope=all");
-    await expect(page.getByRole("columnheader", { name: "Yes" })).toHaveCount(
-      0,
-    );
+    ).toBeVisible();
+    // Opening either interest tab under the combined view shows the
+    // pick-a-specific-campaign notice rather than bouncing to the dashboard.
+    await page.goto("/reporting?tab=voice&scope=all");
+    await expect(page.getByText(/pick a specific campaign/i)).toBeVisible();
+    await page.goto("/reporting?tab=hot-leads&scope=all");
+    await expect(page.getByText(/pick a specific campaign/i)).toBeVisible();
   });
 
   test("the App Changelog is a read-only table with no Owner header", async ({

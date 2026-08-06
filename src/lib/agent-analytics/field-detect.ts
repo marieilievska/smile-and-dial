@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 
+import type { ReportScope } from "./scope";
+
 type DB = SupabaseClient<Database>;
 
 /** Standard data-collection fields every agent emits — excluded from per-campaign
@@ -147,4 +149,35 @@ export async function detectCampaignFields(
   }
 
   return { sentimentKey, sentimentValues, notesKey };
+}
+
+/** Why the Voice of Customer tab can't show a table for this scope, or `null`
+ *  when it can. The inverse of the old `showVoice` gate — a specific campaign
+ *  with a detected sentiment field — expressed as a message so the tab can
+ *  always be opened and explain itself instead of silently disappearing. */
+export function voiceUnavailableReason(
+  scope: ReportScope,
+  detected: DetectedFields,
+): string | null {
+  if (scope.kind !== "campaign")
+    return "Voice of Customer is per campaign. Pick a specific campaign in the selector above to read what customers said on their calls.";
+  if (detected.sentimentKey === null)
+    return "This campaign hasn't captured a customer-sentiment field yet, so there's nothing to summarize. Voice of Customer fills in once the agent starts recording how customers felt.";
+  return null;
+}
+
+/** Why the Hot Leads tab can't show a table for this scope, or `null` when it
+ *  can. The inverse of the old `showHotLeads` gate — a specific campaign, a
+ *  sentiment field, and at least one warm value. */
+export function hotLeadsUnavailableReason(
+  scope: ReportScope,
+  detected: DetectedFields,
+): string | null {
+  if (scope.kind !== "campaign")
+    return "Hot Leads is per campaign. Pick a specific campaign in the selector above to see its warmest, most interested leads.";
+  if (detected.sentimentKey === null)
+    return "This campaign hasn't captured a customer-sentiment field yet. Hot Leads appears once the agent records sentiment and some leads come back warm.";
+  if (!detected.sentimentValues.some(isWarm))
+    return "No hot leads yet for this campaign. Leads show up here as soon as the agent marks one warm or interested.";
+  return null;
 }
