@@ -4,7 +4,6 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { QUALITY_CRITERIA_IDS } from "@/lib/elevenlabs/agents";
 import {
   resolveDueCallbacksForLead,
   syncLeadNextCallToEarliestCallback,
@@ -22,7 +21,6 @@ import {
 } from "@/lib/dialer/retry-engine";
 import { priceTwilioCall, elevenLabsUsdPerCredit } from "@/lib/costs/rates";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
-import { enqueueCallReview } from "@/lib/review/enqueue";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -254,33 +252,6 @@ function telephonyOutcome(reason: string): CallOutcome | null {
   if (/busy/.test(r)) return "busy";
   if (/fail|carrier|invalid number|rejected|\berror\b/.test(r)) return "failed";
   return null;
-}
-
-/** Average the gradable quality criteria into a 0–10 call score. ElevenLabs'
- *  analysis LLM grades each criterion success / failure / unknown; we count
- *  success as 1 and failure as 0 and ignore "unknown" (the criterion didn't
- *  apply, e.g. no objections arose). Returns null when nothing was gradable —
- *  so a no-conversation call shows "—" rather than a misleading 0. We only look
- *  at OUR quality criteria ids, so an agent's own goal criterion never skews
- *  the quality score. */
-function scoreFromEvaluation(
-  analysis: ElevenLabsPostCallPayload["analysis"],
-): number | null {
-  const results = analysis?.evaluation_criteria_results;
-  if (!results || typeof results !== "object") return null;
-  let pass = 0;
-  let gradable = 0;
-  for (const id of QUALITY_CRITERIA_IDS) {
-    const result = results[id]?.result?.trim().toLowerCase();
-    if (result === "success") {
-      pass++;
-      gradable++;
-    } else if (result === "failure") {
-      gradable++;
-    }
-  }
-  if (gradable === 0) return null;
-  return Math.round((pass / gradable) * 100) / 10;
 }
 
 /** slug for a custom field, matching the custom-fields admin slugify. */
@@ -1089,10 +1060,6 @@ async function processTranscription(
     // and the analysis LLM otherwise "summarizes" the agent's own scripted
     // monologue, which then pollutes the per-campaign rolling summary.
     summary: reachedHuman ? callSummary : null,
-    // AI call-quality score (0–10), averaged from the ElevenLabs quality
-    // criteria — only for real conversations. Voicemails / no-answers /
-    // immediate hang-ups get no score (the criteria can't fairly judge them).
-    score: reachedHuman ? scoreFromEvaluation(payload.analysis) : null,
     extracted_data: (Object.keys(cleanedExtraction).length > 0
       ? cleanedExtraction
       : null) as Database["public"]["Tables"]["calls"]["Update"]["extracted_data"],
@@ -1263,18 +1230,6 @@ async function processTranscription(
         })
         .eq("id", call.id);
     }
-  }
-
-  // Queue this call for the reviewer. Human-reached calls get the deep two-pass
-  // analysis; the rest are auto-bucketed as no_conversation. Best-effort — never
-  // fail the webhook on a review-enqueue hiccup.
-  try {
-    await enqueueCallReview(supabase, {
-      callId: call.id,
-      reachedHuman,
-    });
-  } catch {
-    // best-effort
   }
 
   return { ok: true, status: "applied" };

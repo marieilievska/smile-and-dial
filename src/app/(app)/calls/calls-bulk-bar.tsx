@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCheck, RotateCcw, Trash2, X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { toast } from "sonner";
@@ -18,26 +18,20 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { deleteCalls } from "@/lib/calls/actions";
-import { markCallsReviewed } from "@/lib/review/actions";
 
 import { useCallsSelection } from "./calls-selection";
 
 /**
  * Sticky bar that appears when one or more calls are selected (admin-only).
- * Always offers a (confirm-gated) permanent delete. In review context — when a
- * `reviewFlag` bucket is being viewed — it also offers bulk "Mark reviewed" /
- * "Reopen", which clear (or restore) the selected calls in the review queue
- * without opening each one.
+ * Offers a (confirm-gated) permanent delete of the selected calls.
  */
-export function CallsBulkBar({ reviewFlag = "" }: { reviewFlag?: string }) {
+export function CallsBulkBar() {
   const { selected, clear } = useCallsSelection();
   const [pending, startTransition] = useTransition();
   const router = useRouter();
 
   const count = selected.size;
   if (count === 0) return null;
-
-  const inReview = Boolean(reviewFlag);
 
   function onConfirm() {
     const ids = [...selected];
@@ -54,57 +48,12 @@ export function CallsBulkBar({ reviewFlag = "" }: { reviewFlag?: string }) {
     });
   }
 
-  function onReviewed(reviewed: boolean) {
-    const ids = [...selected];
-    startTransition(async () => {
-      const r = await markCallsReviewed({ callIds: ids, reviewed });
-      if (r.error) {
-        toast.error(r.error);
-        return;
-      }
-      const n = r.updated || ids.length;
-      toast.success(
-        reviewed
-          ? `Marked ${n} call${n === 1 ? "" : "s"} reviewed.`
-          : `Reopened ${n} call${n === 1 ? "" : "s"}.`,
-      );
-      clear();
-      router.refresh();
-    });
-  }
-
   return (
     <div className="pointer-events-none sticky bottom-4 z-20 flex justify-center">
       <div className="border-border bg-card pointer-events-auto flex items-center gap-3 rounded-2xl border px-4 py-2 shadow-lg">
         <span className="text-foreground text-sm font-medium tabular-nums">
           {count} selected
         </span>
-        {inReview ? (
-          <>
-            <Button
-              type="button"
-              size="sm"
-              disabled={pending}
-              onClick={() => onReviewed(true)}
-              data-testid="calls-bulk-mark-reviewed"
-            >
-              <CheckCheck className="size-4" />
-              Mark reviewed
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={pending}
-              onClick={() => onReviewed(false)}
-              data-testid="calls-bulk-reopen"
-            >
-              <RotateCcw className="size-4" />
-              Reopen
-            </Button>
-            <span className="bg-border h-5 w-px" aria-hidden />
-          </>
-        ) : null}
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button

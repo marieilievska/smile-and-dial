@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   Bot,
   PhoneCall,
-  ClipboardCheck,
   Flame,
   History,
   LayoutDashboard,
@@ -14,7 +13,6 @@ import {
  *  so both Server Components can import the array + component safely. */
 export const REPORTING_TABS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { key: "call-review", label: "Call Review", icon: ClipboardCheck },
   { key: "voice", label: "Voice of Customer", icon: MessageSquare },
   { key: "hot-leads", label: "Hot Leads", icon: Flame },
   { key: "numbers", label: "Numbers", icon: PhoneCall },
@@ -26,28 +24,24 @@ export type ReportingTabKey = (typeof REPORTING_TABS)[number]["key"];
 
 /** The tabs to show for the current scope. Voice of Customer shows when the
  *  campaign has a detected sentiment field; Hot Leads keeps its interest-driven
- *  gate (Phase 3 generalizes it). Call Review is admin-only — the public
- *  token-gated share surface must pass `showCallReview: false` so external
- *  recipients never see the tab (it has no share render branch, and buckets are
- *  admin-only by design). Numbers is gated the same way: it lists our own phone
- *  numbers, their campaigns, and which are burned or resting — operational
- *  detail an external recipient has no business seeing, and a shopping list for
- *  anyone wanting to report our numbers as spam. */
+ *  gate (Phase 3 generalizes it). Numbers is admin-only — the public
+ *  token-gated share surface must pass `showNumbers: false` so external
+ *  recipients never see it: it lists our own phone numbers, their campaigns, and
+ *  which are burned or resting — operational detail an external recipient has no
+ *  business seeing, and a shopping list for anyone wanting to report our numbers
+ *  as spam. */
 export function reportingTabsFor({
   showVoice,
   showHotLeads,
-  showCallReview = true,
   showNumbers = true,
 }: {
   showVoice: boolean;
   showHotLeads: boolean;
-  showCallReview?: boolean;
   showNumbers?: boolean;
 }): readonly (typeof REPORTING_TABS)[number][] {
   return REPORTING_TABS.filter((t) => {
     if (t.key === "voice") return showVoice;
     if (t.key === "hot-leads") return showHotLeads;
-    if (t.key === "call-review") return showCallReview;
     if (t.key === "numbers") return showNumbers;
     return true;
   });

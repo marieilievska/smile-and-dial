@@ -7,7 +7,7 @@ test.describe.configure({ mode: "serial" });
  * Drives the ElevenLabs post-call webhook end-to-end:
  *  - Seed a `calls` row keyed on a known elevenlabs_conversation_id.
  *  - POST a synthetic post-call payload, assert the call row picks up
- *    outcome / transcript / summary / score / extracted_data / cost.
+ *    outcome / transcript / summary / extracted_data / cost.
  *  - Assert the LEAD's empty contact fields got auto-filled from the
  *    extracted data, but a pre-filled field stays put.
  *  - Replay the same POST → second one is ignored (idempotency).
@@ -206,7 +206,7 @@ test.describe("ElevenLabs post-call webhook", () => {
     };
   }
 
-  test("the webhook writes outcome, transcript, summary, score, cost", async () => {
+  test("the webhook writes outcome, transcript, summary, cost", async () => {
     const context = await playwrightRequest.newContext({
       baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
       storageState: undefined,
@@ -221,7 +221,7 @@ test.describe("ElevenLabs post-call webhook", () => {
     const { data: c } = await admin
       .from("calls")
       .select(
-        "outcome, outcome_source, goal_met, summary, score, transcript_json, extracted_data, duration_seconds, talk_time_seconds, recording_path, cost_breakdown",
+        "outcome, outcome_source, goal_met, summary, transcript_json, extracted_data, duration_seconds, talk_time_seconds, recording_path, cost_breakdown",
       )
       .eq("id", callId)
       .single();
@@ -229,7 +229,6 @@ test.describe("ElevenLabs post-call webhook", () => {
     expect(c?.outcome_source).toBe("elevenlabs");
     expect(c?.goal_met).toBe(false);
     expect(c?.summary).toContain("call back next Tuesday");
-    expect(c?.score).toBe(7.5);
     expect(c?.duration_seconds).toBe(92);
     expect(c?.talk_time_seconds).toBe(71);
     expect(c?.recording_path).toBe("https://example.com/rec.mp3");
@@ -356,16 +355,16 @@ test.describe("ElevenLabs post-call webhook", () => {
     });
     const before = await admin
       .from("calls")
-      .select("summary, score")
+      .select("summary")
       .eq("id", callId)
       .single();
 
     const res = await context.post("/api/elevenlabs/post-call", {
       headers: { "content-type": "application/json" },
-      // Even with a different score, the duplicate should be a no-op.
+      // Even with a different summary, the duplicate should be a no-op.
       data: {
         ...buildPayload(conversationId),
-        analysis: { evaluation: { score: 1.0 } },
+        analysis: { summary: "A different summary on replay." },
       },
     });
     expect(res.ok()).toBe(true);
@@ -373,11 +372,10 @@ test.describe("ElevenLabs post-call webhook", () => {
 
     const after = await admin
       .from("calls")
-      .select("summary, score")
+      .select("summary")
       .eq("id", callId)
       .single();
     expect(after.data?.summary).toBe(before.data?.summary);
-    expect(after.data?.score).toBe(before.data?.score);
 
     await context.dispose();
   });
