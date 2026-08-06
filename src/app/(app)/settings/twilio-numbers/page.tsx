@@ -21,6 +21,11 @@ import { createClient } from "@/lib/supabase/server";
 import { expectedNumberWebhooks } from "@/lib/twilio/numbers";
 
 import { formatCreatedAt } from "../format-created";
+import {
+  BulkMoveProvider,
+  NumberSelectCheckbox,
+  SelectAllNumbersCheckbox,
+} from "./bulk-move";
 import { BuyIntoPoolDialog } from "./buy-into-pool-dialog";
 import { BuyNumberDialog } from "./buy-number-dialog";
 import { ConnectRateTrend, type DailyStat } from "./connect-rate-trend";
@@ -120,6 +125,9 @@ export default async function TwilioNumbersPage({
     if (status === "released") return Boolean(n.released_at);
     return true;
   });
+  // Only in-pool numbers can be reassigned, so only they get a checkbox and feed
+  // the "select all" / bulk-move bar.
+  const movableIds = visible.filter((n) => !n.released_at).map((n) => n.id);
 
   function buildStatusHref(next: string): string {
     const url = new URLSearchParams();
@@ -169,173 +177,186 @@ export default async function TwilioNumbersPage({
             // columns no longer fits without scrolling on laptop widths;
             // overflow-x-auto lets the table itself scroll instead of
             // squeezing every column.
-            <div className="border-border overflow-x-auto rounded-2xl border shadow-sm">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Number</TableHead>
-                    <TableHead>Friendly name</TableHead>
-                    <TableHead>Campaign</TableHead>
-                    <TableHead>Area</TableHead>
-                    <TableHead>Connect rate</TableHead>
-                    <TableHead>Country</TableHead>
-                    <TableHead>Monthly cost</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Webhooks</TableHead>
-                    <TableHead>Purchased</TableHead>
-                    <TableHead className="w-[380px]" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visible.map((number) => (
-                    <TableRow key={number.id} className="group">
-                      {/* Round 34 — phones in this admin table stay as
-                       *  E.164 so the test contract (`getByRole("row",
-                       *  { name: phone })`) keeps resolving. The
-                       *  user-facing lists (/leads, /calls, /callbacks,
-                       *  /goals, /dnc, global search) use formatPhone
-                       *  for human-readability. */}
-                      <TableCell className="font-mono text-xs font-medium">
-                        {number.phone_number}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {number.friendly_name || "—"}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {number.attached_campaign_id
-                          ? (campaignNames.get(number.attached_campaign_id) ??
-                            "—")
-                          : "—"}
-                      </TableCell>
-                      <TableCell>
-                        {number.area_code ? (
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-foreground tabular-nums">
-                              {number.area_code}
-                            </span>
-                            <span className="text-muted-foreground text-xs">
-                              {stateForAreaCode(number.area_code) ?? "—"}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      {/* Was a volume/cap column ("N calls", cap in the
-                       *  tooltip). Per-number daily caps are off, so the number
-                       *  that matters is no longer "how close to the ceiling"
-                       *  but "is this number's connect rate holding up". */}
-                      <TableCell>
-                        <ConnectRateTrend
-                          days={historyByNumber.get(number.id) ?? []}
-                          liveRate={number.last_connect_rate_24h}
-                          liveCalls={number.last_calls_count_24h}
-                        />
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {number.country}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground tabular-nums">
-                        ~${Number(number.monthly_cost).toFixed(2)}/mo
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {number.released_at ? (
-                            <Badge variant="ghost" dot>
-                              Released
-                            </Badge>
+            <BulkMoveProvider allIds={movableIds} campaigns={campaigns}>
+              <div className="border-border overflow-x-auto rounded-2xl border shadow-sm">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-9">
+                        <SelectAllNumbersCheckbox />
+                      </TableHead>
+                      <TableHead>Number</TableHead>
+                      <TableHead>Friendly name</TableHead>
+                      <TableHead>Campaign</TableHead>
+                      <TableHead>Area</TableHead>
+                      <TableHead>Connect rate</TableHead>
+                      <TableHead>Country</TableHead>
+                      <TableHead>Monthly cost</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Webhooks</TableHead>
+                      <TableHead>Purchased</TableHead>
+                      <TableHead className="w-[380px]" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {visible.map((number) => (
+                      <TableRow key={number.id} className="group">
+                        <TableCell>
+                          <NumberSelectCheckbox
+                            id={number.id}
+                            phone={number.phone_number}
+                            disabled={Boolean(number.released_at)}
+                          />
+                        </TableCell>
+                        {/* Round 34 — phones in this admin table stay as
+                         *  E.164 so the test contract (`getByRole("row",
+                         *  { name: phone })`) keeps resolving. The
+                         *  user-facing lists (/leads, /calls, /callbacks,
+                         *  /goals, /dnc, global search) use formatPhone
+                         *  for human-readability. */}
+                        <TableCell className="font-mono text-xs font-medium">
+                          {number.phone_number}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {number.friendly_name || "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {number.attached_campaign_id
+                            ? (campaignNames.get(number.attached_campaign_id) ??
+                              "—")
+                            : "—"}
+                        </TableCell>
+                        <TableCell>
+                          {number.area_code ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-foreground tabular-nums">
+                                {number.area_code}
+                              </span>
+                              <span className="text-muted-foreground text-xs">
+                                {stateForAreaCode(number.area_code) ?? "—"}
+                              </span>
+                            </div>
                           ) : (
-                            <Badge variant="success" dot>
-                              In pool
-                            </Badge>
+                            <span className="text-muted-foreground">—</span>
                           )}
-                          {!number.released_at
-                            ? poolStateBadge(
-                                {
+                        </TableCell>
+                        {/* Was a volume/cap column ("N calls", cap in the
+                         *  tooltip). Per-number daily caps are off, so the number
+                         *  that matters is no longer "how close to the ceiling"
+                         *  but "is this number's connect rate holding up". */}
+                        <TableCell>
+                          <ConnectRateTrend
+                            days={historyByNumber.get(number.id) ?? []}
+                            liveRate={number.last_connect_rate_24h}
+                            liveCalls={number.last_calls_count_24h}
+                          />
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {number.country}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground tabular-nums">
+                          ~${Number(number.monthly_cost).toFixed(2)}/mo
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {number.released_at ? (
+                              <Badge variant="ghost" dot>
+                                Released
+                              </Badge>
+                            ) : (
+                              <Badge variant="success" dot>
+                                In pool
+                              </Badge>
+                            )}
+                            {!number.released_at
+                              ? poolStateBadge(
+                                  {
+                                    pool_status: number.pool_status,
+                                    flagged_for_rotation:
+                                      number.flagged_for_rotation,
+                                    rested_until: number.rested_until,
+                                    warmup_started_at: number.warmup_started_at,
+                                    daily_cap_override:
+                                      number.daily_cap_override,
+                                  },
+                                  poolSettings,
+                                  now,
+                                )
+                              : null}
+                            {!number.released_at &&
+                            number.elevenlabs_phone_number_id ? (
+                              <Badge variant="secondary">EL ✓</Badge>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <WebhookStatus
+                            voice={number.voice_webhook_url}
+                            status={number.status_webhook_url}
+                            expected={expectedWebhooks}
+                            released={Boolean(number.released_at)}
+                          />
+                        </TableCell>
+                        <TableCell
+                          className="text-muted-foreground tabular-nums"
+                          title={new Date(number.purchased_at).toLocaleString()}
+                        >
+                          {formatCreatedAt(number.purchased_at, now)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                            {!number.released_at ? (
+                              <PoolActionsMenu
+                                campaigns={campaigns}
+                                number={{
+                                  id: number.id,
                                   pool_status: number.pool_status,
                                   flagged_for_rotation:
                                     number.flagged_for_rotation,
                                   rested_until: number.rested_until,
-                                  warmup_started_at: number.warmup_started_at,
-                                  daily_cap_override: number.daily_cap_override,
-                                },
-                                poolSettings,
-                                now,
-                              )
-                            : null}
-                          {!number.released_at &&
-                          number.elevenlabs_phone_number_id ? (
-                            <Badge variant="secondary">EL ✓</Badge>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <WebhookStatus
-                          voice={number.voice_webhook_url}
-                          status={number.status_webhook_url}
-                          expected={expectedWebhooks}
-                          released={Boolean(number.released_at)}
-                        />
-                      </TableCell>
-                      <TableCell
-                        className="text-muted-foreground tabular-nums"
-                        title={new Date(number.purchased_at).toLocaleString()}
-                      >
-                        {formatCreatedAt(number.purchased_at, now)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                          {!number.released_at ? (
-                            <PoolActionsMenu
-                              campaigns={campaigns}
+                                  attached_campaign_id:
+                                    number.attached_campaign_id,
+                                }}
+                              />
+                            ) : null}
+                            <RenameNumberDialog
                               number={{
                                 id: number.id,
-                                pool_status: number.pool_status,
-                                flagged_for_rotation:
-                                  number.flagged_for_rotation,
-                                rested_until: number.rested_until,
-                                attached_campaign_id:
-                                  number.attached_campaign_id,
+                                phone_number: number.phone_number,
+                                friendly_name: number.friendly_name || "",
                               }}
                             />
-                          ) : null}
-                          <RenameNumberDialog
-                            number={{
-                              id: number.id,
-                              phone_number: number.phone_number,
-                              friendly_name: number.friendly_name || "",
-                            }}
-                          />
-                          {number.released_at ? (
-                            isAdmin ? (
-                              <DeleteNumberDialog
-                                number={{
-                                  id: number.id,
-                                  phone_number: number.phone_number,
-                                }}
-                              />
-                            ) : null
-                          ) : (
-                            <>
-                              {!number.elevenlabs_phone_number_id ? (
-                                <ConnectElevenLabsButton id={number.id} />
-                              ) : null}
-                              <RepointWebhooksButton id={number.id} />
-                              <ReleaseNumberDialog
-                                number={{
-                                  id: number.id,
-                                  phone_number: number.phone_number,
-                                }}
-                              />
-                            </>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                            {number.released_at ? (
+                              isAdmin ? (
+                                <DeleteNumberDialog
+                                  number={{
+                                    id: number.id,
+                                    phone_number: number.phone_number,
+                                  }}
+                                />
+                              ) : null
+                            ) : (
+                              <>
+                                {!number.elevenlabs_phone_number_id ? (
+                                  <ConnectElevenLabsButton id={number.id} />
+                                ) : null}
+                                <RepointWebhooksButton id={number.id} />
+                                <ReleaseNumberDialog
+                                  number={{
+                                    id: number.id,
+                                    phone_number: number.phone_number,
+                                  }}
+                                />
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </BulkMoveProvider>
           ) : (
             <div className="border-border flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center">
               <Phone className="text-muted-foreground size-8" />
