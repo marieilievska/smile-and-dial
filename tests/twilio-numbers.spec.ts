@@ -39,7 +39,16 @@ test.describe("Twilio numbers", () => {
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Area code").fill("415");
     await dialog.getByRole("button", { name: "Search" }).click();
-    await dialog.getByRole("button", { name: `Buy ${phone}` }).click();
+    await dialog
+      .getByRole("button", { name: `Buy ${phone}`, exact: true })
+      .click();
+
+    // The dialog stays open so several numbers can be bought in a row; the one
+    // we just bought drops out of the results. Close it to return to the table.
+    await expect(
+      dialog.getByRole("button", { name: `Buy ${phone}`, exact: true }),
+    ).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Close" }).click();
 
     // The number lands in the pool.
     const row = page.getByRole("row", { name: phone });
@@ -50,6 +59,46 @@ test.describe("Twilio numbers", () => {
     await page.getByRole("button", { name: "Release", exact: true }).click();
     await expect(
       page.getByRole("row", { name: phone }).getByText("Released"),
+    ).toBeVisible();
+  });
+
+  test("selecting in-pool numbers reveals the bulk move bar", async ({
+    page,
+  }) => {
+    await page.goto("/settings/twilio-numbers");
+
+    // Buy two numbers so there's a selectable pair.
+    for (const phone of ["+14155551001", "+14155551002"]) {
+      await page.getByRole("button", { name: "Buy number" }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByLabel("Area code").fill("415");
+      await dialog.getByRole("button", { name: "Search" }).click();
+      await dialog
+        .getByRole("button", { name: `Buy ${phone}`, exact: true })
+        .click();
+      await dialog.getByRole("button", { name: "Close" }).click();
+      await expect(
+        page.getByRole("row", { name: phone }).getByText("In pool"),
+      ).toBeVisible();
+    }
+
+    // No bar until something is selected.
+    await expect(page.getByText(/\d+ selected/)).toHaveCount(0);
+
+    // Tick both rows' checkboxes.
+    await page
+      .getByRole("row", { name: "+14155551001" })
+      .getByRole("checkbox")
+      .check();
+    await page
+      .getByRole("row", { name: "+14155551002" })
+      .getByRole("checkbox")
+      .check();
+
+    // The bulk bar appears with the count and a "Move to campaign" control.
+    await expect(page.getByText("2 selected")).toBeVisible();
+    await expect(
+      page.getByRole("combobox", { name: "Move to campaign" }),
     ).toBeVisible();
   });
 });

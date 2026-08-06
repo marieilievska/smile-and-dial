@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CheckCircle2,
   DollarSign,
   Globe,
   MapPin,
@@ -43,6 +44,10 @@ export function BuyNumberDialog() {
   const [country, setCountry] = useState<Country>("US");
   const [areaCode, setAreaCode] = useState("");
   const [results, setResults] = useState<AvailableNumber[] | null>(null);
+  // How many were bought from the current search — the dialog stays open so you
+  // can buy several in a row, so this drives a running tally + the "you've added
+  // them all" state once the list empties out.
+  const [purchased, setPurchased] = useState(0);
   const [searching, startSearch] = useTransition();
   const [buying, startBuy] = useTransition();
 
@@ -53,6 +58,7 @@ export function BuyNumberDialog() {
         toast.error(result.error);
         return;
       }
+      setPurchased(0);
       setResults(result.numbers);
     });
   }
@@ -68,10 +74,15 @@ export function BuyNumberDialog() {
       if (result.error) {
         toast.error(result.error);
       } else {
-        toast.success("Number purchased.");
-        setOpen(false);
-        setResults(null);
-        setAreaCode("");
+        toast.success(`${formatPhone(number.phoneNumber)} added to your pool.`);
+        // Keep the dialog + search open so a batch can be bought without
+        // re-searching each time; just drop the one we bought from the list.
+        setPurchased((n) => n + 1);
+        setResults((prev) =>
+          prev
+            ? prev.filter((n) => n.phoneNumber !== number.phoneNumber)
+            : prev,
+        );
       }
     });
   }
@@ -81,7 +92,10 @@ export function BuyNumberDialog() {
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setResults(null);
+        if (!next) {
+          setResults(null);
+          setPurchased(0);
+        }
       }}
     >
       <DialogTrigger asChild>
@@ -154,7 +168,10 @@ export function BuyNumberDialog() {
               <DialogSection
                 icon={<Phone className="size-3.5" />}
                 title="Available numbers"
-                description={`${results.length} ${results.length === 1 ? "number" : "numbers"} found. Click Buy to add it to your pool.`}
+                description={
+                  `${results.length} ${results.length === 1 ? "number" : "numbers"} available. Click Buy to add to your pool — the dialog stays open so you can add several in a row.` +
+                  (purchased > 0 ? ` ${purchased} added so far.` : "")
+                }
               >
                 <ul className="flex flex-col gap-2">
                   {results.map((number) => (
@@ -194,6 +211,18 @@ export function BuyNumberDialog() {
                   ))}
                 </ul>
               </DialogSection>
+            ) : purchased > 0 ? (
+              <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-8 text-center">
+                <CheckCircle2 className="size-6 text-emerald-600 dark:text-emerald-400" />
+                <p className="text-foreground text-sm font-medium">
+                  Added {purchased} {purchased === 1 ? "number" : "numbers"} to
+                  your pool
+                </p>
+                <p className="text-muted-foreground max-w-xs text-xs">
+                  That&apos;s everything from this search. Change the area code
+                  and search again to add more, or close this dialog.
+                </p>
+              </div>
             ) : (
               <div className="border-border flex flex-col items-center gap-2 rounded-lg border border-dashed py-8 text-center">
                 <SearchX className="text-muted-foreground size-6" />

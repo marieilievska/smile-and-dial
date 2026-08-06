@@ -286,15 +286,67 @@ export async function setPoolNumberRest(
   return { error: null };
 }
 
+/** The per-number half of a campaign move, shared by the single- and bulk-move
+ *  actions: re-stamp attached_campaign_id, sever any legacy single-number
+ *  pointer (campaigns.twilio_number_id) so a later campaign-settings save can't
+ *  re-claim it, and re-point the number's ElevenLabs inbound agent. The caller
+ *  has already checked admin and that the number is in-pool. EL is best-effort;
+ *  returns false only when the DB re-stamp itself fails. */
+async function applyCampaignMove(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  numberId: string,
+  campaignId: string,
+  agentElId: string | null,
+): Promise<boolean> {
+  const { error: updErr } = await supabase
+    .from("twilio_numbers")
+    .update({ attached_campaign_id: campaignId })
+    .eq("id", numberId);
+  if (updErr) return false;
+
+  await supabase
+    .from("campaigns")
+    .update({ twilio_number_id: null })
+    .eq("twilio_number_id", numberId);
+
+  // Re-point INBOUND to the destination campaign's agent. Import is idempotent
+  // (returns the existing EL phone-number id if already imported).
+  const imported = await ensureNumberImportedToElevenLabs(supabase, numberId);
+  if (imported.ok && agentElId) {
+    try {
+      await assignAgentToNumber(imported.phoneNumberId, agentElId);
+    } catch {
+      /* inbound assignment is best-effort */
+    }
+  }
+  return true;
+}
+
+/** The destination campaign's ElevenLabs agent id (for the inbound
+ *  re-assignment), or a "not found" flag so callers can 404 cleanly. */
+async function destinationAgentElId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  campaignId: string,
+): Promise<{ found: boolean; agentElId: string | null }> {
+  const { data: campaign } = await supabase
+    .from("campaigns")
+    .select("id, agent:agents(elevenlabs_agent_id)")
+    .eq("id", campaignId)
+    .maybeSingle();
+  if (!campaign) return { found: false, agentElId: null };
+  const agentElId =
+    (campaign.agent as { elevenlabs_agent_id: string | null } | null)
+      ?.elevenlabs_agent_id ?? null;
+  return { found: true, agentElId };
+}
+
 /**
  * Move a pool number from whatever campaign it's on to `campaignId`. Re-stamps
  * attached_campaign_id and re-points the number's ElevenLabs agent so INBOUND
  * callbacks reach the destination campaign's agent (OUTBOUND follows on its own —
- * the from-number is chosen per call by selectPoolNumber). Also severs any legacy
- * single-number pointer (campaigns.twilio_number_id) to this number so a later
- * campaign-settings save can't silently re-claim it. Warm-up / health state is
- * preserved — it's the same physical number. EL side is best-effort; the DB move
- * never fails on an EL hiccup (the numbers page has repair buttons).
+ * the from-number is chosen per call by selectPoolNumber). Warm-up / health state
+ * is preserved — it's the same physical number. EL side is best-effort; the DB
+ * move never fails on an EL hiccup (the numbers page has repair buttons).
  */
 export async function movePoolNumberToCampaign(
   numberId: string,
@@ -313,44 +365,69 @@ export async function movePoolNumberToCampaign(
     return { error: "This number is released — re-add it before moving." };
   }
 
-  // Destination campaign + its ElevenLabs agent (for the inbound re-assignment).
-  const { data: campaign } = await supabase
-    .from("campaigns")
-    .select("id, agent:agents(elevenlabs_agent_id)")
-    .eq("id", campaignId)
-    .maybeSingle();
-  if (!campaign) return { error: "Campaign not found." };
-  const agentElId =
-    (campaign.agent as { elevenlabs_agent_id: string | null } | null)
-      ?.elevenlabs_agent_id ?? null;
+  const { found, agentElId } = await destinationAgentElId(supabase, campaignId);
+  if (!found) return { error: "Campaign not found." };
 
-  const { error: updErr } = await supabase
-    .from("twilio_numbers")
-    .update({ attached_campaign_id: campaignId })
-    .eq("id", numberId);
-  if (updErr) return { error: "Could not move the number." };
-
-  // Sever any legacy single-number pointer so a later campaign-settings save
-  // can't re-claim this number (the field is otherwise unused by the dialer).
-  await supabase
-    .from("campaigns")
-    .update({ twilio_number_id: null })
-    .eq("twilio_number_id", numberId);
-
-  // Re-point INBOUND to the destination campaign's agent. Import is idempotent
-  // (returns the existing EL phone-number id if already imported).
-  const imported = await ensureNumberImportedToElevenLabs(supabase, numberId);
-  if (imported.ok && agentElId) {
-    try {
-      await assignAgentToNumber(imported.phoneNumberId, agentElId);
-    } catch {
-      /* inbound assignment is best-effort */
-    }
-  }
+  const ok = await applyCampaignMove(supabase, numberId, campaignId, agentElId);
+  if (!ok) return { error: "Could not move the number." };
 
   revalidatePath(NUMBERS_PATH);
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null };
+}
+
+/**
+ * Bulk version of movePoolNumberToCampaign: move several in-pool numbers to one
+ * campaign in a single action, so the numbers table can reassign a whole
+ * selection at once instead of one row at a time. Best-effort per number (one
+ * failure never aborts the rest); numbers that are released or already on the
+ * destination are silently skipped. Returns how many actually moved vs failed.
+ */
+export async function moveNumbersToCampaign(
+  numberIds: string[],
+  campaignId: string,
+): Promise<{ moved: number; failed: number; error: string | null }> {
+  const { supabase, error: adminError } = await requireAdmin();
+  if (adminError) return { moved: 0, failed: 0, error: adminError };
+
+  const ids = [...new Set(numberIds.filter(Boolean))];
+  if (ids.length === 0) {
+    return { moved: 0, failed: 0, error: "No numbers selected." };
+  }
+
+  const { found, agentElId } = await destinationAgentElId(supabase, campaignId);
+  if (!found) return { moved: 0, failed: 0, error: "Campaign not found." };
+
+  // Only in-pool numbers not already on the destination can move.
+  const { data: rows } = await supabase
+    .from("twilio_numbers")
+    .select("id, released_at, attached_campaign_id")
+    .in("id", ids);
+  const movable = (rows ?? []).filter(
+    (r) => !r.released_at && r.attached_campaign_id !== campaignId,
+  );
+
+  let moved = 0;
+  let failed = 0;
+  for (const r of movable) {
+    const ok = await applyCampaignMove(supabase, r.id, campaignId, agentElId);
+    if (ok) moved++;
+    else failed++;
+  }
+
+  revalidatePath(NUMBERS_PATH);
+  revalidatePath(CAMPAIGNS_PATH);
+  if (moved === 0) {
+    return {
+      moved,
+      failed,
+      error:
+        failed > 0
+          ? "Could not move the selected numbers."
+          : "Nothing to move — the selected numbers are already on that campaign (or released).",
+    };
+  }
+  return { moved, failed, error: null };
 }
 
 /** Suggest how many numbers to buy per area code so a campaign's leads are dialed
