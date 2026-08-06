@@ -18,7 +18,7 @@ const UUID_RE = /^[0-9a-f-]{36}$/i;
  * fetches it separately.
  */
 export const CALLS_SELECT =
-  "id, direction, call_mode, status, outcome, goal_met, started_at, answered_at, ended_at, duration_seconds, talk_time_seconds, recording_path, score, cost_breakdown, summary, dialed_target, created_at, lead:leads(id, company, business_phone, owner_id, decision_maker_reached), campaign:campaigns(id, name), agent:agents(id, name)";
+  "id, direction, call_mode, status, outcome, goal_met, started_at, answered_at, ended_at, duration_seconds, talk_time_seconds, recording_path, cost_breakdown, summary, dialed_target, created_at, lead:leads(id, company, business_phone, owner_id, decision_maker_reached), campaign:campaigns(id, name), agent:agents(id, name)";
 
 /** Columns the table allows sorting by. */
 export const SORT_KEYS = new Set<string>([
@@ -33,14 +33,6 @@ export const SORT_KEYS = new Set<string>([
 /** Read a single string value from Next.js search params. */
 export function str(value: string | string[] | undefined): string {
   return typeof value === "string" ? value : "";
-}
-
-/** Whether the calls view should show only not-yet-reviewed calls. True when a
- *  review-bucket filter is active and the operator hasn't switched to "show
- *  all" (`reviewed=all`). Shared by the table page and the select-all sweep so
- *  a bulk "mark reviewed" acts on exactly the rows shown. */
-export function isUnreviewedOnly(params: SearchParams): boolean {
-  return Boolean(str(params.review_flag)) && str(params.reviewed) !== "all";
 }
 
 /** Resolve the sort column and direction from search params. */
@@ -70,12 +62,7 @@ export function applyCallFilters<
     gte(column: string, value: string | number): Q;
     lte(column: string, value: string | number): Q;
   },
->(
-  query: Q,
-  params: SearchParams,
-  searchLeadIds?: string[],
-  reviewCallIds?: string[],
-): Q {
+>(query: Q, params: SearchParams, searchLeadIds?: string[]): Q {
   if (searchLeadIds !== undefined) {
     // Empty array → no calls match. PostgREST's `.in("col", [])` is buggy
     // (matches everything), so guard with a sentinel uuid.
@@ -83,17 +70,6 @@ export function applyCallFilters<
       "lead_id",
       searchLeadIds.length > 0
         ? searchLeadIds
-        : ["00000000-0000-0000-0000-000000000000"],
-    );
-  }
-
-  if (reviewCallIds !== undefined) {
-    // Same empty-set sentinel guard as searchLeadIds: an empty `.in([])`
-    // matches everything in PostgREST, so a no-match must use a dummy uuid.
-    query = query.in(
-      "id",
-      reviewCallIds.length > 0
-        ? reviewCallIds
         : ["00000000-0000-0000-0000-000000000000"],
     );
   }
@@ -166,10 +142,9 @@ export function buildCallsQuery(
   supabase: SupabaseServerClient,
   params: SearchParams,
   searchLeadIds?: string[],
-  reviewCallIds?: string[],
 ) {
   const query = supabase.from("calls").select(CALLS_SELECT, { count: "exact" });
-  return applyCallFilters(query, params, searchLeadIds, reviewCallIds);
+  return applyCallFilters(query, params, searchLeadIds);
 }
 
 /**

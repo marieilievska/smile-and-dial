@@ -21,16 +21,7 @@ import {
   serializeScope,
   type ReportScope,
 } from "@/lib/agent-analytics/scope";
-import {
-  fetchReviewBuckets,
-  fetchCandidateFlags,
-  fetchChecklistFlags,
-} from "@/lib/review/buckets";
-import { fetchAgentPlaybooks } from "@/lib/review/playbook-data";
 
-import { CallReviewTable } from "./call-review-table";
-import { AgentPlaybookPanel } from "./agent-playbook-panel";
-import { AiChecklistPanel } from "./ai-checklist-panel";
 import { ChangelogTable } from "./changelog-table";
 import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
@@ -160,8 +151,6 @@ export default async function AgentAnalyticsPage({
           sentimentKey={detected.sentimentKey}
           sentimentValues={detected.sentimentValues}
         />
-      ) : tab === "call-review" ? (
-        <CallReviewTab />
       ) : tab === "voice" ? (
         <VoiceTab scope={scope} detected={detected} slug={slug} />
       ) : tab === "hot-leads" ? (
@@ -216,33 +205,6 @@ async function DashboardTab({
       scopeSlug={slug}
       sentimentValues={sentimentValues}
     />
-  );
-}
-
-async function CallReviewTab() {
-  const supabase = await createClient();
-  const [{ summary, buckets }, candidates, checklist, playbooks] =
-    await Promise.all([
-      fetchReviewBuckets(supabase),
-      fetchCandidateFlags(supabase),
-      fetchChecklistFlags(supabase),
-      fetchAgentPlaybooks(supabase),
-    ]);
-  return (
-    <div className="flex flex-col gap-8">
-      <section className="flex flex-col gap-3">
-        <h2 className="text-foreground text-base font-semibold">
-          Review flagged calls
-        </h2>
-        <CallReviewTable summary={summary} buckets={buckets} />
-      </section>
-      <section className="flex flex-col gap-3">
-        <AgentPlaybookPanel playbooks={playbooks} />
-      </section>
-      <section className="flex flex-col gap-3">
-        <AiChecklistPanel flags={checklist} candidates={candidates} />
-      </section>
-    </div>
   );
 }
 

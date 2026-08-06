@@ -158,16 +158,3 @@ export function callbackStatusBadgeVariant(
       return "secondary";
   }
 }
-
-// ── Score tone ──────────────────────────────────────────────────────
-
-/** Tailwind text-color tone for a call's 0–10 score so a good call
- *  reads at a glance instead of as a bare decimal. 8+ = strong
- *  (emerald), 5–7.9 = okay (amber), below 5 = weak (rose). Null scores
- *  stay muted. */
-export function scoreTone(score: number | null): string {
-  if (score == null) return "text-muted-foreground";
-  if (score >= 8) return "text-emerald-600 dark:text-emerald-400";
-  if (score >= 5) return "text-amber-600 dark:text-amber-400";
-  return "text-rose-600 dark:text-rose-400";
-}

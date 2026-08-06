@@ -48,7 +48,6 @@ export type CallDetail = {
    *  when recording_path is a storage object, or the stored URL as-is for
    *  legacy rows that kept a full ElevenLabs URL. null when no recording. */
   recordingUrl: string | null;
-  score: number | null;
   summary: string | null;
   transcript: TranscriptTurn[];
   extractedData: Record<string, unknown> | null;
@@ -87,7 +86,7 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
     .select(
       "id, direction, status, outcome, outcome_source, goal_met, " +
         "started_at, answered_at, ended_at, duration_seconds, talk_time_seconds, " +
-        "recording_path, score, summary, transcript_json, extracted_data, " +
+        "recording_path, summary, transcript_json, extracted_data, " +
         "cost_breakdown, twilio_call_sid, elevenlabs_conversation_id, " +
         "lead:leads(id, company, business_phone), " +
         "campaign:campaigns(name), agent:agents(name, elevenlabs_agent_id)",
@@ -112,7 +111,6 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
     duration_seconds: number | null;
     talk_time_seconds: number | null;
     recording_path: string | null;
-    score: number | string | null;
     summary: string | null;
     transcript_json: unknown;
     extracted_data: unknown;
@@ -224,7 +222,6 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
       talkTimeSeconds: data.talk_time_seconds,
       recordingPath: data.recording_path,
       recordingUrl,
-      score: data.score == null ? null : Number(data.score),
       summary: data.summary,
       transcript,
       extractedData: (data.extracted_data ?? null) as Record<
