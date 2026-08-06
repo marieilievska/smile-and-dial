@@ -156,16 +156,23 @@ export default async function AnalyticsPage({
     connect: stepRate(leadFunnel, 1),
     conversation: stepRate(leadFunnel, 2),
     dm: stepRate(leadFunnel, 3),
-    goal: stepRate(leadFunnel, 4),
   };
   const priorRates = priorLeadFunnel
     ? {
         connect: stepRate(priorLeadFunnel, 1),
         conversation: stepRate(priorLeadFunnel, 2),
         dm: stepRate(priorLeadFunnel, 3),
-        goal: stepRate(priorLeadFunnel, 4),
       }
     : null;
+  // Goals met is reported beside the funnel as two fields — a total and the
+  // decision-maker subset — each with its own conversion rate. Denominators are
+  // the funnel's distinct-lead stages, so each tile % reconciles with the bars
+  // above (goals ⊆ conversations and goals-with-DM ⊆ DMs, so both stay ≤ 100%).
+  const convStage = leadFunnel[2]?.count ?? 0;
+  const dmStage = leadFunnel[3]?.count ?? 0;
+  const goalRateOfConversations =
+    convStage === 0 ? 0 : kpis.goalMet / convStage;
+  const goalWithDmRateOfDms = dmStage === 0 ? 0 : kpis.goalMetWithDm / dmStage;
   const outcomeBuckets = outcomeDistribution(rows);
   const campaignNames = new Map(
     (campaigns ?? []).map((c) => [c.id, c.name] as const),
@@ -249,7 +256,9 @@ export default async function AnalyticsPage({
            *  step-over-step conversion rates pulled out beneath it. */}
           <AnalyticsFunnel steps={leadFunnel} />
 
-          <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {/* Funnel step conversion rates — how cleanly business→business moves
+           *  through the chain shown above. */}
+          <section className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <KpiTile
               label="Connect rate"
               value={fmtPct(rates.connect)}
@@ -278,12 +287,30 @@ export default async function AnalyticsPage({
                 priorRates ? pctDelta(rates.dm, priorRates.dm) : undefined
               }
             />
+          </section>
+
+          {/* Goals met — the outcome, as two distinct fields: the total, and the
+           *  subset where we also reached the decision-maker. Kept OUT of the
+           *  funnel above because a goal can be met without reaching the DM (a
+           *  gatekeeper books it, a survey is completed), so goals are not a
+           *  subset of decision-makers. */}
+          <section className="grid grid-cols-2 gap-3">
             <KpiTile
-              label="Goal rate"
-              value={fmtPct(rates.goal)}
-              hint="Of decision-makers reached, goal met"
+              label="Goals met"
+              value={kpis.goalMet.toLocaleString()}
+              hint={`${fmtPct(goalRateOfConversations)} of conversations`}
               pctDelta={
-                priorRates ? pctDelta(rates.goal, priorRates.goal) : undefined
+                prior ? pctDelta(kpis.goalMet, prior.goalMet) : undefined
+              }
+            />
+            <KpiTile
+              label="Goals met · decision-makers"
+              value={kpis.goalMetWithDm.toLocaleString()}
+              hint={`${fmtPct(goalWithDmRateOfDms)} of decision-makers reached`}
+              pctDelta={
+                prior
+                  ? pctDelta(kpis.goalMetWithDm, prior.goalMetWithDm)
+                  : undefined
               }
             />
           </section>

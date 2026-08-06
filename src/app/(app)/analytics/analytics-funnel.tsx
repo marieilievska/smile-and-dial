@@ -2,9 +2,11 @@ import type { FunnelStep } from "@/lib/analytics/stats";
 
 /** The per-business conversion funnel hero. Each stage is a horizontal bar
  *  whose width is its share of the top stage ("Called"), with the count and the
- *  step-over-step conversion to its right. The final stage (Goals met) is tinted
- *  green. Plain divs — no charting dependency. Stage counts come from
- *  buildLeadFunnel (distinct leads), so the bars narrow cleanly. */
+ *  step-over-step conversion to its right. The chain ends at "Decision-makers
+ *  reached" — goals met is reported separately, not as a funnel step, because a
+ *  goal isn't a subset of reaching the decision-maker. Plain divs — no charting
+ *  dependency. Stage counts come from buildLeadFunnel (distinct leads), so the
+ *  bars narrow cleanly. */
 export function AnalyticsFunnel({ steps }: { steps: FunnelStep[] }) {
   const top = steps[0]?.count ?? 0;
   const last = steps[steps.length - 1]?.count ?? 0;
@@ -19,7 +21,7 @@ export function AnalyticsFunnel({ steps }: { steps: FunnelStep[] }) {
           Conversion funnel
         </h2>
         <p className="text-muted-foreground text-xs tabular-nums">
-          per business · {overallPct.toFixed(1)}% dial → goal
+          per business · {overallPct.toFixed(1)}% dial → decision-maker
         </p>
       </div>
       <div className="flex flex-col gap-4">
@@ -30,17 +32,12 @@ export function AnalyticsFunnel({ steps }: { steps: FunnelStep[] }) {
             prev && prev.count > 0
               ? Math.round((s.count / prev.count) * 100)
               : null;
-          const isGoal = i === steps.length - 1;
           return (
             <div key={s.label}>
               <div className="mb-1.5 flex items-baseline justify-between gap-3">
                 <span className="text-muted-foreground text-sm">{s.label}</span>
                 <span className="text-sm">
-                  <span
-                    className={`font-medium tabular-nums ${
-                      isGoal ? "text-success" : "text-foreground"
-                    }`}
-                  >
+                  <span className="text-foreground font-medium tabular-nums">
                     {s.count.toLocaleString()}
                   </span>
                   {stepPct != null && prev ? (
@@ -56,7 +53,7 @@ export function AnalyticsFunnel({ steps }: { steps: FunnelStep[] }) {
                   className="h-full rounded-full transition-[width] duration-300"
                   style={{
                     width: `${Math.max(s.count > 0 ? 2 : 0, widthPct)}%`,
-                    background: isGoal ? "var(--success)" : "var(--primary)",
+                    background: "var(--primary)",
                   }}
                 />
               </div>
