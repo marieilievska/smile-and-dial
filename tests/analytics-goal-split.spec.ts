@@ -9,10 +9,12 @@ test.describe.configure({ mode: "serial" });
  * Goal-rate redesign (fix/analytics-goal-rate-dm-capture).
  *
  * Locks in the fix for the "Goal rate stuck at 100%" bug:
- *  - "Goals met" and "Goals met · decision-makers" are two SEPARATE fields.
+ *  - Goals met is shown as the funnel card's "Outcome" block: a total and the
+ *    decision-maker subset, as two distinct values.
  *  - There is no single "Goal rate" (goals ÷ decision-makers) tile any more.
- *  - The funnel ends at "Decision-makers reached" — goals are not a funnel step,
- *    so no step can read >100%.
+ *  - The funnel STEPS end at "Decision-makers reached" — goals are a separate
+ *    Outcome block on its own baseline, not a funnel step, so no step reads
+ *    >100%.
  *
  * The page reads each lead's sticky decision_maker_reached flag, so the seed
  * sets that flag directly (what the post-call webhook now does — including for a
@@ -188,31 +190,31 @@ test.describe("Analytics goal split", () => {
     if (listId) await admin.from("lists").delete().eq("id", listId);
   });
 
-  test("shows goals met total and the decision-maker subset as two fields", async ({
+  test("shows goals met total and the decision-maker subset in the funnel outcome", async ({
     page,
   }) => {
     await page.goto(
       `/analytics?preset=custom&from=${daysAgoStr(29)}&to=${todayStr()}&list=${listId}&compare=0`,
     );
 
+    const funnel = page.getByTestId("analytics-funnel");
+    await expect(funnel).toContainText("Outcome");
     // Two goal met = leads A and B.
+    await expect(funnel.getByTestId("funnel-goals-met")).toContainText("2");
+    // One of them (lead A) also reached the decision-maker.
+    await expect(funnel.getByTestId("funnel-goals-met-dm")).toContainText("1");
+
+    // Goals met now lives in the funnel's Outcome block, not as standalone tiles.
     await expect(
       page.locator('[data-testid="kpi-tile"][data-label="Goals met"]'),
-    ).toContainText("2");
-    // One of them (lead A) also reached the decision-maker.
-    await expect(
-      page.locator(
-        '[data-testid="kpi-tile"][data-label="Goals met · decision-makers"]',
-      ),
-    ).toContainText("1");
-
+    ).toHaveCount(0);
     // The old single "Goal rate" (goals ÷ decision-makers) tile is gone.
     await expect(
       page.locator('[data-testid="kpi-tile"][data-label="Goal rate"]'),
     ).toHaveCount(0);
   });
 
-  test("funnel ends at decision-makers, with no goals step over 100%", async ({
+  test("funnel steps end at decision-makers; goals are a separate outcome, no step over 100%", async ({
     page,
   }) => {
     await page.goto(
@@ -220,8 +222,12 @@ test.describe("Analytics goal split", () => {
     );
     const funnel = page.getByTestId("analytics-funnel");
     await expect(funnel).toContainText("Decision-makers reached");
-    // Goals met is reported beside the funnel, not as a funnel stage.
-    await expect(funnel).not.toContainText("Goals met");
+    // Goals met is in the funnel card, but as a separate Outcome block on its
+    // own baseline — the DM value is measured against goals met, not chained
+    // after the DM stage — so no funnel step reads over 100%.
+    await expect(funnel.getByTestId("funnel-goals-met-dm")).toContainText(
+      "of goals met",
+    );
     // Decision-maker reached = leads A + C, so the rate is real, not 0.
     await expect(
       page.locator(
