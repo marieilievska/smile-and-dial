@@ -680,6 +680,7 @@ export async function runDialerTick(
         business_phone: c.business_phone,
         is_redial: c.is_redial_due,
         redial_number_id: c.redial_number_id,
+        is_callback: c.dial_priority === 0,
       });
       if (res.callId) {
         summary.dialed++;
@@ -738,6 +739,10 @@ async function placeLiveDialerCall(
     business_phone: string | null;
     is_redial?: boolean;
     redial_number_id?: string | null;
+    /** A scheduled callback (dial_priority 0): bypass the per-number warm-up/
+     *  daily cap when picking a from-number so a booked promise still dials
+     *  even when cold-call volume has capped the pool. */
+    is_callback?: boolean;
   },
 ): Promise<LivePlaceResult> {
   if (!c.business_phone) return { callId: null };
@@ -773,6 +778,7 @@ async function placeLiveDialerCall(
       c.campaign_id,
       c.business_phone,
       c.lead_id, // stable spread key
+      c.is_callback === true, // callbacks bypass the per-number cap
     ));
   // Deliberately NOT logged to system_events. A capped pool is routine
   // throttling, not an event worth auditing: this runs once per blocked lead

@@ -204,8 +204,7 @@ from (
       )
     )
 ) q
-order by
-  q.dial_priority,
+order by q.dial_priority,
   q.is_redial_due desc,
   q.dest_rank,
   q.local_match_rank,
