@@ -14,6 +14,7 @@ import {
 import { finalizeFailedCall } from "@/lib/dialer/retry-engine";
 import { isCampaignLevelBlock } from "@/lib/dialer/block-scope";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
+import { sweepStuckCallbacks } from "@/lib/callbacks/sweep";
 
 import { type PreCallReason } from "./queue";
 
@@ -37,6 +38,10 @@ export type TickSummary = {
   /** Set when there were more active campaigns than MAX_CAMPAIGN_FANOUT, so
    *  some got no candidates at all this tick. Never silently truncate. */
   campaignsSkippedForFanoutCap?: number;
+  /** Stuck-callback cleanup this tick: zombie callbacks cancelled (lead went
+   *  terminal/deleted) + mis-statused dialable leads re-parked as callbacks.
+   *  Best-effort — a sweep failure never breaks the tick. */
+  callbacksSwept?: { cancelled: number; resynced: number };
   liveMode: { twilio: boolean; elevenlabs: boolean };
 };
 
@@ -470,6 +475,16 @@ export async function runDialerTick(
   // webhook can't permanently consume the owner's concurrency cap.
   await closeStaleActiveCalls(supabase);
 
+  // Unstick callbacks: cancel zombies (lead went terminal/deleted with a
+  // pending callback) and re-park mis-statused dialable leads as callbacks.
+  // Best-effort — cleanup must never stop dialing.
+  let callbacksSwept: { cancelled: number; resynced: number } | undefined;
+  try {
+    callbacksSwept = await sweepStuckCallbacks(supabase);
+  } catch {
+    /* swallow — a sweep failure must not break the tick */
+  }
+
   // Light filter pass: leads currently eligible to dial, read with a fair share
   // per active campaign (see readFairQueue for why this is not one global read).
   // Scheduled callbacks (dial_priority = 0) still jump ahead of cold leads
@@ -508,6 +523,7 @@ export async function runDialerTick(
     skippedCampaignBlocked: 0,
     campaignsRead: fair.campaignsRead,
     candidatesByCampaign,
+    callbacksSwept,
     liveMode: { twilio: twilioLive, elevenlabs: elevenLive },
   };
   if (fair.campaignsSkippedForFanoutCap > 0) {
