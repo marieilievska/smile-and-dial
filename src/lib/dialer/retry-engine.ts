@@ -479,8 +479,10 @@ export async function finalizeFailedCall(
  *   2nd VM → schedule next day same time-of-day
  *   3rd VM → mark callback `missed`, move lead to resting for 15 days
  *
- * Reads + bumps `callbacks.voicemail_attempts` on the most recent pending
- * callback for the lead. Mutates the passed `update` patch in place. Returns
+ * Reads + bumps `callbacks.voicemail_attempts` on the EARLIEST pending callback
+ * for the lead — the one the dialer actually places (it dials MIN(scheduled_at)).
+ * Escalating the latest instead would strand the earliest and loop it on
+ * voicemail forever. Mutates the passed `update` patch in place. Returns
  * true when an active callback was found (and escalation was applied);
  * false when no pending callback exists (caller falls back to the standard
  * retry cycle).
@@ -496,7 +498,7 @@ async function escalateCallbackVoicemail(
     .select("id, scheduled_at, voicemail_attempts")
     .eq("lead_id", leadId)
     .eq("status", "pending")
-    .order("scheduled_at", { ascending: false })
+    .order("scheduled_at", { ascending: true })
     .limit(1)
     .maybeSingle();
   if (!callback) return false;
@@ -545,9 +547,19 @@ async function escalateCallbackVoicemail(
     })
     .eq("id", callback.id);
 
-  // Lead stays in 'callback' status; just bump next_call_at to match.
+  // Lead stays in 'callback'. Re-point next_call_at at its EARLIEST pending
+  // callback: rescheduling the one we just dialed (+30min / next day) can move
+  // it behind another still-pending callback, and the dialer keys off MIN.
+  const { data: earliest } = await supabase
+    .from("callbacks")
+    .select("scheduled_at")
+    .eq("lead_id", leadId)
+    .eq("status", "pending")
+    .order("scheduled_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
   update.status = "callback";
-  update.next_call_at = next;
+  update.next_call_at = earliest?.scheduled_at ?? next;
   update.resting_until = null;
   return true;
 }
