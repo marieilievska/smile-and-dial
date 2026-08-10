@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, Json } from "@/lib/supabase/database.types";
 
-import { EMPTY_RECIPE, type RecipeNode } from "./recipe";
+import { type RecipeNode } from "./recipe";
 
 type DB = SupabaseClient<Database>;
 
@@ -39,20 +39,4 @@ export async function runFilterRpc(
     if (from > 100_000) break; // safety backstop
   }
   return { ids: all, error: null };
-}
-
-/** Resolve the `recipe` param to matching lead ids, or null when there's no
- *  effective recipe (absent, unparseable, or an empty top-level group). */
-export async function resolveRecipeIds(
-  supabase: DB,
-  raw: string | undefined,
-): Promise<string[] | null> {
-  const recipe = parseRecipeParam(raw);
-  if (!recipe) return null;
-  const empty =
-    JSON.stringify(recipe) === JSON.stringify(EMPTY_RECIPE) ||
-    ("children" in recipe && recipe.children.length === 0);
-  if (empty) return null;
-  const { ids } = await runFilterRpc(supabase, recipe);
-  return ids;
 }

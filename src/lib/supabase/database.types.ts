@@ -2417,6 +2417,56 @@ export type Database = {
           };
       j_num: { Args: { j: Json; k: string }; Returns: number };
       leads_matching_filter: { Args: { in_recipe: Json }; Returns: string[] };
+      leads_matching_filter_rows: {
+        Args: { in_recipe: Json };
+        Returns: {
+          business_email: string | null;
+          business_phone: string | null;
+          calendly_event_uri: string | null;
+          call_attempts: number;
+          call_back_later_count: number;
+          category: string | null;
+          city: string | null;
+          company: string | null;
+          conversations: number;
+          created_at: string;
+          decision_maker_reached: boolean;
+          deleted_at: string | null;
+          employee_name: string | null;
+          google_place_id: string | null;
+          google_rating: number | null;
+          google_reviews: number | null;
+          id: string;
+          last_call_at: string | null;
+          line_type: string | null;
+          list_id: string;
+          manager_name: string | null;
+          meta_synced_at: string | null;
+          mobile_phone: string | null;
+          next_call_at: string | null;
+          owner_campaign_id: string | null;
+          owner_id: string;
+          owner_name: string | null;
+          owner_phone: string | null;
+          redial_at: string | null;
+          redial_number_id: string | null;
+          resting_until: string | null;
+          retry_counter: number;
+          retry_position: number;
+          state: string | null;
+          status: string;
+          timezone: string | null;
+          updated_at: string;
+          utm_campaign: string | null;
+          website: string | null;
+        }[];
+        SetofOptions: {
+          from: "*";
+          to: "leads";
+          isOneToOne: false;
+          isSetofReturn: true;
+        };
+      };
       merge_inbound_lead: {
         Args: {
           in_actor: string;

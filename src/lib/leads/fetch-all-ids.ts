@@ -3,8 +3,8 @@ import type { createClient } from "@/lib/supabase/server";
 import {
   applyLeadFilters,
   calledFilterActive,
+  leadsIdSource,
   LEADS_SELECT,
-  resolveRestrictLeadIds,
 } from "@/app/(app)/leads/leads-query";
 import type { SearchParams } from "@/app/(app)/leads/leads-url";
 
@@ -51,25 +51,23 @@ export async function fetchAllMatchingLeadIds(
   const ids: string[] = [];
   let lastId: string | null = null;
 
-  // Resolve the combined id restriction (Connected filter + advanced recipe)
-  // once, before paging.
-  const restrictLeadIds = await resolveRestrictLeadIds(supabase, params);
+  // Both the recipe and the Called filter are applied DB-side by the source /
+  // its embed (see leadsIdSource + applyLeadFilters) — no giant id-list URL.
+  const select = calledFilterActive(params)
+    ? "id, _call:calls!inner(id)"
+    : "id";
 
   for (;;) {
     let query = applyLeadFilters(
-      (calledFilterActive(params)
-        ? supabase.from("leads").select("id, _call:calls!inner(id)")
-        : supabase.from("leads").select("id")
-      ).is("deleted_at", null),
+      leadsIdSource(supabase, params, select),
       params,
-      restrictLeadIds,
     ).order("id", { ascending: true });
     if (lastId !== null) query = query.gt("id", lastId);
 
     const { data, error } = await query.limit(PAGE_SIZE);
     if (error) return { ids: [], truncated: false, error: error.message };
 
-    const page = (data ?? []) as { id: string }[];
+    const page = (data ?? []) as unknown as { id: string }[];
     for (const row of page) ids.push(row.id);
 
     // A short page means we've consumed the whole result set.
