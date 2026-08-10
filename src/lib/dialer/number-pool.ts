@@ -58,6 +58,26 @@ export function effectiveDailyCap(input: {
   return Math.max(warmupStartCap, Math.round(ramped));
 }
 
+/** The cap to apply to a candidate number for THIS dial. A scheduled callback
+ *  bypasses the per-number daily/warm-up cap entirely: it is a promise to a
+ *  specific person at a specific time, so it must not sit blocked behind cold-
+ *  call volume, and the handful of extra dials a callback adds won't flag a
+ *  number. The other health gates (released / flagged / rested / not-imported)
+ *  still apply upstream in selectPoolNumber, so a callback never dials from an
+ *  unhealthy number — it only ignores the volume ceiling. Cold dials keep the
+ *  warm-up ramp unchanged. Pure. */
+export function dialCap(input: {
+  matureCap: number;
+  warmupStartCap: number;
+  warmupDays: number;
+  warmupStartedAt: string | null;
+  now: number;
+  bypassCap: boolean;
+}): number {
+  if (input.bypassCap) return UNCAPPED;
+  return effectiveDailyCap(input);
+}
+
 export type PoolCandidate = {
   id: string;
   elevenlabsPhoneNumberId: string;
@@ -149,6 +169,7 @@ export async function selectPoolNumber(
   campaignId: string,
   leadPhone: string | null,
   spreadKey: string,
+  bypassCap = false,
 ): Promise<ResolvedPoolNumber | null> {
   const nowIso = new Date().toISOString();
   const [{ data: nums }, settings] = await Promise.all([
@@ -192,12 +213,13 @@ export async function selectPoolNumber(
     elevenlabsPhoneNumberId: n.elevenlabs_phone_number_id,
     areaCode: n.area_code,
     calls24h: counts.get(n.id) ?? 0,
-    effectiveCap: effectiveDailyCap({
+    effectiveCap: dialCap({
       matureCap: n.daily_cap_override ?? settings.daily_cap,
       warmupStartCap: settings.warmup_start_cap,
       warmupDays: settings.warmup_days,
       warmupStartedAt: n.warmup_started_at,
       now,
+      bypassCap,
     }),
     connectRate: n.last_connect_rate_24h,
   }));
