@@ -29,12 +29,7 @@ import { LeadRow } from "./lead-row";
 import { LeadRowActions } from "./lead-row-actions";
 import { LeadsFilters } from "./leads-filters";
 import { LeadsStatStrip } from "./leads-stat-strip";
-import {
-  buildLeadsQuery,
-  parseSort,
-  resolveRestrictLeadIds,
-  str,
-} from "./leads-query";
+import { buildLeadsQuery, parseSort, str } from "./leads-query";
 import { AdvancedFilters } from "./advanced-filters";
 import { FilterBuilder } from "./filter-builder";
 import { LeadsSearchHint } from "./search-hint";
@@ -73,11 +68,9 @@ export default async function LeadsPage({
   if (!user) redirect("/login");
 
   const offset = (page - 1) * pageSize;
-  // Resolve the combined id restriction (Connected filter + advanced recipe)
-  // first (a plain array), then pass it into the synchronous query builder.
-  const restrictLeadIds = await resolveRestrictLeadIds(supabase, params);
   // Run the table query + the stat strip + lookups in parallel — none
-  // of them depend on each other.
+  // of them depend on each other. The advanced-filter recipe is applied DB-side
+  // by buildLeadsQuery (via leads_matching_filter_rows), not a lead-id list.
   const [
     { data: leadsData, count: leadsCount },
     stats,
@@ -85,7 +78,7 @@ export default async function LeadsPage({
     { data: me },
     { data: cfDefs },
   ] = await Promise.all([
-    buildLeadsQuery(supabase, params, restrictLeadIds)
+    buildLeadsQuery(supabase, params)
       .order(sort, { ascending: dir === "asc" })
       .order("id", { ascending: true })
       .range(offset, offset + pageSize - 1),

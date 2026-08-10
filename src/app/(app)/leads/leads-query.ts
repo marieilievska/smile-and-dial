@@ -1,4 +1,6 @@
-import { resolveRecipeIds } from "@/lib/smart-lists/resolve";
+import type { RecipeNode } from "@/lib/smart-lists/recipe";
+import { parseRecipeParam } from "@/lib/smart-lists/resolve";
+import type { Json } from "@/lib/supabase/database.types";
 import type { createClient } from "@/lib/supabase/server";
 import { endOfEtDayUtcIso, etDayRangeUtc } from "@/lib/time/eastern";
 
@@ -47,20 +49,46 @@ export function calledFilterActive(params: SearchParams): boolean {
 }
 
 /**
- * The lead-id restriction for the Leads view: the advanced-filter recipe (smart
- * lists), if active. Returns null when no recipe is active (don't constrain).
+ * The active advanced-filter recipe from the URL, or null when there's no
+ * effective recipe (absent, unparseable, or an empty top-level group).
  *
- * NOTE: the "Connected" filter is deliberately NOT resolved to ids here — it's
- * applied DB-side as a PostgREST inner-join embed (see `applyLeadFilters` +
- * `buildLeadsQuery`). Resolving it to ids and passing them to `.in("id", …)`
- * overflowed the request URL once a few hundred leads qualified (≈639 ids →
- * a 23 KB URL the server rejects), so the filter silently returned nothing.
+ * The recipe is applied DB-side by the query SOURCE (`leadsFilterSource` /
+ * `leadsIdSource` → the `leads_matching_filter_rows` function), NOT resolved to
+ * a lead-id list. Passing thousands of matching ids to `.in("id", …)` overflowed
+ * the request URL (HTTP 414 "Request-URI Too Large") once a filter matched a few
+ * hundred leads, so the Leads page silently returned nothing at scale. The
+ * "Connected" filter is likewise applied DB-side, as a PostgREST inner-join
+ * embed (see `applyLeadFilters`).
  */
-export async function resolveRestrictLeadIds(
+export function activeRecipe(params: SearchParams): RecipeNode | null {
+  const recipe = parseRecipeParam(str(params.recipe));
+  if (!recipe) return null;
+  if ("children" in recipe && recipe.children.length === 0) return null;
+  return recipe;
+}
+
+/**
+ * id-only base query for Leads scans (prev/next siblings, select-all/export):
+ * the recipe applied DB-side via the `leads_matching_filter_rows` RPC source
+ * when active, else the `leads` table. The row shape is id-only, so a runtime
+ * `select` string is fine. Any column used in a later `.order(...)` must also
+ * appear in `select` — over the RPC source PostgREST rejects ordering by an
+ * unselected column.
+ */
+export function leadsIdSource(
   supabase: SupabaseServerClient,
   params: SearchParams,
-): Promise<string[] | null> {
-  return resolveRecipeIds(supabase, str(params.recipe));
+  select: string,
+) {
+  const recipe = activeRecipe(params);
+  const base = recipe
+    ? supabase
+        .rpc("leads_matching_filter_rows", {
+          in_recipe: recipe as unknown as Json,
+        })
+        .select(select)
+    : supabase.from("leads").select(select);
+  return base.is("deleted_at", null);
 }
 
 /** Apply the Leads page search + filters to any leads query builder,
@@ -73,19 +101,14 @@ export function applyLeadFilters<
     eq(column: string, value: string): Q;
     gte(column: string, value: string): Q;
     lte(column: string, value: string): Q;
-    in(column: string, values: readonly string[]): Q;
   },
->(query: Q, params: SearchParams, restrictLeadIds: string[] | null = null): Q {
-  // Id-set restriction (the advanced-filter recipe): the caller resolves the
-  // matching lead ids and passes them in. null = no restriction; [] = a
-  // restriction that matched nothing → zero rows.
-  if (restrictLeadIds !== null) query = query.in("id", restrictLeadIds);
-
-  // The "Called" filter (≥1 call attempt) is applied purely by the inner-join
-  // embed the caller adds to its SELECT (`_call:calls!inner(id)`): an inner join
-  // returns only leads that have a related call. Done DB-side so we never build a
-  // giant id-list URL (the bug that made this filter return nothing at scale).
-  // No outcome filter — any call counts.
+>(query: Q, params: SearchParams): Q {
+  // Both the advanced-filter recipe and the "Called" filter are applied DB-side
+  // by the query SOURCE, never as filters here: the recipe via
+  // `leads_matching_filter_rows` (see `buildLeadsQuery`/`leadsIdSource`), and
+  // "Called" (≥1 call attempt) via the `_call:calls!inner(id)` inner-join embed
+  // the caller adds to its SELECT. Keeping both off the request URL is what fixed
+  // the giant `.in("id", …)` the server rejected (HTTP 414) at scale.
 
   // Search across company, phone, and email.
   const search = str(params.q);
@@ -131,21 +154,30 @@ export function applyLeadFilters<
 export function buildLeadsQuery(
   supabase: SupabaseServerClient,
   params: SearchParams,
-  restrictLeadIds: string[] | null = null,
 ) {
-  // When the Called filter is on, the SELECT carries an inner-join embed on
-  // `calls` so only leads with ≥1 call attempt come back. The two branches keep
-  // their literal SELECT so Supabase still infers the row type.
-  const query = calledFilterActive(params)
-    ? supabase
-        .from("leads")
-        .select(`${LEADS_SELECT}, _call:calls!inner(id)`, { count: "exact" })
-        .is("deleted_at", null)
-    : supabase
-        .from("leads")
-        .select(LEADS_SELECT, { count: "exact" })
-        .is("deleted_at", null);
-  return applyLeadFilters(query, params, restrictLeadIds);
+  // Source: the advanced-filter recipe applied DB-side via
+  // `leads_matching_filter_rows` when active, else the `leads` table. Count is
+  // requested on the source — its placement differs between the RPC (3rd arg)
+  // and the table (`.select` options). When the Called filter is on, the SELECT
+  // carries an inner-join embed on `calls` so only leads with ≥1 call attempt
+  // come back. Each branch keeps a literal SELECT so Supabase infers the row
+  // type.
+  const recipe = activeRecipe(params);
+  const args = recipe ? { in_recipe: recipe as unknown as Json } : null;
+  const base = calledFilterActive(params)
+    ? args
+      ? supabase
+          .rpc("leads_matching_filter_rows", args, { count: "exact" })
+          .select(`${LEADS_SELECT}, _call:calls!inner(id)`)
+      : supabase
+          .from("leads")
+          .select(`${LEADS_SELECT}, _call:calls!inner(id)`, { count: "exact" })
+    : args
+      ? supabase
+          .rpc("leads_matching_filter_rows", args, { count: "exact" })
+          .select(LEADS_SELECT)
+      : supabase.from("leads").select(LEADS_SELECT, { count: "exact" });
+  return applyLeadFilters(base.is("deleted_at", null), params);
 }
 
 /** Most leads we'll scan to locate a lead's neighbours for prev/next on the
@@ -178,19 +210,21 @@ export async function fetchLeadSiblings(
   currentId: string,
 ): Promise<LeadSiblings> {
   const { sort, dir } = parseSort(params);
-  const restrictLeadIds = await resolveRestrictLeadIds(supabase, params);
-  const base = calledFilterActive(params)
-    ? supabase
-        .from("leads")
-        .select("id, _call:calls!inner(id)")
-        .is("deleted_at", null)
-    : supabase.from("leads").select("id").is("deleted_at", null);
-  const { data } = await applyLeadFilters(base, params, restrictLeadIds)
+  // Select `id` plus the sort column: over the recipe RPC source, PostgREST
+  // rejects ordering by a column that isn't selected. (`id` is always present.)
+  const sortCols = sort === "id" ? "id" : `id, ${sort}`;
+  const select = calledFilterActive(params)
+    ? `${sortCols}, _call:calls!inner(id)`
+    : sortCols;
+  const { data } = await applyLeadFilters(
+    leadsIdSource(supabase, params, select),
+    params,
+  )
     .order(sort, { ascending: dir === "asc" })
     .order("id", { ascending: true })
     .limit(SIBLING_SCAN_LIMIT);
 
-  const ids = (data ?? []).map((r) => (r as { id: string }).id);
+  const ids = (data ?? []).map((r) => (r as unknown as { id: string }).id);
   const total = ids.length;
   const capped = total >= SIBLING_SCAN_LIMIT;
   const index = ids.indexOf(currentId);
