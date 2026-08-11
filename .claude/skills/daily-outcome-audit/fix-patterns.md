@@ -39,6 +39,8 @@ Only then: relabel the call, `DELETE` the `dnc_entries` row(s), set the lead to 
 For leads whose **latest** call that day was a quota `ai_error` and are now `ready_to_call`/`resting` with a future `next_call_at`: `PATCH /leads` → `next_call_at`=now, `status="ready_to_call"`, `resting_until=null`. Exclude leads that got a later real call (already rescheduled) and any on active callbacks. `scripts/credit-check.js --reschedule` does the dry-run/apply.
 
 ## 5. Live-agent PATCH (harden the future)
+> **🚫 REQUIRES MARIJA'S EXPLICIT CONFIRMATION.** Never change a live agent's prompt (disposition or conversation) on your own. Show her the exact before/after diff and the effect, get a clear "yes", THEN run `el-patch.js --apply --confirmed`. `--apply` without `--confirmed` refuses. This applies even for an "obvious" fix.
+
 The agent's **disposition extractor prompt** decides most outcomes; the **conversation prompt** decides behaviour (offers, booking). Fix the code source AND the two live agents (they drift). Keep the code prompt in `src/lib/elevenlabs/agents.ts`; the conversation prompt is EL-managed (not in the repo).
 
 **Recipe (both agents, one at a time, verify each):**

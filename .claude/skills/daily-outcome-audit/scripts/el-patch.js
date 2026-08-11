@@ -10,13 +10,23 @@
 //                  "agents":["agent_...","agent_..."],
 //                  "old":"<exact anchor>", "new":"<replacement>",
 //                  "mustVanish":"<substring that must be gone>" (optional) }
-// Usage: node el-patch.js config.json [--apply]
+// Usage: node el-patch.js config.json                       # dry-run (always)
+//        node el-patch.js config.json --apply --confirmed   # writes to the LIVE agents
+//
+// ⚠️ GUARDRAIL (Marija, 2026-08-11): NEVER change a live agent's prompt without
+// Marija's explicit confirmation. Show her the exact before/after and wait for a
+// yes. Applying requires BOTH --apply AND --confirmed; --apply alone refuses.
 const fs = require("fs");
 const C = require("./_common");
 
 const cfgPath = process.argv[2];
-if (!cfgPath) { console.error("usage: node el-patch.js <config.json> [--apply]"); process.exit(1); }
-const APPLY = process.argv.includes("--apply");
+if (!cfgPath) { console.error("usage: node el-patch.js <config.json> [--apply --confirmed]"); process.exit(1); }
+if (process.argv.includes("--apply") && !process.argv.includes("--confirmed")) {
+  console.error("STOP: live agent-prompt changes need Marija's explicit confirmation.");
+  console.error("Show her the exact diff, get a yes, then re-run with --apply --confirmed.");
+  process.exit(1);
+}
+const APPLY = process.argv.includes("--apply") && process.argv.includes("--confirmed");
 const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
 const elPatch = (id, body) =>
   fetch(`https://api.elevenlabs.io/v1/convai/agents/${id}`, {
