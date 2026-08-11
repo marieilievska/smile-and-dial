@@ -59,6 +59,7 @@ const RETRY_DELAY_DAYS: readonly number[] = [2, 2, 15];
 const RESTING_OUTCOMES: Record<string, number> = {
   not_interested: 30,
   ai_receptionist: 15,
+  gatekeeper_not_interested: 15,
 };
 
 /** Outcomes that close the lead (terminal). */

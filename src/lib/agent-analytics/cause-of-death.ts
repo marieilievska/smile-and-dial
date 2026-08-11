@@ -128,7 +128,11 @@ export function assignCause(lead: LeadForCause): CauseKey {
   if (IN_PLAY_STATUSES.has(lead.status)) return "mid_follow_up";
 
   // 4. Finished (resting / other terminal) → furthest stage reached.
-  if (!lead.decisionMakerReached && has("gatekeeper")) return "gatekeeper";
+  if (
+    !lead.decisionMakerReached &&
+    (has("gatekeeper") || has("gatekeeper_not_interested"))
+  )
+    return "gatekeeper";
   if (lead.outcomes.some((o) => BRUSH_OFF_OUTCOMES.has(o))) return "brush_off";
   if (lead.outcomes.some((o) => OTHER_OUTCOMES.has(o))) return "other";
   if (has("invalid_number")) return "bad_number";

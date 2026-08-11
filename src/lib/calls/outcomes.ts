@@ -18,6 +18,7 @@ export const OVERRIDABLE_OUTCOMES = [
   "hung_up_later",
   "invalid_number",
   "gatekeeper",
+  "gatekeeper_not_interested",
   "not_interested",
   "callback",
   "call_back_later",
@@ -55,6 +56,7 @@ export const CONNECTED_OUTCOMES = new Set<string>([
   "call_back_later",
   "not_interested",
   "gatekeeper",
+  "gatekeeper_not_interested",
   "transferred_to_human",
   "language_barrier",
   "hung_up_immediately",
@@ -71,6 +73,7 @@ export const CONVERSATION_OUTCOMES = new Set<string>([
   "callback",
   "not_interested",
   "gatekeeper",
+  "gatekeeper_not_interested",
   "transferred_to_human",
   "language_barrier",
 ]);

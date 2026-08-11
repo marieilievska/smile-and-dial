@@ -49,6 +49,7 @@ export type DailyKpi = {
   goals: number;
   notInterested: number;
   gatekeeper: number;
+  gatekeeperDeclined: number;
   hungUp: number;
   hungUpLater: number;
   aiError: number;
@@ -72,6 +73,7 @@ function emptyDay(day: string): DailyKpi {
     goals: 0,
     notInterested: 0,
     gatekeeper: 0,
+    gatekeeperDeclined: 0,
     hungUp: 0,
     hungUpLater: 0,
     aiError: 0,
@@ -123,6 +125,7 @@ export function computeDailyKpis(
     }
     if (o === "not_interested") k.notInterested++;
     if (o === "gatekeeper") k.gatekeeper++;
+    if (o === "gatekeeper_not_interested") k.gatekeeperDeclined++;
     if (o === "hung_up_immediately") k.hungUp++;
     if (o === "hung_up_later") k.hungUpLater++;
     if (o === "ai_error") k.aiError++;

@@ -9,6 +9,7 @@ type CallOutcome = Database["public"]["Tables"]["calls"]["Row"]["outcome"];
  */
 const DISPOSITION_TO_OUTCOME: Record<string, CallOutcome> = {
   gatekeeper: "gatekeeper",
+  gatekeeper_not_interested: "gatekeeper_not_interested",
   not_interested: "not_interested",
   callback: "callback",
   call_back_later: "call_back_later",

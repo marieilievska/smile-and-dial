@@ -201,6 +201,23 @@ describe("classifyCallOutcome", () => {
     }
   });
 
+  it("maps a gatekeeper_not_interested disposition to its outcome (a reached human, not DM-implying)", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Seaside Chiropractic, this is Sue."],
+        ["agent", "Hi Sue, are you the owner?"],
+        ["user", "No, and we're not interested, thanks."],
+      ),
+      disposition: "gatekeeper_not_interested",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 40,
+    });
+    expect(r.outcome).toBe("gatekeeper_not_interested");
+    // A real human conversation happened (a screener declined), so reachedHuman
+    // is true — but it must NOT be treated as reaching the decision-maker.
+    expect(r.reachedHuman).toBe(true);
+  });
+
   it("still infers an immediate hang-up on a sub-20s call the other party ended", () => {
     const r = classifyCallOutcome({
       transcript: t(["agent", "Hi, is the owner around?"]), // no reply
