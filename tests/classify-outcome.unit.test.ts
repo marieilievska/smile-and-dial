@@ -221,4 +221,71 @@ describe("classifyCallOutcome", () => {
     });
     expect(r.outcome).toBe("no_answer");
   });
+
+  it("labels an ElevenLabs quota-killed call as ai_error, not a hang-up", () => {
+    // A live human answered ("this is Julie speaking") and the AI died mid-call
+    // because ElevenLabs was out of quota. The agent guessed disposition=hung_up,
+    // but the lead didn't hang up — our platform failed. That's ai_error.
+    const r = classifyCallOutcome({
+      transcript: t(
+        [
+          "user",
+          "Trendy Wellness, this is Julie speaking. How may I help you?",
+        ],
+        [
+          "agent",
+          "Hey Julie, honestly I'm calling a little out of the blue...",
+        ],
+      ),
+      disposition: "hung_up",
+      terminationReason: "This request exceeds your quota limit.",
+      callDurationSecs: 16,
+    });
+    expect(r.outcome).toBe("ai_error");
+    expect(r.reachedHuman).toBe(false);
+  });
+
+  it("labels a call that died on silence as no_answer even when the agent guessed hung_up", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["agent", "Hi, is the owner around?"],
+        ["user", "Uh, who is this?"],
+      ),
+      disposition: "hung_up", // agent's fallback guess
+      terminationReason: "Ending conversation after 40 seconds of silence.",
+      callDurationSecs: 75,
+    });
+    expect(r.outcome).toBe("no_answer");
+    expect(r.reachedHuman).toBe(false);
+  });
+
+  it("keeps a genuine short caller hang-up as hung_up_immediately", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Hello?"],
+        ["agent", "Hey, honestly I'm calling a little out of the blue..."],
+      ),
+      disposition: "hung_up",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 12,
+    });
+    expect(r.outcome).toBe("hung_up_immediately");
+    expect(r.reachedHuman).toBe(false);
+  });
+
+  it("does NOT downgrade a real human disposition to no_answer on a silence end", () => {
+    // If the agent captured a real human outcome (not_interested), a trailing
+    // silence must not erase it.
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["agent", "Is the owner around?"],
+        ["user", "Not interested, take me off your list."],
+      ),
+      disposition: "not_interested",
+      terminationReason: "Ending conversation after 40 seconds of silence.",
+      callDurationSecs: 45,
+    });
+    expect(r.outcome).toBe("not_interested");
+    expect(r.reachedHuman).toBe(true);
+  });
 });

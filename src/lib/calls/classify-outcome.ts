@@ -126,15 +126,6 @@ export function genuineHumanReplyCount(transcript: unknown): number {
   return count;
 }
 
-/** Did the called party ever say anything substantive at all? (Distinguishes a
- *  silent / dead-air call — where the only "user" turns are empty or "..." —
- *  from a real answering machine whose greeting was transcribed.) */
-export function hasSubstantiveCalledPartySpeech(transcript: unknown): boolean {
-  return normalizeTurns(transcript).some(
-    (t) => t.role === "user" && alphaLen(t.message) >= 3,
-  );
-}
-
 /** Map an ElevenLabs termination reason to an UNAMBIGUOUS telephony outcome.
  *  Only the clear-cut carrier/system states are inferred here; a conversational
  *  "remote party ended" is intentionally left to the agent's disposition. */
@@ -158,16 +149,19 @@ export function telephonyOutcome(reason: string): CallOutcome | null {
  *      assistant. A bot answered: not a person, not a mailbox.
  *   2. CONFIRMED MACHINE GREETING — the opening reads like an answering machine
  *      and no human ever replied → voicemail.
- *   3. VOICEMAIL DETECTED (termination_reason) — ElevenLabs' voicemail_detection
+ *   3. SYSTEM / QUOTA ERROR — ElevenLabs killed the call itself ("exceeds your
+ *      quota limit"): the AI failed mid-call, often on a live human who'd just
+ *      said hello. That's an ai_error (our failure), NOT the lead hanging up.
+ *   4. VOICEMAIL DETECTED (termination_reason) — ElevenLabs' voicemail_detection
  *      tool fired. Trust it UNLESS the transcript shows a genuine human
  *      conversation (a person answered, then the call tail hit a mailbox after a
  *      transfer): a late voicemail must NOT erase a human we reached. In that
  *      case use the agent's human disposition, else gatekeeper.
- *   4. DEAD AIR — the call ended on silence and the other end never said
- *      anything real. The analysis LLM tends to guess "voicemail", but there's
- *      no machine and no human here: it's a no-answer.
- *   5. Otherwise the agent's disposition, else an unambiguous telephony state.
- *   6. IMMEDIATE HANG-UP — a sub-20s call the OTHER party ended (too short for a
+ *   5. DEAD AIR — the call ended because the other side went silent. Nobody
+ *      hung up (EL ended it) and no real conversation happened, so even when the
+ *      agent guessed disposition=hung_up this is a no-answer, not a hang-up.
+ *   6. Otherwise the agent's disposition, else an unambiguous telephony state.
+ *   7. IMMEDIATE HANG-UP — a sub-20s call the OTHER party ended (too short for a
  *      real conversation) that would otherwise be blank/gatekeeper.
  *
  * Also returns `reachedHuman`: did a real two-way human conversation happen
@@ -186,21 +180,37 @@ export function classifyCallOutcome(input: {
   const saysAi = calledPartySelfIdentifiesAsAi(transcript);
   const machineGreeting = transcriptLooksLikeMachine(transcript);
   const humanReplies = genuineHumanReplyCount(transcript);
-  const substantiveSpeech = hasSubstantiveCalledPartySpeech(transcript);
   const vmByTermination = /voicemail/i.test(terminationReason);
   const silenceByTermination = /silence|no[ _-]?audio|no response/i.test(
     terminationReason,
   );
+  // ElevenLabs killed the call for a platform/quota reason ("This request
+  // exceeds your quota limit."). The agent errored; it isn't the lead's doing.
+  const errorByTermination =
+    /quota|exceeds your (quota|limit)|insufficient (credit|balance|quota)|credit limit|rate[- ]?limit/i.test(
+      terminationReason,
+    );
   const remotePartyEnded =
     /remote party|client|caller|\buser\b|hung ?up|hang ?up|disconnect/i.test(
       terminationReason,
     );
+  // Dead air with no real conversation: EL ended on silence, and the agent's
+  // best guess was a hang-up / voicemail / nothing (never a real human
+  // disposition like not_interested, which we keep).
+  const silenceAbandon =
+    silenceByTermination &&
+    humanReplies < 2 &&
+    (dispositionOutcome == null ||
+      dispositionOutcome === "hung_up_immediately" ||
+      dispositionOutcome === "voicemail");
 
   let outcome: CallOutcome | null;
   if (saysAi) {
     outcome = "ai_receptionist";
   } else if (machineGreeting) {
     outcome = "voicemail";
+  } else if (errorByTermination) {
+    outcome = "ai_error";
   } else if (vmByTermination) {
     outcome =
       humanReplies >= 2
@@ -208,7 +218,7 @@ export function classifyCallOutcome(input: {
           ? dispositionOutcome
           : "gatekeeper"
         : "voicemail";
-  } else if (silenceByTermination && !substantiveSpeech && humanReplies === 0) {
+  } else if (silenceAbandon) {
     outcome = "no_answer";
   } else {
     outcome = dispositionOutcome ?? telephonyOutcome(terminationReason);
@@ -216,14 +226,15 @@ export function classifyCallOutcome(input: {
 
   // Immediate-hang-up correction: a sub-20s call the OTHER party ended has no
   // time for a real conversation. Never override a machine / AI / voicemail /
-  // dead-air decision above — only a blank or a "gatekeeper" guess.
+  // error / dead-air decision above — only a blank or a "gatekeeper" guess.
   const tooShortForRealTalk =
     remotePartyEnded && callDurationSecs > 0 && callDurationSecs <= 20;
   if (
     !saysAi &&
     !machineGreeting &&
+    !errorByTermination &&
     !vmByTermination &&
-    !silenceByTermination &&
+    !silenceAbandon &&
     tooShortForRealTalk &&
     (outcome == null || outcome === "gatekeeper")
   ) {
