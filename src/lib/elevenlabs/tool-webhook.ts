@@ -15,6 +15,7 @@ import {
   bookingTracking,
   buildInviteeLocation,
 } from "@/lib/calendly/booking";
+import { hasBookingAtSlot } from "@/lib/calendly/booking-dedup";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import {
   localHourDaysAheadIso,
@@ -1141,6 +1142,34 @@ async function bookAppointment(
       return {
         success: false,
         message: "What's their first name for the calendar invite?",
+      };
+    }
+
+    // Idempotency guard (webinar-SAFE — never cancels): if this lead is already
+    // registered for this event at this exact slot, return that booking instead
+    // of creating a SECOND Calendly invitee. book_appointment gets invoked twice
+    // within one call (the model re-confirms, or ElevenLabs re-delivers a slow
+    // tool call), and with the old cancel-based de-dup removed (cancelling a
+    // shared webinar session drops every registrant) that produced duplicate
+    // registrations for the same person on the same session. Backed atomically
+    // by a partial unique index on (lead_id, event_type_uri, scheduled_at) where
+    // status='scheduled'.
+    const { data: leadBookings } = await ctx.supabase
+      .from("calendly_events")
+      .select("scheduled_at")
+      .eq("lead_id", ctx.lead.id)
+      .eq("event_type_uri", cal.eventTypeUri)
+      .eq("status", "scheduled");
+    if (hasBookingAtSlot(leadBookings ?? [], when.toISOString())) {
+      await logToolEvent(ctx, "tool_book_appointment", {
+        slot_id: slotId,
+        email,
+        live: true,
+        already_booked: true,
+      });
+      return {
+        success: true,
+        message: `You're already booked for ${label} — a calendar invite is on its way to ${email}.`,
       };
     }
 
