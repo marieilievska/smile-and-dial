@@ -12,7 +12,10 @@ const DISPOSITION_TO_OUTCOME: Record<string, CallOutcome> = {
   gatekeeper_not_interested: "gatekeeper_not_interested",
   not_interested: "not_interested",
   callback: "callback",
-  call_back_later: "call_back_later",
+  // Retired 2026-08-11: "call back later" was the fuzziest disposition and its
+  // fast-retry behaviour was marginal. A stray call_back_later from a not-yet-
+  // resynced agent folds into gatekeeper (the normal retry cycle).
+  call_back_later: "gatekeeper",
   hung_up: "hung_up_immediately",
   dnc: "dnc",
   goal_met: "goal_met",

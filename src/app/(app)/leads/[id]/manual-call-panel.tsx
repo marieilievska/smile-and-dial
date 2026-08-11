@@ -29,7 +29,6 @@ const HUMAN_CALL_OUTCOMES = [
   "no_answer",
   "voicemail",
   "dnc",
-  "call_back_later",
   "gatekeeper",
   "language_barrier",
 ] as const;

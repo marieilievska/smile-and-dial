@@ -48,7 +48,6 @@ function zeroDay(day: string): DailyKpi {
     convGt1min: 0,
     dms: 0,
     callbacks: 0,
-    callbackLater: 0,
     goals: 0,
     notInterested: 0,
     gatekeeper: 0,
@@ -163,7 +162,6 @@ export function DashboardView({
     k.convGt1min,
     k.dms,
     k.callbacks,
-    k.callbackLater,
     k.goals,
     k.notInterested,
     k.gatekeeper,
@@ -187,10 +185,6 @@ export function DashboardView({
     { label: ">1m", title: "Conversations longer than 1 minute" },
     { label: "DMs", title: "Decision-makers reached" },
     { label: "CB", title: "Callbacks scheduled" },
-    {
-      label: "CB later",
-      title: "“Call me back later” brush-offs (no real conversation)",
-    },
     { label: "Goals", title: "Goals met" },
     { label: "Not int.", title: "Not interested" },
     {
@@ -297,7 +291,6 @@ export function DashboardView({
               "conversations_gt1min",
               "dms_reached",
               "callbacks",
-              "callback_later",
               "goals_met",
               "not_interested",
               "gatekeeper",
@@ -386,9 +379,6 @@ export function DashboardView({
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {k.callbacks}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {k.callbackLater}
                     </td>
                     <td className="text-foreground px-3 py-2 text-right font-medium tabular-nums">
                       {k.goals}
