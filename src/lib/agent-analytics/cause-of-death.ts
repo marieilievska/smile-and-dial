@@ -4,7 +4,7 @@
 // lead's `status` already encodes "still being worked" (ready_to_call / callback)
 // vs "finished" (resting / dnc / goal_met), so no retry-counting is needed.
 
-/** The nine causes (plus `won`, shown for contrast). */
+/** The causes a worked lead can land in (`won` shown for contrast). */
 export type CauseKey =
   | "won"
   | "opted_out"
@@ -13,6 +13,7 @@ export type CauseKey =
   | "mid_follow_up"
   | "gatekeeper"
   | "bad_number"
+  | "brush_off"
   | "other"
   | "never_reached";
 
@@ -25,6 +26,7 @@ export const CAUSE_GROUP: Record<CauseKey, CauseGroup> = {
   dm_said_no: "final",
   gatekeeper: "final",
   bad_number: "final",
+  brush_off: "final",
   other: "final",
   never_reached: "final",
   callback_booked: "in_play",
@@ -38,6 +40,7 @@ export const CAUSE_LABEL: Record<CauseKey, string> = {
   dm_said_no: "Decision-maker said no",
   gatekeeper: "Blocked by gatekeeper",
   bad_number: "Bad number",
+  brush_off: "Brush-off (no real conversation)",
   other: "Other (language / bot / error)",
   never_reached: "Never reached anyone",
   callback_booked: "Callback booked",
@@ -49,6 +52,7 @@ export const CAUSE_ORDER: CauseKey[] = [
   "won",
   "dm_said_no",
   "gatekeeper",
+  "brush_off",
   "never_reached",
   "bad_number",
   "opted_out",
@@ -73,6 +77,23 @@ export type CauseResult = {
   perLead: { leadId: string; cause: CauseKey }[];
 };
 
+// Positive/terminal lead statuses that are wins or still engaged, NOT losses —
+// so a booked sale or appointment (with an earlier "not interested" call, say)
+// isn't miscounted as a rejection. `leads.status` is written beyond the core
+// dialer states by the Goals pipeline (sale/attended/closed), Calendly
+// (scheduled) and the Close webhook (email_replied).
+const WON_STATUSES = new Set(["goal_met", "sale", "attended", "closed"]);
+const IN_PLAY_STATUSES = new Set([
+  "ready_to_call",
+  "scheduled",
+  "email_replied",
+]);
+// Reached a person but no real conversation / no commitment yet.
+const BRUSH_OFF_OUTCOMES = new Set([
+  "call_back_later",
+  "hung_up_immediately",
+  "callback",
+]);
 const OTHER_OUTCOMES = new Set([
   "language_barrier",
   "ai_receptionist",
@@ -89,20 +110,25 @@ const NEVER_REACHED_OUTCOMES = new Set([
 export function assignCause(lead: LeadForCause): CauseKey {
   const has = (o: string) => lead.outcomes.includes(o);
 
-  // 1. Won (or handed to a human closer).
-  if (lead.goalMet || lead.status === "goal_met" || has("transferred_to_human"))
+  // 1. Won / positive terminal status, or handed to a human closer.
+  if (
+    lead.goalMet ||
+    WON_STATUSES.has(lead.status) ||
+    has("transferred_to_human")
+  )
     return "won";
 
   // 2. Hard terminal dispositions override an otherwise in-play status.
   if (lead.status === "dnc" || has("dnc")) return "opted_out";
   if (has("not_interested")) return "dm_said_no";
 
-  // 3. Still being worked (status encodes this).
+  // 3. Still being worked or positively engaged (status encodes this).
   if (lead.status === "callback") return "callback_booked";
-  if (lead.status === "ready_to_call") return "mid_follow_up";
+  if (IN_PLAY_STATUSES.has(lead.status)) return "mid_follow_up";
 
   // 4. Finished (resting / other terminal) → furthest stage reached.
   if (!lead.decisionMakerReached && has("gatekeeper")) return "gatekeeper";
+  if (lead.outcomes.some((o) => BRUSH_OFF_OUTCOMES.has(o))) return "brush_off";
   if (lead.outcomes.some((o) => OTHER_OUTCOMES.has(o))) return "other";
   if (has("invalid_number")) return "bad_number";
   if (
@@ -124,6 +150,7 @@ export function computeCauseOfDeath(leads: LeadForCause[]): CauseResult {
     mid_follow_up: 0,
     gatekeeper: 0,
     bad_number: 0,
+    brush_off: 0,
     other: 0,
     never_reached: 0,
   };

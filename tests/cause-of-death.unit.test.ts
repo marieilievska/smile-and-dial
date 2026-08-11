@@ -91,6 +91,44 @@ describe("computeCauseOfDeath — cause assignment (furthest stage wins)", () =>
     expect(r.counts.never_reached).toBe(1);
   });
 
+  test("positive statuses are wins, not losses (a sale with an earlier no)", () => {
+    const r = computeCauseOfDeath([
+      lead({ leadId: "a", status: "sale", outcomes: ["not_interested"] }),
+      lead({ leadId: "b", status: "attended", outcomes: ["voicemail"] }),
+      lead({ leadId: "c", status: "closed" }),
+    ]);
+    expect(r.counts.won).toBe(3);
+    expect(r.counts.dm_said_no).toBe(0);
+    expect(r.groups.final).toBe(0);
+  });
+
+  test("scheduled / email_replied leads are still in play, not losses", () => {
+    const r = computeCauseOfDeath([
+      lead({ leadId: "a", status: "scheduled", outcomes: ["voicemail"] }),
+      lead({ leadId: "b", status: "email_replied", outcomes: ["gatekeeper"] }),
+    ]);
+    expect(r.counts.mid_follow_up).toBe(2);
+    expect(r.groups.in_play).toBe(2);
+    expect(r.groups.final).toBe(0);
+  });
+
+  test("brush-offs (hung up / call back later) get their own bucket, not 'Other'", () => {
+    const r = computeCauseOfDeath([
+      lead({
+        leadId: "a",
+        status: "resting",
+        outcomes: ["hung_up_immediately"],
+      }),
+      lead({
+        leadId: "b",
+        status: "resting",
+        outcomes: ["voicemail", "call_back_later"],
+      }),
+    ]);
+    expect(r.counts.brush_off).toBe(2);
+    expect(r.counts.other).toBe(0);
+  });
+
   test("totals, groups, and perLead are consistent and deduped", () => {
     const r = computeCauseOfDeath([
       lead({ leadId: "a", goalMet: true }),

@@ -20,6 +20,7 @@ const BAR_COLOR: Record<CauseKey, string> = {
   gatekeeper: "bg-amber-500",
   never_reached: "bg-zinc-400",
   bad_number: "bg-zinc-500",
+  brush_off: "bg-amber-400",
   opted_out: "bg-rose-600",
   other: "bg-zinc-400",
 };
@@ -97,8 +98,9 @@ export function CauseOfDeathView({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile label="Worked leads" value={total} />
+        <Tile label="Won (goal met)" value={groups.won} />
         <Tile label="Final losses" value={groups.final} />
         <Tile label="Still in play" value={groups.in_play} />
       </div>
