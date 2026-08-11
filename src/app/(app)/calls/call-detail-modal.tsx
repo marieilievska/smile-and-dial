@@ -108,6 +108,8 @@ function noRecordingReason(outcome: string | null): string {
       return "Twilio rejected the number as invalid.";
     case "gatekeeper":
       return "Reached a gatekeeper who didn't connect us to the decision maker.";
+    case "gatekeeper_not_interested":
+      return "A gatekeeper (not the owner) firmly declined on the business's behalf — we back off, but never reached the decision maker.";
     case "language_barrier":
       return "Language barrier — the lead didn't speak the agent's language.";
     case "ai_error":

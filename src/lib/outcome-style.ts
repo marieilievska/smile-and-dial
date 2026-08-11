@@ -57,6 +57,7 @@ const NEGATIVE_OUTCOMES = new Set([
   "failed",
   "invalid_number",
   "not_interested",
+  "gatekeeper_not_interested",
   "dnc",
   "ai_error",
 ]);

@@ -52,6 +52,7 @@ function zeroDay(day: string): DailyKpi {
     goals: 0,
     notInterested: 0,
     gatekeeper: 0,
+    gatekeeperDeclined: 0,
     hungUp: 0,
     hungUpLater: 0,
     aiError: 0,
@@ -166,6 +167,7 @@ export function DashboardView({
     k.goals,
     k.notInterested,
     k.gatekeeper,
+    k.gatekeeperDeclined,
     k.hungUp,
     k.hungUpLater,
     k.aiError,
@@ -194,6 +196,11 @@ export function DashboardView({
     {
       label: "Gatekpr",
       title: "Reached a gatekeeper, not the decision-maker",
+    },
+    {
+      label: "GK decl",
+      title:
+        "Gatekeeper declined — a receptionist/staff (not the owner) firmly refused on the business's behalf",
     },
     {
       label: "Hung up",
@@ -294,6 +301,7 @@ export function DashboardView({
               "goals_met",
               "not_interested",
               "gatekeeper",
+              "gatekeeper_declined",
               "hung_up",
               "hung_up_later",
               "ai_error",
@@ -390,6 +398,9 @@ export function DashboardView({
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {k.gatekeeper}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {k.gatekeeperDeclined}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {k.hungUp}
