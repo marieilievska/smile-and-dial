@@ -73,10 +73,11 @@ export const CONVERSATION_OUTCOMES = new Set<string>([
   "language_barrier",
 ]);
 
-/** No human was reached — a machine answered (voicemail), nobody picked up, or
- *  the call failed. We don't mirror the AI's "extracted data" (decision maker,
- *  sentiment, …) to the lead for these: a voicemail greeting yields no real
- *  info, and the analysis LLM only guessed values because it's forced to. */
+/** No human was reached — a machine answered (voicemail or an AI receptionist
+ *  bot), nobody picked up, or the call failed. We don't mirror the AI's
+ *  "extracted data" (decision maker, sentiment, …) to the lead for these: a
+ *  voicemail greeting or a bot's replies yield no real info, and the analysis
+ *  LLM only guessed values because it's forced to. */
 export const NO_HUMAN_OUTCOMES = new Set<string>([
   "voicemail",
   "no_answer",
@@ -84,4 +85,5 @@ export const NO_HUMAN_OUTCOMES = new Set<string>([
   "failed",
   "invalid_number",
   "ai_error",
+  "ai_receptionist",
 ]);
