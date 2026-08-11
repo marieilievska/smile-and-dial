@@ -27,8 +27,19 @@ const RETRY_OUTCOMES = new Set<CallOutcome>([
   "hung_up_immediately",
   "hung_up_later",
   "gatekeeper",
-  "ai_error",
 ]);
+
+/**
+ * Hours to wait before retrying a call ElevenLabs killed for a platform/quota
+ * reason (`ai_error`). This is OUR outage, not the lead's behaviour, so it must
+ * NOT ride the 2d/2d/15d cold cycle: a mass credit-ceiling event (hundreds of
+ * quota fails in an hour) would otherwise shove every one of those leads days
+ * out and burn down their retry budget toward the 15-day rest. Instead we
+ * reschedule the SAME lead a short time later without advancing the cycle, so
+ * once credits are back it simply reconnects. pre_call_check still enforces
+ * calling hours, so a delay that lands off-hours just waits.
+ */
+const AI_ERROR_RETRY_HOURS = 2;
 
 /**
  * Non-connect outcomes that, on a lead with a PENDING callback, escalate that
@@ -115,9 +126,12 @@ export type RetryApplyResult =
  * Outcomes split into these buckets:
  *
  *   * **Retry (unified cycle)**: voicemail / no_answer / busy / failed /
- *     hung_up_immediately / gatekeeper / ai_error
+ *     hung_up_immediately / hung_up_later / gatekeeper
  *       → bump retry_counter, advance retry_position 0→1→2→0, push
  *         next_call_at by 2d / 2d / 15d, status stays `ready_to_call`.
+ *   * **ai_error** (our platform/quota failure): reschedule ~2h later WITHOUT
+ *     advancing the cycle or spending a retry — a credit-ceiling outage must
+ *     not push the lead days out. status stays `ready_to_call`.
  *   * **call_back_later**: next-day retry up to twice on its OWN counter
  *     (call_back_later_count, independent of the voicemail/no-answer cycle),
  *     then 15-day rest.
@@ -332,6 +346,18 @@ export async function applyRetryForCall(
     update.retry_counter = 0;
     update.retry_position = 0;
     update.call_back_later_count = 0;
+  } else if (call.outcome === "ai_error") {
+    // Platform/quota failure on OUR side (ElevenLabs "exceeds your quota
+    // limit"), not the lead's doing. Reschedule SOON without advancing the
+    // cold cycle or spending a retry, so a credit-ceiling outage neither
+    // pushes the lead days out nor escalates it toward the 15-day rest. Once
+    // credits are restored the lead reconnects on its normal footing.
+    // retry_counter / retry_position / call_back_later_count left untouched.
+    update.next_call_at = new Date(
+      Date.now() + AI_ERROR_RETRY_HOURS * 60 * 60 * 1000,
+    ).toISOString();
+    update.status = "ready_to_call";
+    update.resting_until = null;
   } else if (call.outcome === "call_back_later") {
     // Busy brush-off: try again the NEXT DAY, up to a couple of times, then
     // rest so we stop pestering. Calling hours are enforced at dial time by
