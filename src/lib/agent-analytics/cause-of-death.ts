@@ -92,6 +92,7 @@ const IN_PLAY_STATUSES = new Set([
 const BRUSH_OFF_OUTCOMES = new Set([
   "call_back_later",
   "hung_up_immediately",
+  "hung_up_later",
   "callback",
 ]);
 const OTHER_OUTCOMES = new Set([
