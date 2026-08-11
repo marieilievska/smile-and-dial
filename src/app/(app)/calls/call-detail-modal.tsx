@@ -101,7 +101,9 @@ function noRecordingReason(outcome: string | null): string {
     case "failed":
       return "The call failed before connecting (carrier error or network drop).";
     case "hung_up_immediately":
-      return "Picked up and hung up immediately — no conversation captured.";
+      return "Picked up and hung up immediately — no reply, gone within the greeting.";
+    case "hung_up_later":
+      return "Engaged or stayed on the line, then hung up before a real conversation.";
     case "invalid_number":
       return "Twilio rejected the number as invalid.";
     case "gatekeeper":

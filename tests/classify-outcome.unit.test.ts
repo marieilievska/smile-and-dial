@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyCallOutcome } from "@/lib/calls/classify-outcome";
+import { classifyCallOutcome, hangUpKind } from "@/lib/calls/classify-outcome";
 
 /** Convenience: build a transcript of {role, message} turns. */
 const t = (...turns: [string, string][]) =>
@@ -203,13 +203,53 @@ describe("classifyCallOutcome", () => {
 
   it("still infers an immediate hang-up on a sub-20s call the other party ended", () => {
     const r = classifyCallOutcome({
-      transcript: t(["agent", "Hi, is the owner around?"], ["user", "yeah"]),
+      transcript: t(["agent", "Hi, is the owner around?"]), // no reply
       disposition: "gatekeeper", // LLM guess on a 5-second call
       terminationReason: "The remote party hung up.",
       callDurationSecs: 5,
     });
     expect(r.outcome).toBe("hung_up_immediately");
     expect(r.reachedHuman).toBe(false);
+  });
+
+  it("splits a hang-up into immediate (no reply, ≤15s) vs later (engaged or stayed on)", () => {
+    // No reply, short → immediate.
+    const immediate = classifyCallOutcome({
+      transcript: t(["agent", "Hi, honestly I'm calling out of the blue..."]),
+      disposition: "hung_up",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 8,
+    });
+    expect(immediate.outcome).toBe("hung_up_immediately");
+
+    // They said something back before hanging up → later, even though short.
+    const engaged = classifyCallOutcome({
+      transcript: t(
+        ["agent", "Hi, is the owner around?"],
+        ["user", "Yeah, who's this?"],
+      ),
+      disposition: "hung_up",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 30,
+    });
+    expect(engaged.outcome).toBe("hung_up_later");
+    expect(engaged.reachedHuman).toBe(false);
+
+    // No reply, but stayed on the line past 15s → later.
+    const stayedOn = classifyCallOutcome({
+      transcript: t(["agent", "Hi, honestly I'm calling out of the blue..."]),
+      disposition: "hung_up",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 45,
+    });
+    expect(stayedOn.outcome).toBe("hung_up_later");
+  });
+
+  it("hangUpKind: boundary at 15s with no reply", () => {
+    expect(hangUpKind(15, 0)).toBe("hung_up_immediately");
+    expect(hangUpKind(16, 0)).toBe("hung_up_later");
+    expect(hangUpKind(3, 1)).toBe("hung_up_later"); // any reply → later
+    expect(hangUpKind(0, 0)).toBe("hung_up_immediately");
   });
 
   it("falls back to a telephony state when there's no disposition", () => {

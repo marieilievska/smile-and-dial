@@ -70,6 +70,7 @@ const RETRY_OUTCOMES = new Set([
   "no_answer",
   "busy",
   "hung_up_immediately",
+  "hung_up_later",
   "gatekeeper",
   "call_back_later",
   "language_barrier",

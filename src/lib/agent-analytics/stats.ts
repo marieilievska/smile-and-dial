@@ -50,6 +50,7 @@ export type DailyKpi = {
   notInterested: number;
   gatekeeper: number;
   hungUp: number;
+  hungUpLater: number;
   aiError: number;
   dnc: number;
   /** Per-day counts keyed by the campaign's lowercased sentiment value
@@ -72,6 +73,7 @@ function emptyDay(day: string): DailyKpi {
     notInterested: 0,
     gatekeeper: 0,
     hungUp: 0,
+    hungUpLater: 0,
     aiError: 0,
     dnc: 0,
     sentimentCounts: {},
@@ -122,6 +124,7 @@ export function computeDailyKpis(
     if (o === "not_interested") k.notInterested++;
     if (o === "gatekeeper") k.gatekeeper++;
     if (o === "hung_up_immediately") k.hungUp++;
+    if (o === "hung_up_later") k.hungUpLater++;
     if (o === "ai_error") k.aiError++;
     if (o === "dnc") k.dnc++;
     if (sentimentKey) {
