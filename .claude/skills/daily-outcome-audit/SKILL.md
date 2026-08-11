@@ -18,6 +18,8 @@ Each call gets one **outcome** (disposition) that drives real decisions: who to 
 - One outcome at a time — pick the outcome, pull the calls, read/verify, fix, harden.
 
 ## The daily loop
+**Fast path (all at once):** `node scripts/audit-day.js [YYYY-MM-DD]` does steps 1–4 in one read-only pass — credit health, every outcome's counts, booking reconciliation, and transcript dumps for the judgment outcomes — and prints what needs your eyes. Then jump to step 5 (fix) and 6 (harden). Use the per-step flow below when you want to drill into one outcome.
+
 1. **Credit check first** — `node scripts/credit-check.js`. `ai_error` = ElevenLabs ran out of credits; a spike means calls are failing *right now*. Fix billing before anything else. (Only Marija can top up.)
 2. **Pull the outcome** — `node scripts/audit-outcome.js <outcome>` (defaults to yesterday ET). Dumps counts, per-campaign split, booking/tool signals, and readable transcripts.
 3. **Verify against the signal** — read `outcome-playbook.md` for what "correct" means for THAT outcome, the objective signal, and the known traps. Read transcripts for the judgment calls.
@@ -46,6 +48,7 @@ Full recipes: **`outcome-playbook.md`**. Fix mechanics + safety: **`fix-patterns
 - All scripts default to **yesterday, America/New_York**. Pass `YYYY-MM-DD` to override (still one ET day).
 
 ## Safety — read before any write
+- **🚫 NEVER change a live agent's prompt without Marija's explicit confirmation** (disposition prompt OR conversation prompt). This is a hard rule. Data relabels are fine to apply after a dry-run, but any agent-behaviour change: show Marija the exact before/after diff, explain the effect, and wait for a clear "yes" before running `el-patch.js`. The script enforces it — `--apply` refuses unless `--confirmed` is also passed (only pass `--confirmed` after she says yes).
 - **Yesterday only.** Every fix filters to the ET day window; confirm the row count matches before applying.
 - **Dry-run every bulk write**, eyeball the plan, then `--apply`.
 - **Before un-DNC-ing a lead**, confirm it has NO other DNC signal (a `dnc` call on another day OR a `dnc_entries` row by phone/`source_call_id`). Un-DNC-ing someone who really asked to stop = calling someone who told us not to.
