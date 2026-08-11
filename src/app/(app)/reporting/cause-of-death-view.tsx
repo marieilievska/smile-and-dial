@@ -5,12 +5,31 @@ import {
   type CauseKey,
   type CauseResult,
 } from "@/lib/agent-analytics/cause-of-death";
+import {
+  computeObjectionBreakdown,
+  type ObjectionBreakdown,
+  type ObjectionRow,
+} from "@/lib/agent-analytics/objections";
+import type { ObjectionCategory } from "@/lib/openai/objection-extractor";
 
 const GROUP_TITLE = {
   final: "Final losses",
   in_play: "Still in play",
   won: "Won",
 } as const;
+
+/** Human labels for the objection breakdown under "Decision-maker said no". */
+const OBJECTION_LABEL: Record<ObjectionCategory, string> = {
+  price: "Price / budget",
+  already_have_solution: "Already have a solution",
+  no_need: "No need",
+  bad_timing: "Bad timing",
+  happy_with_current: "Happy with current",
+  confused_by_offer: "Confused by offer",
+  distrust_spam: "Distrust / spam",
+  brush_off: "Brush-off",
+  other: "Other",
+};
 
 const BAR_COLOR: Record<CauseKey, string> = {
   won: "bg-emerald-500",
@@ -28,9 +47,11 @@ const BAR_COLOR: Record<CauseKey, string> = {
 export function CauseOfDeathView({
   result,
   companyByLead,
+  objections = [],
 }: {
   result: CauseResult;
   companyByLead: Record<string, string>;
+  objections?: ObjectionRow[];
 }) {
   const { total, counts, groups, perLead } = result;
   if (total === 0) {
@@ -45,6 +66,8 @@ export function CauseOfDeathView({
     perLead
       .filter((l) => l.cause === cause)
       .map((l) => companyByLead[l.leadId] || "(unknown)");
+
+  const objectionBreakdown = computeObjectionBreakdown(objections);
 
   const renderGroup = (group: "final" | "in_play" | "won") => {
     const causes = CAUSE_ORDER.filter(
@@ -65,11 +88,6 @@ export function CauseOfDeathView({
                 <summary className="hover:bg-muted/50 flex cursor-pointer items-center gap-3 rounded-lg px-1 py-1">
                   <span className="w-48 shrink-0 text-sm font-medium">
                     {CAUSE_LABEL[cause]}
-                    {cause === "dm_said_no" ? (
-                      <span className="text-muted-foreground ml-1 text-xs">
-                        (objection breakdown coming soon)
-                      </span>
-                    ) : null}
                   </span>
                   <span className="bg-muted relative h-3 flex-1 overflow-hidden rounded-full">
                     <span
@@ -81,13 +99,17 @@ export function CauseOfDeathView({
                     {n} · {pct(n)}%
                   </span>
                 </summary>
-                <ul className="text-muted-foreground mt-1 max-h-56 overflow-auto pl-4 text-xs">
-                  {companies.map((c, i) => (
-                    <li key={i} className="py-0.5">
-                      {c}
-                    </li>
-                  ))}
-                </ul>
+                {cause === "dm_said_no" ? (
+                  <ObjectionBreakdown breakdown={objectionBreakdown} />
+                ) : (
+                  <ul className="text-muted-foreground mt-1 max-h-56 overflow-auto pl-4 text-xs">
+                    {companies.map((c, i) => (
+                      <li key={i} className="py-0.5">
+                        {c}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </details>
             );
           })}
@@ -107,6 +129,56 @@ export function CauseOfDeathView({
       {renderGroup("final")}
       {renderGroup("in_play")}
       {renderGroup("won")}
+    </div>
+  );
+}
+
+/** The objection intelligence shown when "Decision-maker said no" is expanded:
+ *  a bar per objection category (reusing the cause bars' markup) with each
+ *  category's verbatim quote samples beneath it. */
+function ObjectionBreakdown({ breakdown }: { breakdown: ObjectionBreakdown }) {
+  if (breakdown.total === 0) {
+    return (
+      <p className="text-muted-foreground mt-1 pl-4 text-xs italic">
+        Objection analysis is still running…
+      </p>
+    );
+  }
+  const objPct = (n: number) =>
+    breakdown.total ? Math.round((n / breakdown.total) * 100) : 0;
+  return (
+    <div className="mt-1 space-y-2 pl-4">
+      {breakdown.byCategory.map((b) => (
+        <div key={b.category} className="space-y-1">
+          <div className="flex items-center gap-3">
+            <span className="w-44 shrink-0 text-xs font-medium">
+              {OBJECTION_LABEL[b.category]}
+            </span>
+            <span className="bg-muted relative h-2 flex-1 overflow-hidden rounded-full">
+              <span
+                className="absolute inset-y-0 left-0 rounded-full bg-rose-400"
+                style={{ width: `${Math.max(2, objPct(b.count))}%` }}
+              />
+            </span>
+            <span className="w-20 shrink-0 text-right text-xs tabular-nums">
+              {b.count} · {objPct(b.count)}%
+            </span>
+          </div>
+          <ul className="text-muted-foreground max-h-40 overflow-auto pl-2 text-xs">
+            {b.samples.map((s, i) => (
+              <li key={i} className="py-0.5">
+                {[
+                  s.company || "(unknown)",
+                  s.specific,
+                  s.quote ? `“${s.quote}”` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" — ")}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </div>
   );
 }
