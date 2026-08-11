@@ -75,21 +75,26 @@ describe("availabilityWindows", () => {
 });
 
 describe("bookingTracking", () => {
-  it("tags the HireAI Webinar campaign with the fixed voice_ai_webinar UTMs", () => {
-    expect(
-      bookingTracking({
-        campaignId: "17a7a2e8-c56b-4c3e-841c-a1db2fbf1529",
-        campaignName: "HireAI Webinar",
-        leadId: "lead-1",
-      }),
-    ).toEqual({
-      utm_source: "smile_dial",
-      utm_medium: "voice",
-      utm_campaign: "voice_ai_webinar",
-      utm_content: "voice_ai_webinar",
-      utm_term: "voice_ai",
-      salesforce_uuid: "lead-1",
-    });
+  it("tags BOTH active webinar campaigns with the fixed voice_ai_webinar UTMs", () => {
+    for (const campaignId of [
+      "29ea2566-c6df-4f96-a6d5-65ebbb16fbda", // Reason First
+      "9d1908ab-638a-440f-8dc8-016cb2b2534a", // Pattern Interrupt
+    ]) {
+      expect(
+        bookingTracking({
+          campaignId,
+          campaignName: "HireAI Webinar",
+          leadId: "lead-1",
+        }),
+      ).toEqual({
+        utm_source: "smile_dial",
+        utm_medium: "voice",
+        utm_campaign: "voice_ai_webinar",
+        utm_content: "voice_ai_webinar",
+        utm_term: "voice_ai",
+        salesforce_uuid: "lead-1",
+      });
+    }
   });
 
   it("falls back to smile_dial + the campaign's own name for other campaigns", () => {

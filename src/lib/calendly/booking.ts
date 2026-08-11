@@ -82,8 +82,16 @@ const CAMPAIGN_BOOKING_UTM: Record<
   string,
   { source: string; campaign: string }
 > = {
-  // HireAI Webinar
-  "17a7a2e8-c56b-4c3e-841c-a1db2fbf1529": {
+  // The two currently-active webinar campaigns (A/B variants). The prior single
+  // id (17a7a2e8, pre-reset "HireAI Webinar") no longer matched any campaign, so
+  // bookings were silently falling back to the campaign name — updated 2026-08-11.
+  // HireAI Webinar Reason First
+  "29ea2566-c6df-4f96-a6d5-65ebbb16fbda": {
+    source: "smile_dial",
+    campaign: "voice_ai_webinar",
+  },
+  // HireAI Webinar Pattern Interrupt
+  "9d1908ab-638a-440f-8dc8-016cb2b2534a": {
     source: "smile_dial",
     campaign: "voice_ai_webinar",
   },
