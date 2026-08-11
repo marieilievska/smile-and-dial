@@ -9,7 +9,8 @@ import {
   syncLeadNextCallToEarliestCallback,
 } from "@/lib/callbacks/sync-next-call";
 import { callReachedDm, outcomeImpliesDm } from "@/lib/calls/decision-maker";
-import { CONVERSATION_OUTCOMES, NO_HUMAN_OUTCOMES } from "@/lib/calls/outcomes";
+import { classifyCallOutcome } from "@/lib/calls/classify-outcome";
+import { CONVERSATION_OUTCOMES } from "@/lib/calls/outcomes";
 import {
   deferSameDayCallbackIso,
   localHourDaysAheadIso,
@@ -25,22 +26,6 @@ import type { Database, Json } from "@/lib/supabase/database.types";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
 type CallOutcome = Database["public"]["Tables"]["calls"]["Row"]["outcome"];
-
-/**
- * The disposition values our agents are configured to extract via
- * ElevenLabs Data Collection. These map 1:1 to a subset of our outcome
- * enum (BUILD_PLAN §8 / §15).
- */
-const DISPOSITION_TO_OUTCOME: Record<string, CallOutcome> = {
-  gatekeeper: "gatekeeper",
-  not_interested: "not_interested",
-  callback: "callback",
-  call_back_later: "call_back_later",
-  hung_up: "hung_up_immediately",
-  dnc: "dnc",
-  goal_met: "goal_met",
-  voicemail: "voicemail",
-};
 
 // ElevenLabs Conversational AI is billed in credits; the post-call payload
 // reports the total as a number in metadata.cost. The per-credit USD rate lives
@@ -162,58 +147,6 @@ function nextDayLocalHourIso(
   return localHourDaysAheadIso(timeZone, 1, hour);
 }
 
-/** Tell-tale phrases of an answering machine, voicemail, or IVR auto-attendant
- *  greeting. These are deliberately specific so a live receptionist ("thanks
- *  for calling, how can I help?") never matches — only recorded systems say
- *  things like "leave a message", "after the tone", "press 1", or "you've
- *  reached us after hours". */
-const MACHINE_GREETING_RE =
-  /\bleave (us |you |your |a )*(a )?(message|voicemail)\b|\bafter (the )?(tone|beep)\b|\bat the (tone|beep)\b|\byou(?:'ve| have)? reached\b|\bpress (one|two|three|[0-9*#])\b|\bfor [a-z ,'-]{1,40}press\b|\bafter[- ]hours\b|\b(we are|we're|currently) closed\b|\bour office is closed\b|\bun(?:able|available) to (take|answer)\b|\b(can(?:no|')t|cannot) (take|come to)\b|\bmissed your call\b|\bplease leave\b|\byour party'?s extension\b|\breturn your call\b|\bvoice ?mail\b|\bmailbox\b|\bif this is an emergency\b|\bplease (stay on the line|hold)\b|\bthank you for calling\b[\s\S]{0,60}\bpress\b/i;
-
-/** True when the called party never actually came on the line — the call hit a
- *  recorded greeting / answering machine and NO human replied.
- *
- *  ElevenLabs' voicemail_detection tool doesn't always fire, so we also sniff
- *  the transcript. A machine-like opening (the first caller turns reading like a
- *  recording) is necessary but NOT sufficient: an IVR auto-attendant ("press 1…
- *  press 3… if this is an emergency") is a PHONE TREE that routes to a person.
- *  So we only call it a voicemail when, after the agent starts speaking, the
- *  called party gives no genuine reply — a reply being a `user` turn that
- *  follows an `agent` turn and isn't itself another machine line. That way a
- *  real conversation behind a phone menu (clinic IVR → "Tianna speaking" → "no")
- *  reads as a reached human, while a true voicemail (greeting, the agent leaves
- *  a message, nobody answers) still reads as voicemail. */
-function transcriptLooksLikeMachine(transcript: unknown): boolean {
-  if (!Array.isArray(transcript)) return false;
-  const turns = transcript.filter(
-    (t): t is { role?: unknown; message?: unknown } =>
-      !!t &&
-      typeof t === "object" &&
-      typeof (t as { message?: unknown }).message === "string",
-  );
-  const userMsgs = turns
-    .filter((t) => t.role === "user")
-    .map((t) => (t.message as string).trim())
-    .filter((m) => m.length > 0);
-  if (userMsgs.length === 0) return false;
-  const opening = userMsgs.slice(0, 2).join("  ");
-  if (!MACHINE_GREETING_RE.test(opening)) return false;
-  // Opening reads like a recording / IVR menu. Did the called party give a
-  // genuine reply once the agent began? If so, a human was reached.
-  let agentSpoke = false;
-  for (const t of turns) {
-    if (t.role === "agent" || t.role === "ai") {
-      agentSpoke = true;
-      continue;
-    }
-    if (t.role === "user" && agentSpoke) {
-      const m = (t.message as string).trim();
-      if (m.length > 0 && !MACHINE_GREETING_RE.test(m)) return false;
-    }
-  }
-  return true;
-}
-
 /** Turn the post-call transcript payload into plain "Agent:/Lead:" text for the
  *  rolling-summary generator. Mirrors the Call Reviewer's formatter — accepts a
  *  bare array of turns or an object wrapping a `transcript` array, and reads
@@ -239,19 +172,6 @@ function transcriptToText(raw: unknown): string {
     })
     .filter(Boolean)
     .join("\n");
-}
-
-/** Map an ElevenLabs termination reason to an UNAMBIGUOUS telephony outcome.
- *  Only the clear-cut carrier states are inferred here; a conversational
- *  "remote party ended" is intentionally left to the agent's disposition. */
-function telephonyOutcome(reason: string): CallOutcome | null {
-  const r = reason.toLowerCase();
-  if (/voicemail/.test(r)) return "voicemail";
-  if (/no[ _-]?answer|unanswered|not answered|timed? ?out|timeout|ring/.test(r))
-    return "no_answer";
-  if (/busy/.test(r)) return "busy";
-  if (/fail|carrier|invalid number|rejected|\berror\b/.test(r)) return "failed";
-  return null;
 }
 
 /** slug for a custom field, matching the custom-fields admin slugify. */
@@ -916,74 +836,28 @@ async function processTranscription(
   }
   if (!call) return { ok: true, status: "unknown_conversation" };
 
-  // Map disposition → outcome. If the agent didn't set a disposition but its
-  // voicemail_detection ended the call, fall back to labeling it voicemail
-  // (we no longer use Twilio AMD, so the AI is the source of truth here).
+  // Decide the call's outcome from the transcript + the agent's disposition
+  // guess + ElevenLabs' termination reason. The full priority ladder (AI
+  // receptionist → confirmed voicemail greeting → EL voicemail_detection, unless
+  // a real human conversation happened → dead-air/no-answer → disposition →
+  // immediate hang-up) lives in one pure, unit-tested function so it can't drift
+  // between here and its tests. It also tells us whether a real two-way human
+  // conversation happened (drives whether we mirror extracted judgment fields).
   const disposition = dispositionOf(payload.analysis);
   const terminationReason = payload.metadata?.termination_reason ?? "";
-  // Outcome priority:
-  //   1. VOICEMAIL WINS. The agent's voicemail_detection tool ends the call on
-  //      an answering machine, but the analysis LLM is still forced to guess a
-  //      disposition and often picks "gatekeeper" for the greeting. The machine
-  //      signal is authoritative — never let a guessed disposition (or our own
-  //      short-call hang-up heuristic below) override a confirmed voicemail.
-  //      We detect it two ways: the termination reason mentions voicemail, OR
-  //      the opening transcript reads like a recorded greeting / IVR (the tool
-  //      doesn't always fire — it sometimes just says "remote party ended").
-  //   2. Otherwise the agent's disposition (most accurate for live calls).
-  //   3. Otherwise an unambiguous telephony state (no-answer / busy / failed).
-  //   4. Otherwise, if a human answered and ended the call within a few
-  //      seconds (too short for any real conversation), label it an immediate
-  //      hang-up rather than leaving the outcome blank. The analysis LLM tends
-  //      to either guess "gatekeeper" or leave the disposition empty on these,
-  //      so we infer it from the call shape: short duration + the OTHER party
-  //      ended the call (never our own end_call / completed state).
-  const reachedVoicemail =
-    /voicemail/i.test(terminationReason) ||
-    transcriptLooksLikeMachine(payload.transcript);
   // How long the conversation actually ran (real field first, legacy second).
   const callDurationSecs =
     payload.metadata?.call_duration_secs ??
     payload.metadata?.duration_seconds ??
     0;
-  // "Remote party / client / user / caller hung up / disconnected" — i.e. they
-  // ended it, not us. A normal completed call says "end call tool" / "completed".
-  const remotePartyEnded =
-    /remote party|client|caller|\buser\b|hung ?up|hang ?up|disconnect/i.test(
+  const { outcome: outcomeFromDisposition, reachedHuman } = classifyCallOutcome(
+    {
+      transcript: payload.transcript,
+      disposition,
       terminationReason,
-    );
-  const dispositionOutcome = DISPOSITION_TO_OUTCOME[disposition];
-  let outcomeFromDisposition: CallOutcome | null = reachedVoicemail
-    ? "voicemail"
-    : (dispositionOutcome ?? telephonyOutcome(terminationReason));
-  // Immediate-hang-up correction. On a sub-20-second call that the OTHER party
-  // ended, there was no time for a real conversation. The analysis LLM tends to
-  // either leave the disposition blank OR mislabel it "gatekeeper" (it sees a
-  // human voice in the greeting and guesses a screener). A genuine gatekeeper
-  // interaction — being told "she's not available, let me take a message" —
-  // takes longer than this. So when the call is that short and they hung up,
-  // override both the blank and the "gatekeeper" guess to a clean hang-up.
-  const tooShortForRealTalk =
-    remotePartyEnded && callDurationSecs > 0 && callDurationSecs <= 20;
-  if (
-    !reachedVoicemail &&
-    tooShortForRealTalk &&
-    (outcomeFromDisposition == null || outcomeFromDisposition === "gatekeeper")
-  ) {
-    outcomeFromDisposition = "hung_up_immediately";
-  }
-
-  // Did we have a real conversation worth extracting from? If not (voicemail /
-  // no-answer / failure / an immediate hang-up before anyone spoke), we don't
-  // keep or mirror the AI's guessed extraction (decision maker, sentiment, …) —
-  // a machine greeting or a 5-second hang-up yields no real lead info.
-  const reachedHuman =
-    !reachedVoicemail &&
-    outcomeFromDisposition !== "hung_up_immediately" &&
-    !(
-      outcomeFromDisposition != null &&
-      NO_HUMAN_OUTCOMES.has(outcomeFromDisposition)
-    );
+      callDurationSecs,
+    },
+  );
 
   // Merge ElevenLabs's cost slice into whatever's already in cost_breakdown
   // (Twilio/lookup may have written there). ElevenLabs bundles LLM+TTS+telephony
