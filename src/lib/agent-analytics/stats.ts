@@ -45,7 +45,6 @@ export type DailyKpi = {
   convGt1min: number;
   dms: number;
   callbacks: number;
-  callbackLater: number;
   goals: number;
   notInterested: number;
   gatekeeper: number;
@@ -69,7 +68,6 @@ function emptyDay(day: string): DailyKpi {
     convGt1min: 0,
     dms: 0,
     callbacks: 0,
-    callbackLater: 0,
     goals: 0,
     notInterested: 0,
     gatekeeper: 0,
@@ -114,7 +112,6 @@ export function computeDailyKpis(
     if (connected && (r.duration_seconds ?? 0) > 60) k.convGt1min++;
     if (dmReached(r)) k.dms++;
     if (o === "callback") k.callbacks++;
-    if (o === "call_back_later") k.callbackLater++;
     if (o === "goal_met" && r.lead_id) {
       let s = goalLeadsByDay.get(day);
       if (!s) {
