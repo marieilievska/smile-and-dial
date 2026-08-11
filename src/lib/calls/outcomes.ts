@@ -15,6 +15,7 @@ export const OVERRIDABLE_OUTCOMES = [
   "busy",
   "failed",
   "hung_up_immediately",
+  "hung_up_later",
   "invalid_number",
   "gatekeeper",
   "not_interested",
@@ -46,8 +47,8 @@ export function outcomeLabel(value: string): string {
  *  dnc (a person answered to ask not to be called) and ai_error (the call did
  *  connect to a line; the agent errored mid-call). EXCLUDES no-pickup / machine
  *  outcomes: voicemail, no_answer, busy, failed, invalid_number, and
- *  ai_receptionist (a bot answered, not a person). hung_up_immediately counts —
- *  a person did pick up. */
+ *  ai_receptionist (a bot answered, not a person). hung_up_immediately and
+ *  hung_up_later both count — a person did pick up. */
 export const CONNECTED_OUTCOMES = new Set<string>([
   "goal_met",
   "callback",
@@ -57,6 +58,7 @@ export const CONNECTED_OUTCOMES = new Set<string>([
   "transferred_to_human",
   "language_barrier",
   "hung_up_immediately",
+  "hung_up_later",
   "ai_error",
   "dnc",
 ]);

@@ -25,6 +25,7 @@ const RETRY_OUTCOMES = new Set<CallOutcome>([
   "busy",
   "failed",
   "hung_up_immediately",
+  "hung_up_later",
   "gatekeeper",
   "ai_error",
 ]);
@@ -45,6 +46,7 @@ const CALLBACK_NONCONNECT_OUTCOMES = new Set<CallOutcome>([
   "busy",
   "failed",
   "hung_up_immediately",
+  "hung_up_later",
 ]);
 
 /**

@@ -53,6 +53,7 @@ function zeroDay(day: string): DailyKpi {
     notInterested: 0,
     gatekeeper: 0,
     hungUp: 0,
+    hungUpLater: 0,
     aiError: 0,
     dnc: 0,
     sentimentCounts: {},
@@ -166,6 +167,7 @@ export function DashboardView({
     k.notInterested,
     k.gatekeeper,
     k.hungUp,
+    k.hungUpLater,
     k.aiError,
     k.dnc,
     ...sentimentValues.map((v) => k.sentimentCounts[v] ?? 0),
@@ -193,7 +195,15 @@ export function DashboardView({
       label: "Gatekpr",
       title: "Reached a gatekeeper, not the decision-maker",
     },
-    { label: "Hung up", title: "Hung up immediately" },
+    {
+      label: "Hung up",
+      title: "Hung up immediately — no reply, hung up in the greeting (≤15s)",
+    },
+    {
+      label: "Hung late",
+      title:
+        "Hung up later — engaged or stayed on the line past 15s, then hung up",
+    },
     { label: "AI err", title: "The AI agent errored mid-call" },
     { label: "DNC", title: "Added to the Do-Not-Call list" },
     ...sentimentValues.map((v) => ({
@@ -285,6 +295,7 @@ export function DashboardView({
               "not_interested",
               "gatekeeper",
               "hung_up",
+              "hung_up_later",
               "ai_error",
               "dnc",
               ...sentimentValues,
@@ -382,6 +393,9 @@ export function DashboardView({
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {k.hungUp}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {k.hungUpLater}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {k.aiError}

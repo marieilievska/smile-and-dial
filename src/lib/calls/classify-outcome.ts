@@ -126,6 +126,21 @@ export function genuineHumanReplyCount(transcript: unknown): number {
   return count;
 }
 
+/** Split a resolved hang-up into immediate vs later by engagement + time.
+ *  A hang-up is `hung_up_immediately` only when the person gave NO genuine reply
+ *  AND the call was short (≤15s) — i.e. they hung up during/right after the
+ *  greeting. Otherwise (they said something back, or stayed on the line past 15s)
+ *  it's a `hung_up_later`: they engaged, then hung up. */
+const IMMEDIATE_HANGUP_MAX_SECS = 15;
+export function hangUpKind(
+  callDurationSecs: number,
+  humanReplies: number,
+): "hung_up_immediately" | "hung_up_later" {
+  const immediate =
+    humanReplies === 0 && callDurationSecs <= IMMEDIATE_HANGUP_MAX_SECS;
+  return immediate ? "hung_up_immediately" : "hung_up_later";
+}
+
 /** Map an ElevenLabs termination reason to an UNAMBIGUOUS telephony outcome.
  *  Only the clear-cut carrier/system states are inferred here; a conversational
  *  "remote party ended" is intentionally left to the agent's disposition. */
@@ -241,11 +256,19 @@ export function classifyCallOutcome(input: {
     outcome = "hung_up_immediately";
   }
 
+  // Split any resolved hang-up into immediate (no reply, hung up during the
+  // greeting) vs later (engaged, or stayed on past 15s, then hung up). Covers
+  // both the disposition=hung_up path and the short-call heuristic above.
+  if (outcome === "hung_up_immediately") {
+    outcome = hangUpKind(callDurationSecs, humanReplies);
+  }
+
   // A real two-way human conversation? Not for a machine (voicemail /
-  // ai_receptionist), a no-pickup, a failure, or an immediate hang-up.
+  // ai_receptionist), a no-pickup, a failure, or a hang-up (immediate or later).
   const reachedHuman =
     outcome != null &&
     outcome !== "hung_up_immediately" &&
+    outcome !== "hung_up_later" &&
     !NO_HUMAN_OUTCOMES.has(outcome);
 
   return { outcome, reachedHuman };

@@ -45,6 +45,7 @@ export const OUTCOME_LABELS: Record<string, string> = {
   busy: "Busy",
   failed: "Failed",
   hung_up_immediately: "Hung up immediately",
+  hung_up_later: "Hung up later",
   invalid_number: "Invalid number",
   gatekeeper: "Gatekeeper",
   not_interested: "Not interested",

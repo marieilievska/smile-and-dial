@@ -550,6 +550,10 @@ export type Database = {
           is_redial: boolean;
           lead_id: string;
           local_match: string | null;
+          objection_analyzed_at: string | null;
+          objection_category: string | null;
+          objection_quote: string | null;
+          objection_specific: string | null;
           outcome: string | null;
           outcome_source: string | null;
           placed_by: string | null;
@@ -585,6 +589,10 @@ export type Database = {
           is_redial?: boolean;
           lead_id: string;
           local_match?: string | null;
+          objection_analyzed_at?: string | null;
+          objection_category?: string | null;
+          objection_quote?: string | null;
+          objection_specific?: string | null;
           outcome?: string | null;
           outcome_source?: string | null;
           placed_by?: string | null;
@@ -620,6 +628,10 @@ export type Database = {
           is_redial?: boolean;
           lead_id?: string;
           local_match?: string | null;
+          objection_analyzed_at?: string | null;
+          objection_category?: string | null;
+          objection_quote?: string | null;
+          objection_specific?: string | null;
           outcome?: string | null;
           outcome_source?: string | null;
           placed_by?: string | null;

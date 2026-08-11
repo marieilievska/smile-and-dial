@@ -29,6 +29,7 @@ const CALLBACK_NON_CONNECT_OUTCOMES = new Set<CallOutcome>([
   "failed",
   "invalid_number",
   "hung_up_immediately",
+  "hung_up_later",
 ]);
 
 /**
