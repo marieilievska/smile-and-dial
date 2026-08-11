@@ -6,6 +6,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  computeCauseOfDeath,
+  type CauseResult,
+  type LeadForCause,
+} from "@/lib/agent-analytics/cause-of-death";
+import { chunk } from "@/lib/leads/chunk";
 import type { Database } from "@/lib/supabase/database.types";
 
 import { isWarm, type DetectedFields } from "./field-detect";
@@ -152,6 +158,99 @@ export async function fetchDashboardKpis(
     if (offset > 500_000) break; // safety backstop
   }
   return computeDailyKpis(rows, sentimentKey);
+}
+
+/** Cause of death: for every lead with ≥1 outbound call in the dashboard window
+ *  (scoped), the single primary reason it isn't won. Pages the calls query
+ *  around the 1,000-row cap, then chunk-loads the leads' status/dm flag. */
+export async function fetchCauseOfDeath(
+  supabase: DB,
+  scope: DashboardKpiScope,
+): Promise<{ result: CauseResult; companyByLead: Record<string, string> }> {
+  const conds: string[] = [];
+  if (scope.campaignIds && scope.campaignIds.length > 0) {
+    conds.push(`campaign_id.in.(${scope.campaignIds.join(",")})`);
+  }
+  if (!scope.all && conds.length === 0) {
+    return { result: computeCauseOfDeath([]), companyByLead: {} };
+  }
+
+  // (a) Page every in-window outbound call → per-lead outcome set + goalMet.
+  const PAGE = 1000;
+  const since = sinceDaysAgoIso(DASHBOARD_DAYS);
+  const byLead = new Map<string, { outcomes: string[]; goalMet: boolean }>();
+  for (let offset = 0; ; offset += PAGE) {
+    let q = supabase
+      .from("calls")
+      .select("lead_id, outcome, goal_met")
+      .eq("direction", "outbound")
+      .gte("started_at", since)
+      .order("started_at", { ascending: false })
+      .range(offset, offset + PAGE - 1);
+    if (!scope.all) q = q.or(conds.join(","));
+    const { data } = await q;
+    const batch = (data ?? []) as {
+      lead_id: string | null;
+      outcome: string | null;
+      goal_met: boolean | null;
+    }[];
+    for (const row of batch) {
+      if (!row.lead_id) continue;
+      const entry = byLead.get(row.lead_id) ?? { outcomes: [], goalMet: false };
+      if (row.outcome) entry.outcomes.push(row.outcome);
+      if (row.goal_met) entry.goalMet = true;
+      byLead.set(row.lead_id, entry);
+    }
+    if (batch.length < PAGE) break;
+    if (offset > 500_000) break; // safety backstop
+  }
+
+  const leadIds = [...byLead.keys()];
+  if (leadIds.length === 0) {
+    return { result: computeCauseOfDeath([]), companyByLead: {} };
+  }
+
+  // (b) Chunk-load the leads' status + DM flag + company (200 ids/request).
+  const leadMeta = new Map<
+    string,
+    { status: string; dm: boolean; company: string }
+  >();
+  for (const ids of chunk(leadIds, 200)) {
+    const { data } = await supabase
+      .from("leads")
+      .select("id, status, decision_maker_reached, company")
+      .in("id", ids);
+    for (const l of (data ?? []) as {
+      id: string;
+      status: string | null;
+      decision_maker_reached: boolean | null;
+      company: string | null;
+    }[]) {
+      leadMeta.set(l.id, {
+        status: l.status ?? "",
+        dm: l.decision_maker_reached === true,
+        company: l.company ?? "",
+      });
+    }
+  }
+
+  // (c) Build LeadForCause[] and aggregate.
+  const leads: LeadForCause[] = [];
+  const companyByLead: Record<string, string> = {};
+  for (const [leadId, agg] of byLead) {
+    const meta = leadMeta.get(leadId);
+    if (!meta) continue; // lead deleted since the call — skip
+    companyByLead[leadId] = meta.company;
+    leads.push({
+      leadId,
+      status: meta.status,
+      decisionMakerReached: meta.dm,
+      goalMet: agg.goalMet,
+      outcomes: agg.outcomes,
+    });
+  }
+
+  return { result: computeCauseOfDeath(leads), companyByLead };
 }
 
 export async function fetchVoiceRows(
