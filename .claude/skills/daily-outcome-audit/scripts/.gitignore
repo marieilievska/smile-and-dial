@@ -1,0 +1,4 @@
+# scratch outputs from the audit scripts (transcripts, relabel maps)
+_out-*.txt
+*.map.json
+map*.json
