@@ -124,8 +124,9 @@ describe("computeCauseOfDeath — cause assignment (furthest stage wins)", () =>
         status: "resting",
         outcomes: ["voicemail", "call_back_later"],
       }),
+      lead({ leadId: "c", status: "resting", outcomes: ["hung_up_later"] }),
     ]);
-    expect(r.counts.brush_off).toBe(2);
+    expect(r.counts.brush_off).toBe(3);
     expect(r.counts.other).toBe(0);
   });
 
