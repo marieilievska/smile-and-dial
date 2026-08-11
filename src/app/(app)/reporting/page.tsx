@@ -10,6 +10,7 @@ import {
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
 import {
   DASHBOARD_DAYS,
+  fetchCauseOfDeath,
   fetchChangelogRows,
   fetchDashboardKpis,
   fetchHotLeadRows,
@@ -23,6 +24,7 @@ import {
   type ReportScope,
 } from "@/lib/agent-analytics/scope";
 
+import { CauseOfDeathView } from "./cause-of-death-view";
 import { ChangelogTable } from "./changelog-table";
 import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
@@ -153,6 +155,8 @@ export default async function AgentAnalyticsPage({
           sentimentKey={detected.sentimentKey}
           sentimentValues={detected.sentimentValues}
         />
+      ) : tab === "cause-of-death" ? (
+        <CauseOfDeathTab kpiScope={kpiScope} />
       ) : tab === "voice" ? (
         voiceReason ? (
           <ReportingNotice tab="voice" message={voiceReason} />
@@ -215,6 +219,23 @@ async function DashboardTab({
       scopeSlug={slug}
       sentimentValues={sentimentValues}
     />
+  );
+}
+
+async function CauseOfDeathTab({ kpiScope }: { kpiScope: DashboardKpiScope }) {
+  const supabase = await createClient();
+  const { result, companyByLead } = await fetchCauseOfDeath(supabase, kpiScope);
+  return (
+    <section className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold">Cause of Death</h2>
+        <p className="text-muted-foreground text-sm">
+          For every lead worked in the last {DASHBOARD_DAYS} days, the primary
+          reason it hasn&apos;t been won. Final losses vs still in play.
+        </p>
+      </div>
+      <CauseOfDeathView result={result} companyByLead={companyByLead} />
+    </section>
   );
 }
 

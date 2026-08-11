@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 
+import { CauseOfDeathView } from "@/app/(app)/reporting/cause-of-death-view";
 import { ChangelogTable } from "@/app/(app)/reporting/changelog-table";
 import { DashboardView } from "@/app/(app)/reporting/dashboard-view";
 import { HotLeadsTable } from "@/app/(app)/reporting/hot-leads-table";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/agent-analytics/field-detect";
 import {
   DASHBOARD_DAYS,
+  fetchCauseOfDeath,
   fetchChangelogRows,
   fetchDashboardKpis,
   fetchHotLeadRows,
@@ -131,6 +133,12 @@ export default async function PublicReporting({
     }
   }
 
+  // Cause of Death: fetch only when that tab is active (mirrors the admin page).
+  const causeOfDeath =
+    tab === "cause-of-death"
+      ? await fetchCauseOfDeath(supabase, kpiScope)
+      : null;
+
   return (
     <main className="bg-background text-foreground min-h-screen">
       <div className="mx-auto flex max-w-6xl flex-col gap-5 p-6">
@@ -172,6 +180,13 @@ export default async function PublicReporting({
             scopeSlug={scope.kind === "campaign" ? "campaign" : "all-campaigns"}
             sentimentValues={detected.sentimentValues}
           />
+        ) : tab === "cause-of-death" ? (
+          causeOfDeath ? (
+            <CauseOfDeathView
+              result={causeOfDeath.result}
+              companyByLead={causeOfDeath.companyByLead}
+            />
+          ) : null
         ) : tab === "voice" ? (
           voiceReason ? (
             <ReportingNotice tab="voice" message={voiceReason} />
