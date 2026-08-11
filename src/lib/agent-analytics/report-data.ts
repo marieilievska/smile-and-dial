@@ -11,6 +11,8 @@ import {
   type CauseResult,
   type LeadForCause,
 } from "@/lib/agent-analytics/cause-of-death";
+import type { ObjectionRow } from "@/lib/agent-analytics/objections";
+import type { ObjectionCategory } from "@/lib/openai/objection-extractor";
 import { chunk } from "@/lib/leads/chunk";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -166,23 +168,42 @@ export async function fetchDashboardKpis(
 export async function fetchCauseOfDeath(
   supabase: DB,
   scope: DashboardKpiScope,
-): Promise<{ result: CauseResult; companyByLead: Record<string, string> }> {
+): Promise<{
+  result: CauseResult;
+  companyByLead: Record<string, string>;
+  objections: ObjectionRow[];
+}> {
   const conds: string[] = [];
   if (scope.campaignIds && scope.campaignIds.length > 0) {
     conds.push(`campaign_id.in.(${scope.campaignIds.join(",")})`);
   }
   if (!scope.all && conds.length === 0) {
-    return { result: computeCauseOfDeath([]), companyByLead: {} };
+    return {
+      result: computeCauseOfDeath([]),
+      companyByLead: {},
+      objections: [],
+    };
   }
 
-  // (a) Page every in-window outbound call → per-lead outcome set + goalMet.
+  // (a) Page every in-window outbound call → per-lead outcome set + goalMet +
+  //     the lead's objection (first call, in paged order, that carries one).
+  type LeadObjection = {
+    category: ObjectionCategory;
+    specific: string | null;
+    quote: string | null;
+  };
   const PAGE = 1000;
   const since = sinceDaysAgoIso(DASHBOARD_DAYS);
-  const byLead = new Map<string, { outcomes: string[]; goalMet: boolean }>();
+  const byLead = new Map<
+    string,
+    { outcomes: string[]; goalMet: boolean; objection: LeadObjection | null }
+  >();
   for (let offset = 0; ; offset += PAGE) {
     let q = supabase
       .from("calls")
-      .select("lead_id, outcome, goal_met")
+      .select(
+        "lead_id, outcome, goal_met, objection_category, objection_specific, objection_quote",
+      )
       .eq("direction", "outbound")
       .gte("started_at", since)
       .order("started_at", { ascending: false })
@@ -193,12 +214,27 @@ export async function fetchCauseOfDeath(
       lead_id: string | null;
       outcome: string | null;
       goal_met: boolean | null;
+      objection_category: string | null;
+      objection_specific: string | null;
+      objection_quote: string | null;
     }[];
     for (const row of batch) {
       if (!row.lead_id) continue;
-      const entry = byLead.get(row.lead_id) ?? { outcomes: [], goalMet: false };
+      const entry = byLead.get(row.lead_id) ?? {
+        outcomes: [],
+        goalMet: false,
+        objection: null,
+      };
       if (row.outcome) entry.outcomes.push(row.outcome);
       if (row.goal_met) entry.goalMet = true;
+      // First non-null objection (in paged order) wins for the lead.
+      if (!entry.objection && row.objection_category) {
+        entry.objection = {
+          category: row.objection_category as ObjectionCategory,
+          specific: row.objection_specific,
+          quote: row.objection_quote,
+        };
+      }
       byLead.set(row.lead_id, entry);
     }
     if (batch.length < PAGE) break;
@@ -207,7 +243,11 @@ export async function fetchCauseOfDeath(
 
   const leadIds = [...byLead.keys()];
   if (leadIds.length === 0) {
-    return { result: computeCauseOfDeath([]), companyByLead: {} };
+    return {
+      result: computeCauseOfDeath([]),
+      companyByLead: {},
+      objections: [],
+    };
   }
 
   // (b) Chunk-load the leads' status + DM flag + company (200 ids/request).
@@ -250,7 +290,24 @@ export async function fetchCauseOfDeath(
     });
   }
 
-  return { result: computeCauseOfDeath(leads), companyByLead };
+  const result = computeCauseOfDeath(leads);
+
+  // (d) Objection rows: one per DM-said-no lead that carries an objection.
+  const objections: ObjectionRow[] = [];
+  for (const { leadId, cause } of result.perLead) {
+    if (cause !== "dm_said_no") continue;
+    const objection = byLead.get(leadId)?.objection;
+    if (!objection) continue;
+    objections.push({
+      leadId,
+      company: companyByLead[leadId] ?? "",
+      category: objection.category,
+      specific: objection.specific,
+      quote: objection.quote,
+    });
+  }
+
+  return { result, companyByLead, objections };
 }
 
 export async function fetchVoiceRows(
