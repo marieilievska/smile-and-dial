@@ -3,6 +3,7 @@ import {
   Bot,
   PhoneCall,
   Flame,
+  HeartCrack,
   History,
   LayoutDashboard,
   MessageSquare,
@@ -13,6 +14,7 @@ import {
  *  so both Server Components can import the array + component safely. */
 export const REPORTING_TABS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { key: "cause-of-death", label: "Cause of Death", icon: HeartCrack },
   { key: "voice", label: "Voice of Customer", icon: MessageSquare },
   { key: "hot-leads", label: "Hot Leads", icon: Flame },
   { key: "numbers", label: "Numbers", icon: PhoneCall },
