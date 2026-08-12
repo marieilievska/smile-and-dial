@@ -185,7 +185,7 @@ export default async function PublicReporting({
             <CauseOfDeathView
               result={causeOfDeath.result}
               companyByLead={causeOfDeath.companyByLead}
-              objections={causeOfDeath.objections}
+              objectionsByCause={causeOfDeath.objectionsByCause}
             />
           ) : null
         ) : tab === "voice" ? (

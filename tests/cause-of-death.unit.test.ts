@@ -75,7 +75,7 @@ describe("computeCauseOfDeath — cause assignment (furthest stage wins)", () =>
     expect(r.groups.final).toBe(1);
   });
 
-  test("bad number, other (language/ai), never reached", () => {
+  test("bad number is its own bucket; language / error / machine / no-pickup all fold into 'No real contact'", () => {
     const r = computeCauseOfDeath([
       lead({ leadId: "a", status: "resting", outcomes: ["invalid_number"] }),
       lead({ leadId: "b", status: "resting", outcomes: ["language_barrier"] }),
@@ -87,8 +87,7 @@ describe("computeCauseOfDeath — cause assignment (furthest stage wins)", () =>
       }),
     ]);
     expect(r.counts.bad_number).toBe(1);
-    expect(r.counts.other).toBe(2); // language_barrier + ai_error
-    expect(r.counts.never_reached).toBe(1);
+    expect(r.counts.no_contact).toBe(3); // language + error + machine/no-pickup
   });
 
   test("positive statuses are wins, not losses (a sale with an earlier no)", () => {
@@ -112,22 +111,22 @@ describe("computeCauseOfDeath — cause assignment (furthest stage wins)", () =>
     expect(r.groups.final).toBe(0);
   });
 
-  test("brush-offs (hung up / call back later) get their own bucket, not 'Other'", () => {
+  test("'No real contact' sub-reasons: reached a person (brushed off) > machine > no pickup", () => {
     const r = computeCauseOfDeath([
-      lead({
-        leadId: "a",
-        status: "resting",
-        outcomes: ["hung_up_immediately"],
-      }),
+      lead({ leadId: "a", status: "resting", outcomes: ["hung_up_immediately"] }),
       lead({
         leadId: "b",
         status: "resting",
-        outcomes: ["voicemail", "call_back_later"],
+        outcomes: ["voicemail", "call_back_later"], // a person beats the voicemail
       }),
-      lead({ leadId: "c", status: "resting", outcomes: ["hung_up_later"] }),
+      lead({ leadId: "c", status: "resting", outcomes: ["no_answer", "busy"] }),
     ]);
-    expect(r.counts.brush_off).toBe(3);
-    expect(r.counts.other).toBe(0);
+    expect(r.counts.no_contact).toBe(3);
+    const sub = (id: string) =>
+      r.perLead.find((l) => l.leadId === id)?.noContact;
+    expect(sub("a")).toBe("brushed_off");
+    expect(sub("b")).toBe("brushed_off");
+    expect(sub("c")).toBe("no_pickup");
   });
 
   test("totals, groups, and perLead are consistent and deduped", () => {
