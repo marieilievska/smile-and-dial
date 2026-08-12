@@ -44,11 +44,16 @@ export function outcomeLabel(value: string): string {
  */
 
 /** A live human actually answered — the "connect" in connect rate. INCLUDES
- *  dnc (a person answered to ask not to be called) and ai_error (the call did
- *  connect to a line; the agent errored mid-call). EXCLUDES no-pickup / machine
+ *  dnc (a person answered to ask not to be called). EXCLUDES no-pickup / machine
  *  outcomes: voicemail, no_answer, busy, failed, invalid_number, and
  *  ai_receptionist (a bot answered, not a person). hung_up_immediately and
- *  hung_up_later both count — a person did pick up. */
+ *  hung_up_later both count — a person did pick up.
+ *
+ *  ai_error is DELIBERATELY EXCLUDED (2026-08-11, Marija): it's OUR platform/
+ *  quota failure, not a real connect. Counting it as connected let a credit
+ *  outage (hundreds of ai_error in an hour) masquerade as good calls. It is
+ *  not counted as a connect ANYWHERE; the metric surfaces also drop it from the
+ *  connect-rate denominator so an outage neither inflates nor tanks the rate. */
 export const CONNECTED_OUTCOMES = new Set<string>([
   "goal_met",
   "callback",
@@ -60,9 +65,14 @@ export const CONNECTED_OUTCOMES = new Set<string>([
   "language_barrier",
   "hung_up_immediately",
   "hung_up_later",
-  "ai_error",
   "dnc",
 ]);
+
+/** OUR platform failures — not real calls. Excluded from the connect-rate
+ *  DENOMINATOR (and numerator) so an ElevenLabs credit/quota outage that kills
+ *  hundreds of calls doesn't distort connect rate in either direction. Today
+ *  this is just ai_error (the only quota/credit-termination outcome). */
+export const NON_CALL_OUTCOMES = new Set<string>(["ai_error"]);
 
 /** Reached a real, qualifying two-way conversation. Excludes the brush-off
  *  (call_back_later) and the instant hang-up — those connected but weren't a

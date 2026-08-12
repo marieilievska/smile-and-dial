@@ -81,12 +81,17 @@ export async function fetchCallStats(
 
   let connected = 0;
   let goalMet = 0;
+  let aiError = 0;
   for (const row of rows) {
     if (row.outcome && CONNECTED_OUTCOMES.has(row.outcome)) connected++;
+    if (row.outcome === "ai_error") aiError++;
     if (row.goal_met) goalMet++;
   }
   const callsToday = rows.length;
-  const connectRateToday = callsToday > 0 ? connected / callsToday : 0;
+  // ai_error = OUR quota/platform failure — out of the connect-rate denominator
+  // so an EL credit outage doesn't distort the rate.
+  const connectRateToday =
+    callsToday - aiError > 0 ? connected / (callsToday - aiError) : 0;
 
   return {
     callsToday,

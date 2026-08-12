@@ -11,6 +11,7 @@ type Admin = SupabaseClient<Database>;
 const CONVERSATION_NON_WON = [
   "not_interested",
   "gatekeeper",
+  "gatekeeper_not_interested",
   "callback",
   "transferred_to_human",
   "language_barrier",
@@ -35,6 +36,7 @@ export async function runObjectionExtraction(
     .limit(limit);
   if (error) throw new Error(error.message);
 
+  let analyzed = 0;
   let withObjection = 0;
   let cost = 0;
   const nowIso = new Date().toISOString();
@@ -42,7 +44,12 @@ export async function runObjectionExtraction(
     const text = transcriptToText(
       (row as { transcript_json: unknown }).transcript_json,
     );
-    const { objection, cost: c } = await extractObjection(text);
+    const { objection, cost: c, ok } = await extractObjection(text);
+    // Analysis failed (no key / network / non-2xx). Leave objection_analyzed_at
+    // NULL so this call is retried on a later run, instead of permanently
+    // blanking it during an OpenAI outage. Don't write partial data or cost.
+    if (!ok) continue;
+    analyzed += 1;
     cost += c;
     if (objection) withObjection += 1;
 
@@ -61,5 +68,5 @@ export async function runObjectionExtraction(
       })
       .eq("id", (row as { id: string }).id);
   }
-  return { analyzed: (data ?? []).length, withObjection, cost };
+  return { analyzed, withObjection, cost };
 }

@@ -22,6 +22,12 @@ const SIDE_EFFECT_OUTCOMES = new Set([
   "dnc",
   "invalid_number",
   "language_barrier",
+  // callback: the retry engine also no-ops on this (owned by
+  // applyOutcomeSideEffects), so without running the side-effects a manual
+  // "Callback" override just relabeled the call — no callbacks row, lead never
+  // moved to the callback queue. Routing it through applyOutcomeSideEffects
+  // creates the callback (defaulting to tomorrow morning when no time is set).
+  "callback",
 ]);
 
 export type TranscriptTurn = {

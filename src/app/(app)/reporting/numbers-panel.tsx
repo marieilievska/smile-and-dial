@@ -95,6 +95,10 @@ export async function NumbersPanel({ days = 30 }: { days?: number }) {
   const byCountry = new Map<string, Row>();
   const byNumber = new Map<string, Row>();
   for (const c of calls) {
+    // ai_error = OUR quota/platform failure, not a real call — exclude it from
+    // both the connected count AND the denominator so an EL credit outage
+    // doesn't distort a number's connect rate.
+    if (c.outcome === "ai_error") continue;
     const connected = c.outcome !== null && !NOT_CONNECTED.has(c.outcome);
     const bump = (m: Map<string, Row>, k: string) => {
       const r = m.get(k) ?? { calls: 0, connected: 0 };

@@ -229,7 +229,13 @@ export function classifyCallOutcome(input: {
   } else if (machineGreeting) {
     outcome = "voicemail";
   } else if (errorByTermination) {
-    outcome = "ai_error";
+    // ElevenLabs killed the call for a platform/quota reason. If a REAL two-way
+    // human conversation already happened before the kill (≥2 genuine replies),
+    // keep what the agent learned (its disposition + reachedHuman) rather than
+    // erasing the summary/DM flag — mirrors the voicemail branch's guard. Only a
+    // quota kill with no real conversation becomes ai_error.
+    outcome =
+      humanReplies >= 2 && dispositionOutcome ? dispositionOutcome : "ai_error";
   } else if (vmByTermination) {
     outcome =
       humanReplies >= 2

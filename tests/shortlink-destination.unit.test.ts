@@ -7,17 +7,18 @@ import {
   withLeadParams,
 } from "../src/lib/shortlinks/destination";
 
-// Must match the live campaign id in CAMPAIGN_LINK_UTM. A database reset
-// recreates the campaign with a new id and silently kills the override, so this
-// constant is the canary: if it drifts from prod, attribution is already broken.
-const HIREAI_PRESELL_ID = "4e9b907b-2fb8-4735-80ef-ebca580af2d1";
+// Must match a live campaign id in CAMPAIGN_LINK_UTM. A database reset recreates
+// the campaign with a new id and silently kills the override, so this constant
+// is the canary: if it drifts from prod, attribution is already broken. Repointed
+// 2026-08-11 to the active webinar campaigns (was the dead HireAI Presell id).
+const WEBINAR_CAMPAIGN_ID = "9d1908ab-638a-440f-8dc8-016cb2b2534a";
 
 describe("linkUtmParams", () => {
-  it("uses the HireAI Presell overrides, with the channel as the medium", () => {
+  it("uses the active-campaign overrides, with the channel as the medium", () => {
     expect(
       linkUtmParams({
-        campaignId: HIREAI_PRESELL_ID,
-        campaignName: "HireAI Presell",
+        campaignId: WEBINAR_CAMPAIGN_ID,
+        campaignName: "HireAI Webinar Pattern Interrupt",
         channel: "sms",
       }),
     ).toEqual({
@@ -27,8 +28,8 @@ describe("linkUtmParams", () => {
     });
     expect(
       linkUtmParams({
-        campaignId: HIREAI_PRESELL_ID,
-        campaignName: "HireAI Presell",
+        campaignId: WEBINAR_CAMPAIGN_ID,
+        campaignName: "HireAI Webinar Pattern Interrupt",
         channel: "email",
       }).utm_medium,
     ).toBe("email");

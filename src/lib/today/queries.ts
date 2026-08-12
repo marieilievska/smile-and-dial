@@ -133,6 +133,10 @@ export async function fetchHeroCounts(
   const connectedYest = rowsYest.filter(
     (r) => r.outcome && CONNECTED_OUTCOMES.has(r.outcome),
   ).length;
+  // ai_error = OUR quota/platform failure, not a real call — kept out of the
+  // connect-rate denominator so an EL credit outage doesn't distort the rate.
+  const aiErrorToday = rowsToday.filter((r) => r.outcome === "ai_error").length;
+  const aiErrorYest = rowsYest.filter((r) => r.outcome === "ai_error").length;
 
   const spendToday = rowsToday.reduce(
     (sum, r) => sum + pickBreakdown(r.cost_breakdown).total,
@@ -158,9 +162,13 @@ export async function fetchHeroCounts(
     callsToday: rowsToday.length,
     callsYesterday: rowsYest.length,
     connectRateToday:
-      rowsToday.length === 0 ? 0 : connectedToday / rowsToday.length,
+      rowsToday.length - aiErrorToday <= 0
+        ? 0
+        : connectedToday / (rowsToday.length - aiErrorToday),
     connectRateYesterday:
-      rowsYest.length === 0 ? 0 : connectedYest / rowsYest.length,
+      rowsYest.length - aiErrorYest <= 0
+        ? 0
+        : connectedYest / (rowsYest.length - aiErrorYest),
     appointmentsToday: apptsToday,
     appointmentsYesterday: apptsYest,
     costPerAppointmentToday: apptsToday === 0 ? 0 : spendToday / apptsToday,
