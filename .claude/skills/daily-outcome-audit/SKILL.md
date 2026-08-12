@@ -21,6 +21,7 @@ Each call gets one **outcome** (disposition) that drives real decisions: who to 
 **Fast path (all at once):** `node scripts/audit-day.js [YYYY-MM-DD]` does steps 1–4 in one read-only pass — credit health, every outcome's counts, booking reconciliation, and transcript dumps for the judgment outcomes — and prints what needs your eyes. Then jump to step 5 (fix) and 6 (harden). Use the per-step flow below when you want to drill into one outcome.
 
 1. **Credit check first** — `node scripts/credit-check.js`. `ai_error` = ElevenLabs ran out of credits; a spike means calls are failing *right now*. Fix billing before anything else. (Only Marija can top up.)
+1b. **Null-outcome sweep** — a **completed** call must NEVER have `outcome=null` (only in-flight `dialing`/`queued` may). Check `calls?outcome=is.null&status=eq.completed` (count via `Prefer: count=exact`, `Range: 0-0`). Since the Aug-2026 fix `classifyCallOutcome` always buckets, so a non-zero count means either pre-fix strandings or a call the fixed webhook hasn't reprocessed. Remedy = re-fetch each conversation from the **EL API** (`/v1/convai/conversations/{id}`, retry on 429/5xx — a silent fallback to the stored transcript loses `termination_reason` and misreads a quota-kill as a hang-up), re-run `classifyCallOutcome`, then: **delete** no-conversation quota-kills (`termination_reason` "exceeds your quota limit" + no real 2-way exchange, per the ai_error rule), give everything else its accurate outcome, and **recompute** each touched lead's `call_attempts`/`conversations` (webhook logic: `call_attempts`=all its calls; `conversations`=calls whose outcome ∈ `CONVERSATION_OUTCOMES`).
 2. **Pull the outcome** — `node scripts/audit-outcome.js <outcome>` (defaults to yesterday ET). Dumps counts, per-campaign split, booking/tool signals, and readable transcripts.
 3. **Verify against the signal** — read `outcome-playbook.md` for what "correct" means for THAT outcome, the objective signal, and the known traps. Read transcripts for the judgment calls.
 4. **Reconcile goal_met** — `node scripts/reconcile-bookings.js` cross-checks real Calendly bookings ↔ `goal_met` in BOTH directions (false wins *and* real bookings hiding under the wrong label).
@@ -39,6 +40,7 @@ Each call gets one **outcome** (disposition) that drives real decisions: who to 
 | `gatekeeper`/`_not_interested`/`not_interested` | who declined (owner vs staff) + how firmly | `not_interested` auto-stamps decision-maker-reached |
 | `callback` | a real time/window was given | "they'll call us" / no time |
 | `hung_up_immediately`/`_later`/`no_answer` | fuzzy short-call trio — behaviour-neutral (all retry) | **don't** bulk-relabel; churns labels for nothing |
+| `(null)` on a **completed** call | should NEVER exist — the webhook always buckets now | pre-fix strandings / an EL quota-kill whose reason lands *after* the webhook → re-fetch EL + reclassify (see step 1b); delete no-conversation quota-kills |
 
 Full recipes: **`outcome-playbook.md`**. Fix mechanics + safety: **`fix-patterns.md`**.
 
