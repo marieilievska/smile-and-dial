@@ -30,6 +30,10 @@ const CALLBACK_NON_CONNECT_OUTCOMES = new Set<CallOutcome>([
   "invalid_number",
   "hung_up_immediately",
   "hung_up_later",
+  // ai_error is OUR platform/quota failure — we never reached anyone, so a
+  // due callback that hits it must stay PENDING (not be marked "completed").
+  // The retry engine's ai_error branch keeps the lead parked on that callback.
+  "ai_error",
 ]);
 
 /**

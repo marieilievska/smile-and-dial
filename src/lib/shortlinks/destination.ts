@@ -31,8 +31,18 @@ export type LeadLinkParams = {
  *  stops showing `presale_voice_agents_q3-2026`, check this id first. */
 const CAMPAIGN_LINK_UTM: Record<string, { source: string; campaign: string }> =
   {
-    // HireAI Presell Research
-    "4e9b907b-2fb8-4735-80ef-ebca580af2d1": {
+    // The two currently-active webinar campaigns (A/B variants). The prior id
+    // (4e9b907b "HireAI Presell Research") no longer matched any campaign after
+    // a reset, so every in-call link fell back to the generic tags and the CEO's
+    // dashboard showed 0 attributed clicks — repointed 2026-08-11. Mirrors the
+    // CAMPAIGN_BOOKING_UTM fix in ../calendly/booking.ts.
+    // HireAI Webinar Pattern Interrupt
+    "9d1908ab-638a-440f-8dc8-016cb2b2534a": {
+      source: "smile_dial",
+      campaign: "presale_voice_agents_q3-2026",
+    },
+    // HireAI Webinar Reason First
+    "29ea2566-c6df-4f96-a6d5-65ebbb16fbda": {
       source: "smile_dial",
       campaign: "presale_voice_agents_q3-2026",
     },

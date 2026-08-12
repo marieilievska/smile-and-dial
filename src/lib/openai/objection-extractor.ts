@@ -104,17 +104,25 @@ export function parseObjectionResponse(content: string): Objection | null {
   return { category, specific: str(parsed.specific), quote: str(parsed.quote) };
 }
 
-/** One live gpt-5.4-mini pass. Returns the objection (or null) + token cost.
- *  Mock/no-key or any failure → { objection: null, cost: 0, mode }. Mirrors
- *  summary-merger.ts's callOpenAi. */
+/** One live gpt-5.4-mini pass. Returns the objection (or null) + token cost +
+ *  `ok` = "this call was DEFINITIVELY processed, safe to mark analyzed". `ok` is
+ *  false for a config/transient failure (no key, network throw, non-2xx) so the
+ *  caller leaves the call un-analyzed and retries it — instead of permanently
+ *  blanking a whole batch during an OpenAI outage. An empty transcript is `ok`
+ *  (nothing to analyze — terminal). Mirrors summary-merger.ts's callOpenAi. */
 export async function extractObjection(transcriptText: string): Promise<{
   objection: Objection | null;
   cost: number;
-  mode: "live" | "mock";
+  ok: boolean;
 }> {
   const apiKey = openAiKey();
-  if (!apiKey || !transcriptText.trim()) {
-    return { objection: null, cost: 0, mode: "mock" };
+  if (!transcriptText.trim()) {
+    // Nothing to analyze — terminal; mark it done so it isn't retried forever.
+    return { objection: null, cost: 0, ok: true };
+  }
+  if (!apiKey) {
+    // No key configured — config/transient; DON'T mark analyzed, retry later.
+    return { objection: null, cost: 0, ok: false };
   }
   let res: Response;
   try {
@@ -137,9 +145,9 @@ export async function extractObjection(transcriptText: string): Promise<{
       }),
     });
   } catch {
-    return { objection: null, cost: 0, mode: "live" };
+    return { objection: null, cost: 0, ok: false };
   }
-  if (!res.ok) return { objection: null, cost: 0, mode: "live" };
+  if (!res.ok) return { objection: null, cost: 0, ok: false };
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
     usage?: { prompt_tokens?: number; completion_tokens?: number };
@@ -150,5 +158,5 @@ export async function extractObjection(transcriptText: string): Promise<{
     data.usage?.completion_tokens ?? 0,
     OBJECTION_MODEL,
   );
-  return { objection: parseObjectionResponse(content), cost, mode: "live" };
+  return { objection: parseObjectionResponse(content), cost, ok: true };
 }

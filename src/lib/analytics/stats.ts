@@ -93,9 +93,11 @@ function pickCostTotal(value: unknown): number {
   // Prefer the sum of itemized vendor costs over the stored `total`, which
   // can be missing or stale relative to the parts. Fall back to the stored
   // total only when there's no itemization (legacy rows), so a real-but-
-  // unitemized cost is never dropped. Mirrors pickBreakdown in costs.ts.
+  // unitemized cost is never dropped. Mirrors pickBreakdown in costs.ts —
+  // which folds openai_review (Call-Reviewer spend, stored as a SEPARATE key)
+  // into openai; omitting it here made /analytics undercount vs /costs.
   const componentSum =
-    n("twilio") + n("elevenlabs") + n("openai") + n("lookup");
+    n("twilio") + n("elevenlabs") + n("openai") + n("openai_review") + n("lookup");
   return componentSum > 0 ? componentSum : n("total");
 }
 
@@ -188,6 +190,10 @@ export function computeKpis(rows: CallRow[]): Kpis {
   let conversations = 0;
   let dmsReached = 0;
   let connected = 0;
+  // ai_error = OUR quota/platform failure, not a real call. Counted out of the
+  // connect-rate denominator so an EL credit outage neither inflates nor tanks
+  // the rate (see NON_CALL_OUTCOMES / CONNECTED_OUTCOMES in calls/outcomes.ts).
+  let aiError = 0;
   // Goals are counted per BUSINESS, not per call: a lead with two goal-met calls
   // (called twice, or two leads merged into one) is ONE win. Dedupe by lead_id.
   const goalLeadIds = new Set<string>();
@@ -198,6 +204,7 @@ export function computeKpis(rows: CallRow[]): Kpis {
   let spend = 0;
   for (const r of rows) {
     if (r.outcome && CONNECTED_OUTCOMES.has(r.outcome)) connected += 1;
+    if (r.outcome === "ai_error") aiError += 1;
     if (r.outcome && CONVERSATION_OUTCOMES.has(r.outcome)) conversations += 1;
     if (rowReachedDm(r)) dmsReached += 1;
     if (r.goal_met) {
@@ -217,7 +224,8 @@ export function computeKpis(rows: CallRow[]): Kpis {
     conversations,
     dmsReached,
     connected,
-    connectRate: totalCalls === 0 ? 0 : connected / totalCalls,
+    connectRate:
+      totalCalls - aiError <= 0 ? 0 : connected / (totalCalls - aiError),
     goalMet,
     goalMetWithDm,
     goalMetRate: conversations === 0 ? 0 : goalMet / conversations,

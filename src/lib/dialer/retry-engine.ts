@@ -41,6 +41,13 @@ const RETRY_OUTCOMES = new Set<CallOutcome>([
  */
 const AI_ERROR_RETRY_HOURS = 2;
 
+/** After this many CONSECUTIVE ai_errors on one lead, stop the ~2h fast-retry
+ *  and back off a full day. Without a ceiling, a SUSTAINED credit/quota outage
+ *  (every call returns ai_error) would re-dial the same live businesses every
+ *  couple hours all day. A transient one-off still recovers fast (well under the
+ *  cap). */
+const AI_ERROR_MAX_FAST_RETRIES = 3;
+
 /**
  * Non-connect outcomes that, on a lead with a PENDING callback, escalate that
  * callback (the +30min → next-day → 'missed' ladder) instead of abandoning it to
@@ -349,15 +356,45 @@ export async function applyRetryForCall(
   } else if (call.outcome === "ai_error") {
     // Platform/quota failure on OUR side (ElevenLabs "exceeds your quota
     // limit"), not the lead's doing. Reschedule SOON without advancing the
-    // cold cycle or spending a retry, so a credit-ceiling outage neither
-    // pushes the lead days out nor escalates it toward the 15-day rest. Once
-    // credits are restored the lead reconnects on its normal footing.
-    // retry_counter / retry_position / call_back_later_count left untouched.
-    update.next_call_at = new Date(
-      Date.now() + AI_ERROR_RETRY_HOURS * 60 * 60 * 1000,
-    ).toISOString();
-    update.status = "ready_to_call";
-    update.resting_until = null;
+    // cold cycle or spending a retry. retry_counter / retry_position /
+    // call_back_later_count left untouched.
+    const { data: pendingCb } = await supabase
+      .from("callbacks")
+      .select("scheduled_at")
+      .eq("lead_id", call.lead_id)
+      .eq("status", "pending")
+      .order("scheduled_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (pendingCb) {
+      // A pending callback must NOT be consumed or escalated by our failure —
+      // keep the lead parked on its earliest pending callback (a true no-op).
+      update.status = "callback";
+      update.next_call_at = pendingCb.scheduled_at;
+      update.resting_until = null;
+    } else {
+      // Cold lead: retry SOON, but cap the storm. During a sustained outage
+      // every call returns ai_error; after N consecutive ai_errors, back off to
+      // a full day so we don't re-dial the same live people every ~2h all day.
+      const { data: recent } = await supabase
+        .from("calls")
+        .select("outcome")
+        .eq("lead_id", call.lead_id)
+        .not("outcome", "is", null)
+        .order("started_at", { ascending: false })
+        .limit(AI_ERROR_MAX_FAST_RETRIES + 1);
+      let streak = 0;
+      for (const c of recent ?? []) {
+        if (c.outcome === "ai_error") streak++;
+        else break;
+      }
+      const hours = streak > AI_ERROR_MAX_FAST_RETRIES ? 24 : AI_ERROR_RETRY_HOURS;
+      update.next_call_at = new Date(
+        Date.now() + hours * 60 * 60 * 1000,
+      ).toISOString();
+      update.status = "ready_to_call";
+      update.resting_until = null;
+    }
   } else if (call.outcome === "call_back_later") {
     // Busy brush-off: try again the NEXT DAY, up to a couple of times, then
     // rest so we stop pestering. Calling hours are enforced at dial time by

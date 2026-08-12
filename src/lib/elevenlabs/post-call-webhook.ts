@@ -1295,10 +1295,56 @@ export async function applyOutcomeSideEffects(
   // theory) callback enrichment. One lookup either way.
   const { data: lead } = await supabase
     .from("leads")
-    .select("business_phone, company, owner_id, timezone")
+    .select("business_phone, company, owner_id, timezone, calendly_event_uri")
     .eq("id", input.leadId)
     .single();
   if (!lead) return;
+
+  // --- goal_met booking guard (booking campaigns only) ---
+  // The "goal_met means an actual booking" rule is otherwise PROMPT-ONLY, and
+  // the post-call LLM over-claims goal_met from a gatekeeper "I'll email the
+  // owner" — permanently closing an un-won lead. Enforce it in code: for a
+  // booking / fixed-time campaign, a goal_met with NO recorded registration is
+  // downgraded to gatekeeper (retry) so we keep chasing. Non-booking campaigns
+  // (e.g. research/survey) are untouched — their goal isn't a booking.
+  if (input.outcome === "goal_met") {
+    const { data: campaign } = await supabase
+      .from("campaigns")
+      .select("calendly_event_id, fixed_time_booking")
+      .eq("id", input.campaignId)
+      .maybeSingle();
+    const isBookingCampaign = Boolean(
+      campaign?.calendly_event_id || campaign?.fixed_time_booking,
+    );
+    if (isBookingCampaign && !lead.calendly_event_uri) {
+      const { data: booking } = await supabase
+        .from("calendly_events")
+        .select("id")
+        .eq("lead_id", input.leadId)
+        .eq("status", "scheduled")
+        .limit(1)
+        .maybeSingle();
+      if (!booking) {
+        await supabase
+          .from("calls")
+          .update({ outcome: "gatekeeper", goal_met: false })
+          .eq("id", input.callId);
+        await supabase.from("system_events").insert({
+          kind: "goal_met_downgraded_no_booking",
+          ref_table: "calls",
+          ref_id: input.callId,
+          payload: { campaign_id: input.campaignId, lead_id: input.leadId },
+        });
+        // Reschedule as a normal gatekeeper (2-day retry) instead of closing.
+        await supabase
+          .from("calls")
+          .update({ retry_applied_at: null })
+          .eq("id", input.callId);
+        await applyRetryForCall(input.callId);
+        return;
+      }
+    }
+  }
 
   // --- Goal Met notification (Step 40) ---
   // Insert into notifications for the lead's owner so the bell badges them.
