@@ -2,6 +2,7 @@
 // reusing the app-wide CONNECTED_OUTCOMES so this page can never disagree with
 // the Analytics page. Grouped per ET calendar day.
 
+import { callReachedDm } from "@/lib/calls/decision-maker";
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 
 import { isWarm } from "./field-detect";
@@ -31,11 +32,9 @@ function ex(r: AgentCallRow): Record<string, unknown> {
     : {};
 }
 export function dmReached(r: AgentCallRow): boolean {
-  return (
-    String(ex(r).decision_maker_reached ?? "")
-      .trim()
-      .toLowerCase() === "yes"
-  );
+  // Outcome-aware: a gatekeeper the AI mis-flagged as DM must not count (see
+  // callReachedDm / OUTCOME_EXCLUDES_DM). Keeps this per-call DM count honest.
+  return callReachedDm(ex(r), r.outcome);
 }
 
 export type DailyKpi = {

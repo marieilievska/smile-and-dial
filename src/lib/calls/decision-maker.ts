@@ -9,7 +9,15 @@
  */
 export function callReachedDm(
   extracted: Record<string, unknown> | null | undefined,
+  outcome?: string | null,
 ): boolean {
+  // The OUTCOME vetoes a stray AI flag. A gatekeeper (or a firm gatekeeper
+  // decline) is BY DEFINITION not the owner/manager, and the machine/no-pickup
+  // outcomes reached nobody — so even a mis-extracted decision_maker_reached=
+  // "yes" on such a call must NOT count as reaching the decision maker. This is
+  // the main source of gatekeepers being counted as DMs. (not_interested is
+  // NOT excluded — it's owner-only by definition; see OUTCOME_IMPLIES_DM.)
+  if (outcome != null && OUTCOME_EXCLUDES_DM.has(outcome)) return false;
   const v = extracted?.decision_maker_reached;
   return typeof v === "string" && v.trim().toLowerCase() === "yes";
 }
@@ -25,6 +33,25 @@ export function callReachedDm(
  *  (a survey answered, a slot booked by front desk), and we report goals-with-DM
  *  as a separate, deliberately-narrower number. */
 export const OUTCOME_IMPLIES_DM = new Set<string>(["not_interested"]);
+
+/** Outcomes that DEFINITIONALLY did NOT reach the decision maker. A gatekeeper
+ *  / gatekeeper_not_interested is a NON-owner/manager by definition; the machine,
+ *  no-pickup, and platform-error outcomes reached nobody. A call with one of
+ *  these can never be a DM contact, regardless of the AI's extracted flag —
+ *  which is how a gatekeeper the AI mis-flagged was being counted as a DM. */
+export const OUTCOME_EXCLUDES_DM = new Set<string>([
+  "gatekeeper",
+  "gatekeeper_not_interested",
+  "voicemail",
+  "no_answer",
+  "busy",
+  "failed",
+  "invalid_number",
+  "ai_receptionist",
+  "ai_error",
+  "hung_up_immediately",
+  "hung_up_later",
+]);
 
 /** Does this call's OUTCOME by itself imply we reached the decision maker? */
 export function outcomeImpliesDm(outcome: string | null | undefined): boolean {
@@ -45,6 +72,7 @@ export function anyCallReachedDm(
     (c) =>
       callReachedDm(
         (c.extracted_data ?? null) as Record<string, unknown> | null,
+        c.outcome,
       ) || outcomeImpliesDm(c.outcome),
   );
 }
