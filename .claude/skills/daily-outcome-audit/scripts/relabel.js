@@ -91,7 +91,15 @@ async function dncClean(leadId, callId) {
   if (!APPLY) { console.log("(dry-run — pass --apply)"); return; }
 
   for (const a of actions) {
-    await C.patch(`calls?id=eq.${a.callId}`, { outcome: a.spec.to, outcome_source: "manual", retry_applied_at: null });
+    // Keep the goal_met BOOLEAN column in sync with the outcome — it's a
+    // separate column the Leads strip + Analytics count on, and forgetting it
+    // leaves a downgraded call still reading as a "goal met" (the 111-vs-53 bug).
+    await C.patch(`calls?id=eq.${a.callId}`, {
+      outcome: a.spec.to,
+      outcome_source: "manual",
+      goal_met: a.spec.to === "goal_met",
+      retry_applied_at: null,
+    });
     if (a.spec.to === "callback") {
       await C.post("callbacks", { lead_id: a.c.lead_id, campaign_id: a.c.campaign_id, originating_call_id: a.callId, scheduled_at: a.spec.scheduled_at, status: "pending", voicemail_attempts: 0 });
     }

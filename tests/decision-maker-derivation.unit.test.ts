@@ -32,7 +32,19 @@ describe("anyCallReachedDm", () => {
     ).toBe(true);
   });
 
-  it("is true when the AI explicitly flagged the decision-maker", () => {
+  it("is true when the AI flagged the decision-maker on a non-gatekeeper call", () => {
+    expect(
+      anyCallReachedDm([
+        {
+          extracted_data: { decision_maker_reached: "yes" },
+          outcome: "goal_met",
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("VETOES a gatekeeper the AI mis-flagged as the decision-maker", () => {
+    // A gatekeeper is a non-owner by definition, so a stray flag must not count.
     expect(
       anyCallReachedDm([
         {
@@ -40,7 +52,15 @@ describe("anyCallReachedDm", () => {
           outcome: "gatekeeper",
         },
       ]),
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      anyCallReachedDm([
+        {
+          extracted_data: { decision_maker_reached: "yes" },
+          outcome: "gatekeeper_not_interested",
+        },
+      ]),
+    ).toBe(false);
   });
 
   it("is false when neither the flag nor the outcome implies a decision-maker", () => {
