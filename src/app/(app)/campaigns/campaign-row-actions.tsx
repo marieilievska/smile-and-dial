@@ -24,6 +24,8 @@ import {
   resumeCampaign,
 } from "@/lib/campaigns/actions";
 
+import { MergeCampaignDialog } from "./merge-campaign-dialog";
+
 /** Hover-only action cluster on a campaign row. Labelled buttons
  *  matching the rest of the app's pattern.
  *
@@ -130,6 +132,7 @@ export function CampaignRowActions({
         <Copy className="size-3.5" />
         Clone
       </Button>
+      {!isEnded ? <MergeCampaignDialog campaign={campaign} /> : null}
       {!isEnded ? (
         <AlertDialog open={endOpen} onOpenChange={setEndOpen}>
           <AlertDialogTrigger asChild>

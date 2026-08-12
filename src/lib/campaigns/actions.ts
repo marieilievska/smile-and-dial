@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { ToolsEnabled } from "@/lib/agents/prompt";
 import { sanitizeAudienceSearch } from "@/lib/campaigns/audience-filter";
 import { applyConnectedAgentIntegration } from "@/lib/elevenlabs/agents";
+import { createAdminClient as createServiceClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
   assignAgentToNumber,
@@ -492,6 +493,67 @@ export async function endCampaign(id: string): Promise<CampaignResult> {
   revalidatePath(CAMPAIGNS_PATH);
   revalidatePath("/settings/lists");
   return { error: null, campaignId: id };
+}
+
+/** The user's other campaigns a source could be merged INTO (non-ended). */
+export async function listMergeTargets(
+  excludeId: string,
+): Promise<{ id: string; name: string; status: string }[]> {
+  const { supabase, error } = await requireAuth();
+  if (error) return [];
+  const { data } = await supabase
+    .from("campaigns")
+    .select("id, name, status")
+    .neq("id", excludeId)
+    .neq("status", "ended")
+    .order("name");
+  return (data ?? []).map((c) => ({
+    id: c.id,
+    name: c.name ?? "(untitled)",
+    status: c.status ?? "",
+  }));
+}
+
+/**
+ * Fold a source campaign's whole footprint into a target, then end the source.
+ * Moves lead ownership, list attachments, callbacks, per-campaign summaries, and
+ * phone numbers; call history stays with the source (its per-campaign reporting
+ * stays accurate). The atomic reassignment runs in the merge_campaign() Postgres
+ * function; here we verify the caller OWNS both campaigns (RLS-scoped read)
+ * before invoking it via the service role (the function is service_role-only).
+ */
+export async function mergeCampaign(input: {
+  sourceId: string;
+  targetId: string;
+}): Promise<CampaignResult> {
+  const { supabase, error: authError } = await requireAuth();
+  if (authError) return { error: authError };
+  if (input.sourceId === input.targetId) {
+    return { error: "Pick two different campaigns." };
+  }
+  // Ownership gate: the RLS-scoped client must see BOTH campaigns.
+  const { data: owned } = await supabase
+    .from("campaigns")
+    .select("id, status")
+    .in("id", [input.sourceId, input.targetId]);
+  if (!owned || owned.length !== 2) {
+    return { error: "You can only merge campaigns you own." };
+  }
+  if (owned.find((c) => c.id === input.targetId)?.status === "ended") {
+    return { error: "The target campaign has ended — pick an active one." };
+  }
+
+  const admin = createServiceClient();
+  const { error } = await admin.rpc("merge_campaign", {
+    p_source: input.sourceId,
+    p_target: input.targetId,
+  });
+  if (error) return { error: "Could not merge the campaigns." };
+
+  revalidatePath(CAMPAIGNS_PATH);
+  revalidatePath("/settings/lists");
+  revalidatePath("/leads");
+  return { error: null, campaignId: input.targetId };
 }
 
 /**

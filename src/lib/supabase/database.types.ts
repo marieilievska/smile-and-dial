@@ -2479,6 +2479,10 @@ export type Database = {
           isSetofReturn: true;
         };
       };
+      merge_campaign: {
+        Args: { p_source: string; p_target: string };
+        Returns: Json;
+      };
       merge_inbound_lead: {
         Args: {
           in_actor: string;
