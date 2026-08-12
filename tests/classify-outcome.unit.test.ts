@@ -279,6 +279,79 @@ describe("classifyCallOutcome", () => {
     expect(r.outcome).toBe("no_answer");
   });
 
+  // REGRESSION (Aug 2026): ~1,000 completed calls were left with outcome=null.
+  // ElevenLabs sends termination_reason "Call ended by remote party" (the far
+  // end hung up) — which is NOT voicemail/silence/busy/failure — and the agent
+  // often extracts no disposition. With no telephony signal and no disposition,
+  // the classifier returned null and the post-call webhook (which writes the
+  // outcome exactly once) left the call blank forever. classifyCallOutcome must
+  // now ALWAYS resolve to a real bucket.
+  describe("final fallback — never returns null", () => {
+    it("empty transcript, no disposition, remote party ended, 0s → hung_up_immediately", () => {
+      const r = classifyCallOutcome({
+        transcript: [],
+        disposition: "",
+        terminationReason: "Call ended by remote party",
+        callDurationSecs: 0,
+      });
+      expect(r.outcome).toBe("hung_up_immediately");
+      expect(r.reachedHuman).toBe(false);
+    });
+
+    it("empty transcript, no disposition, remote party ended, 56s → hung_up_later", () => {
+      // Past the 20s short-hangup window, so the old code fell through to null.
+      const r = classifyCallOutcome({
+        transcript: [],
+        disposition: "",
+        terminationReason: "Call ended by remote party",
+        callDurationSecs: 56,
+      });
+      expect(r.outcome).toBe("hung_up_later");
+    });
+
+    it("real two-way conversation, no disposition, remote party ended → gatekeeper", () => {
+      // A person clearly engaged (>=2 genuine replies) but the agent extracted no
+      // disposition. We reached someone but it's inconclusive → gatekeeper.
+      const r = classifyCallOutcome({
+        transcript: t(
+          ["agent", "Hi, is the owner around?"],
+          ["user", "This is she, what's this about?"],
+          ["agent", "I'm calling about your webinar signup..."],
+          ["user", "Oh right, can you send me the details?"],
+        ),
+        disposition: "",
+        terminationReason: "Call ended by remote party",
+        callDurationSecs: 62,
+      });
+      expect(r.outcome).toBe("gatekeeper");
+      expect(r.reachedHuman).toBe(true);
+    });
+
+    it("across an unmapped-termination matrix, outcome is never null", () => {
+      const cases = [
+        { transcript: [], disposition: "", callDurationSecs: 0 },
+        { transcript: [], disposition: "", callDurationSecs: 30 },
+        {
+          transcript: t(["agent", "Hi there..."]),
+          disposition: "",
+          callDurationSecs: 8,
+        },
+        {
+          transcript: t(["agent", "Hi"], ["user", "yeah?"]),
+          disposition: "",
+          callDurationSecs: 25,
+        },
+      ];
+      for (const c of cases) {
+        const r = classifyCallOutcome({
+          ...c,
+          terminationReason: "Call ended by remote party",
+        });
+        expect(r.outcome).not.toBeNull();
+      }
+    });
+  });
+
   it("labels an ElevenLabs quota-killed call as ai_error, not a hang-up", () => {
     // A live human answered ("this is Julie speaking") and the AI died mid-call
     // because ElevenLabs was out of quota. The agent guessed disposition=hung_up,

@@ -273,6 +273,25 @@ export function classifyCallOutcome(input: {
     outcome = hangUpKind(callDurationSecs, humanReplies);
   }
 
+  // FINAL FALLBACK — classifyCallOutcome must NEVER return null. The post-call
+  // webhook writes the outcome exactly once; a null here leaves a COMPLETED call
+  // with a blank disposition forever (this is what stranded ~1,000 calls in Aug
+  // 2026). We reach here only when the agent extracted NO disposition AND the
+  // termination reason was not a telephony signal we map — the common case is
+  // "Call ended by remote party" (the far end hung up), which is neither
+  // voicemail, silence, busy, nor failure. Bucket by what actually happened:
+  //   - a genuine two-way conversation (>=2 human replies) with no disposition →
+  //     we reached a person but the agent never classified it: gatekeeper
+  //     (reached-but-inconclusive), mirroring the vmByTermination branch above.
+  //   - otherwise nobody really engaged → treat as a hang-up, split immediate vs
+  //     later by the same duration/engagement rule used everywhere else.
+  if (outcome == null) {
+    outcome =
+      humanReplies >= 2
+        ? "gatekeeper"
+        : hangUpKind(callDurationSecs, humanReplies);
+  }
+
   // A real two-way human conversation? Not for a machine (voicemail /
   // ai_receptionist), a no-pickup, a failure, or a hang-up (immediate or later).
   const reachedHuman =
