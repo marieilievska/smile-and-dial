@@ -1,9 +1,13 @@
 import {
+  CAUSE_ACTION,
+  CAUSE_DESCRIPTION,
   CAUSE_GROUP,
   CAUSE_LABEL,
   CAUSE_ORDER,
+  NO_CONTACT_LABEL,
   type CauseKey,
   type CauseResult,
+  type NoContactReason,
 } from "@/lib/agent-analytics/cause-of-death";
 import {
   computeObjectionBreakdown,
@@ -18,7 +22,6 @@ const GROUP_TITLE = {
   won: "Won",
 } as const;
 
-/** Human labels for the objection breakdown under "Decision-maker said no". */
 const OBJECTION_LABEL: Record<ObjectionCategory, string> = {
   price: "Price / budget",
   already_have_solution: "Already have a solution",
@@ -37,21 +40,22 @@ const BAR_COLOR: Record<CauseKey, string> = {
   mid_follow_up: "bg-sky-400",
   dm_said_no: "bg-rose-500",
   gatekeeper: "bg-amber-500",
-  never_reached: "bg-zinc-400",
   bad_number: "bg-zinc-500",
-  brush_off: "bg-amber-400",
+  no_contact: "bg-zinc-400",
   opted_out: "bg-rose-600",
-  other: "bg-zinc-400",
 };
+
+/** Causes whose why-detail is an objection breakdown (a person was reached). */
+const OBJECTION_CAUSES = new Set<CauseKey>(["dm_said_no", "gatekeeper"]);
 
 export function CauseOfDeathView({
   result,
   companyByLead,
-  objections = [],
+  objectionsByCause = {},
 }: {
   result: CauseResult;
   companyByLead: Record<string, string>;
-  objections?: ObjectionRow[];
+  objectionsByCause?: Partial<Record<CauseKey, ObjectionRow[]>>;
 }) {
   const { total, counts, groups, perLead } = result;
   if (total === 0) {
@@ -67,7 +71,19 @@ export function CauseOfDeathView({
       .filter((l) => l.cause === cause)
       .map((l) => companyByLead[l.leadId] || "(unknown)");
 
-  const objectionBreakdown = computeObjectionBreakdown(objections);
+  // "No real contact" → group its leads by the furthest sub-reason we reached.
+  const noContactGroups = () => {
+    const m = new Map<NoContactReason, string[]>();
+    for (const l of perLead) {
+      if (l.cause !== "no_contact" || !l.noContact) continue;
+      const arr = m.get(l.noContact) ?? [];
+      arr.push(companyByLead[l.leadId] || "(unknown)");
+      m.set(l.noContact, arr);
+    }
+    return (Object.keys(NO_CONTACT_LABEL) as NoContactReason[])
+      .filter((r) => m.has(r))
+      .map((r) => ({ reason: r, companies: m.get(r)! }));
+  };
 
   const renderGroup = (group: "final" | "in_play" | "won") => {
     const causes = CAUSE_ORDER.filter(
@@ -82,7 +98,6 @@ export function CauseOfDeathView({
         <div className="space-y-2">
           {causes.map((cause) => {
             const n = counts[cause];
-            const companies = companiesFor(cause);
             return (
               <details key={cause} className="group">
                 <summary className="hover:bg-muted/50 flex cursor-pointer items-center gap-3 rounded-lg px-1 py-1">
@@ -99,17 +114,54 @@ export function CauseOfDeathView({
                     {n} · {pct(n)}%
                   </span>
                 </summary>
-                {cause === "dm_said_no" ? (
-                  <ObjectionBreakdown breakdown={objectionBreakdown} />
-                ) : (
-                  <ul className="text-muted-foreground mt-1 max-h-56 overflow-auto pl-4 text-xs">
-                    {companies.map((c, i) => (
-                      <li key={i} className="py-0.5">
-                        {c}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <div className="mt-1 space-y-2 pl-4">
+                  {/* Plain-English: what it means + what to do. */}
+                  <p className="text-muted-foreground text-xs">
+                    {CAUSE_DESCRIPTION[cause]}
+                  </p>
+                  {CAUSE_ACTION[cause] ? (
+                    <p className="text-xs">
+                      <span className="font-semibold">Next: </span>
+                      <span className="text-muted-foreground">
+                        {CAUSE_ACTION[cause]}
+                      </span>
+                    </p>
+                  ) : null}
+
+                  {/* Why-detail. */}
+                  {OBJECTION_CAUSES.has(cause) ? (
+                    <ObjectionBreakdown
+                      breakdown={computeObjectionBreakdown(
+                        objectionsByCause[cause] ?? [],
+                      )}
+                    />
+                  ) : cause === "no_contact" ? (
+                    <div className="space-y-2">
+                      {noContactGroups().map(({ reason, companies }) => (
+                        <details key={reason}>
+                          <summary className="cursor-pointer text-xs font-medium">
+                            {NO_CONTACT_LABEL[reason]} ({companies.length})
+                          </summary>
+                          <ul className="text-muted-foreground mt-1 max-h-40 overflow-auto pl-3 text-xs">
+                            {companies.map((c, i) => (
+                              <li key={i} className="py-0.5">
+                                {c}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      ))}
+                    </div>
+                  ) : (
+                    <ul className="text-muted-foreground max-h-56 overflow-auto text-xs">
+                      {companiesFor(cause).map((c, i) => (
+                        <li key={i} className="py-0.5">
+                          {c}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </details>
             );
           })}
@@ -133,21 +185,20 @@ export function CauseOfDeathView({
   );
 }
 
-/** The objection intelligence shown when "Decision-maker said no" is expanded:
- *  a bar per objection category (reusing the cause bars' markup) with each
- *  category's verbatim quote samples beneath it. */
+/** Objection intelligence for a reached-a-person cause: a bar per category with
+ *  verbatim quote samples beneath it. */
 function ObjectionBreakdown({ breakdown }: { breakdown: ObjectionBreakdown }) {
   if (breakdown.total === 0) {
     return (
-      <p className="text-muted-foreground mt-1 pl-4 text-xs italic">
-        Objection analysis is still running…
+      <p className="text-muted-foreground text-xs italic">
+        No objection detail yet (analysis may still be running).
       </p>
     );
   }
   const objPct = (n: number) =>
     breakdown.total ? Math.round((n / breakdown.total) * 100) : 0;
   return (
-    <div className="mt-1 space-y-2 pl-4">
+    <div className="space-y-2">
       {breakdown.byCategory.map((b) => (
         <div key={b.category} className="space-y-1">
           <div className="flex items-center gap-3">

@@ -3,6 +3,11 @@
 // Each worked lead gets ONE primary cause = the furthest stage it reached. A
 // lead's `status` already encodes "still being worked" (ready_to_call / callback)
 // vs "finished" (resting / dnc / goal_met), so no retry-counting is needed.
+//
+// 2026-08-12 (Marija): simplified from 10 causes to 7 — the fuzzy trio
+// (brush_off / never_reached / other) collapsed into ONE "No real contact"
+// bucket, with the finer reason kept as a sub-reason for the why-detail. Each
+// cause now carries a plain-English description + a suggested next action.
 
 /** The causes a worked lead can land in (`won` shown for contrast). */
 export type CauseKey =
@@ -13,9 +18,7 @@ export type CauseKey =
   | "mid_follow_up"
   | "gatekeeper"
   | "bad_number"
-  | "brush_off"
-  | "other"
-  | "never_reached";
+  | "no_contact";
 
 export type CauseGroup = "won" | "final" | "in_play";
 
@@ -26,9 +29,7 @@ export const CAUSE_GROUP: Record<CauseKey, CauseGroup> = {
   dm_said_no: "final",
   gatekeeper: "final",
   bad_number: "final",
-  brush_off: "final",
-  other: "final",
-  never_reached: "final",
+  no_contact: "final",
   callback_booked: "in_play",
   mid_follow_up: "in_play",
 };
@@ -38,13 +39,40 @@ export const CAUSE_LABEL: Record<CauseKey, string> = {
   won: "Won (goal met)",
   opted_out: "Opted out (DNC)",
   dm_said_no: "Decision-maker said no",
-  gatekeeper: "Blocked by gatekeeper",
+  gatekeeper: "Gatekeeper wall",
   bad_number: "Bad number",
-  brush_off: "Brush-off (no real conversation)",
-  other: "Other (language / bot / error)",
-  never_reached: "Never reached anyone",
+  no_contact: "No real contact",
   callback_booked: "Callback booked",
   mid_follow_up: "Mid follow-up",
+};
+
+/** One plain-English sentence: what this cause MEANS. */
+export const CAUSE_DESCRIPTION: Record<CauseKey, string> = {
+  won: "The goal was achieved — the decision-maker booked / registered.",
+  opted_out: "The business asked to be removed from the list (do-not-call).",
+  dm_said_no: "We reached the owner or a manager and they declined the offer.",
+  gatekeeper:
+    "We got a person, but never past the front desk to the owner/manager.",
+  bad_number: "The number doesn't reach the business (wrong / invalid line).",
+  no_contact:
+    "No real conversation happened — a machine answered, nobody picked up, or they hung up before we could talk.",
+  callback_booked: "A callback is scheduled — still a live opportunity.",
+  mid_follow_up: "Still being worked — in the retry cycle, not lost yet.",
+};
+
+/** The suggested next move for each cause (empty when there's nothing to do). */
+export const CAUSE_ACTION: Record<CauseKey, string> = {
+  won: "",
+  opted_out: "Nothing to do — honor the opt-out.",
+  dm_said_no:
+    "Look at the objections below — if it's timing/price, a later re-approach or a different angle may re-open it.",
+  gatekeeper:
+    "Try different call hours, ask for the owner's name/direct line, or route to a scheduled callback.",
+  bad_number: "Re-verify or replace the number; drop it if it stays invalid.",
+  no_contact:
+    "Retry at better times (see the breakdown below); if it's mostly voicemail/no-answer, the number or timing is the lever.",
+  callback_booked: "Make the callback on time.",
+  mid_follow_up: "Let the retry cycle run; check pacing if it stalls.",
 };
 
 /** Display order within each group. */
@@ -52,11 +80,9 @@ export const CAUSE_ORDER: CauseKey[] = [
   "won",
   "dm_said_no",
   "gatekeeper",
-  "brush_off",
-  "never_reached",
+  "no_contact",
   "bad_number",
   "opted_out",
-  "other",
   "callback_booked",
   "mid_follow_up",
 ];
@@ -70,41 +96,55 @@ export type LeadForCause = {
   outcomes: string[]; // its outbound calls' non-null outcome values
 };
 
+/** Sub-reasons WITHIN "No real contact" — the furthest we got when there was no
+ *  real conversation. Drives the why-detail breakdown under that bucket. */
+export type NoContactReason =
+  | "brushed_off"
+  | "machine"
+  | "no_pickup"
+  | "error";
+
+export const NO_CONTACT_LABEL: Record<NoContactReason, string> = {
+  brushed_off: "Reached a person, but they hung up / brushed us off",
+  machine: "A machine answered (voicemail or an automated receptionist)",
+  no_pickup: "Nobody picked up (no answer / busy / failed)",
+  error: "Language barrier or a platform error",
+};
+
+const BRUSHED_OFF = new Set([
+  "hung_up_immediately",
+  "hung_up_later",
+  "call_back_later",
+]);
+const MACHINE = new Set(["voicemail", "ai_receptionist"]);
+const NO_PICKUP = new Set(["no_answer", "busy", "failed"]);
+const ERROR = new Set(["language_barrier", "ai_error"]);
+
+/** Furthest sub-reason for a No-real-contact lead (a person > a machine >
+ *  no pickup > error). Returns null when none of its outcomes qualify. */
+export function noContactReason(outcomes: string[]): NoContactReason | null {
+  if (outcomes.some((o) => BRUSHED_OFF.has(o))) return "brushed_off";
+  if (outcomes.some((o) => MACHINE.has(o))) return "machine";
+  if (outcomes.some((o) => NO_PICKUP.has(o))) return "no_pickup";
+  if (outcomes.some((o) => ERROR.has(o))) return "error";
+  return null;
+}
+
 export type CauseResult = {
   total: number;
   counts: Record<CauseKey, number>;
   groups: Record<CauseGroup, number>;
-  perLead: { leadId: string; cause: CauseKey }[];
+  perLead: { leadId: string; cause: CauseKey; noContact?: NoContactReason }[];
 };
 
 // Positive/terminal lead statuses that are wins or still engaged, NOT losses —
 // so a booked sale or appointment (with an earlier "not interested" call, say)
-// isn't miscounted as a rejection. `leads.status` is written beyond the core
-// dialer states by the Goals pipeline (sale/attended/closed), Calendly
-// (scheduled) and the Close webhook (email_replied).
+// isn't miscounted as a rejection.
 const WON_STATUSES = new Set(["goal_met", "sale", "attended", "closed"]);
 const IN_PLAY_STATUSES = new Set([
   "ready_to_call",
   "scheduled",
   "email_replied",
-]);
-// Reached a person but no real conversation / no commitment yet.
-const BRUSH_OFF_OUTCOMES = new Set([
-  "call_back_later",
-  "hung_up_immediately",
-  "hung_up_later",
-  "callback",
-]);
-const OTHER_OUTCOMES = new Set([
-  "language_barrier",
-  "ai_receptionist",
-  "ai_error",
-]);
-const NEVER_REACHED_OUTCOMES = new Set([
-  "voicemail",
-  "no_answer",
-  "busy",
-  "failed",
 ]);
 
 /** Assign one cause to a lead (furthest stage wins; first match returns). */
@@ -133,16 +173,11 @@ export function assignCause(lead: LeadForCause): CauseKey {
     (has("gatekeeper") || has("gatekeeper_not_interested"))
   )
     return "gatekeeper";
-  if (lead.outcomes.some((o) => BRUSH_OFF_OUTCOMES.has(o))) return "brush_off";
-  if (lead.outcomes.some((o) => OTHER_OUTCOMES.has(o))) return "other";
   if (has("invalid_number")) return "bad_number";
-  if (
-    lead.outcomes.length > 0 &&
-    lead.outcomes.every((o) => NEVER_REACHED_OUTCOMES.has(o))
-  )
-    return "never_reached";
+  // Everything else that reached no real conversation.
+  if (lead.outcomes.length > 0) return "no_contact";
 
-  return "other";
+  return "no_contact";
 }
 
 /** Aggregate a cohort of leads into cause counts, group totals, and per-lead. */
@@ -155,18 +190,26 @@ export function computeCauseOfDeath(leads: LeadForCause[]): CauseResult {
     mid_follow_up: 0,
     gatekeeper: 0,
     bad_number: 0,
-    brush_off: 0,
-    other: 0,
-    never_reached: 0,
+    no_contact: 0,
   };
   const groups: Record<CauseGroup, number> = { won: 0, final: 0, in_play: 0 };
-  const perLead: { leadId: string; cause: CauseKey }[] = [];
+  const perLead: {
+    leadId: string;
+    cause: CauseKey;
+    noContact?: NoContactReason;
+  }[] = [];
 
   for (const lead of leads) {
     const cause = assignCause(lead);
     counts[cause] += 1;
     groups[CAUSE_GROUP[cause]] += 1;
-    perLead.push({ leadId: lead.leadId, cause });
+    const entry: { leadId: string; cause: CauseKey; noContact?: NoContactReason } =
+      { leadId: lead.leadId, cause };
+    if (cause === "no_contact") {
+      const r = noContactReason(lead.outcomes);
+      if (r) entry.noContact = r;
+    }
+    perLead.push(entry);
   }
 
   return { total: leads.length, counts, groups, perLead };

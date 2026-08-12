@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   computeCauseOfDeath,
+  type CauseKey,
   type CauseResult,
   type LeadForCause,
 } from "@/lib/agent-analytics/cause-of-death";
@@ -171,7 +172,10 @@ export async function fetchCauseOfDeath(
 ): Promise<{
   result: CauseResult;
   companyByLead: Record<string, string>;
-  objections: ObjectionRow[];
+  /** Objection rows grouped by the loss cause they belong to. The objection
+   *  engine extracts objections for every reached-a-person outcome, so both
+   *  "Decision-maker said no" AND "Gatekeeper wall" get a why-breakdown. */
+  objectionsByCause: Partial<Record<CauseKey, ObjectionRow[]>>;
 }> {
   const conds: string[] = [];
   if (scope.campaignIds && scope.campaignIds.length > 0) {
@@ -181,7 +185,7 @@ export async function fetchCauseOfDeath(
     return {
       result: computeCauseOfDeath([]),
       companyByLead: {},
-      objections: [],
+      objectionsByCause: {},
     };
   }
 
@@ -246,7 +250,7 @@ export async function fetchCauseOfDeath(
     return {
       result: computeCauseOfDeath([]),
       companyByLead: {},
-      objections: [],
+      objectionsByCause: {},
     };
   }
 
@@ -292,13 +296,14 @@ export async function fetchCauseOfDeath(
 
   const result = computeCauseOfDeath(leads);
 
-  // (d) Objection rows: one per DM-said-no lead that carries an objection.
-  const objections: ObjectionRow[] = [];
+  // (d) Objection rows grouped by cause — dm_said_no AND gatekeeper both carry
+  //     objections (the engine analyzes every reached-a-person outcome).
+  const objectionsByCause: Partial<Record<CauseKey, ObjectionRow[]>> = {};
   for (const { leadId, cause } of result.perLead) {
-    if (cause !== "dm_said_no") continue;
+    if (cause !== "dm_said_no" && cause !== "gatekeeper") continue;
     const objection = byLead.get(leadId)?.objection;
     if (!objection) continue;
-    objections.push({
+    (objectionsByCause[cause] ??= []).push({
       leadId,
       company: companyByLead[leadId] ?? "",
       category: objection.category,
@@ -307,7 +312,7 @@ export async function fetchCauseOfDeath(
     });
   }
 
-  return { result, companyByLead, objections };
+  return { result, companyByLead, objectionsByCause };
 }
 
 export async function fetchVoiceRows(
