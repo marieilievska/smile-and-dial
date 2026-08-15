@@ -2,7 +2,7 @@
 
 import { ArrowLeft, Lock, Plus, Save, Sparkles, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Breadcrumbs } from "@/components/app-shell/breadcrumbs";
@@ -86,7 +86,9 @@ export function AgentBuilder({
     dataCollection,
   };
   const errors = validateScript(name, script);
-  const preview = useMemo(() => previewScript(script), [script]);
+  // Cheap + deterministic, so recompute on render rather than memoizing over a
+  // per-render object (which never actually memoizes).
+  const preview = previewScript(script);
 
   function setDetail(i: number, patch: Partial<KeyDetail>) {
     setKeyDetails((ds) =>
