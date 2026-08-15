@@ -131,3 +131,7 @@ export function assemblePrompt(input: PromptInputs): string {
 
   return sections.join("\n\n");
 }
+
+/** Public alias so the template assembler can reuse the same tool copy the
+ *  wizard uses. Same object — do not fork the tool wording. */
+export const TOOL_BLOCKS_PUBLIC = TOOL_BLOCKS;
