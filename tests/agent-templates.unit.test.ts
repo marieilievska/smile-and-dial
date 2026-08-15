@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { normalizeKeyDetails } from "@/lib/agents/templates/types";
 import { SHARED_INSTRUCTIONS } from "@/lib/agents/templates/instructions";
+import { AGENT_TEMPLATES, getTemplate } from "@/lib/agents/templates";
 
 describe("normalizeKeyDetails", () => {
   it("returns [] for non-arrays", () => {
@@ -63,5 +64,32 @@ describe("SHARED_INSTRUCTIONS", () => {
     // Persona-neutral: the seed webinar's specifics must NOT be baked in here.
     expect(SHARED_INSTRUCTIONS).not.toContain("HireAI");
     expect(SHARED_INSTRUCTIONS).not.toContain("Tom");
+  });
+});
+
+describe("template registry", () => {
+  it("exposes webinar and blank", () => {
+    expect(AGENT_TEMPLATES.map((t) => t.key).sort()).toEqual([
+      "blank",
+      "webinar",
+    ]);
+    expect(getTemplate("webinar")?.name).toBe("Webinar invite");
+    expect(getTemplate("nope")).toBeUndefined();
+  });
+
+  it("webinar carries a required date key-detail and a filled script", () => {
+    const w = getTemplate("webinar")!;
+    const date = w.script.keyDetails.find((d) => d.id === "event_date");
+    expect(date).toMatchObject({ type: "date", required: true });
+    expect(w.script.purpose.length).toBeGreaterThan(0);
+    expect(w.script.goal.length).toBeGreaterThan(0);
+    expect(w.tools.schedule_callback).toBe(true);
+  });
+
+  it("blank shares the instructions but has an empty script", () => {
+    const b = getTemplate("blank")!;
+    expect(b.instructions).toContain("exactly ONE question");
+    expect(b.script.purpose).toBe("");
+    expect(b.script.keyDetails).toEqual([]);
   });
 });
