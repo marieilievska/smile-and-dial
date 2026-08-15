@@ -27,12 +27,14 @@ import {
   type ExtraDataCollectionField,
 } from "@/lib/agents/data-collection";
 import { previewScript } from "@/lib/agents/preview";
+import { saveTemplate, updateTemplate } from "@/lib/agents/template-actions";
 import type {
   AgentScript,
   AgentTemplate,
   KeyDetail,
 } from "@/lib/agents/templates";
 import { validateScript } from "@/lib/agents/validate";
+import { tidyProse } from "@/lib/ai/tidy-prose";
 import type { FixedVoice } from "@/lib/elevenlabs/voices";
 import type { ToolsEnabled } from "@/lib/agents/prompt";
 
@@ -51,14 +53,25 @@ export function AgentBuilder({
   template,
   voices,
   agent,
+  mode = "agent",
+  templateId,
 }: {
   template: AgentTemplate;
   voices: FixedVoice[];
   agent?: BuilderAgent;
+  mode?: "agent" | "template";
+  templateId?: string;
 }) {
   const router = useRouter();
   const isEdit = Boolean(agent);
-  const [name, setName] = useState(agent?.name ?? "");
+  const isTemplate = mode === "template";
+  const [name, setName] = useState(
+    agent?.name ?? (mode === "template" ? template.name : ""),
+  );
+  // In template mode `name` holds the TEMPLATE name; description + editable
+  // instructions are template-only.
+  const [description, setDescription] = useState(template.description ?? "");
+  const [instructions, setInstructions] = useState(template.instructions);
   const [voiceId, setVoiceId] = useState(
     agent?.voiceId || template.defaultVoiceId || voices[0]?.id || "",
   );
@@ -102,6 +115,26 @@ export function AgentBuilder({
       return;
     }
     startTransition(async () => {
+      if (isTemplate) {
+        const payload = {
+          name,
+          description,
+          instructions,
+          defaultVoiceId: voiceId,
+          tools,
+          script,
+        };
+        const result = templateId
+          ? await updateTemplate(templateId, payload)
+          : await saveTemplate(payload);
+        if (result.error) {
+          toast.error(result.error);
+        } else {
+          toast.success(templateId ? "Template updated." : "Template saved.");
+          router.push("/settings/agents/new");
+        }
+        return;
+      }
       const payload = {
         name,
         voiceId,
@@ -150,7 +183,9 @@ export function AgentBuilder({
           <Card className="rounded-2xl">
             <CardContent className="flex flex-col gap-4 pt-6">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="agent-name">Agent name</Label>
+                <Label htmlFor="agent-name">
+                  {isTemplate ? "Template name" : "Agent name"}
+                </Label>
                 <Input
                   id="agent-name"
                   value={name}
@@ -158,6 +193,17 @@ export function AgentBuilder({
                   placeholder="e.g. HireAI Webinar — September"
                 />
               </div>
+              {isTemplate ? (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="template-description">Description</Label>
+                  <Input
+                    id="template-description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="One line shown on the gallery card"
+                  />
+                </div>
+              ) : null}
               <div className="flex flex-col gap-2">
                 <Label htmlFor="agent-voice">Voice</Label>
                 <Select value={voiceId} onValueChange={setVoiceId}>
@@ -185,11 +231,21 @@ export function AgentBuilder({
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground text-xs">
-                Locked, proven behavior — turn-taking, human delivery,
-                gatekeeper handling, do-not-call, voicemail/IVR. You can&apos;t
-                break it, and don&apos;t need to.
-              </p>
+              {isTemplate ? (
+                <Textarea
+                  aria-label="Instructions"
+                  value={instructions}
+                  onChange={(e) => setInstructions(e.target.value)}
+                  rows={14}
+                  className="font-mono text-xs"
+                />
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  Locked, proven behavior — turn-taking, human delivery,
+                  gatekeeper handling, do-not-call, voicemail/IVR. You
+                  can&apos;t break it, and don&apos;t need to.
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -246,6 +302,7 @@ export function AgentBuilder({
                   onChange={(e) => setScriptProse(e.target.value)}
                   rows={12}
                 />
+                <TidyButton value={scriptProse} onChange={setScriptProse} />
               </div>
 
               {/* Data collection — plain English */}
@@ -270,7 +327,15 @@ export function AgentBuilder({
               ) : (
                 <Save className="size-4" />
               )}
-              {pending ? "Saving…" : isEdit ? "Save changes" : "Save agent"}
+              {pending
+                ? "Saving…"
+                : isTemplate
+                  ? templateId
+                    ? "Save template"
+                    : "Save as template"
+                  : isEdit
+                    ? "Save changes"
+                    : "Save agent"}
             </Button>
           </div>
           {errors.length > 0 ? (
@@ -366,6 +431,59 @@ function DataCollectionEditor({
       >
         <Plus className="size-4" /> Add
       </Button>
+    </div>
+  );
+}
+
+/** "Tidy up wording" — grammar/flow cleanup of the script prose via OpenAI
+ *  (meaning preserved), with a one-shot Undo. */
+function TidyButton({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [pending, start] = useTransition();
+  const [prev, setPrev] = useState<string | null>(null);
+  function tidy() {
+    start(async () => {
+      const before = value;
+      const cleaned = await tidyProse(before);
+      if (cleaned === before) {
+        toast.message("Nothing to tidy.");
+        return;
+      }
+      setPrev(before);
+      onChange(cleaned);
+      toast.success("Tidied the wording.");
+    });
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={tidy}
+        disabled={pending}
+      >
+        <Sparkles className="size-4" />{" "}
+        {pending ? "Tidying…" : "Tidy up wording"}
+      </Button>
+      {prev !== null ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            onChange(prev);
+            setPrev(null);
+          }}
+        >
+          Undo
+        </Button>
+      ) : null}
     </div>
   );
 }

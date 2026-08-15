@@ -28,6 +28,13 @@ export default async function AgentsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  const isAdmin = me?.role === "admin";
+
   // Pull agents + their campaign attachments in parallel so we can
   // surface "Used by N active campaigns" inline. RLS scopes both.
   const [{ data: rawAgents }, { data: campaigns }] = await Promise.all([
@@ -146,6 +153,20 @@ export default async function AgentsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          {isAdmin ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              asChild
+                              aria-label={`Save ${agent.name} as template`}
+                            >
+                              <Link
+                                href={`/settings/agents/templates/new?from=${agent.id}`}
+                              >
+                                Save as template
+                              </Link>
+                            </Button>
+                          ) : null}
                           <SyncAgentButton id={agent.id} name={agent.name} />
                           <Button
                             variant="ghost"
