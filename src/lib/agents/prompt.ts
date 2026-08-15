@@ -86,7 +86,7 @@ const TOOL_BLOCKS: Record<ToolKey, string> = {
 2. Call the tool — the call will be transferred immediately.`,
 };
 
-const LEAD_CONTEXT_BLOCK = `# Lead context
+export const LEAD_CONTEXT_BLOCK = `# Lead context
 Here's what we know about this lead from previous calls. Use this to avoid repeating yourself and pick up where the last conversation left off.
 
 Summary of our last call: {{last_call_summary}}
@@ -94,7 +94,7 @@ Callback notes: {{last_callback_notes}}
 
 If both are empty, this is the first call with this lead — introduce yourself and the company normally.`;
 
-const TOOL_ERROR_HANDLING_BLOCK = `# Tool error handling
+export const TOOL_ERROR_HANDLING_BLOCK = `# Tool error handling
 If any tool fails:
 1. Acknowledge: "I'm having trouble with that right now."
 2. Do not guess or make up information.
@@ -131,3 +131,7 @@ export function assemblePrompt(input: PromptInputs): string {
 
   return sections.join("\n\n");
 }
+
+/** Public alias so the template assembler can reuse the same tool copy the
+ *  wizard uses. Same object — do not fork the tool wording. */
+export const TOOL_BLOCKS_PUBLIC = TOOL_BLOCKS;

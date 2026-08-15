@@ -67,6 +67,8 @@ export type Database = {
           extra_data_collection: Json;
           extra_evaluation: Json;
           id: string;
+          instructions: string | null;
+          key_details: Json;
           knowledge_base_ids: string[];
           name: string;
           owner_id: string;
@@ -74,8 +76,11 @@ export type Database = {
           prompt_goal: string | null;
           prompt_guardrails: string | null;
           prompt_personality: string | null;
+          prompt_purpose: string | null;
           prompt_tone: string | null;
+          script_prose: string | null;
           system_prompt: string | null;
+          template_key: string | null;
           tools_enabled: Json;
           updated_at: string;
           voice_id: string | null;
@@ -88,6 +93,8 @@ export type Database = {
           extra_data_collection?: Json;
           extra_evaluation?: Json;
           id?: string;
+          instructions?: string | null;
+          key_details?: Json;
           knowledge_base_ids?: string[];
           name: string;
           owner_id: string;
@@ -95,8 +102,11 @@ export type Database = {
           prompt_goal?: string | null;
           prompt_guardrails?: string | null;
           prompt_personality?: string | null;
+          prompt_purpose?: string | null;
           prompt_tone?: string | null;
+          script_prose?: string | null;
           system_prompt?: string | null;
+          template_key?: string | null;
           tools_enabled?: Json;
           updated_at?: string;
           voice_id?: string | null;
@@ -109,6 +119,8 @@ export type Database = {
           extra_data_collection?: Json;
           extra_evaluation?: Json;
           id?: string;
+          instructions?: string | null;
+          key_details?: Json;
           knowledge_base_ids?: string[];
           name?: string;
           owner_id?: string;
@@ -116,8 +128,11 @@ export type Database = {
           prompt_goal?: string | null;
           prompt_guardrails?: string | null;
           prompt_personality?: string | null;
+          prompt_purpose?: string | null;
           prompt_tone?: string | null;
+          script_prose?: string | null;
           system_prompt?: string | null;
+          template_key?: string | null;
           tools_enabled?: Json;
           updated_at?: string;
           voice_id?: string | null;

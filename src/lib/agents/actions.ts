@@ -11,6 +11,12 @@ import {
 } from "@/lib/elevenlabs/agents";
 import { createClient } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/database.types";
+import { assembleFromScript } from "@/lib/agents/assemble";
+import {
+  getTemplate,
+  normalizeKeyDetails,
+  type AgentScript,
+} from "@/lib/agents/templates";
 
 import {
   normalizeDataCollection,
@@ -22,6 +28,8 @@ export type AgentResult = {
   error: string | null;
   agentId?: string;
 };
+
+const AGENT_MODEL = "gpt-5.4";
 
 /** Create a new agent. Pushing the agent to ElevenLabs happens in Step 16b. */
 export async function createAgent(input: {
@@ -485,4 +493,176 @@ export async function draftAgentFromDescription(
   } catch {
     return { error: "Couldn't draft the agent. Please try again." };
   }
+}
+
+export type TemplateAgentInput = {
+  templateKey: string;
+  name: string;
+  voiceId: string;
+  script: AgentScript;
+  toolsEnabled: ToolsEnabled;
+  knowledgeBaseIds: string[];
+};
+
+/** Create an agent from a template's locked instructions + the edited script.
+ *  Mirrors createAgent's insert-then-sync-then-rollback shape. */
+export async function createAgentFromTemplate(
+  input: TemplateAgentInput,
+): Promise<AgentResult> {
+  const name = input.name.trim();
+  if (!name) return { error: "Give the agent a name." };
+
+  const template = getTemplate(input.templateKey);
+  if (!template) return { error: "Unknown template." };
+
+  const script: AgentScript = {
+    purpose: input.script.purpose ?? "",
+    goal: input.script.goal ?? "",
+    keyDetails: normalizeKeyDetails(input.script.keyDetails),
+    scriptProse: input.script.scriptProse ?? "",
+    dataCollection: normalizeDataCollection(input.script.dataCollection),
+  };
+
+  const systemPrompt = assembleFromScript({
+    instructions: template.instructions,
+    script,
+    toolsEnabled: input.toolsEnabled,
+  });
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: created, error } = await supabase
+    .from("agents")
+    .insert({
+      owner_id: user.id,
+      name,
+      voice_id: input.voiceId.trim() || null,
+      ai_model: AGENT_MODEL,
+      system_prompt: systemPrompt,
+      template_key: template.key,
+      instructions: template.instructions,
+      prompt_purpose: script.purpose || null,
+      prompt_goal: script.goal || null,
+      key_details: script.keyDetails as unknown as Json,
+      script_prose: script.scriptProse || null,
+      tools_enabled: input.toolsEnabled,
+      knowledge_base_ids: input.knowledgeBaseIds,
+      extra_data_collection: script.dataCollection as unknown as Json,
+      extra_evaluation: [] as unknown as Json,
+    })
+    .select("id")
+    .single();
+  if (error || !created) return { error: "Could not save the agent." };
+
+  const sync = await syncAgentToElevenLabs(
+    {
+      name,
+      systemPrompt,
+      voiceId: input.voiceId.trim() || null,
+      aiModel: AGENT_MODEL,
+      goal: script.goal || null,
+      extraDataCollection: script.dataCollection,
+      extraEvaluation: [],
+      toolsEnabled: input.toolsEnabled,
+    },
+    null,
+  );
+  if (sync.error) {
+    await supabase.from("agents").delete().eq("id", created.id);
+    return { error: sync.error };
+  }
+  if (sync.elevenlabsAgentId) {
+    await supabase
+      .from("agents")
+      .update({ elevenlabs_agent_id: sync.elevenlabsAgentId })
+      .eq("id", created.id);
+  }
+
+  revalidatePath("/settings/agents");
+  return { error: null, agentId: created.id };
+}
+
+/** Update a template-made agent's SCRIPT (never its locked instructions) and
+ *  re-sync. The instructions come from the agent's stored snapshot. */
+export async function updateAgentScript(
+  id: string,
+  input: Omit<TemplateAgentInput, "templateKey">,
+): Promise<AgentResult> {
+  const name = input.name.trim();
+  if (!name) return { error: "Give the agent a name." };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const { data: existing } = await supabase
+    .from("agents")
+    .select("elevenlabs_agent_id, instructions")
+    .eq("id", id)
+    .maybeSingle();
+  if (!existing) return { error: "That agent no longer exists." };
+
+  const script: AgentScript = {
+    purpose: input.script.purpose ?? "",
+    goal: input.script.goal ?? "",
+    keyDetails: normalizeKeyDetails(input.script.keyDetails),
+    scriptProse: input.script.scriptProse ?? "",
+    dataCollection: normalizeDataCollection(input.script.dataCollection),
+  };
+
+  const systemPrompt = assembleFromScript({
+    instructions: existing.instructions ?? "",
+    script,
+    toolsEnabled: input.toolsEnabled,
+  });
+
+  const { error } = await supabase
+    .from("agents")
+    .update({
+      name,
+      voice_id: input.voiceId.trim() || null,
+      system_prompt: systemPrompt,
+      prompt_purpose: script.purpose || null,
+      prompt_goal: script.goal || null,
+      key_details: script.keyDetails as unknown as Json,
+      script_prose: script.scriptProse || null,
+      tools_enabled: input.toolsEnabled,
+      knowledge_base_ids: input.knowledgeBaseIds,
+      extra_data_collection: script.dataCollection as unknown as Json,
+    })
+    .eq("id", id);
+  if (error) return { error: "Could not update the agent." };
+
+  const sync = await syncAgentToElevenLabs(
+    {
+      name,
+      systemPrompt,
+      voiceId: input.voiceId.trim() || null,
+      aiModel: AGENT_MODEL,
+      goal: script.goal || null,
+      extraDataCollection: script.dataCollection,
+      extraEvaluation: [],
+      toolsEnabled: input.toolsEnabled,
+    },
+    existing.elevenlabs_agent_id,
+  );
+  if (sync.error) return { error: sync.error };
+  if (
+    sync.elevenlabsAgentId &&
+    sync.elevenlabsAgentId !== existing.elevenlabs_agent_id
+  ) {
+    await supabase
+      .from("agents")
+      .update({ elevenlabs_agent_id: sync.elevenlabsAgentId })
+      .eq("id", id);
+  }
+
+  revalidatePath("/settings/agents");
+  return { error: null, agentId: id };
 }
