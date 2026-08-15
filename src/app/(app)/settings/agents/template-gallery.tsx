@@ -1,10 +1,20 @@
 import Link from "next/link";
-import { ArrowRight, PencilRuler } from "lucide-react";
+import { ArrowRight, Pencil, PencilRuler } from "lucide-react";
 
 import { Breadcrumbs } from "@/components/app-shell/breadcrumbs";
 import { AGENT_TEMPLATES } from "@/lib/agents/templates";
 
-export function TemplateGallery() {
+import { DeleteTemplateButton } from "./delete-template-button";
+
+export type DbTemplateCard = { id: string; name: string; description: string };
+
+export function TemplateGallery({
+  dbTemplates,
+  isAdmin,
+}: {
+  dbTemplates: DbTemplateCard[];
+  isAdmin: boolean;
+}) {
   return (
     <div className="flex flex-col gap-5 p-6">
       <Breadcrumbs
@@ -39,6 +49,37 @@ export function TemplateGallery() {
               {t.description}
             </span>
           </Link>
+        ))}
+
+        {dbTemplates.map((t) => (
+          <div
+            key={t.id}
+            className="border-border hover:border-foreground/20 group relative flex flex-col gap-1 rounded-2xl border p-5 transition-colors"
+          >
+            <Link
+              href={`/settings/agents/new/${t.id}`}
+              className="flex flex-col gap-1"
+            >
+              <span className="text-foreground text-sm font-semibold">
+                {t.name}
+              </span>
+              <span className="text-muted-foreground text-xs">
+                {t.description}
+              </span>
+            </Link>
+            {isAdmin ? (
+              <div className="absolute top-3 right-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <Link
+                  href={`/settings/agents/templates/${t.id}/edit`}
+                  aria-label={`Edit ${t.name}`}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Pencil className="size-4" />
+                </Link>
+                <DeleteTemplateButton id={t.id} name={t.name} />
+              </div>
+            ) : null}
+          </div>
         ))}
       </div>
 

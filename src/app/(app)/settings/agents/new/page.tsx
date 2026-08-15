@@ -11,5 +11,21 @@ export default async function NewAgentPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  return <TemplateGallery />;
+  const [{ data: rows }, { data: me }] = await Promise.all([
+    supabase
+      .from("agent_templates")
+      .select("id, name, description")
+      .order("created_at", { ascending: false }),
+    supabase.from("profiles").select("role").eq("id", user.id).single(),
+  ]);
+
+  const dbTemplates = (rows ?? []).map((r) => ({
+    id: r.id,
+    name: r.name,
+    description: r.description ?? "",
+  }));
+
+  return (
+    <TemplateGallery dbTemplates={dbTemplates} isAdmin={me?.role === "admin"} />
+  );
 }
