@@ -58,6 +58,45 @@ export type Database = {
           },
         ];
       };
+      agent_templates: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          default_voice_id: string | null;
+          description: string;
+          id: string;
+          instructions: string;
+          name: string;
+          script: Json;
+          tools: Json;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          default_voice_id?: string | null;
+          description?: string;
+          id?: string;
+          instructions: string;
+          name: string;
+          script?: Json;
+          tools?: Json;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          default_voice_id?: string | null;
+          description?: string;
+          id?: string;
+          instructions?: string;
+          name?: string;
+          script?: Json;
+          tools?: Json;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       agents: {
         Row: {
           ai_model: string | null;
