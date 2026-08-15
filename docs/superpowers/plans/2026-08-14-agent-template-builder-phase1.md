@@ -11,7 +11,7 @@
 **Scope guardrails:**
 
 - **Phase 1 only.** No "Save as template" flywheel, no AI tidy (those are Phase 2 in the spec).
-- **Admin-only for now.** The `agents` table RLS is `is_admin`-gated. This builder ships for admins; teammate self-serve rides on the member-role RLS change tracked in `project_teammate_onboarding` — do NOT change agent RLS in this plan.
+- **Already open to everyone — no access change needed.** `agents` RLS is owner-based (`owner_id = auth.uid() OR is_admin`) via `supabase/migrations/20260525142147_open_agents_and_campaigns_to_members.sql`; the `/settings/agents*` pages have only a login check (no admin redirect); and "Agents" is a Workspace nav tab shown to all users. So any signed-in user can already create/edit their own agents. Do NOT add or change agent RLS in this plan. (The per-row "Sync"/"Re-sync all" buttons stay admin-only via `syncAgent`/`resyncAllAgents`, but create/edit re-syncs to ElevenLabs on save, so members never need those buttons.)
 - Spec: `docs/superpowers/specs/2026-08-14-agent-template-builder-design.md`.
 
 ---
@@ -1983,5 +1983,5 @@ gh pr create --title "Agent template builder (Phase 1)" --body "Replaces the 10-
 ## Self-Review notes (for the executor)
 
 - **Spec coverage:** one-screen builder (T11), locked instructions per-template snapshot (T3, T9), generalized typed Key details incl. date-landmine fix (T1, T5 test asserts the date appears once), data collection promoted + plain-English (T11 `DataCollectionEditor`), tools fixed (T11 uses `template.tools`, read-only), success rules from Goal (T9 passes `goal` to sync → base "goal" criterion), gallery front door + Advanced (T10), edit uses new screen (T12), live preview (T7, T11), validation (T6, T11), Webinar+Blank seeds (T3). Knowledge base is intentionally NOT surfaced in the builder for Phase 1 (spec: folded into Advanced); it remains available via the scratch wizard — acceptable for Phase 1.
-- **Out of scope confirmed:** no "Save as template", no AI tidy, no agent-RLS change (admin-only ships now; teammate access via `project_teammate_onboarding`).
+- **Out of scope confirmed:** no "Save as template", no AI tidy. No agent-RLS change is needed — `agents` is already owner-based and member-accessible (verified: migration `20260525142147` + no admin guard on the pages + Workspace nav tab).
 - **Type consistency:** `AgentScript`, `KeyDetail`, `AgentTemplate` defined in T1; `assembleFromScript` (T5) and `validateScript` (T6) and `previewScript` (T7) all consume `AgentScript`; actions (T9) and builder (T11) use the same shapes.
