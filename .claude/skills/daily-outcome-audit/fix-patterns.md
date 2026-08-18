@@ -22,6 +22,8 @@ Relabeling a call is only half the fix — the lead's state must match the new o
 
 `scripts/relabel.js` does this: feed it `{ "<callId>": "<targetOutcome>", ... }`, it dry-runs (prints current outcome + planned lead state), and on `--apply` writes both and refuses any call not currently what you expect. It also **blocks un-DNC unless the lead is DNC-clean** (§3).
 
+`triage.js` writes a **suggested** map (`map-triage-<date>.json`) pre-filled with the high-confidence structural relabels (e.g. `not_interested`+`dm≠yes` → `gatekeeper_not_interested`). It is a draft: review it, then `node relabel.js map-triage-<date>.json` (dry-run) → `--apply`. Never apply it unread.
+
 ## 2. Relabel _to_ callback
 
 A `callbacks` row is required or the lead strands (the dialer dials `MIN(scheduled_at)` of pending callbacks; status alone does nothing).

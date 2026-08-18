@@ -4,6 +4,19 @@ Per-outcome audit recipes. For each: what it *should* mean, the **objective sign
 
 Outcome is the AI's disposition guess unless `outcome_source='manual'` (a human/earlier audit set it). Always check `outcome_source` — don't re-litigate manual rows.
 
+## Objective cross-field signals (what triage flags)
+
+`triage.js` pre-flags calls whose label contradicts a signal the AI already recorded, so you read the ~40 suspects, not the whole day. `decision_maker_reached` is a **string enum** — `"yes"` / `"no"` / `"unknown"` / absent (NOT a boolean; don't test it with `=== true`).
+
+| Flag | Meaning |
+|---|---|
+| `not_interested` + `dm ≠ "yes"` | owner-decline label without a confirmed owner → usually `gatekeeper_not_interested`. **Phase 2 enforces this in the classifier;** until deployed, triage suggests the relabel. |
+| `gatekeeper_not_interested` + `dm = "yes"` | reached the owner but labeled a gatekeeper decline — read it. |
+| `goal_met` + no booking | false win / failed booking (see the goal_met recipe). |
+| `callback` + no `callback_datetime` + no `callbacks` row | stranded — the dialer has no time to dial. |
+| `dnc` + an **agent** offered removal | agent-manufactured DNC — read every one. |
+| `voicemail` (sampled) + ≥2 human replies | a human answered, then a mailbox → `gatekeeper`. |
+
 ---
 
 ## goal_met — the highest-stakes outcome
