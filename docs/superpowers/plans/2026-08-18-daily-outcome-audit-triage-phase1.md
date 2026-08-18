@@ -693,8 +693,8 @@ git commit --no-verify -m "docs(skill): make triage.js the front door; document 
 
 - [ ] **Step 1: Re-run the unit tests together**
 
-Run: `node --test .claude/skills/daily-outcome-audit/scripts/`
-Expected: all tests pass (`# fail 0`) across `_signals.test.js` and `_flags.test.js`.
+Run: `node --test .claude/skills/daily-outcome-audit/scripts/_signals.test.js .claude/skills/daily-outcome-audit/scripts/_flags.test.js`
+Expected: `# tests 16`, `# pass 16`, `# fail 0`. (List the files explicitly — `node --test <dir>` with an absolute path can misreport a spurious single failure on some Node versions.)
 
 - [ ] **Step 2: Confirm the read list is human-sized**
 
