@@ -856,6 +856,9 @@ async function processTranscription(
       disposition,
       terminationReason,
       callDurationSecs,
+      // Owner-only guard for not_interested: the classifier downgrades it to
+      // gatekeeper_not_interested unless the extractor confirmed dm="yes".
+      decisionMakerReached: extractedDataOf(payload.analysis)?.decision_maker_reached,
     },
   );
 

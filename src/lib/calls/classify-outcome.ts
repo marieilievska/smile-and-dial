@@ -191,9 +191,15 @@ export function classifyCallOutcome(input: {
   disposition: string;
   terminationReason: string;
   callDurationSecs: number;
+  decisionMakerReached?: unknown;
 }): { outcome: CallOutcome | null; reachedHuman: boolean } {
-  const { transcript, disposition, terminationReason, callDurationSecs } =
-    input;
+  const {
+    transcript,
+    disposition,
+    terminationReason,
+    callDurationSecs,
+    decisionMakerReached,
+  } = input;
 
   const dispositionOutcome = DISPOSITION_TO_OUTCOME[disposition] ?? null;
   const saysAi = calledPartySelfIdentifiesAsAi(transcript);
@@ -290,6 +296,21 @@ export function classifyCallOutcome(input: {
       humanReplies >= 2
         ? "gatekeeper"
         : hangUpKind(callDurationSecs, humanReplies);
+  }
+
+  // not_interested is owner-only by definition — it rests the lead 30d and implies
+  // decision_maker_reached (OUTCOME_IMPLIES_DM). If the extractor itself reported it
+  // did NOT reach the owner (decision_maker_reached "no"/"unknown"), the decliner was
+  // never established as the owner: downgrade to a firm gatekeeper decline (15d rest,
+  // NOT DM-implying). Mirrors OUTCOME_EXCLUDES_DM's veto of a stray dm="yes" on a
+  // gatekeeper. A MISSING value is left alone — we act only on positive non-owner
+  // evidence, and the extractor always populates this for a real not_interested.
+  const dm =
+    typeof decisionMakerReached === "string"
+      ? decisionMakerReached.trim().toLowerCase()
+      : "";
+  if (outcome === "not_interested" && dm !== "" && dm !== "yes") {
+    outcome = "gatekeeper_not_interested";
   }
 
   // A real two-way human conversation? Not for a machine (voicemail /
