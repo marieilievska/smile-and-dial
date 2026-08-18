@@ -32,6 +32,8 @@ Each call gets one **outcome** (disposition) that drives real decisions: who to 
 6. **Harden the future** — if the AI is systematically wrong, PATCH the live agents' disposition prompt (and/or conversation prompt). See `fix-patterns.md` → "Live-agent PATCH".
 7. **Record it** — update the memory file `reference_outcome_classification` with findings + fixes.
 
+**Calibration (dogfood the triage):** for the first ~3 live days after calling resumes — and periodically after — prove the flags catch real errors AND aren't missing patterns. `node scripts/control-sample.js [YYYY-MM-DD] [N]` dumps a spread of CONNECTED calls triage did NOT flag; read them for MISSED mislabels (a miss → add/widen a flag in `_flags.js`). Full loop + running log: **`calibration.md`**.
+
 ## Quick reference — outcome ground-truth signals
 
 | Outcome                                         | Ground-truth signal (not the label)                                          | Top trap                                                                                                                                                  |
