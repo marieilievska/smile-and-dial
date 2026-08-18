@@ -75,10 +75,9 @@ describe("availabilityWindows", () => {
 });
 
 describe("bookingTracking", () => {
-  it("tags BOTH active webinar campaigns with the fixed voice_ai_webinar UTMs", () => {
+  it("tags the active webinar campaign with the fixed voice_ai_webinar UTMs", () => {
     for (const campaignId of [
-      "29ea2566-c6df-4f96-a6d5-65ebbb16fbda", // Reason First
-      "9d1908ab-638a-440f-8dc8-016cb2b2534a", // Pattern Interrupt
+      "3cd40c9c-5a42-4476-9ef1-c6a1e0fc72d8", // HireAI Webinar Invite (post-workspace-switch)
     ]) {
       expect(
         bookingTracking({
@@ -89,8 +88,8 @@ describe("bookingTracking", () => {
       ).toEqual({
         utm_source: "smile_dial",
         utm_medium: "voice",
-        utm_campaign: "voice_ai_webinar",
-        utm_content: "voice_ai_webinar",
+        utm_campaign: "voice_ai_webinar_27",
+        utm_content: "voice_ai_webinar_27",
         utm_term: "voice_ai",
         salesforce_uuid: "lead-1",
       });
