@@ -3,7 +3,7 @@
 // already recorded so the reviewer reads the ~40 suspects instead of all 3,000,
 // prints a scorecard, writes a "read these" dump + a SUGGESTED relabel map (never
 // auto-applied), and rewrites one line per day into scorecard.jsonl (drift
-// history). Writes nothing to the DB. Supersedes audit-day.js.
+// history). Writes nothing to the DB. Replaces the old all-at-once day sweep.
 // Usage: node triage.js [YYYY-MM-DD]
 const fs = require("fs");
 const path = require("path");
