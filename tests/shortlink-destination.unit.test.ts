@@ -10,15 +10,16 @@ import {
 // Must match a live campaign id in CAMPAIGN_LINK_UTM. A database reset recreates
 // the campaign with a new id and silently kills the override, so this constant
 // is the canary: if it drifts from prod, attribution is already broken. Repointed
-// 2026-08-11 to the active webinar campaigns (was the dead HireAI Presell id).
-const WEBINAR_CAMPAIGN_ID = "9d1908ab-638a-440f-8dc8-016cb2b2534a";
+// 2026-08-18 to HireAI Webinar Invite when S&D moved ElevenLabs workspaces (the
+// prior Reason First / Pattern Interrupt campaigns were ended + merged into it).
+const WEBINAR_CAMPAIGN_ID = "3cd40c9c-5a42-4476-9ef1-c6a1e0fc72d8";
 
 describe("linkUtmParams", () => {
   it("uses the active-campaign overrides, with the channel as the medium", () => {
     expect(
       linkUtmParams({
         campaignId: WEBINAR_CAMPAIGN_ID,
-        campaignName: "HireAI Webinar Pattern Interrupt",
+        campaignName: "HireAI Webinar Invite",
         channel: "sms",
       }),
     ).toEqual({
@@ -29,7 +30,7 @@ describe("linkUtmParams", () => {
     expect(
       linkUtmParams({
         campaignId: WEBINAR_CAMPAIGN_ID,
-        campaignName: "HireAI Webinar Pattern Interrupt",
+        campaignName: "HireAI Webinar Invite",
         channel: "email",
       }).utm_medium,
     ).toBe("email");

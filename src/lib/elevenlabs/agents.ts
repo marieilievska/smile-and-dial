@@ -15,7 +15,6 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import {
   toElevenLabsDataCollection,
   toElevenLabsDataCollectionObject,
-  toElevenLabsEvaluation,
   type ExtraDataCollectionField,
   type ExtraEvaluationCriterion,
 } from "@/lib/agents/data-collection";
@@ -33,13 +32,15 @@ export type AgentSyncPayload = {
   systemPrompt: string;
   voiceId: string | null;
   aiModel: string | null;
-  /** Used as the Success Evaluation criterion prompt. */
+  /** The agent's stated goal. No longer sent to ElevenLabs (the unused
+   *  success-evaluation block was removed); retained for callers/DB. */
   goal: string | null;
   /** User-defined data-collection fields, merged ON TOP of the system base
    *  set. Pre-normalized by the caller (see lib/agents/data-collection). */
   extraDataCollection?: ExtraDataCollectionField[];
-  /** User-defined evaluation criteria, merged on top of the base "goal"
-   *  criterion. */
+  /** User-defined evaluation criteria. No longer sent to ElevenLabs (evaluation
+   *  was removed as unused — no score is stored or shown); retained for
+   *  callers/DB compatibility. */
   extraEvaluation?: ExtraEvaluationCriterion[];
   /** Which tools the wizard enabled. The custom server tools among these
    *  (send_email, schedule_callback, get_available_times, book_appointment,
@@ -232,26 +233,24 @@ function isLive(): boolean {
 
 /** Workspace-level ElevenLabs resources applied to every agent.
  *
- *  The product runs on ONE ElevenLabs account, so the dictionary and the
- *  analysis model are baked in as defaults — they work out of the box with
- *  no env setup. An env var still overrides each (handy for a staging
- *  account or to swap the analysis model) but isn't required.
+ *  The analysis model is baked in as a default (a model name is valid in any
+ *  workspace, so it needs no env setup); an env var overrides it.
  *
- *  The post-call webhook is the exception: it has no sensible default
- *  because the webhook must be CREATED once in the ElevenLabs dashboard and
- *  its generated id pasted into ELEVENLABS_POST_CALL_WEBHOOK_ID. Omitted
- *  from the agent body until that id is set.
+ *  The pronunciation dictionary is NOT baked in: a dictionary id is
+ *  workspace-specific and 404s in a different workspace — a stale default
+ *  silently broke agent syncs after the 2026-08-18 workspace move — so it's
+ *  applied only when ELEVENLABS_PRONUNCIATION_DICTIONARY_ID is explicitly set.
  *
- *  - Pronunciation dictionary: the workspace dictionary so brand/industry
- *    terms are said correctly.
- *  - Analysis LLM: the model that runs post-call analysis (data collection
- *    + evaluation). */
-const DEFAULT_PRONUNCIATION_DICTIONARY_ID = "C6YPGRdam0tTOORTL9L1";
+ *  The post-call webhook is likewise not defaulted: it must be CREATED once
+ *  (dashboard or API) and its generated id stored; it's omitted from the
+ *  agent body until that id is set.
+ *
+ *  - Analysis LLM: the model that runs post-call analysis (data collection). */
 const DEFAULT_ANALYSIS_LLM = "claude-sonnet-4-6";
 
 function pronunciationDictionaryId(): string | undefined {
   const v = process.env.ELEVENLABS_PRONUNCIATION_DICTIONARY_ID?.trim();
-  return v && v.length > 0 ? v : DEFAULT_PRONUNCIATION_DICTIONARY_ID;
+  return v && v.length > 0 ? v : undefined;
 }
 function analysisLlm(): string | undefined {
   const v = process.env.ELEVENLABS_ANALYSIS_LLM?.trim();
@@ -901,21 +900,8 @@ async function liveSync(
         ...DATA_COLLECTION_FIELDS,
         ...(payload.extraDataCollection ?? []).map(toElevenLabsDataCollection),
       ],
-      evaluation: {
-        // The agent's own goal criterion, plus any criteria the creator added.
-        criteria: [
-          {
-            id: "goal",
-            name: "Goal met",
-            type: "prompt",
-            conversation_goal_prompt:
-              payload.goal || "Did the agent accomplish its stated goal?",
-          },
-          ...(payload.extraEvaluation ?? []).map(toElevenLabsEvaluation),
-        ],
-      },
       guardrails: GUARDRAILS,
-      // The model that runs post-call analysis (data collection + eval).
+      // The model that runs post-call analysis (data collection).
       ...(analysis ? { analysis_llm: analysis } : {}),
       // Workspace webhooks (post-call + conversation-init), built above.
       ...(Object.keys(workspaceOverrides).length > 0
