@@ -106,13 +106,26 @@ const evenSample = (arr, n) => (arr.length <= n ? arr.slice() : Array.from({ len
   if ((byOutcome.ai_error || []).length) console.log(`⚠️ ai_error=${(byOutcome.ai_error || []).length} — run credit-check.js (incident, not a relabel).`);
   console.log(`ratios: ${JSON.stringify(ratios)}`);
 
-  // 7) scorecard.jsonl — idempotent per date (drop any existing line for this date, then append)
+  // 7) drift check vs trailing baseline, then idempotent scorecard write
+  const D = require("./_drift");
   const scFile = path.join(__dirname, "scorecard.jsonl");
   const scorecard = { date, total: rows.length, byOutcome: Object.fromEntries(Object.entries(byOutcome).map(([o, rs]) => [o, rs.length])), flags: flagByType, ratios };
-  const kept = fs.existsSync(scFile)
-    ? fs.readFileSync(scFile, "utf8").split("\n").filter(Boolean).filter((l) => { try { return JSON.parse(l).date !== date; } catch { return false; } })
-    : [];
+  const priorLines = fs.existsSync(scFile) ? fs.readFileSync(scFile, "utf8").split("\n").filter(Boolean) : [];
+  const priorScorecards = priorLines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  const drift = D.driftReport({ today: scorecard, history: priorScorecards });
+  console.log(`\ndrift vs trailing baseline (${drift.priorDays} prior day${drift.priorDays === 1 ? "" : "s"}):`);
+  if (drift.baselineBuilding) {
+    console.log(`  baseline building — need ≥2 prior audited days for a drift check.`);
+  } else if (!drift.flags.length) {
+    console.log(`  ✓ no watched metric moved beyond its threshold.`);
+  } else {
+    for (const f of drift.flags) console.log(`  ⚠️ DRIFT: ${D.fmt(f)} — check for an agent/campaign change.`);
+  }
+  // idempotent write: drop any existing line for this date, add today's, and keep
+  // the file in canonical chronological order so re-running a day is a no-op diff.
+  const kept = priorLines.filter((l) => { try { return JSON.parse(l).date !== date; } catch { return false; } });
   kept.push(JSON.stringify(scorecard));
+  kept.sort((a, b) => { try { return JSON.parse(a).date < JSON.parse(b).date ? -1 : 1; } catch { return 0; } });
   fs.writeFileSync(scFile, kept.join("\n") + "\n");
 
   // 8) READ-THESE dump (flagged + all dnc + all goal_met) + suggested relabel map
