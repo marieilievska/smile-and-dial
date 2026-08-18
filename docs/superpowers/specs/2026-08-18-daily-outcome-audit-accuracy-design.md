@@ -25,6 +25,7 @@ Two adjacent findings from the same pass:
 1. Make a 3,000-call day **auditable** by targeting review at objective contradiction-flags instead of reading everything.
 2. **Fix the `not_interested` over-claim at the source** so it stops recurring and stops inflating the DM metric.
 3. **See drift and accuracy trend over time**, so a behavioral shift pings the day it happens and source-fixes are visibly working.
+4. **Calibrate the triage against reality over the first few days** — prove the flags catch real mislabels *and* aren't missing whole patterns, tightening the skill each day until it's trustworthy.
 
 ## Non-goals
 
@@ -116,6 +117,25 @@ The skill's hard rule ("touch only yesterday") governs the **daily** audit. This
 
 ---
 
+## Layer 4 — Calibration loop (dogfood the triage, day by day)
+
+Triage is a heuristic; the first runs must **prove it** before we trust it for daily use. Each calibration day measures the triage two ways — did its flags catch real errors (**precision**), and did it **miss** any (**recall**) — then feeds what it learns back into the flags. Accuracy should visibly climb across days.
+
+**Per calibration day:**
+1. Run the normal loop (triage → read flagged → relabel).
+2. **Flag precision** — of the calls triage flagged, record the fraction that were genuine mislabels vs false alarms. A flag with a high false-alarm rate gets tightened.
+3. **Miss detection (recall) — the key step.** Read a **random control sample of unflagged connected calls** (default 25). Any mislabel found there is a **blind spot** → design a new flag or widen an existing one. Without this, a triage that flags too little looks "clean" while quietly missing errors.
+4. **Tune** the drift thresholds and voicemail sample size against what the day showed.
+5. **Log a calibration entry** (append to `scripts/calibration.md`): date, #flagged, flag precision, control-sample size + misses found, and the concrete change made to `triage.js` / `_signals.js` / the playbook.
+
+**Day 0 is available now:** 08-12 is a full raw ~3k-call day, so calibration starts against it immediately — no waiting for calls to resume. The first 3 **live** days (once outbound restarts) confirm and extend it.
+
+**Exit criterion:** after ~3 days where the control sample turns up ≈0 new misses and flag precision is stable, calibration ends and the skill is trusted for daily use, with a lighter periodic re-check (e.g. weekly control sample). Each day should need fewer new flags than the last — that's the signal it's converging.
+
+**Dependency:** live-day calibration is gated on outbound calling resuming (stopped after 08-12); day-0 on 08-12 has no such gate.
+
+---
+
 ## Integration — SKILL.md daily loop (rewritten)
 
 1. `node scripts/credit-check.js` — credit health / `ai_error` incident (unchanged).
@@ -130,7 +150,7 @@ The skill's hard rule ("touch only yesterday") governs the **daily** audit. This
 
 ## Files
 
-**New:** `scripts/triage.js`, `scripts/_signals.js`, `scripts/scorecard.jsonl`
+**New:** `scripts/triage.js`, `scripts/_signals.js`, `scripts/scorecard.jsonl`, `scripts/calibration.md`
 **Modified (skill):** `SKILL.md`, `outcome-playbook.md`, `fix-patterns.md`; **remove** `audit-day.js` (superseded)
 **Modified (app):** `src/lib/calls/classify-outcome.ts`, `src/lib/elevenlabs/post-call-webhook.ts`, `tests/classify-outcome.unit.test.ts` (new or extend), `scripts/backfill-dm-not-interested.mjs` (comment/logic)
 
@@ -139,6 +159,7 @@ The skill's hard rule ("touch only yesterday") governs the **daily** audit. This
 - **Phase 1 — Triage + scorecard write.** `triage.js`, `_signals.js`, scorecard append, skill-doc updates, remove `audit-day.js`. Skill-only (no app deploy). *Verify:* run on 08-12; it must flag the 20 `not_interested`, the hidden-win `goal_met`, and any `dnc` offers, and print the scorecard.
 - **Phase 2 — Source guard.** `classify-outcome.ts` guard + webhook thread + unit tests + backfill-script comment. App code → PR → `tsc`/`eslint`/`next build` → merge → Vercel deploy. Then the gated one-time 08-11/08-12 relabel (dry-run → apply).
 - **Phase 3 — Drift compare.** Add baseline-compare to `triage.js` (Phase 1 already writes history, so this reads it). Small.
+- **Phase 4 — Calibration loop.** Run the day-0 calibration against 08-12, then one per live day for ~3 days: measure flag precision + control-sample misses, tighten flags/thresholds, log to `calibration.md`. Runs after Phases 1–3 are built; live days gated on outbound resuming.
 
 ## Safety (all existing rules preserved)
 
@@ -149,5 +170,5 @@ The skill's hard rule ("touch only yesterday") governs the **daily** audit. This
 
 ## Open questions for spec review
 
-- Voicemail sample size (default 60/day) and the per-metric drift thresholds — start with these defaults, tune after a few live runs.
+- Voicemail sample size (default 60/day), the control-sample size for calibration (default 25 unflagged connected calls/day), and the per-metric drift thresholds — start with these defaults, tune during the calibration loop.
 - Keep `reconcile-bookings.js` as a standalone too, or fully fold into `triage.js`? (Proposed: keep both.)
