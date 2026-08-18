@@ -418,4 +418,53 @@ describe("classifyCallOutcome", () => {
     expect(r.outcome).toBe("not_interested");
     expect(r.reachedHuman).toBe(true);
   });
+
+  describe("not_interested owner guard", () => {
+    const reached = t(
+      ["agent", "Hi, is the owner around?"],
+      ["user", "This is the front desk, who's calling?"],
+      ["agent", "It's Tom from HireAI..."],
+      ["user", "We're not interested, thanks."],
+    );
+    const base = {
+      transcript: reached,
+      disposition: "not_interested",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 40,
+    };
+
+    it("keeps not_interested when the AI reached the owner (dm=yes)", () => {
+      const r = classifyCallOutcome({ ...base, decisionMakerReached: "yes" });
+      expect(r.outcome).toBe("not_interested");
+      expect(r.reachedHuman).toBe(true);
+    });
+
+    it("downgrades to gatekeeper_not_interested when dm=no", () => {
+      const r = classifyCallOutcome({ ...base, decisionMakerReached: "no" });
+      expect(r.outcome).toBe("gatekeeper_not_interested");
+      expect(r.reachedHuman).toBe(true);
+    });
+
+    it("downgrades when dm=unknown (or padded/upper-cased)", () => {
+      expect(
+        classifyCallOutcome({ ...base, decisionMakerReached: "unknown" }).outcome,
+      ).toBe("gatekeeper_not_interested");
+      expect(
+        classifyCallOutcome({ ...base, decisionMakerReached: " No " }).outcome,
+      ).toBe("gatekeeper_not_interested");
+    });
+
+    it("leaves not_interested unchanged when dm is missing (backward compatible)", () => {
+      expect(classifyCallOutcome(base).outcome).toBe("not_interested");
+    });
+
+    it("only touches not_interested — a gatekeeper with dm=no stays gatekeeper", () => {
+      const r = classifyCallOutcome({
+        ...base,
+        disposition: "gatekeeper",
+        decisionMakerReached: "no",
+      });
+      expect(r.outcome).toBe("gatekeeper");
+    });
+  });
 });
