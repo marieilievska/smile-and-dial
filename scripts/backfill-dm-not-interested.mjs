@@ -6,6 +6,11 @@
 // this at call time (src/lib/calls/decision-maker.ts:outcomeImpliesDm); this
 // script fixes the PAST so Analytics windows over old data read correctly too.
 //
+// NOTE (Phase 2, 2026-08-18): the classifier now downgrades a not_interested whose
+// extractor said decision_maker_reached != "yes" to gatekeeper_not_interested
+// (src/lib/calls/classify-outcome.ts), so going forward a surviving not_interested
+// IS dm=yes — this backfill stays valid but only matters for PRE-guard history.
+//
 // SAFE BY DEFAULT: dry-run — prints what WOULD change and writes nothing.
 // Pass --apply to perform the update. The write is guarded to
 // `decision_maker_reached=is.false`, so it only ever flips false→true for the
