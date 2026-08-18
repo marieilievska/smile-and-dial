@@ -558,14 +558,14 @@ Run: `node .claude/skills/daily-outcome-audit/scripts/triage.js 2026-08-12`
 
 Expected (matches the grounding analysis; small voicemail-flag variance is fine):
 - `total calls: 3328`
-- Scorecard shows `not_interested 55` with `flags 20`, `gatekeeper_not_interested 66` with `flags 3`, `goal_met 27`.
-- `flags by type` includes `"not_interested_dm_not_yes":20` and `"gni_dm_yes":3`.
+- Scorecard shows `not_interested 55` with `flags 27`, `gatekeeper_not_interested 66` with `flags 3`, `goal_met 27`.
+- `flags by type` includes `"not_interested_dm_not_yes":27` and `"gni_dm_yes":3`. (27 = the 20 `dm="no"` + 7 `dm="unknown"`; the flag correctly previews the Layer 2 guard, which downgrades every `not_interested` with `dm ≠ "yes"`.)
 - `hidden-win goal_met (booked, not goal_met): 6`.
 - `voicemail: sampled 60 of 1384 (skipped 1324)`.
-- `ratios` includes `"not_interested_dm_no":0.364`.
-- Files written: `_out-triage-2026-08-12.txt`, `map-triage-2026-08-12.json` (20 entries), and a line appended to `scorecard.jsonl`.
+- `ratios` includes `"not_interested_dm_no":0.491` (27/55).
+- Files written: `_out-triage-2026-08-12.txt`, `map-triage-2026-08-12.json` (27 entries), and a line appended to `scorecard.jsonl`.
 
-If `not_interested_dm_not_yes` ≠ 20, STOP — the flag logic diverged from the grounding pass; re-check `_flags.js` `dmOf`.
+If `not_interested_dm_not_yes` ≠ 27, STOP — the flag logic diverged from the grounding pass; re-check `_flags.js` `dmOf`.
 
 - [ ] **Step 3: Seed the second baseline day**
 
