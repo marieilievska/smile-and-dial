@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import type { CalendlyCustomQuestion } from "../src/lib/calendly/booking";
 import {
   availabilityWindows,
   bookingTracking,
   buildInviteeLocation,
+  buildQuestionsAndAnswers,
 } from "../src/lib/calendly/booking";
 
 describe("buildInviteeLocation", () => {
@@ -124,5 +126,115 @@ describe("bookingTracking", () => {
     expect(t.salesforce_uuid).toBe("lead-3");
     expect(t.utm_source).toBe("smile_dial");
     expect(t.utm_medium).toBe("voice");
+  });
+});
+
+describe("buildQuestionsAndAnswers", () => {
+  // The real event type that broke booking on 2026-08-18: a required free-text
+  // "Company name" question was added to the webinar's Calendly form. Our
+  // POST /invitees sent no answers, so Calendly rejected EVERY booking with
+  // "Required Questions and Answers cannot be blank." — and the caller heard
+  // "that time just became unavailable". 23 warm leads were turned away before
+  // it was caught.
+  const webinarQuestions: CalendlyCustomQuestion[] = [
+    {
+      name: "Company name",
+      type: "string",
+      position: 0,
+      required: true,
+      enabled: true,
+      answer_choices: [],
+    },
+    {
+      name: "Which best describes you?",
+      type: "single_select",
+      position: 1,
+      required: false,
+      enabled: true,
+      answer_choices: [
+        "Current Referrizer client",
+        "Past client",
+        "New to Referrizer",
+        "REX Member",
+      ],
+    },
+  ];
+
+  const lead = {
+    company: "Alaska Healing Arts",
+    name: "Roberta",
+    email: "alaskahealingarts@gmail.com",
+    phone: "+19075551234",
+  };
+
+  it("answers the required company question with the lead's company", () => {
+    expect(buildQuestionsAndAnswers(webinarQuestions, lead)).toEqual([
+      { question: "Company name", answer: "Alaska Healing Arts", position: 0 },
+    ]);
+  });
+
+  it("leaves OPTIONAL questions alone — a wrong select value can get the whole booking rejected", () => {
+    const answers = buildQuestionsAndAnswers(webinarQuestions, lead);
+    expect(answers.some((a) => a.question === "Which best describes you?")).toBe(
+      false,
+    );
+  });
+
+  it("never emits a blank answer — a blank is exactly what Calendly rejects", () => {
+    // No company on the lead: still must produce a non-empty answer.
+    const answers = buildQuestionsAndAnswers(webinarQuestions, {
+      ...lead,
+      company: "",
+    });
+    expect(answers).toHaveLength(1);
+    expect(answers[0].answer.trim().length).toBeGreaterThan(0);
+  });
+
+  it("routes by question wording — name, phone and email questions get the right fact", () => {
+    const qs: CalendlyCustomQuestion[] = [
+      { name: "Your full name", type: "string", position: 0, required: true, enabled: true, answer_choices: [] },
+      { name: "Best phone number", type: "phone_number", position: 1, required: true, enabled: true, answer_choices: [] },
+      { name: "Work email", type: "string", position: 2, required: true, enabled: true, answer_choices: [] },
+      { name: "Business name", type: "string", position: 3, required: true, enabled: true, answer_choices: [] },
+    ];
+    expect(buildQuestionsAndAnswers(qs, lead)).toEqual([
+      { question: "Your full name", answer: "Roberta", position: 0 },
+      { question: "Best phone number", answer: "+19075551234", position: 1 },
+      { question: "Work email", answer: "alaskahealingarts@gmail.com", position: 2 },
+      { question: "Business name", answer: "Alaska Healing Arts", position: 3 },
+    ]);
+  });
+
+  it("answers a REQUIRED select with one of its own choices (a free-text answer is rejected)", () => {
+    const qs: CalendlyCustomQuestion[] = [
+      {
+        name: "Which best describes you?",
+        type: "single_select",
+        position: 0,
+        required: true,
+        enabled: true,
+        answer_choices: ["Current Referrizer client", "New to Referrizer"],
+      },
+    ];
+    const [a] = buildQuestionsAndAnswers(qs, lead);
+    expect(qs[0].answer_choices).toContain(a.answer);
+  });
+
+  it("skips a DISABLED required question — it isn't on the form", () => {
+    const qs: CalendlyCustomQuestion[] = [
+      { ...webinarQuestions[0], enabled: false },
+    ];
+    expect(buildQuestionsAndAnswers(qs, lead)).toEqual([]);
+  });
+
+  it("returns [] when the event type has no custom questions (field must be omitted)", () => {
+    expect(buildQuestionsAndAnswers([], lead)).toEqual([]);
+    expect(buildQuestionsAndAnswers(null, lead)).toEqual([]);
+    expect(buildQuestionsAndAnswers(undefined, lead)).toEqual([]);
+  });
+
+  it("preserves the question text EXACTLY — Calendly matches it case-sensitively", () => {
+    const [a] = buildQuestionsAndAnswers(webinarQuestions, lead);
+    expect(a.question).toBe("Company name");
   });
 });

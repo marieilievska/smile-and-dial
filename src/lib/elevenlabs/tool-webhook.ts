@@ -7,13 +7,14 @@ import { createClient } from "@supabase/supabase-js";
 import {
   createInvitee,
   getAvailableTimes as calendlyGetAvailableTimes,
-  getEventTypeLocations,
+  getEventTypeConfig,
   type CalendlySlot,
 } from "@/lib/calendly/api";
 import {
   availabilityWindows,
   bookingTracking,
   buildInviteeLocation,
+  buildQuestionsAndAnswers,
 } from "@/lib/calendly/booking";
 import { hasBookingAtSlot } from "@/lib/calendly/booking-dedup";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
@@ -1173,11 +1174,25 @@ async function bookAppointment(
       };
     }
 
-    // Echo the event type's location back (Zoom/Meet/etc.), or Calendly rejects
-    // the booking with "location_configuration.kind invalid location choice" —
-    // the bug that silently broke booking for every event that has a location.
-    const location = buildInviteeLocation(
-      await getEventTypeLocations(cal.eventTypeUri, cal.token),
+    // Read the host's live event-type config once, then echo back BOTH things
+    // Calendly refuses a booking without:
+    //  - the location (Zoom/Meet/etc.), or it returns "location_configuration.
+    //    kind invalid location choice";
+    //  - answers to every required booking-form question, or it returns
+    //    "Required Questions and Answers cannot be blank." — the host added a
+    //    required "Company name" field on 2026-08-18 and took booking to 0%.
+    // Both are the HOST's settings and can change any day without a deploy, so
+    // they're read per booking rather than assumed.
+    const eventConfig = await getEventTypeConfig(cal.eventTypeUri, cal.token);
+    const location = buildInviteeLocation(eventConfig.locations);
+    const questionsAndAnswers = buildQuestionsAndAnswers(
+      eventConfig.customQuestions,
+      {
+        company: ctx.lead.company,
+        name,
+        email,
+        phone: ctx.lead.business_phone || ctx.lead.owner_phone,
+      },
     );
     // UTM attribution so booked appointments are traceable to Smile & Dial in
     // Calendly's reporting (utm_source=smile_dial, utm_medium=voice, campaign
@@ -1196,6 +1211,7 @@ async function bookAppointment(
         timezone: ctx.lead.timezone || "America/New_York",
         location,
         tracking,
+        questionsAndAnswers,
       },
       cal.token,
     );
@@ -1206,10 +1222,21 @@ async function bookAppointment(
         live: true,
         error: result.error,
       });
+      // Only a genuine availability clash should send the AI back to pick
+      // another time. Every OTHER failure is a config problem on the host's
+      // Calendly (a required question, a bad location, a revoked token) that
+      // re-picking cannot fix — the old blanket "that time just became
+      // unavailable" made the AI re-offer the SAME slot over and over and let a
+      // full-day, 100%-failure outage pass as ordinary bad luck. Say something
+      // true instead, and bank the email so the lead isn't lost.
+      const slotGone = /unavailable|already.*(booked|taken)|no longer|invalid start.?time|spot|capacity|full/i.test(
+        result.error ?? "",
+      );
       return {
         success: false,
-        message:
-          "That time just became unavailable — could we pick another one?",
+        message: slotGone
+          ? "That time just became unavailable — could we pick another one?"
+          : `I can't complete the booking from here, but I've got ${email} — the team will send the invite through shortly.`,
       };
     }
 
