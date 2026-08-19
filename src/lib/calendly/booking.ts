@@ -124,3 +124,118 @@ export function bookingTracking(args: {
     salesforce_uuid: args.leadId,
   };
 }
+
+/** One entry of a Calendly event type's `custom_questions` array
+ *  (GET /event_types/{uuid}). These are the extra fields the HOST added to the
+ *  booking form — they live entirely in the host's Calendly account, so they can
+ *  appear or become required at any time without any change on our side. */
+export type CalendlyCustomQuestion = {
+  name?: string | null;
+  /** "string" | "text" | "phone_number" | "single_select" | "multi_select" | … */
+  type?: string | null;
+  position?: number | null;
+  required?: boolean | null;
+  enabled?: boolean | null;
+  answer_choices?: string[] | null;
+};
+
+/** The lead facts we can answer a booking question with. */
+export type BookingFacts = {
+  company?: string | null;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+};
+
+export type CalendlyQuestionAnswer = {
+  question: string;
+  answer: string;
+  position: number;
+};
+
+const firstNonBlank = (...vals: (string | null | undefined)[]): string => {
+  for (const v of vals) if (typeof v === "string" && v.trim()) return v.trim();
+  return "";
+};
+
+/** Pick a valid option for a select question. Calendly rejects any answer that
+ *  isn't one of `answer_choices`, so we must choose from the list. We bias to a
+ *  "new / prospect / none" style option because every lead we dial is a cold
+ *  prospect — defaulting to the first choice would stamp them as an existing
+ *  customer and poison the host's reporting. */
+const pickChoice = (choices: string[]): string =>
+  choices.find((c) => /\bnew\b|prospect|none|other|not\s+(yet\s+)?a\b/i.test(c)) ??
+  choices[0];
+
+/**
+ * Build the `questions_and_answers` payload for POST /invitees.
+ *
+ * Why this exists: on 2026-08-18 the webinar's Calendly form gained a REQUIRED
+ * "Company name" question. We sent no answers, so Calendly rejected every
+ * booking with "Required Questions and Answers cannot be blank." — a 100%
+ * booking outage that surfaced to the caller as "that time just became
+ * unavailable". The host owns that form, so we must answer whatever it asks
+ * rather than assume a fixed shape.
+ *
+ * Rules:
+ *  - Answer only ENABLED + REQUIRED questions. An optional question is left
+ *    blank on purpose: a wrong select value gets the whole booking rejected,
+ *    and a booking matters far more than an extra field.
+ *  - Never emit a blank answer — blank is exactly what Calendly refuses.
+ *  - `question` must match the host's wording EXACTLY (Calendly compares it
+ *    case-sensitively), so it is echoed through untouched.
+ */
+export function buildQuestionsAndAnswers(
+  questions: CalendlyCustomQuestion[] | null | undefined,
+  facts: BookingFacts,
+): CalendlyQuestionAnswer[] {
+  const { company, name, email, phone } = facts;
+  // Last-resort filler: a required question we can't map still must not be
+  // blank. The company is the most useful thing a host could want.
+  const fallback = firstNonBlank(company, name, email, phone, "Not provided");
+
+  const out: CalendlyQuestionAnswer[] = [];
+  for (const q of questions ?? []) {
+    const question = typeof q?.name === "string" ? q.name : "";
+    if (!question) continue;
+    if (q.enabled === false) continue;
+    if (q.required !== true) continue;
+
+    const choices = (q.answer_choices ?? []).filter(
+      (c): c is string => typeof c === "string" && c.trim().length > 0,
+    );
+    const type = (q.type ?? "").toLowerCase();
+    const asks = (re: RegExp) => re.test(question);
+
+    let answer: string;
+    if (choices.length > 0 || type.includes("select")) {
+      // A select with no usable choices can't be answered safely; skipping it
+      // loses this booking, but inventing a value loses it too AND corrupts the
+      // host's data.
+      if (choices.length === 0) continue;
+      answer = pickChoice(choices);
+    } else if (type === "phone_number" || asks(/phone|mobile|cell/i)) {
+      answer = firstNonBlank(phone, fallback);
+    } else if (asks(/e-?mail/i)) {
+      answer = firstNonBlank(email, fallback);
+    } else if (
+      // Checked BEFORE the plain /name/ test — "Company name" matches both and
+      // must resolve to the company.
+      asks(/company|business|practice|studio|salon|clinic|shop|firm|brand|organi[sz]ation/i)
+    ) {
+      answer = firstNonBlank(company, fallback);
+    } else if (asks(/name/i)) {
+      answer = firstNonBlank(name, fallback);
+    } else {
+      answer = fallback;
+    }
+
+    if (!answer.trim()) continue;
+    out.push({
+      question,
+      answer,
+      position: typeof q.position === "number" ? q.position : out.length,
+    });
+  }
+  return out;
+}

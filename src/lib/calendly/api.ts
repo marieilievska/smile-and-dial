@@ -1,5 +1,10 @@
 import "server-only";
 
+import type {
+  CalendlyCustomQuestion,
+  CalendlyQuestionAnswer,
+} from "./booking";
+
 /**
  * Calendly API v2 client.
  *
@@ -182,31 +187,48 @@ export async function listEventTypes(
 }
 
 type EventTypeResource = {
-  resource?: { locations?: { kind?: string | null }[] | null };
+  resource?: {
+    locations?: { kind?: string | null }[] | null;
+    custom_questions?: CalendlyCustomQuestion[] | null;
+  };
 };
 
 /**
- * Fetch a single event type's configured locations (GET /event_types/{uuid}).
- * Used at booking time to echo the location back to Calendly — a booking that
- * omits the location for an event type that has one is rejected. Returns [] on
- * any failure (then the caller omits location, so only locationless events
- * still book — no worse than before, and location events are the ones we fix).
+ * Fetch the parts of an event type we must echo back when booking, in ONE GET
+ * (this runs mid-call, so a second round trip is real dead air):
+ *
+ *  - locations       — a booking that omits the location for an event type
+ *    that has one is rejected ("location_configuration.kind invalid location
+ *    choice").
+ *  - customQuestions — the host's booking-form fields. A REQUIRED one left
+ *    blank is rejected ("Required Questions and Answers cannot be blank."),
+ *    which took booking to 0% on 2026-08-18.
+ *
+ * Both live in the HOST's Calendly account and can change without warning, so
+ * we read them per booking rather than caching assumptions. Returns empty
+ * collections on any failure — no worse than before for simple event types.
  */
-export async function getEventTypeLocations(
+export async function getEventTypeConfig(
   eventTypeUri: string,
   token: string,
-): Promise<{ kind: string }[]> {
+): Promise<{
+  locations: { kind: string }[];
+  customQuestions: CalendlyCustomQuestion[];
+}> {
   try {
     const res = await fetch(eventTypeUri, { headers: authHeaders(token) });
-    if (!res.ok) return [];
+    if (!res.ok) return { locations: [], customQuestions: [] };
     const data = (await res.json()) as EventTypeResource;
-    return (data.resource?.locations ?? []).flatMap((l) =>
-      typeof l?.kind === "string" && l.kind.length > 0
-        ? [{ kind: l.kind }]
-        : [],
-    );
+    return {
+      locations: (data.resource?.locations ?? []).flatMap((l) =>
+        typeof l?.kind === "string" && l.kind.length > 0
+          ? [{ kind: l.kind }]
+          : [],
+      ),
+      customQuestions: data.resource?.custom_questions ?? [],
+    };
   } catch {
-    return [];
+    return { locations: [], customQuestions: [] };
   }
 }
 
@@ -340,6 +362,11 @@ export async function createInvitee(
       utm_term?: string;
       salesforce_uuid?: string;
     };
+    /** Answers to the event type's REQUIRED booking-form questions. Calendly
+     *  rejects the booking outright when one is missing ("Required Questions
+     *  and Answers cannot be blank."). Build it from getEventTypeConfig's
+     *  customQuestions via buildQuestionsAndAnswers (see ./booking). */
+    questionsAndAnswers?: CalendlyQuestionAnswer[];
   },
   token: string,
 ): Promise<CreateInviteeResult> {
@@ -358,6 +385,11 @@ export async function createInvitee(
   // has one ("location_configuration.kind invalid location choice"). Include it
   // when we have it; omit entirely for locationless event types.
   if (input.location) payload.location = input.location;
+  // Answers to the host's required booking-form questions. Omit the field
+  // entirely when there are none — an empty array reads as "blank answers".
+  if (input.questionsAndAnswers?.length) {
+    payload.questions_and_answers = input.questionsAndAnswers;
+  }
   // UTM attribution (Calendly's invitee `tracking`). Only send when at least one
   // field is set, so a bookingless/untagged call never posts an empty object.
   if (input.tracking && Object.values(input.tracking).some((v) => v)) {
