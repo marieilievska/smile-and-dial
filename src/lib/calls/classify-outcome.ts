@@ -298,13 +298,21 @@ export function classifyCallOutcome(input: {
         : hangUpKind(callDurationSecs, humanReplies);
   }
 
-  // not_interested is owner-only by definition — it rests the lead 30d and implies
-  // decision_maker_reached (OUTCOME_IMPLIES_DM). If the extractor itself reported it
-  // did NOT reach the owner (decision_maker_reached "no"/"unknown"), the decliner was
-  // never established as the owner: downgrade to a firm gatekeeper decline (15d rest,
-  // NOT DM-implying). Mirrors OUTCOME_EXCLUDES_DM's veto of a stray dm="yes" on a
-  // gatekeeper. A MISSING value is left alone — we act only on positive non-owner
-  // evidence, and the extractor always populates this for a real not_interested.
+  // not_interested is DECISION-MAKER-only — which per the live disposition prompt
+  // means "the owner, OR A MANAGER WHO CAN MAKE THE DECISION", not the owner alone.
+  // Do not read this as owner-only: a manager with authority who firmly declines is
+  // a legitimate not_interested, and auditors who apply an owner-only rule end up
+  // over-relabeling real owner/manager declines down to gatekeeper_not_interested.
+  // The dividing line is authority, not job title — a receptionist, or a manager who
+  // defers ("call corporate", "we go through the franchise"), is the gatekeeper case.
+  //
+  // It rests the lead 30d and implies decision_maker_reached (OUTCOME_IMPLIES_DM).
+  // If the extractor itself reported it did NOT reach the decision maker
+  // (decision_maker_reached "no"/"unknown"), authority was never established:
+  // downgrade to a firm gatekeeper decline (15d rest, NOT DM-implying). Mirrors
+  // OUTCOME_EXCLUDES_DM's veto of a stray dm="yes" on a gatekeeper. A MISSING value
+  // is left alone — we act only on positive non-decision-maker evidence, and the
+  // extractor always populates this for a real not_interested.
   const dm =
     typeof decisionMakerReached === "string"
       ? decisionMakerReached.trim().toLowerCase()
