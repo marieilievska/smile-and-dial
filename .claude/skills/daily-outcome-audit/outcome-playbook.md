@@ -73,7 +73,7 @@ Beware silent auto-receptionists that DON'T announce themselves ("Sky", "Lux") �
 ## gatekeeper / gatekeeper_not_interested / not_interested — who declined, how firmly
 - `gatekeeper` — reached a non-owner who couldn't connect you and didn't firmly refuse (owner unavailable, took a message, "not now" brush-off with no time). Retries.
 - `gatekeeper_not_interested` — a non-owner who **firmly** declined on the business's behalf ("we're not interested", "take us off"). Rests 15d. NOT in `OUTCOME_IMPLIES_DM` (won't falsely imply DM-reached).
-- `not_interested` — the **owner/decision-maker themself** declined. Rests 30d. ⚠️ auto-stamps `decision_maker_reached=true` via `OUTCOME_IMPLIES_DM` — so non-owner declines mislabeled `not_interested` inflate the DM metric. Bias: role-unstated solo answerer declining → `gatekeeper_not_interested`, not `not_interested`.
+- `not_interested` — the **decision maker themself** declined. Per the LIVE disposition prompt that is "the owner, **or a manager who can make the decision**" — NOT owner-only. The line is AUTHORITY, not job title: a manager who firmly declines on their own say-so is a real `not_interested`; a manager who defers ("call corporate", "we go through the franchise") is `gatekeeper_not_interested`. Rests 30d. ⚠️ auto-stamps `decision_maker_reached=true` via `OUTCOME_IMPLIES_DM` — so non-owner declines mislabeled `not_interested` inflate the DM metric. Bias: role-unstated solo answerer declining → `gatekeeper_not_interested`, not `not_interested`.
 
 `gatekeeper` is also where a plain "call me later" with no time belongs (the retired `call_back_later` folded here).
 
