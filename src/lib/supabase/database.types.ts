@@ -1067,6 +1067,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      elevenlabs_credit_status: {
+        Row: {
+          checked_at: string | null;
+          credit_limit: number | null;
+          id: number;
+          read_error_logged_at: string | null;
+          remaining: number | null;
+          state: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          checked_at?: string | null;
+          credit_limit?: number | null;
+          id?: number;
+          read_error_logged_at?: string | null;
+          remaining?: number | null;
+          state?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          checked_at?: string | null;
+          credit_limit?: number | null;
+          id?: number;
+          read_error_logged_at?: string | null;
+          remaining?: number | null;
+          state?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       elevenlabs_webhook_events: {
         Row: {
           conversation_id: string;

@@ -14,6 +14,7 @@ import {
 import { finalizeFailedCall } from "@/lib/dialer/retry-engine";
 import { isCampaignLevelBlock } from "@/lib/dialer/block-scope";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
+import { enforceElevenLabsCreditGate } from "@/lib/dialer/credit-gate";
 import { sweepStuckCallbacks } from "@/lib/callbacks/sweep";
 
 import { type PreCallReason } from "./queue";
@@ -483,6 +484,35 @@ export async function runDialerTick(
     callbacksSwept = await sweepStuckCallbacks(supabase);
   } catch {
     /* swallow — a sweep failure must not break the tick */
+  }
+
+  // Credit guard: before reading the queue, check the shared ElevenLabs credit
+  // pool. When it's too low the guard pauses active campaigns (which blocks this
+  // tick's dials AND manual "Call Now" via pre_call_check) and we stop here;
+  // when credits recover the guard resumes those campaigns so readFairQueue
+  // picks them up again below. Live mode only — mock calls consume no credits.
+  // The guard fails open internally (never throws), so it can't kill a tick.
+  if (elevenLive) {
+    const credit = await enforceElevenLabsCreditGate(supabase);
+    if (credit.dialingBlocked) {
+      // "low" means we've confirmed we're out of credits; anything else here
+      // means the read itself failed for long enough to be untrustworthy —
+      // that's a stale credit check, not a confirmed low-credit pause.
+      const reason =
+        credit.state === "low" ? "low_credits" : "credit_check_unavailable";
+      return {
+        candidates: 0,
+        dialed: 0,
+        blocked: 0,
+        errors: 0,
+        blockedReasons: { [reason]: 1 },
+        skippedCampaignBlocked: 0,
+        campaignsRead: 0,
+        candidatesByCampaign: {},
+        callbacksSwept,
+        liveMode: { twilio: twilioLive, elevenlabs: elevenLive },
+      };
+    }
   }
 
   // Light filter pass: leads currently eligible to dial, read with a fair share

@@ -31,10 +31,16 @@ const KIND_HREF: Record<string, (n: NotificationItem) => string | null> = {
   goal_met: (n) => (n.ref_id ? `/calls?call=${n.ref_id}` : null),
   email_replied: (n) => (n.ref_id ? `/leads/${n.ref_id}` : null),
   campaign_paused: (n) => (n.ref_id ? `/campaigns` : null),
+  campaign_paused_low_credits: (n) => (n.ref_id ? `/campaigns` : null),
+  campaign_resumed_credits_restored: (n) => (n.ref_id ? `/campaigns` : null),
   spend_cap_hit: () => `/campaigns`,
   number_flagged: () => `/settings/twilio-numbers`,
   connect_rate_low: () => `/campaigns`,
   call_now: (n) => (n.ref_id ? `/calls?call=${n.ref_id}` : null),
+  // No ref_id (account-level alerts, same shape as spend_cap_hit above).
+  dialer_paused_low_credits: () => `/campaigns`,
+  dialer_resumed_credits_restored: () => `/campaigns`,
+  elevenlabs_credits_warning: () => `/campaigns`,
 };
 
 /** Top-bar notification bell (Step 40 / BUILD_PLAN §5.0).
