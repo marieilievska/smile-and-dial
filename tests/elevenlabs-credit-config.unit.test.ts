@@ -5,6 +5,7 @@ const KEYS = [
   "EL_CREDIT_WARN_THRESHOLD",
   "EL_CREDIT_STOP_THRESHOLD",
   "EL_CREDIT_RESUME_THRESHOLD",
+  "EL_CREDIT_STALE_MINUTES",
   "EL_AVG_CREDITS_PER_CALL",
 ];
 
@@ -18,6 +19,7 @@ describe("creditConfig", () => {
       warn: 100_000,
       stop: 35_000,
       resume: 50_000,
+      staleMinutes: 15,
       avgCreditsPerCall: 530,
     });
   });

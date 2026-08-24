@@ -29,6 +29,9 @@ function makeFakeSupabase(opts: {
   /** Make the very first read (elevenlabs_credit_status select) throw, to
    *  exercise the top-level error boundary. */
   throwOnStatusSelect?: boolean;
+  /** ISO timestamp of the last confirmed balance read, or null/omitted for
+   *  "never confirmed" — drives the freshness-bounded fail-open check. */
+  checkedAt?: string | null;
 }) {
   const notifications: Array<Record<string, unknown>> = [];
   const systemEvents: Array<Record<string, unknown>> = [];
@@ -51,7 +54,11 @@ function makeFakeSupabase(opts: {
                 data:
                   opts.prevState === undefined
                     ? null
-                    : { state: opts.prevState, read_error_logged_at: null },
+                    : {
+                        state: opts.prevState,
+                        checked_at: opts.checkedAt ?? null,
+                        read_error_logged_at: null,
+                      },
               };
             },
           }),
@@ -169,9 +176,35 @@ beforeEach(() => {
 describe("enforceElevenLabsCreditGate", () => {
   it("fails open (keeps dialing, no pause) when the balance read returns null", async () => {
     getBalance.mockResolvedValue(null);
-    const fake = makeFakeSupabase({ prevState: "ok" });
+    // A transient blip: the last confirmed reading is fresh, so a single
+    // failed read shouldn't stop the dialer.
+    const fake = makeFakeSupabase({
+      prevState: "ok",
+      checkedAt: new Date().toISOString(),
+    });
     const res = await enforceElevenLabsCreditGate(fake.client);
     expect(res.dialingBlocked).toBe(false);
+    expect(fake.campaignUpdates).toHaveLength(0);
+  });
+
+  it("blocks dialing (without pausing) on a read failure with no confirmed reading on record", async () => {
+    getBalance.mockResolvedValue(null);
+    // checkedAt omitted entirely -> never had a confirmed reading.
+    const fake = makeFakeSupabase({ prevState: "ok" });
+    const res = await enforceElevenLabsCreditGate(fake.client);
+    expect(res.dialingBlocked).toBe(true);
+    expect(fake.campaignUpdates).toHaveLength(0); // fail SAFE, not pause
+  });
+
+  it("blocks dialing on a read failure once the last confirmed reading is stale", async () => {
+    getBalance.mockResolvedValue(null);
+    const fake = makeFakeSupabase({
+      prevState: "ok",
+      // 1 hour old — past the 15-minute default staleMinutes.
+      checkedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    });
+    const res = await enforceElevenLabsCreditGate(fake.client);
+    expect(res.dialingBlocked).toBe(true);
     expect(fake.campaignUpdates).toHaveLength(0);
   });
 

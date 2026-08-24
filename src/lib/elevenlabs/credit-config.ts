@@ -16,6 +16,9 @@ export type CreditConfig = {
   stop: number;
   /** At/above this again: auto-resume (must be >= stop for hysteresis). */
   resume: number;
+  /** How long a confirmed balance is trusted when live reads fail before the
+   *  guard stops dialing. */
+  staleMinutes: number;
   /** Used only to render "~N calls left" in alerts. */
   avgCreditsPerCall: number;
 };
@@ -25,6 +28,7 @@ export function creditConfig(): CreditConfig {
     warn: envNum("EL_CREDIT_WARN_THRESHOLD", 100_000),
     stop: envNum("EL_CREDIT_STOP_THRESHOLD", 35_000),
     resume: envNum("EL_CREDIT_RESUME_THRESHOLD", 50_000),
+    staleMinutes: envNum("EL_CREDIT_STALE_MINUTES", 15),
     avgCreditsPerCall: envNum("EL_AVG_CREDITS_PER_CALL", 530),
   };
 }

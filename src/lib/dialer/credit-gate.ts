@@ -50,19 +50,29 @@ export async function enforceElevenLabsCreditGate(
 
     const { data: prev } = await supabase
       .from("elevenlabs_credit_status")
-      .select("state, read_error_logged_at")
+      .select("state, checked_at, read_error_logged_at")
       .eq("id", 1)
       .maybeSingle();
     const prevState = (prev?.state ?? null) as CreditState | null;
 
     const balance = await getElevenLabsCreditBalance();
 
-    // Fail-open on read failure: keep dialing unless we were already low
-    // (then stay blocked — don't resume on an unconfirmed reading).
     if (!balance) {
       await logReadFailure(supabase, prev?.read_error_logged_at ?? null);
+      // Freshness-bounded fail-open: trust the last confirmed balance for a short
+      // window (a transient EL subscription-API blip shouldn't stop dialing), but
+      // if we haven't had a confirmed reading within staleMinutes, stop the
+      // auto-dialer (fail safe) rather than drain the pool blind against an unknown
+      // balance. We do NOT pause campaigns here — we don't know we're out, only
+      // that we can't see; blocking the tick self-heals when reads resume.
+      const checkedAtMs = prev?.checked_at
+        ? new Date(prev.checked_at).getTime()
+        : null;
+      const stale =
+        checkedAtMs === null ||
+        Date.now() - checkedAtMs > cfg.staleMinutes * 60_000;
       return {
-        dialingBlocked: prevState === "low",
+        dialingBlocked: prevState === "low" || stale,
         state: prevState ?? "unknown",
         paused: 0,
         resumed: 0,

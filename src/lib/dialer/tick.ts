@@ -495,12 +495,17 @@ export async function runDialerTick(
   if (elevenLive) {
     const credit = await enforceElevenLabsCreditGate(supabase);
     if (credit.dialingBlocked) {
+      // "low" means we've confirmed we're out of credits; anything else here
+      // means the read itself failed for long enough to be untrustworthy —
+      // that's a stale credit check, not a confirmed low-credit pause.
+      const reason =
+        credit.state === "low" ? "low_credits" : "credit_check_unavailable";
       return {
         candidates: 0,
         dialed: 0,
         blocked: 0,
         errors: 0,
-        blockedReasons: { low_credits: 1 },
+        blockedReasons: { [reason]: 1 },
         skippedCampaignBlocked: 0,
         campaignsRead: 0,
         candidatesByCampaign: {},
