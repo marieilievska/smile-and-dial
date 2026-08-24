@@ -26,10 +26,16 @@ function makeFakeSupabase(opts: {
     agent_id: string | null;
   }>;
   admins?: Array<{ id: string }>;
+  /** Make the very first read (elevenlabs_credit_status select) throw, to
+   *  exercise the top-level error boundary. */
+  throwOnStatusSelect?: boolean;
 }) {
   const notifications: Array<Record<string, unknown>> = [];
   const systemEvents: Array<Record<string, unknown>> = [];
-  const campaignUpdates: Array<Record<string, unknown>> = [];
+  const campaignUpdates: Array<{
+    patch: Record<string, unknown>;
+    filters: Array<{ col: string; val: unknown }>;
+  }> = [];
   const statusUpserts: Array<Record<string, unknown>> = [];
 
   function from(table: string) {
@@ -37,12 +43,17 @@ function makeFakeSupabase(opts: {
       return {
         select: () => ({
           eq: () => ({
-            maybeSingle: async () => ({
-              data:
-                opts.prevState === undefined
-                  ? null
-                  : { state: opts.prevState, read_error_logged_at: null },
-            }),
+            maybeSingle: async () => {
+              if (opts.throwOnStatusSelect) {
+                throw new Error("simulated DB outage");
+              }
+              return {
+                data:
+                  opts.prevState === undefined
+                    ? null
+                    : { state: opts.prevState, read_error_logged_at: null },
+              };
+            },
           }),
         }),
         upsert: async (row: Record<string, unknown>) => {
@@ -53,16 +64,27 @@ function makeFakeSupabase(opts: {
     }
     if (table === "campaigns") {
       return {
-        // update(...).eq('status','active').select(...) -> pause path
+        // update(...).eq(...)[.eq(...)...] -> either .select() (pause path)
+        // or a bare `await` (resume-flip path — real supabase-js query
+        // builders are themselves thenable, so no .select() is needed to
+        // execute). Every .eq() in the chain is recorded so tests can
+        // assert on the exact filters a given update applied.
         update: (patch: Record<string, unknown>) => ({
-          eq: (col: string, val: string) => {
+          eq: (col: string, val: unknown) => {
+            const filters: Array<{ col: string; val: unknown }> = [
+              { col, val },
+            ];
             let recorded = false;
             const record = () => {
               if (recorded) return;
               recorded = true;
-              campaignUpdates.push({ patch, col, val });
+              campaignUpdates.push({ patch, filters: [...filters] });
             };
-            return {
+            const chain = {
+              eq: (col2: string, val2: unknown) => {
+                filters.push({ col: col2, val: val2 });
+                return chain;
+              },
               select: async () => {
                 record();
                 if (patch.status === "paused") {
@@ -70,9 +92,6 @@ function makeFakeSupabase(opts: {
                 }
                 return { data: [], error: null };
               },
-              // resume path: update(...).eq('id', id) with no .select() —
-              // real supabase-js query builders are themselves thenable, so
-              // a bare `await` executes the update. Model that here too.
               then: (
                 resolve: (value: { data: unknown[]; error: null }) => void,
               ) => {
@@ -80,6 +99,7 @@ function makeFakeSupabase(opts: {
                 resolve({ data: [], error: null });
               },
             };
+            return chain;
           },
         }),
         // select('...').eq('status','paused').eq('paused_reason','low_credits')
@@ -102,9 +122,12 @@ function makeFakeSupabase(opts: {
       };
     }
     if (table === "profiles") {
+      // select('id').eq('role','admin').eq('active', true)
       return {
         select: () => ({
-          eq: async () => ({ data: opts.admins ?? [], error: null }),
+          eq: () => ({
+            eq: async () => ({ data: opts.admins ?? [], error: null }),
+          }),
         }),
       };
     }
@@ -242,6 +265,79 @@ describe("enforceElevenLabsCreditGate", () => {
     expect(res.dialingBlocked).toBe(false);
     expect(fake.campaignUpdates).toHaveLength(0);
     expect(fake.notifications.map((n) => n.user_id)).toEqual(["admin1"]);
-    expect(fake.notifications[0].kind).toBe("elevenlabs_credits_low");
+    expect(fake.notifications[0].kind).toBe("elevenlabs_credits_warning");
+  });
+
+  it("on recovery: guards the resume UPDATE to rows still paused for low credits", async () => {
+    getBalance.mockResolvedValue({
+      remaining: 60_000,
+      limit: 2_000_000,
+      used: 1_940_000,
+      tier: "growing_business",
+      status: "active",
+      resetUnix: null,
+    });
+    const fake = makeFakeSupabase({
+      prevState: "low",
+      lowCreditPaused: [
+        { id: "c1", owner_id: "u1", name: "Alpha", agent_id: "a1" },
+      ],
+      admins: [{ id: "admin1" }],
+    });
+    await enforceElevenLabsCreditGate(fake.client);
+
+    const resumeUpdate = fake.campaignUpdates.find(
+      (u) => u.patch.status === "active",
+    );
+    expect(resumeUpdate).toBeDefined();
+    // The per-row flip only targets rows that are STILL paused for low
+    // credits (guards against reviving a campaign that left that state
+    // between the earlier SELECT and this UPDATE).
+    expect(resumeUpdate?.filters).toEqual(
+      expect.arrayContaining([
+        { col: "status", val: "paused" },
+        { col: "paused_reason", val: "low_credits" },
+      ]),
+    );
+  });
+
+  it("fails open and resolves (never rejects) when an unexpected error is thrown", async () => {
+    const fake = makeFakeSupabase({
+      prevState: "ok",
+      throwOnStatusSelect: true,
+    });
+    const res = await enforceElevenLabsCreditGate(fake.client);
+    expect(res).toEqual({
+      dialingBlocked: false,
+      state: "unknown",
+      paused: 0,
+      resumed: 0,
+    });
+  });
+
+  it("still_low: does not re-notify admins or re-log the audit event on a repeat low tick", async () => {
+    getBalance.mockResolvedValue({
+      remaining: 10_000,
+      limit: 2_000_000,
+      used: 1_990_000,
+      tier: "growing_business",
+      status: "active",
+      resetUnix: null,
+    });
+    const fake = makeFakeSupabase({
+      prevState: "low",
+      // No active campaigns left to pause — this is a repeat "still low"
+      // tick, not the initial transition into "low".
+      admins: [{ id: "admin1" }],
+    });
+    const res = await enforceElevenLabsCreditGate(fake.client);
+
+    expect(res.dialingBlocked).toBe(true);
+    // The pause action still ran (idempotent), it just matched 0 rows.
+    expect(res.paused).toBe(0);
+    expect(fake.notifications).toHaveLength(0);
+    expect(
+      fake.systemEvents.some((e) => e.kind === "elevenlabs_credits_low"),
+    ).toBe(false);
   });
 });
