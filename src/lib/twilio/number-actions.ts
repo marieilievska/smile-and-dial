@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { ensureNumberImportedToElevenLabs } from "@/lib/twilio/place-call";
+import { assignNumberToShaken } from "@/lib/twilio/shaken";
 
 import {
   type AvailableNumber,
@@ -141,6 +142,21 @@ export async function purchaseNumber(input: {
     status_webhook_url: statusWebhookUrl,
   });
   if (error) return { error: "Could not save the purchased number." };
+
+  // Sign the number for SHAKEN/STIR now (best-effort; the 30-min reconcile task
+  // backstops a miss, and a not-yet-configured parent token simply skips).
+  if (twilioSid) {
+    try {
+      const shaken = await assignNumberToShaken(twilioSid);
+      if (!shaken.ok && !shaken.skipped) {
+        console.warn(
+          `SHAKEN/STIR signing failed for ${input.phoneNumber}: ${shaken.error}`,
+        );
+      }
+    } catch (e) {
+      console.warn(`SHAKEN/STIR signing threw for ${input.phoneNumber}`, e);
+    }
+  }
 
   revalidatePath(NUMBERS_PATH);
   return {

@@ -27,6 +27,7 @@ import {
   type AvailableNumber,
   type Country,
 } from "./numbers";
+import { assignNumberToShaken } from "./shaken";
 
 /**
  * Server actions for a campaign's NUMBER POOL (Phase 3 provisioning). Buy numbers
@@ -198,6 +199,22 @@ export async function addNumbersToPool(input: {
         /* inbound assignment is best-effort */
       }
     }
+
+    // A-attestation now, so the number never dials unsigned (best-effort; the
+    // 30-min reconcile task backstops a miss / a not-yet-configured token).
+    if (twilioSid) {
+      try {
+        const shaken = await assignNumberToShaken(twilioSid);
+        if (!shaken.ok && !shaken.skipped) {
+          console.warn(
+            `SHAKEN/STIR signing failed for ${n.phoneNumber}: ${shaken.error}`,
+          );
+        }
+      } catch (e) {
+        console.warn(`SHAKEN/STIR signing threw for ${n.phoneNumber}`, e);
+      }
+    }
+
     bought++;
     const boughtAc = areaCodeOf(n.phoneNumber) ?? areaCode;
     byAreaCode[boughtAc] = (byAreaCode[boughtAc] ?? 0) + 1;
