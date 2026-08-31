@@ -154,7 +154,9 @@ export default async function TwilioNumbersPage({
          *  inbound assignment) that sits apart from the plain unattached
          *  buy flow. */}
         <div className="flex items-center gap-2">
-          <TwilioSyncButton />
+          {/* Sync reconciles the whole shared Twilio account, so it's admin-only
+           *  (see syncFromTwilio). Members still buy/manage their own numbers. */}
+          {isAdmin && <TwilioSyncButton />}
           <BuyIntoPoolDialog campaigns={campaigns} />
           <BuyNumberDialog />
         </div>

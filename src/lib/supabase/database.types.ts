@@ -2233,6 +2233,7 @@ export type Database = {
           last_connect_rate_24h: number | null;
           last_connect_rate_check_at: string | null;
           monthly_cost: number;
+          owner_id: string | null;
           phone_number: string;
           pool_status: string;
           purchased_at: string;
@@ -2256,6 +2257,7 @@ export type Database = {
           last_connect_rate_24h?: number | null;
           last_connect_rate_check_at?: string | null;
           monthly_cost?: number;
+          owner_id?: string | null;
           phone_number: string;
           pool_status?: string;
           purchased_at?: string;
@@ -2279,6 +2281,7 @@ export type Database = {
           last_connect_rate_24h?: number | null;
           last_connect_rate_check_at?: string | null;
           monthly_cost?: number;
+          owner_id?: string | null;
           phone_number?: string;
           pool_status?: string;
           purchased_at?: string;
@@ -2290,6 +2293,13 @@ export type Database = {
           warmup_started_at?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "twilio_numbers_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "twilio_numbers_attached_campaign_fk";
             columns: ["attached_campaign_id"];

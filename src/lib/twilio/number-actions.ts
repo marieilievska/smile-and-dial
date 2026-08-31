@@ -106,7 +106,7 @@ export async function purchaseNumber(input: {
   country: Country;
   monthlyCost: number;
 }): Promise<ActionResult> {
-  const { supabase, error: authError } = await requireSignedIn();
+  const { supabase, userId, error: authError } = await requireSignedIn();
   if (authError) return { error: authError };
 
   const { twilioSid, error: buyError } = await purchaseTwilioNumber(
@@ -131,6 +131,7 @@ export async function purchaseNumber(input: {
   }
 
   const { error } = await supabase.from("twilio_numbers").insert({
+    owner_id: userId!,
     phone_number: input.phoneNumber,
     friendly_name: input.friendlyName,
     country: input.country,
@@ -303,13 +304,18 @@ export async function repointNumberWebhooks(id: string): Promise<ActionResult> {
  *  ("Twilio is set to point at someone else"). For numbers we don't
  *  track, INSERT them so they're visible in the admin pool with the
  *  webhook columns populated from Twilio. This is the visibility
- *  piece Marija asked for: "see all twilio numbers in our account." */
+ *  piece Marija asked for: "see all twilio numbers in our account."
+ *
+ *  Admin-only: this reconciles the ENTIRE shared Twilio account, so it stays
+ *  gated even though per-number self-service (buy / rename / release / repoint)
+ *  is open to members. Untracked numbers it inserts have a null owner (admin-
+ *  managed) rather than being silently claimed by whoever clicked Sync. */
 export async function syncFromTwilio(): Promise<{
   added: number;
   refreshed: number;
   error: string | null;
 }> {
-  const { supabase, error: authError } = await requireSignedIn();
+  const { supabase, error: authError } = await requireAdmin();
   if (authError) return { added: 0, refreshed: 0, error: authError };
 
   const { numbers, error: listError } = await listOwnedNumbers();
