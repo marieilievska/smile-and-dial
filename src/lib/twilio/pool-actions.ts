@@ -81,7 +81,7 @@ export async function addNumbersToPool(input: {
   error: string | null;
 }> {
   const empty = { bought: 0, failed: 0, byAreaCode: {} };
-  const { supabase, userId, error: authError } = await requireSignedIn();
+  const { supabase, error: authError } = await requireSignedIn();
   if (authError) return { ...empty, error: authError };
 
   const count = Math.max(1, Math.min(MAX_BATCH, Math.floor(input.count || 0)));
@@ -98,7 +98,7 @@ export async function addNumbersToPool(input: {
   // Campaign + its ElevenLabs agent (for the inbound assignment).
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("id, agent:agents(elevenlabs_agent_id)")
+    .select("id, owner_id, agent:agents(elevenlabs_agent_id)")
     .eq("id", input.campaignId)
     .maybeSingle();
   if (!campaign) return { ...empty, error: "Campaign not found." };
@@ -165,7 +165,9 @@ export async function addNumbersToPool(input: {
     const { data: row, error: insErr } = await supabase
       .from("twilio_numbers")
       .insert({
-        owner_id: userId!,
+        // Ownership follows the campaign, so the campaign's owner (themselves,
+        // for a member buying into their own campaign) can manage it.
+        owner_id: campaign.owner_id,
         phone_number: n.phoneNumber,
         friendly_name: n.friendlyName,
         country,
@@ -287,18 +289,26 @@ export async function setPoolNumberRest(
 /** The per-number half of a campaign move, shared by the single- and bulk-move
  *  actions: re-stamp attached_campaign_id, sever any legacy single-number
  *  pointer (campaigns.twilio_number_id) so a later campaign-settings save can't
- *  re-claim it, and re-point the number's ElevenLabs inbound agent. The caller
- *  has already checked admin and that the number is in-pool. EL is best-effort;
- *  returns false only when the DB re-stamp itself fails. */
+ *  re-claim it, re-point the number's ElevenLabs inbound agent, and hand
+ *  OWNERSHIP to the destination campaign's owner — so moving a number onto a
+ *  member's campaign makes it theirs to see and manage. The caller has already
+ *  resolved the destination (RLS-scoped) and that the number is in-pool. EL is
+ *  best-effort; returns false only when the DB re-stamp itself fails. */
 async function applyCampaignMove(
   supabase: Awaited<ReturnType<typeof createClient>>,
   numberId: string,
   campaignId: string,
   agentElId: string | null,
+  newOwnerId: string | null,
 ): Promise<boolean> {
   const { error: updErr } = await supabase
     .from("twilio_numbers")
-    .update({ attached_campaign_id: campaignId })
+    .update({
+      attached_campaign_id: campaignId,
+      // Ownership follows the campaign. Guarded so a (schema-impossible) null
+      // campaign owner never orphans the number into admin-only limbo.
+      ...(newOwnerId ? { owner_id: newOwnerId } : {}),
+    })
     .eq("id", numberId);
   if (updErr) return false;
 
@@ -325,17 +335,21 @@ async function applyCampaignMove(
 async function destinationAgentElId(
   supabase: Awaited<ReturnType<typeof createClient>>,
   campaignId: string,
-): Promise<{ found: boolean; agentElId: string | null }> {
+): Promise<{
+  found: boolean;
+  agentElId: string | null;
+  ownerId: string | null;
+}> {
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("id, agent:agents(elevenlabs_agent_id)")
+    .select("id, owner_id, agent:agents(elevenlabs_agent_id)")
     .eq("id", campaignId)
     .maybeSingle();
-  if (!campaign) return { found: false, agentElId: null };
+  if (!campaign) return { found: false, agentElId: null, ownerId: null };
   const agentElId =
     (campaign.agent as { elevenlabs_agent_id: string | null } | null)
       ?.elevenlabs_agent_id ?? null;
-  return { found: true, agentElId };
+  return { found: true, agentElId, ownerId: campaign.owner_id ?? null };
 }
 
 /**
@@ -363,10 +377,19 @@ export async function movePoolNumberToCampaign(
     return { error: "This number is released — re-add it before moving." };
   }
 
-  const { found, agentElId } = await destinationAgentElId(supabase, campaignId);
+  const { found, agentElId, ownerId } = await destinationAgentElId(
+    supabase,
+    campaignId,
+  );
   if (!found) return { error: "Campaign not found." };
 
-  const ok = await applyCampaignMove(supabase, numberId, campaignId, agentElId);
+  const ok = await applyCampaignMove(
+    supabase,
+    numberId,
+    campaignId,
+    agentElId,
+    ownerId,
+  );
   if (!ok) return { error: "Could not move the number." };
 
   revalidatePath(NUMBERS_PATH);
@@ -393,7 +416,10 @@ export async function moveNumbersToCampaign(
     return { moved: 0, failed: 0, error: "No numbers selected." };
   }
 
-  const { found, agentElId } = await destinationAgentElId(supabase, campaignId);
+  const { found, agentElId, ownerId } = await destinationAgentElId(
+    supabase,
+    campaignId,
+  );
   if (!found) return { moved: 0, failed: 0, error: "Campaign not found." };
 
   // Only in-pool numbers not already on the destination can move.
@@ -408,7 +434,13 @@ export async function moveNumbersToCampaign(
   let moved = 0;
   let failed = 0;
   for (const r of movable) {
-    const ok = await applyCampaignMove(supabase, r.id, campaignId, agentElId);
+    const ok = await applyCampaignMove(
+      supabase,
+      r.id,
+      campaignId,
+      agentElId,
+      ownerId,
+    );
     if (ok) moved++;
     else failed++;
   }
