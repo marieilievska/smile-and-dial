@@ -32,8 +32,9 @@ import {
  * Server actions for a campaign's NUMBER POOL (Phase 3 provisioning). Buy numbers
  * straight into a campaign's pool (with ElevenLabs import + inbound agent
  * assignment), manage each number's pool state (retire / rest / flag), and
- * suggest an area-code buying plan from the campaign's lead geography. All
- * admin-gated, mirroring src/lib/twilio/number-actions.ts.
+ * suggest an area-code buying plan from the campaign's lead geography. Owner-
+ * scoped: members manage numbers on their OWN campaigns, admins see all —
+ * owner-or-admin RLS on twilio_numbers enforces it. Mirrors number-actions.ts.
  */
 
 type ActionResult = { error: string | null };
@@ -43,24 +44,20 @@ const CAMPAIGNS_PATH = "/campaigns";
 /** Cap a single buy batch so a fat-fingered count can't drain the Twilio account. */
 const MAX_BATCH = 25;
 
-async function requireAdmin(): Promise<{
+/** Confirm the caller is signed in. Members (builders) manage their OWN pool
+ *  numbers; owner-or-admin RLS on twilio_numbers scopes every read/write, so a
+ *  member only ever touches numbers — and destination campaigns — they own. */
+async function requireSignedIn(): Promise<{
   supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string | null;
   error: string | null;
 }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { supabase, error: "You are not signed in." };
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") {
-    return { supabase, error: "Only admins can manage the number pool." };
-  }
-  return { supabase, error: null };
+  if (!user) return { supabase, userId: null, error: "You are not signed in." };
+  return { supabase, userId: user.id, error: null };
 }
 
 /**
@@ -84,8 +81,8 @@ export async function addNumbersToPool(input: {
   error: string | null;
 }> {
   const empty = { bought: 0, failed: 0, byAreaCode: {} };
-  const { supabase, error: adminError } = await requireAdmin();
-  if (adminError) return { ...empty, error: adminError };
+  const { supabase, userId, error: authError } = await requireSignedIn();
+  if (authError) return { ...empty, error: authError };
 
   const count = Math.max(1, Math.min(MAX_BATCH, Math.floor(input.count || 0)));
   const areaCode = input.areaCode.replace(/\D/g, "").slice(0, 3);
@@ -168,6 +165,7 @@ export async function addNumbersToPool(input: {
     const { data: row, error: insErr } = await supabase
       .from("twilio_numbers")
       .insert({
+        owner_id: userId!,
         phone_number: n.phoneNumber,
         friendly_name: n.friendlyName,
         country,
@@ -220,7 +218,7 @@ export async function addNumbersToPool(input: {
 /** Retire a number from the pool (permanent until reactivated) — selection skips
  *  it. Does NOT release the Twilio number; use the numbers page for that. */
 export async function retirePoolNumber(id: string): Promise<ActionResult> {
-  const { supabase, error } = await requireAdmin();
+  const { supabase, error } = await requireSignedIn();
   if (error) return { error };
   const { error: e } = await supabase
     .from("twilio_numbers")
@@ -234,7 +232,7 @@ export async function retirePoolNumber(id: string): Promise<ActionResult> {
 
 /** Reactivate a retired number back into the pool. */
 export async function activatePoolNumber(id: string): Promise<ActionResult> {
-  const { supabase, error } = await requireAdmin();
+  const { supabase, error } = await requireSignedIn();
   if (error) return { error };
   const { error: e } = await supabase
     .from("twilio_numbers")
@@ -252,7 +250,7 @@ export async function setPoolNumberFlag(
   id: string,
   flagged: boolean,
 ): Promise<ActionResult> {
-  const { supabase, error } = await requireAdmin();
+  const { supabase, error } = await requireSignedIn();
   if (error) return { error };
   const { error: e } = await supabase
     .from("twilio_numbers")
@@ -270,7 +268,7 @@ export async function setPoolNumberRest(
   id: string,
   hours: number,
 ): Promise<ActionResult> {
-  const { supabase, error } = await requireAdmin();
+  const { supabase, error } = await requireSignedIn();
   if (error) return { error };
   const restedUntil =
     hours > 0
@@ -352,7 +350,7 @@ export async function movePoolNumberToCampaign(
   numberId: string,
   campaignId: string,
 ): Promise<ActionResult> {
-  const { supabase, error: adminError } = await requireAdmin();
+  const { supabase, error: adminError } = await requireSignedIn();
   if (adminError) return { error: adminError };
 
   const { data: number } = await supabase
@@ -387,7 +385,7 @@ export async function moveNumbersToCampaign(
   numberIds: string[],
   campaignId: string,
 ): Promise<{ moved: number; failed: number; error: string | null }> {
-  const { supabase, error: adminError } = await requireAdmin();
+  const { supabase, error: adminError } = await requireSignedIn();
   if (adminError) return { moved: 0, failed: 0, error: adminError };
 
   const ids = [...new Set(numberIds.filter(Boolean))];
@@ -441,7 +439,7 @@ export async function suggestPoolPlan(campaignId: string): Promise<{
   totalLeads: number;
   error: string | null;
 }> {
-  const { supabase, error } = await requireAdmin();
+  const { supabase, error } = await requireSignedIn();
   if (error) return { byState: [], plan: [], totalLeads: 0, error };
 
   // Lists attached to this campaign.
