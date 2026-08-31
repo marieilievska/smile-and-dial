@@ -89,7 +89,19 @@ if (!tp) {
   process.exit(1);
 }
 const TP = tp.sid;
-const PROFILE_BASE = `https://trusthub.twilio.com/v1/CustomerProfiles/${SECONDARY_SID}`;
+
+// The SHAKEN product's supporting customer profile — discovered from the
+// product's OWN EntityAssignments rather than the hardcoded SECONDARY_SID, which
+// drifted: the product was rebuilt as "Voice Agents" on a new profile
+// (BUd21a37…), so every product-assign against the old BU3cbd… profile 400'd
+// ("not assigned to all the required supporting … Customer profile"). Following
+// the product means a future rebuild self-heals. Falls back to SECONDARY_SID.
+const eaResp = await api(
+  "GET",
+  `https://trusthub.twilio.com/v1/TrustProducts/${TP}/EntityAssignments?PageSize=200`,
+);
+const PROFILE_SID = (eaResp.body.results ?? [])[0]?.object_sid ?? SECONDARY_SID;
+const PROFILE_BASE = `https://trusthub.twilio.com/v1/CustomerProfiles/${PROFILE_SID}`;
 const PRODUCT_BASE = `https://trusthub.twilio.com/v1/TrustProducts/${TP}`;
 
 // The desired set: active (non-released) numbers on the subaccount.
