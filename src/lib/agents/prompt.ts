@@ -58,14 +58,15 @@ const TOOL_BLOCKS: Record<ToolKey, string> = {
 1. Confirm the date and time clearly: "So that's Tuesday the 15th at 2 PM your local time, correct?"
 2. Call the tool with the confirmed datetime in ISO 8601 format (e.g., "2026-01-15T14:00:00-06:00").`,
   get_available_times: `## smiledial_get_available_times
-**When to use:** When the lead expresses interest in scheduling a meeting and you need to offer specific time slots.
-**How to use:** Call this tool to retrieve current availability, then offer 2–3 options to the lead.`,
+**When to use:** Right before you offer the lead a day or time. Call it quietly — don't announce that you're checking.
+**How to use:** It returns the open sessions over the next few days, soonest first. Each has a slot_id, a label already in the lead's local time (no timezone math needed), and \`when\` — the word for that day ("today", "tomorrow", or the weekday). Lead with the first one, using its \`when\` word ("tomorrow at 1"). If the lead names a different day, answer from the same list — no second call needed. Never offer a time that isn't in the list. If the list is empty, don't invent a time: offer to check back another day and schedule a callback instead.`,
   book_appointment: `## smiledial_book_appointment
-**When to use:** After the lead has chosen a specific time slot from the options you offered.
+**When to use:** After the lead has clearly committed to one specific session from the list.
 **How to use:**
-1. Confirm the chosen time.
-2. Call the tool with the slot ID and the lead's name and email.
-3. Tell them they'll receive a calendar invite shortly.`,
+1. Confirm the day and time back, including the date ("So Thursday the 4th at 1, right?").
+2. Call the tool with that session's slot_id and the lead's first name and email.
+3. Tell them the invite is on its way to their inbox.
+4. If it comes back saying the time is no longer open, say so lightly and offer the next open one from your list.`,
   mark_dnc: `## smiledial_mark_dnc
 **When to use:** When the lead explicitly asks to be removed from the calling list, or says "don't call me again."
 **How to use:**

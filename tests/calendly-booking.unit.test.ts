@@ -6,6 +6,8 @@ import {
   bookingTracking,
   buildInviteeLocation,
   buildQuestionsAndAnswers,
+  OFFER_LOOKAHEAD_DAYS,
+  relativeDayLabel,
 } from "../src/lib/calendly/booking";
 
 describe("buildInviteeLocation", () => {
@@ -73,6 +75,69 @@ describe("availabilityWindows", () => {
 
   it("honors the requested window count", () => {
     expect(availabilityWindows(now, { windows: 3 })).toHaveLength(3);
+  });
+
+  it("a caller-supplied span yields one short window of exactly that length", () => {
+    // The daily-webinar offer uses a single OFFER_LOOKAHEAD_DAYS window.
+    const [w, ...rest] = availabilityWindows(now, {
+      windows: 1,
+      spanDays: OFFER_LOOKAHEAD_DAYS,
+    });
+    expect(rest).toHaveLength(0);
+    const span = new Date(w.endISO).getTime() - new Date(w.startISO).getTime();
+    expect(span).toBe(OFFER_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
+  });
+
+  it("clamps a span above Calendly's 7-day per-query cap", () => {
+    const [w] = availabilityWindows(now, { windows: 1, spanDays: 30 });
+    const span = new Date(w.endISO).getTime() - new Date(w.startISO).getTime();
+    expect(span).toBeLessThan(7 * 24 * 60 * 60 * 1000);
+  });
+});
+
+describe("OFFER_LOOKAHEAD_DAYS", () => {
+  it("covers the host's ~4-day booking range but stays inside one Calendly query", () => {
+    expect(OFFER_LOOKAHEAD_DAYS).toBeGreaterThanOrEqual(4);
+    expect(OFFER_LOOKAHEAD_DAYS).toBeLessThan(7);
+  });
+});
+
+describe("relativeDayLabel", () => {
+  // Tuesday 2026-09-01, 10:00 in New York (14:00Z).
+  const nowNY = Date.UTC(2026, 8, 1, 14, 0, 0);
+
+  it("says today / tomorrow / the weekday for a short look-ahead", () => {
+    // 2 PM Eastern sessions (18:00Z) on Sept 1, 2, 3.
+    expect(
+      relativeDayLabel("2026-09-01T18:00:00Z", nowNY, "America/New_York"),
+    ).toBe("today");
+    expect(
+      relativeDayLabel("2026-09-02T18:00:00Z", nowNY, "America/New_York"),
+    ).toBe("tomorrow");
+    expect(
+      relativeDayLabel("2026-09-03T18:00:00Z", nowNY, "America/New_York"),
+    ).toBe("Thursday");
+  });
+
+  it("counts days on the LEAD's calendar, not UTC", () => {
+    // 11:30 PM Pacific on Sept 1 is already Sept 2 in UTC (06:30Z). The 11 AM
+    // Pacific session on Sept 2 (18:00Z) is the lead's TOMORROW — a UTC-based
+    // diff would call it "today" and the agent would say the wrong day.
+    const latePacificEvening = Date.UTC(2026, 8, 2, 6, 30, 0);
+    expect(
+      relativeDayLabel(
+        "2026-09-02T18:00:00Z",
+        latePacificEvening,
+        "America/Los_Angeles",
+      ),
+    ).toBe("tomorrow");
+  });
+
+  it("falls back to Eastern when the lead has no timezone, and is empty for junk", () => {
+    expect(relativeDayLabel("2026-09-02T18:00:00Z", nowNY, null)).toBe(
+      "tomorrow",
+    );
+    expect(relativeDayLabel("not a date", nowNY, "America/New_York")).toBe("");
   });
 });
 
@@ -175,9 +240,9 @@ describe("buildQuestionsAndAnswers", () => {
 
   it("leaves OPTIONAL questions alone — a wrong select value can get the whole booking rejected", () => {
     const answers = buildQuestionsAndAnswers(webinarQuestions, lead);
-    expect(answers.some((a) => a.question === "Which best describes you?")).toBe(
-      false,
-    );
+    expect(
+      answers.some((a) => a.question === "Which best describes you?"),
+    ).toBe(false);
   });
 
   it("never emits a blank answer — a blank is exactly what Calendly rejects", () => {
@@ -192,15 +257,47 @@ describe("buildQuestionsAndAnswers", () => {
 
   it("routes by question wording — name, phone and email questions get the right fact", () => {
     const qs: CalendlyCustomQuestion[] = [
-      { name: "Your full name", type: "string", position: 0, required: true, enabled: true, answer_choices: [] },
-      { name: "Best phone number", type: "phone_number", position: 1, required: true, enabled: true, answer_choices: [] },
-      { name: "Work email", type: "string", position: 2, required: true, enabled: true, answer_choices: [] },
-      { name: "Business name", type: "string", position: 3, required: true, enabled: true, answer_choices: [] },
+      {
+        name: "Your full name",
+        type: "string",
+        position: 0,
+        required: true,
+        enabled: true,
+        answer_choices: [],
+      },
+      {
+        name: "Best phone number",
+        type: "phone_number",
+        position: 1,
+        required: true,
+        enabled: true,
+        answer_choices: [],
+      },
+      {
+        name: "Work email",
+        type: "string",
+        position: 2,
+        required: true,
+        enabled: true,
+        answer_choices: [],
+      },
+      {
+        name: "Business name",
+        type: "string",
+        position: 3,
+        required: true,
+        enabled: true,
+        answer_choices: [],
+      },
     ];
     expect(buildQuestionsAndAnswers(qs, lead)).toEqual([
       { question: "Your full name", answer: "Roberta", position: 0 },
       { question: "Best phone number", answer: "+19075551234", position: 1 },
-      { question: "Work email", answer: "alaskahealingarts@gmail.com", position: 2 },
+      {
+        question: "Work email",
+        answer: "alaskahealingarts@gmail.com",
+        position: 2,
+      },
       { question: "Business name", answer: "Alaska Healing Arts", position: 3 },
     ]);
   });

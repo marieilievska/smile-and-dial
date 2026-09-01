@@ -16,9 +16,10 @@ describe("previewScript", () => {
     expect(p.opening.length).toBeGreaterThan(0);
   });
 
-  it("lists the specifics with the date formatted", () => {
-    const dateLine = p.specifics.find((s) => s.label === "Event date");
-    expect(dateLine?.value).toContain("August 27, 2026");
+  it("lists the specifics, including the recurring schedule (no fixed date)", () => {
+    const schedule = p.specifics.find((s) => s.label === "Event schedule");
+    expect(schedule?.value).toContain("Every weekday");
+    expect(p.specifics.find((s) => s.label === "Event date")).toBeUndefined();
   });
 
   it("handles an empty script without throwing", () => {

@@ -77,13 +77,20 @@ describe("template registry", () => {
     expect(getTemplate("nope")).toBeUndefined();
   });
 
-  it("webinar carries a required date key-detail and a filled script", () => {
+  it("webinar carries a required schedule key-detail, no fixed date, and a filled script", () => {
     const w = getTemplate("webinar")!;
-    const date = w.script.keyDetails.find((d) => d.id === "event_date");
-    expect(date).toMatchObject({ type: "date", required: true });
+    const schedule = w.script.keyDetails.find((d) => d.id === "event_schedule");
+    expect(schedule).toMatchObject({ type: "text", required: true });
+    // The event recurs every weekday; the agent reads real sessions from the
+    // availability tool. A hardcoded date (the old `event_date`) would go stale
+    // and contradict the list, so the template must not carry one anywhere.
+    expect(w.script.keyDetails.some((d) => d.type === "date")).toBe(false);
+    expect(JSON.stringify(w)).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    expect(w.script.scriptProse).toContain("smiledial_get_available_times");
     expect(w.script.purpose.length).toBeGreaterThan(0);
     expect(w.script.goal.length).toBeGreaterThan(0);
     expect(w.tools.schedule_callback).toBe(true);
+    expect(w.tools.get_available_times).toBe(true);
   });
 
   it("blank shares the instructions but has an empty script", () => {

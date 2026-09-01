@@ -28,9 +28,9 @@ describe("validateScript", () => {
 
   it("flags a required key detail left blank, by its label", () => {
     const keyDetails = webinar.script.keyDetails.map((d) =>
-      d.id === "event_date" ? { ...d, value: "" } : d,
+      d.id === "event_schedule" ? { ...d, value: "" } : d,
     );
     const errs = validateScript("X", { ...webinar.script, keyDetails });
-    expect(errs).toContain('Fill in "Event date".');
+    expect(errs).toContain('Fill in "Event schedule".');
   });
 });

@@ -3,8 +3,14 @@ import { SHARED_INSTRUCTIONS } from "./instructions";
 
 /** Seed template split by hand from the live "HireAI Webinar" agent. The proven
  *  behavior is in SHARED_INSTRUCTIONS; everything below is the editable script.
- *  Note: the event date lives ONLY in the `event_date` key-detail — it is never
- *  typed into the prose — so it can never go stale in multiple places. */
+ *
+ *  The event is a RECURRING session (every weekday), not one fixed date. The
+ *  agent never states a date from memory: it reads the open sessions — already
+ *  in the caller's local time — from smiledial_get_available_times and leads
+ *  with the soonest. The schedule and length live ONLY in the key-details, never
+ *  typed into the prose, so they can't go stale in two places. (The earlier
+ *  version carried a single `event_date` and a hand-maintained timezone table;
+ *  both are gone on purpose.) */
 export const WEBINAR_TEMPLATE: AgentTemplate = {
   key: "webinar",
   name: "Webinar invite",
@@ -23,7 +29,7 @@ export const WEBINAR_TEMPLATE: AgentTemplate = {
   script: {
     purpose:
       "Invite a local business owner or manager to a free online event, warmly and with no hard sell.",
-    goal: "Get an explicit, certain YES to attend, then capture the owner's name and email so their seat is booked. 'Goal met' = a clear yes with an email captured.",
+    goal: "Get an explicit, certain YES to one specific session, then capture the owner's name and email and book the seat. 'Goal met' = the seat is booked.",
     keyDetails: [
       {
         id: "rep_name",
@@ -47,18 +53,17 @@ export const WEBINAR_TEMPLATE: AgentTemplate = {
         required: true,
       },
       {
-        id: "event_date",
-        label: "Event date",
-        type: "date",
-        value: "2026-08-27",
+        id: "event_schedule",
+        label: "Event schedule",
+        type: "text",
+        value: "Every weekday (Monday to Friday) at 2 PM Eastern",
         required: true,
       },
       {
-        id: "event_time",
-        label: "Event time",
+        id: "event_length",
+        label: "Event length",
         type: "text",
-        value:
-          "1 PM Eastern — adjust to the caller's timezone: noon Central, 11 AM Mountain, 10 AM Pacific",
+        value: "30 minutes, on Zoom, small group (about 15 people)",
         required: true,
       },
     ],
@@ -68,13 +73,15 @@ export const WEBINAR_TEMPLATE: AgentTemplate = {
 
 3. The question (as if you just remembered it): "Oh, actually — when the [industry] is closed, or you're busy with someone and the phone rings… what usually happens to that call?" (Let them answer.)
 
-4. The bridge: "Yeah — 'cause if you don't talk to people right when they want to, you end up chasing them for weeks. The event's about how businesses are using an AI front desk to cover the phone when they're closed, so those calls still get answered and booked instead of dying in a voicemail nobody checks."
+4. The bridge: "Yeah — 'cause if you don't talk to people right when they want to, you end up chasing them for weeks. The event's about how businesses are using an AI front desk to cover the phone when they're closed, so those calls still get answered and booked straight into your {{booking_crm_software}} instead of dying in a voicemail nobody checks." (Only name the software if {{booking_crm_software}} is filled in.)
 
-5. Soft close: "Would you be against me saving you a seat?" — you must secure explicit, certain agreement. If hedged, confirm directly using the event date and the caller's local event time from the specifics. If they can't make that date, don't offer a recording or a callback — wrap up warmly and let them go.
+5. Pick a day: quietly call smiledial_get_available_times first — don't announce it. Then, using the event length from the specifics and the first session's \`when\` word and local time from the list: "Okay so it's a quick [length] Zoom, small group, and we run it every weekday at [time]. Would you be against me saving you a seat for [tomorrow / weekday]?" You must secure explicit, certain agreement. If they hedge, confirm directly: "Are you able to make it live [day] at [time]?" If that day doesn't work, name the other open days from the list in ONE question: "No worries, I've also got [days] — any of those easier?" If they don't know their week, don't push and never mention a recording — book a callback instead: "All good. When's a good day for me to check back and we'll grab a spot then?" and schedule it. If the list came back empty, same thing: offer to check back, never invent a time.
 
 6. Capture: ask them to spell their email phonetically, read it back normally to confirm, and ask them to spell their name. Only push back on a truly generic prefix (info@, contact@, admin@, office@, hello@, support@) — accept anything else.
 
-7. Sign-off: "You're all set, [name]. Reminder'll hit your inbox the day before. Appreciate you, talk soon." Then end the call.`,
+7. Book: call smiledial_book_appointment with the chosen session's slot_id, their first name and email. If it comes back saying that session is no longer open, say so lightly ("ah, that one just filled up") and offer the next open day from your list.
+
+8. Sign-off, restating the day: "You're all set, [name], [day] at [time]. Invite's hitting your inbox right now. Appreciate you, talk soon." Then end the call.`,
     dataCollection: [],
   },
 };

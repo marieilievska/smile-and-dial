@@ -27,21 +27,42 @@ export function buildInviteeLocation(
 export type AvailabilityWindow = { startISO: string; endISO: string };
 
 /**
+ * How far ahead get_available_times looks when offering the lead a session.
+ *
+ * Deliberately SHORT. The daily webinar's Calendly event only lets invitees
+ * book ~4 days out (the host's choice: a seat booked weeks ahead is a seat
+ * nobody shows up for), so anything past that comes back empty from Calendly
+ * anyway. Five days covers the host's range with a day to spare and keeps the
+ * list the agent has to hold to a handful of lines — ONE tool call, and no dead
+ * air on the phone while it re-checks a day the owner named. Calendly stays the
+ * source of truth: shrinking or growing its range needs no change here unless
+ * it passes five days.
+ *
+ * NOT used for a fixed-time (single-session) event — see soonestCalendlyOpening
+ * in the tool webhook, which keeps the long forward scan so a one-off date
+ * weeks out is still found.
+ */
+export const OFFER_LOOKAHEAD_DAYS = 5;
+
+/**
  * Forward-scan windows for Calendly's event_type_available_times endpoint,
- * which caps each query at a 7-day span. Looking only ~6 days ahead (the old
- * behaviour) missed a fixed webinar date two weeks out, so the tool fell back
- * to inventing generic slots. These windows cover ~6 weeks, are gap-free (each
- * window's length equals the step) and each span stays safely under 7 days.
+ * which caps each query at a 7-day span. By default these cover ~6 weeks (a
+ * fixed webinar date two weeks out was once missed by a 6-day look-ahead), are
+ * gap-free (each window's length equals the step) and each span stays safely
+ * under 7 days. `spanDays` shortens a window for callers that only want the
+ * next few days (see OFFER_LOOKAHEAD_DAYS).
  */
 export function availabilityWindows(
   nowMs: number,
-  opts?: { windows?: number; leadMinutes?: number },
+  opts?: { windows?: number; leadMinutes?: number; spanDays?: number },
 ): AvailabilityWindow[] {
   const windows = Math.max(1, opts?.windows ?? 6);
   const leadMinutes = opts?.leadMinutes ?? 15;
-  // 6.9 days: under Calendly's 7-day cap, and reused as the step so consecutive
-  // windows abut with no gap between them.
-  const SPAN_MS = Math.floor(6.9 * 24 * 60 * 60 * 1000);
+  // 6.9 days by default: under Calendly's 7-day cap, and reused as the step so
+  // consecutive windows abut with no gap between them. A caller-supplied span
+  // is clamped to the same cap.
+  const spanDays = Math.min(6.9, Math.max(0.1, opts?.spanDays ?? 6.9));
+  const SPAN_MS = Math.floor(spanDays * 24 * 60 * 60 * 1000);
   const base = nowMs + leadMinutes * 60 * 1000;
   const out: AvailabilityWindow[] = [];
   for (let i = 0; i < windows; i++) {
@@ -52,6 +73,43 @@ export function availabilityWindows(
     });
   }
   return out;
+}
+
+/**
+ * How a person would refer to a slot's day, relative to the lead's own today:
+ * "today", "tomorrow", or the weekday name ("Thursday"). Computed in the LEAD's
+ * timezone — late in a Pacific evening, a session on the lead's tomorrow is
+ * already "today" in UTC, and the agent must say what the owner would say.
+ * Only meaningful inside a short look-ahead (see OFFER_LOOKAHEAD_DAYS): within
+ * five days a weekday name can never be ambiguous, which is what lets the agent
+ * skip "this Thursday or next?" entirely. Empty string for an unparseable time.
+ */
+export function relativeDayLabel(
+  slotISO: string,
+  nowMs: number,
+  timeZone: string | null | undefined,
+): string {
+  const tz = timeZone || "America/New_York";
+  const slot = new Date(slotISO);
+  if (Number.isNaN(slot.getTime())) return "";
+  // Whole days since the epoch, as counted on the lead's local calendar.
+  const localDayNumber = (d: Date): number => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    }).formatToParts(d);
+    const get = (type: string) =>
+      Number(parts.find((p) => p.type === type)?.value ?? 0);
+    return Math.floor(
+      Date.UTC(get("year"), get("month") - 1, get("day")) / 86_400_000,
+    );
+  };
+  const diff = localDayNumber(slot) - localDayNumber(new Date(nowMs));
+  if (diff === 0) return "today";
+  if (diff === 1) return "tomorrow";
+  return slot.toLocaleDateString("en-US", { weekday: "long", timeZone: tz });
 }
 
 /** The tracking fields Calendly stores on a booking (its invitee `tracking`
@@ -164,8 +222,9 @@ const firstNonBlank = (...vals: (string | null | undefined)[]): string => {
  *  prospect — defaulting to the first choice would stamp them as an existing
  *  customer and poison the host's reporting. */
 const pickChoice = (choices: string[]): string =>
-  choices.find((c) => /\bnew\b|prospect|none|other|not\s+(yet\s+)?a\b/i.test(c)) ??
-  choices[0];
+  choices.find((c) =>
+    /\bnew\b|prospect|none|other|not\s+(yet\s+)?a\b/i.test(c),
+  ) ?? choices[0];
 
 /**
  * Build the `questions_and_answers` payload for POST /invitees.
@@ -221,7 +280,9 @@ export function buildQuestionsAndAnswers(
     } else if (
       // Checked BEFORE the plain /name/ test — "Company name" matches both and
       // must resolve to the company.
-      asks(/company|business|practice|studio|salon|clinic|shop|firm|brand|organi[sz]ation/i)
+      asks(
+        /company|business|practice|studio|salon|clinic|shop|firm|brand|organi[sz]ation/i,
+      )
     ) {
       answer = firstNonBlank(company, fallback);
     } else if (asks(/name/i)) {
