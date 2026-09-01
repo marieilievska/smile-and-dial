@@ -24,10 +24,16 @@ describe("assembleFromScript", () => {
     expect(prompt).toContain("Event name: Answer Every Call, Book Every Lead");
   });
 
-  it("injects the date once, formatted, and never as a raw literal in the prose", () => {
-    const occurrences = prompt.split("August 27, 2026").length - 1;
+  it("injects the schedule once (from the key-detail) and carries no fixed date", () => {
+    // The event recurs; the schedule lives ONLY in the key-detail so it can't
+    // go stale in two places, and the prose reads real sessions from the tool.
+    const occurrences =
+      prompt.split("Every weekday (Monday to Friday) at 2 PM Eastern").length -
+      1;
     expect(occurrences).toBe(1);
-    expect(prompt).not.toContain("2026-08-27"); // ISO value is formatted away
+    expect(prompt).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b/);
+    expect(prompt).not.toContain("August 27");
+    expect(prompt).toContain("smiledial_get_available_times");
   });
 
   it("appends enabled tool blocks and the shared lead-context + error blocks", () => {

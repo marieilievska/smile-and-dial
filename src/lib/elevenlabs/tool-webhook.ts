@@ -15,6 +15,8 @@ import {
   bookingTracking,
   buildInviteeLocation,
   buildQuestionsAndAnswers,
+  OFFER_LOOKAHEAD_DAYS,
+  relativeDayLabel,
 } from "@/lib/calendly/booking";
 import { hasBookingAtSlot } from "@/lib/calendly/booking-dedup";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
@@ -960,12 +962,23 @@ async function scheduleCallback(
 // ---------------------------------------------------------------------------
 // get_available_times (live Calendly when configured, generic slots otherwise)
 // ---------------------------------------------------------------------------
+/** Upper bound on the slots handed to the agent in one call. A daily group
+ *  session never gets near it inside OFFER_LOOKAHEAD_DAYS (five weekdays at
+ *  most); the cap exists so a one-on-one event type — dozens of 30-minute
+ *  openings in five days — can't flood the model's context. */
+const MAX_OFFERED_SLOTS = 6;
+
+/** One offered slot as the agent sees it. `label` is the full date + time in
+ *  the LEAD's local time (so the prompt never does timezone math), `when` is the
+ *  word a person would use for that day ("tomorrow", "Thursday"). */
+type OfferedSlot = { slot_id: string; label: string; when: string };
+
 async function getAvailableTimesResult(
   ctx: CallContext | null,
 ): Promise<ToolWebhookResult> {
-  // Offer the campaign owner's real Calendly openings over the next 6 days
-  // (Calendly caps the window at 7). Falls back to generic slots if the owner
-  // hasn't connected Calendly or has no openings, so the conversation moves.
+  // Offer the campaign owner's real Calendly openings over the next few days.
+  // Falls back to generic slots only if the owner hasn't connected Calendly at
+  // all, so the conversation moves.
   if (ctx) {
     const cal = await resolveCampaignCalendly(ctx.supabase, ctx.campaignId);
     // Calendly is connected but this campaign has no event chosen → booking is
@@ -977,25 +990,30 @@ async function getAvailableTimesResult(
       };
     }
     if (cal?.eventTypeUri) {
-      // Scan forward across several ~7-day windows (Calendly caps each query at
-      // 7 days) so a fixed date weeks out — e.g. a webinar — is actually found,
-      // instead of quietly falling back to invented generic times. Collect up
-      // to 3 real openings, stopping early once we have them.
-      const collected: CalendlySlot[] = [];
-      for (const w of availabilityWindows(Date.now())) {
-        const live = await calendlyGetAvailableTimes(
-          cal.eventTypeUri,
-          w.startISO,
-          w.endISO,
-          cal.token,
-        );
-        collected.push(...live);
-        if (collected.length >= 3) break;
-      }
-      const slots = collected.slice(0, 3).map((s) => ({
-        slot_id: s.startTime,
-        label: fmtSlot(s.startTime, ctx.lead.timezone),
-      }));
+      // ONE short window (see OFFER_LOOKAHEAD_DAYS). The daily webinar runs
+      // every weekday and its Calendly event only books a few days out, so the
+      // agent gets EVERY open session in that range in a single call — a
+      // handful of lines it can answer "does Thursday work?" from on the spot,
+      // instead of the first three openings of a six-week scan plus a second
+      // round-trip (dead air on the phone) for any day the owner names.
+      const now = Date.now();
+      const [window] = availabilityWindows(now, {
+        windows: 1,
+        spanDays: OFFER_LOOKAHEAD_DAYS,
+      });
+      const live: CalendlySlot[] = await calendlyGetAvailableTimes(
+        cal.eventTypeUri,
+        window.startISO,
+        window.endISO,
+        cal.token,
+      );
+      const slots: OfferedSlot[] = live
+        .slice(0, MAX_OFFERED_SLOTS)
+        .map((s) => ({
+          slot_id: s.startTime,
+          label: fmtSlot(s.startTime, ctx.lead.timezone),
+          when: relativeDayLabel(s.startTime, now, ctx.lead.timezone),
+        }));
       // A real Calendly event is attached, so offer its TRUE openings — or say
       // there are none. Never invent generic slots here: fake times contradict
       // the real date the agent quotes and produce un-bookable slot_ids (the
@@ -1003,14 +1021,15 @@ async function getAvailableTimesResult(
       if (slots.length > 0) {
         return {
           success: true,
-          message: "Here are the next available times.",
+          message:
+            "Open sessions over the next few days, soonest first. Times are already in the lead's local time; `when` is how to say the day (today / tomorrow / the weekday).",
           slots,
         };
       }
       return {
         success: false,
         message:
-          "I'm not seeing any open times on the calendar over the next few weeks.",
+          "No open sessions over the next few days. Don't invent a time — offer to check back another day instead.",
       };
     }
   }
@@ -1029,7 +1048,8 @@ function genericAvailableTimes(
   timeZone: string | null | undefined,
 ): ToolWebhookResult {
   const tz = timeZone || "America/New_York";
-  const slots: { slot_id: string; label: string }[] = [];
+  const now = Date.now();
+  const slots: OfferedSlot[] = [];
   const seen = new Set<string>();
   for (let dayOffset = 1; dayOffset < 10 && slots.length < 3; dayOffset++) {
     for (const hour of [10, 14]) {
@@ -1037,7 +1057,11 @@ function genericAvailableTimes(
       const iso = localHourDaysAheadIso(tz, dayOffset, hour);
       if (seen.has(iso)) continue; // weekend rolls can collide
       seen.add(iso);
-      slots.push({ slot_id: iso, label: fmtSlot(iso, tz) });
+      slots.push({
+        slot_id: iso,
+        label: fmtSlot(iso, tz),
+        when: relativeDayLabel(iso, now, tz),
+      });
     }
   }
   return {
@@ -1229,13 +1253,14 @@ async function bookAppointment(
       // unavailable" made the AI re-offer the SAME slot over and over and let a
       // full-day, 100%-failure outage pass as ordinary bad luck. Say something
       // true instead, and bank the email so the lead isn't lost.
-      const slotGone = /unavailable|already.*(booked|taken)|no longer|invalid start.?time|spot|capacity|full/i.test(
-        result.error ?? "",
-      );
+      const slotGone =
+        /unavailable|already.*(booked|taken)|no longer|invalid start.?time|spot|capacity|full/i.test(
+          result.error ?? "",
+        );
       return {
         success: false,
         message: slotGone
-          ? "That time just became unavailable — could we pick another one?"
+          ? "That time is no longer open. Offer the lead the next open option from your list instead."
           : `I can't complete the booking from here, but I've got ${email} — the team will send the invite through shortly.`,
       };
     }

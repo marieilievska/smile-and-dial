@@ -35,14 +35,16 @@ test.describe("Agent template builder", () => {
     // The webinar script is pre-filled; the live preview shows the opening.
     await expect(page.getByTestId("preview-opening")).toContainText("Jamie");
 
-    // Fill the name and change the event date (the anti-landmine field).
+    // Fill the name and change the schedule (the anti-landmine field).
     await page.getByLabel("Agent name").fill(agentName);
-    await page.getByLabel("Event date", { exact: true }).fill("2026-09-24");
+    await page
+      .getByLabel("Event schedule", { exact: true })
+      .fill("Every weekday at 3 PM Eastern");
 
     await page.getByRole("button", { name: "Save agent" }).click();
     await expect(page).toHaveURL(/\/settings\/agents$/);
 
-    // DB shape: template snapshot + assembled prompt with the date injected ONCE.
+    // DB shape: template snapshot + assembled prompt with the schedule injected ONCE.
     const { data: agent } = await admin
       .from("agents")
       .select(
@@ -52,11 +54,11 @@ test.describe("Agent template builder", () => {
       .single();
     expect(agent?.template_key).toBe("webinar");
     expect(agent?.instructions).toContain("exactly ONE question");
-    expect(agent?.system_prompt).toContain("September 24, 2026");
+    expect(agent?.system_prompt).toContain("Every weekday at 3 PM Eastern");
     expect(agent?.elevenlabs_agent_id).toMatch(/^agent_mock_/);
     const details = agent?.key_details as { id: string; value: string }[];
-    expect(details.find((d) => d.id === "event_date")?.value).toBe(
-      "2026-09-24",
+    expect(details.find((d) => d.id === "event_schedule")?.value).toBe(
+      "Every weekday at 3 PM Eastern",
     );
   });
 

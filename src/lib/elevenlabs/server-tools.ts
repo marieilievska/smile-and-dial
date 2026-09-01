@@ -46,7 +46,7 @@ const TOOL_DESCRIPTIONS: Record<ServerToolKey, string> = {
   schedule_callback:
     "Schedule a callback for the lead at a specific date and time they request.",
   get_available_times:
-    "Get available appointment times to offer the lead. Returns a list of slots, each with a slot_id.",
+    "Get the open sessions or appointment times to offer the lead over the next few days, soonest first. Each slot has a slot_id, a label already in the lead's local time, and `when` (today / tomorrow / the weekday) for how to say the day. Call it quietly before offering any time; never invent a time that isn't in the list.",
   book_appointment:
     "Book an appointment for the lead. When the lead is choosing a time, pass the slot_id of the slot they picked from get_available_times. For a fixed-time event (e.g. a webinar with one set session), just pass name and email — omit slot_id and the system books the event's scheduled time.",
   mark_dnc:
