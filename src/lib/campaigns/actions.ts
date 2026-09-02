@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import type { ToolsEnabled } from "@/lib/agents/prompt";
+import { normalizeUtmCampaign } from "@/lib/calendly/booking";
 import { sanitizeAudienceSearch } from "@/lib/campaigns/audience-filter";
 import { applyConnectedAgentIntegration } from "@/lib/elevenlabs/agents";
 import { createAdminClient as createServiceClient } from "@/lib/supabase/admin";
@@ -99,6 +100,11 @@ export type CampaignInput = {
    *  without the lead choosing a time, so book_appointment works from name +
    *  email alone. Needs a calendlyEventId. Optional, defaults to false. */
   fixedTimeBooking?: boolean;
+  /** utm_campaign (and utm_content) stamped on every Calendly booking made from
+   *  this campaign, so invitees are traceable in Calendly reporting. Normalised
+   *  to [a-z0-9_-]. Empty = fall back to the legacy id map, then the campaign
+   *  name. */
+  bookingUtmCampaign?: string;
   /** Email template (email_templates.id) the send_email tool sends. Empty =
    *  no template, the tool only records intent. */
   emailTemplateId?: string;
@@ -175,6 +181,8 @@ function buildUpdate(input: CampaignInput) {
     double_call_enabled: input.doubleCallEnabled ?? false,
     calendly_event_id: input.calendlyEventId?.trim() || null,
     fixed_time_booking: input.fixedTimeBooking ?? false,
+    booking_utm_campaign:
+      normalizeUtmCampaign(input.bookingUtmCampaign) || null,
     email_template_id: input.emailTemplateId?.trim() || null,
     sms_template_id: input.smsTemplateId?.trim() || null,
     audience_search: sanitizeAudienceSearch(input.audienceSearch ?? "") || null,

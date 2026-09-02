@@ -92,7 +92,7 @@ export default async function CampaignsPage({
     supabase
       .from("campaigns")
       .select(
-        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, dial_interval_seconds, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, double_call_enabled, calendly_event_id, fixed_time_booking, email_template_id, sms_template_id, audience_search, smart_list_id, inbound_greeting, created_at, agent:agents(name), goal:goals(name)",
+        "id, name, description, status, agent_id, goal_id, twilio_number_id, calling_hours_start, calling_hours_end, calls_per_hour_cap, calls_per_day_cap, concurrency_cap_per_user, dial_interval_seconds, transfer_destination_phone, daily_spend_cap, monthly_spend_cap, autopilot_enabled, smart_scheduling, double_call_enabled, calendly_event_id, fixed_time_booking, booking_utm_campaign, email_template_id, sms_template_id, audience_search, smart_list_id, inbound_greeting, created_at, agent:agents(name), goal:goals(name)",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -287,6 +287,9 @@ export default async function CampaignsPage({
     calendly_event_id: c.calendly_event_id ?? null,
     fixed_time_booking:
       (c as { fixed_time_booking?: boolean }).fixed_time_booking ?? false,
+    booking_utm_campaign:
+      (c as { booking_utm_campaign?: string | null }).booking_utm_campaign ??
+      null,
     email_template_id: c.email_template_id ?? null,
     sms_template_id: c.sms_template_id ?? null,
     audience_search: c.audience_search ?? null,
@@ -351,6 +354,7 @@ export default async function CampaignsPage({
       double_call_enabled: campaign.double_call_enabled,
       calendly_event_id: campaign.calendly_event_id,
       fixed_time_booking: campaign.fixed_time_booking,
+      booking_utm_campaign: campaign.booking_utm_campaign,
       email_template_id: campaign.email_template_id,
       sms_template_id: campaign.sms_template_id,
       audience_search: campaign.audience_search,
