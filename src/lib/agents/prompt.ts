@@ -58,8 +58,8 @@ const TOOL_BLOCKS: Record<ToolKey, string> = {
 1. Confirm the date and time clearly: "So that's Tuesday the 15th at 2 PM your local time, correct?"
 2. Call the tool with the confirmed datetime in ISO 8601 format (e.g., "2026-01-15T14:00:00-06:00").`,
   get_available_times: `## smiledial_get_available_times
-**When to use:** Right before you offer the lead a day or time. Call it quietly — don't announce that you're checking.
-**How to use:** It returns the open sessions over the next few days, soonest first. Each has a slot_id, a label already in the lead's local time (no timezone math needed), and \`when\` — the word for that day ("today", "tomorrow", or the weekday). Lead with the first one, using its \`when\` word ("tomorrow at 1"). If the lead names a different day, answer from the same list — no second call needed. Never offer a time that isn't in the list. If the list is empty, don't invent a time: offer to check back another day and schedule a callback instead.`,
+**When to use:** AFTER the lead has picked a day (or said "whenever"), to check that day is open — never before they've agreed to a seat.
+**How to use:** Say a short natural line first ("Perfect, let me grab that for you") so there's no silence, then call it; the caller can't interrupt the check. It returns the open sessions over the next few days, soonest first. Each has a slot_id, a label already in the lead's local time (no timezone math needed), and \`when\` — the word for that day ("today", "tomorrow", or the weekday). If the day they picked is in the list, confirm it back with its local time and date. If it isn't, offer the days that are, in one question. Never offer a time that isn't in the list. If the list is empty, don't invent a time: offer to check back another day and schedule a callback instead.`,
   book_appointment: `## smiledial_book_appointment
 **When to use:** After the lead has clearly committed to one specific session from the list.
 **How to use:**

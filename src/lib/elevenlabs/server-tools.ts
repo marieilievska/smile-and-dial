@@ -184,6 +184,42 @@ const TOOL_TIMEOUT_SECS: Record<ServerToolKey, number> = {
   demo_front_desk: 25,
 };
 
+/** ElevenLabs `interruption_mode` per tool. By default ("allow") the caller
+ *  speaking while a tool runs makes ElevenLabs ABANDON the tool call
+ *  ("Tool execution was abandoned due to user input"): on the Benjamin Salon
+ *  call (2026-09-02) the availability check was thrown away twice in a row
+ *  because a chatty manager kept talking, and every attempt was dead air. The
+ *  booking-path tools are short (1–3s) and must complete, so they ignore
+ *  interruptions while running; the availability check also protects the
+ *  agent's follow-up line ("…is open, are you able to make that live?") so the
+ *  offered time isn't talked over. Long-running / cosmetic tools stay
+ *  interruptible. Values per the tools API: allow | disable_during_tool |
+ *  disable_during_tool_and_turn. */
+const TOOL_INTERRUPTION_MODE: Record<ServerToolKey, string> = {
+  send_email: "allow",
+  send_text: "allow",
+  schedule_callback: "disable_during_tool",
+  get_available_times: "disable_during_tool_and_turn",
+  book_appointment: "disable_during_tool",
+  mark_dnc: "disable_during_tool",
+  demo_front_desk: "allow",
+};
+
+/** ElevenLabs `pre_tool_speech` per tool: auto | force | off. "force" makes the
+ *  agent say something before the tool runs ("Perfect, let me grab that for
+ *  you"), so the availability check — which now happens AFTER the lead picks a
+ *  day — never sounds like the line went dead. Everything else stays "auto"
+ *  (ElevenLabs decides from recent latency). */
+const TOOL_PRE_SPEECH: Record<ServerToolKey, string> = {
+  send_email: "auto",
+  send_text: "auto",
+  schedule_callback: "auto",
+  get_available_times: "force",
+  book_appointment: "auto",
+  mark_dnc: "auto",
+  demo_front_desk: "auto",
+};
+
 /** Build the ElevenLabs tool_config for one key, in the shape the live
  *  /v1/convai/tools API expects (verified against a working workspace tool):
  *  properties is an object keyed by name, required is a list, params/headers
@@ -199,6 +235,8 @@ function buildToolConfig(
     name: toolFunctionName(key),
     description: TOOL_DESCRIPTIONS[key],
     response_timeout_secs: TOOL_TIMEOUT_SECS[key],
+    interruption_mode: TOOL_INTERRUPTION_MODE[key],
+    pre_tool_speech: TOOL_PRE_SPEECH[key],
     api_schema: {
       url: `${baseUrl}/api/elevenlabs/tools/${key}`,
       method: "POST",
