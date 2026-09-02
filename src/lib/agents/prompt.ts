@@ -56,7 +56,8 @@ const TOOL_BLOCKS: Record<ToolKey, string> = {
 **When to use:** When the lead says they're busy now and asks to be called back at a specific time.
 **How to use:**
 1. Confirm the date and time clearly: "So that's Tuesday the 15th at 2 PM your local time, correct?"
-2. Call the tool with the confirmed datetime in ISO 8601 format (e.g., "2026-01-15T14:00:00-06:00").`,
+2. Call the tool with the confirmed datetime in ISO 8601 format (e.g., "2026-01-15T14:00:00-06:00").
+3. The moment it succeeds, wrap up in one line and end the call. Never ask if there's anything else you can help with — this is an outbound call.`,
   get_available_times: `## smiledial_get_available_times
 **When to use:** AFTER the lead has picked a day (or said "whenever"), to check that day is open — never before they've agreed to a seat.
 **How to use:** Say a short natural line first ("Perfect, let me grab that for you") so there's no silence, then call it; the caller can't interrupt the check. It returns the open sessions over the next few days, soonest first. Each has a slot_id, a label already in the lead's local time (no timezone math needed), and \`when\` — the word for that day ("today", "tomorrow", or the weekday). If the day they picked is in the list, confirm it back with its local time and date. If it isn't, offer the days that are, in one question. Never offer a time that isn't in the list. If the list is empty, don't invent a time: offer to check back another day and schedule a callback instead.`,
@@ -65,7 +66,7 @@ const TOOL_BLOCKS: Record<ToolKey, string> = {
 **How to use:**
 1. Confirm the day and time back, including the date ("So Thursday the 4th at 1, right?").
 2. Call the tool with that session's slot_id and the lead's first name and email.
-3. Tell them the invite is on its way to their inbox.
+3. The moment it succeeds, say your scripted sign-off (restate the day, the invite is on its way) and end the call. Never ask if there's anything else you can help with — this is an outbound call.
 4. If it comes back saying the time is no longer open, say so lightly and offer the next open one from your list.`,
   mark_dnc: `## smiledial_mark_dnc
 **When to use:** When the lead explicitly asks to be removed from the calling list, or says "don't call me again."
