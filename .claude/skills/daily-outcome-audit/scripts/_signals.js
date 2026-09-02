@@ -59,7 +59,7 @@ function genuineHumanReplyCount(transcript) {
 
 /** A LEAD turn that itself asks to stop / be removed (an unprompted request). */
 const LEAD_REQUEST_REMOVAL_RE =
-  /(take|get|leave)s+(me|us|it|this|our|my)[^.?!]{0,40}(off|out)|removes+(me|us|it|this|our|my)|stops+call|(do not|don.?t|never)s+(call|contact)|do[- ]not[- ]call|unsubscribe/i;
+  /\b(take|get|leave)\s+(me|us|it|this|our|my)\b[^.?!]{0,40}\b(off|out)\b|\bremove\s+(me|us|it|this|our|my)\b|\bstop\s+call|\b(do not|don.?t|never)\s+(call|contact)|\bdo[- ]not[- ]call\b|\bunsubscribe\b/i;
 
 /** True when an AGENT turn offers to remove the lead from calling BEFORE the
  *  lead asked for it themself. Agent turns after a lead-initiated request are
