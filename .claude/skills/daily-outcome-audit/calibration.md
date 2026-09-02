@@ -29,3 +29,4 @@ After **~3 days** where the control sample turns up **≈0 new misses** and flag
 | Date | Flagged | Flag precision | Control N | Misses found | Change made |
 |---|---|---|---|---|---|
 | _(2026-08-12, day 0 — run when ready)_ | | | 25 | | |
+| 2026-09-02 (live day 1 on agent_8801, run same day) | 5 (4 gni_dm_yes, 1 dnc_agent_offer) | 0/5 genuine — all 5 correctly labeled (gni_dm_yes = extractor stamps dm=yes for non-owner managers, veto contains it; dnc_agent_offer fired on the agent CONFIRMING a lead-initiated removal) | 15 | 0 | none to flags; noted dnc_agent_offer should ignore agent turns AFTER the lead already asked |

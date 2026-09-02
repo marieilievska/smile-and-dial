@@ -57,9 +57,21 @@ function genuineHumanReplyCount(transcript) {
   return count;
 }
 
-/** True when an AGENT turn offers to remove the lead from calling. */
+/** A LEAD turn that itself asks to stop / be removed (an unprompted request). */
+const LEAD_REQUEST_REMOVAL_RE =
+  /(take|get|leave)s+(me|us|it|this|our|my)[^.?!]{0,40}(off|out)|removes+(me|us|it|this|our|my)|stops+call|(do not|don.?t|never)s+(call|contact)|do[- ]not[- ]call|unsubscribe/i;
+
+/** True when an AGENT turn offers to remove the lead from calling BEFORE the
+ *  lead asked for it themself. Agent turns after a lead-initiated request are
+ *  confirmations ("got you taken off the list"), not offers — 2026-09-02
+ *  calibration: that confirmation was the one false alarm of the day. */
 function agentOfferedRemoval(transcript) {
-  return normalizeTurns(transcript).some(
+  const turns = normalizeTurns(transcript);
+  const firstLeadAsk = turns.findIndex(
+    (t) => t.role !== "agent" && t.role !== "ai" && LEAD_REQUEST_REMOVAL_RE.test(t.message),
+  );
+  const scope = firstLeadAsk === -1 ? turns : turns.slice(0, firstLeadAsk);
+  return scope.some(
     (t) =>
       (t.role === "agent" || t.role === "ai") &&
       AGENT_OFFER_REMOVAL_RE.test(t.message),
@@ -73,4 +85,5 @@ module.exports = {
   MACHINE_GREETING_RE,
   MACHINE_REPLY_RE,
   AGENT_OFFER_REMOVAL_RE,
+  LEAD_REQUEST_REMOVAL_RE,
 };

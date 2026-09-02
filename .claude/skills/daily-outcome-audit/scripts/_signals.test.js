@@ -36,6 +36,24 @@ test("agentOfferedRemoval: a LEAD asking to stop is NOT an agent offer", () => {
   assert.equal(S.agentOfferedRemoval(t), false);
 });
 
+test("agentOfferedRemoval: an agent CONFIRMING after the lead asked is NOT an offer (2026-09-02 false alarm)", () => {
+  const t = [
+    { role: "agent", message: "You wouldn't happen to be the owner, would ya?" },
+    { role: "user", message: "No, we're not interested. Thank you. You can take us off your list." },
+    { role: "agent", message: "Totally understood, and I've got you taken off the list. Have a good one." },
+  ];
+  assert.equal(S.agentOfferedRemoval(t), false);
+});
+
+test("agentOfferedRemoval: an agent offer BEFORE the lead asks still counts", () => {
+  const t = [
+    { role: "agent", message: "Want me to take you off our list?" },
+    { role: "user", message: "Yeah, take us off." },
+    { role: "agent", message: "Done, you're off the list." },
+  ];
+  assert.equal(S.agentOfferedRemoval(t), true);
+});
+
 test("normalizeTurns: ignores non-object / non-string-message turns", () => {
   assert.equal(S.normalizeTurns(null).length, 0);
   assert.equal(S.normalizeTurns([{ role: "user" }, "x", { role: "user", message: "hi" }]).length, 1);
