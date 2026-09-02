@@ -794,14 +794,14 @@ export function CampaignSettingsDialog({
                   id="campaign-concur"
                   type="number"
                   min={1}
-                  max={30}
+                  max={40}
                   value={concurrencyCapPerUser}
                   onChange={(event) =>
                     setConcurrencyCapPerUser(event.target.value)
                   }
                 />
                 <p className="text-muted-foreground text-[11px]">
-                  Max simultaneous live calls. Up to 30 (the ElevenLabs
+                  Max simultaneous live calls. Up to 40 (the ElevenLabs
                   workspace limit, shared with inbound). This budget is shared
                   across all your campaigns, so set it the same on each.
                 </p>

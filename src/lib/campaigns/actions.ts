@@ -143,14 +143,15 @@ function buildUpdate(input: CampaignInput) {
     calls_per_hour_cap: parseNumber(input.callsPerHourCap) ?? 30,
     calls_per_day_cap: parseNumber(input.callsPerDayCap) ?? 300,
     // Ceiling is the ElevenLabs workspace concurrency limit — no point allowing
-    // a value EL can't honor. 30 on the current Scale ("growing_business")
-    // plan, raised from 20 on Pro (2026-08-03). Shared workspace-wide INCLUDING
-    // inbound, so setting a campaign to the full 30 leaves inbound nothing;
-    // that is deliberately the operator's call, not a clamp.
+    // a value EL can't honor. 40 on the current Business plan (2026-09-02),
+    // raised from 30 on Scale (2026-08-03) and 20 on Pro before that. Shared
+    // workspace-wide INCLUDING inbound, so setting a campaign to the full 40
+    // leaves inbound nothing; that is deliberately the operator's call, not a
+    // clamp.
     //
     // Enforcement is owner-wide, not per campaign: pre_call_check counts ALL of
     // the owner's live calls against whichever campaign it is checking. Two
-    // campaigns set to 30 therefore share ONE 30-call budget, and a campaign
+    // campaigns set to 40 therefore share ONE 40-call budget, and a campaign
     // left at a lower value is capped at that lower value even when the other
     // has room — so set this consistently across an owner's campaigns.
     //
@@ -158,7 +159,7 @@ function buildUpdate(input: CampaignInput) {
     // input max in campaign-settings-dialog.tsx, and the
     // campaigns_concurrency_cap_per_user_check DB constraint.
     concurrency_cap_per_user: Math.min(
-      30,
+      40,
       Math.max(1, parseNumber(input.concurrencyCapPerUser) ?? 2),
     ),
     // Seconds between cold dials (0 = off). Clamped to a sane 0–120s.
