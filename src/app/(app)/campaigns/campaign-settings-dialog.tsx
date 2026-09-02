@@ -83,6 +83,7 @@ export type CampaignData = {
   double_call_enabled: boolean;
   calendly_event_id: string | null;
   fixed_time_booking: boolean;
+  booking_utm_campaign: string | null;
   email_template_id: string | null;
   sms_template_id: string | null;
   audience_search: string | null;
@@ -227,6 +228,9 @@ export function CampaignSettingsDialog({
   const [calendlyEventId, setCalendlyEventId] = useState(
     campaign?.calendly_event_id ?? NO_EVENT,
   );
+  const [bookingUtmCampaign, setBookingUtmCampaign] = useState(
+    campaign?.booking_utm_campaign ?? "",
+  );
   const [emailTemplateId, setEmailTemplateId] = useState(
     campaign?.email_template_id ?? NO_TEMPLATE,
   );
@@ -349,6 +353,8 @@ export function CampaignSettingsDialog({
         // Only meaningful with an event chosen; harmless otherwise (the webhook
         // needs an eventTypeUri to resolve a fixed time).
         fixedTimeBooking: calendlyEventId !== NO_EVENT && fixedTimeBooking,
+        bookingUtmCampaign:
+          calendlyEventId === NO_EVENT ? "" : bookingUtmCampaign,
         emailTemplateId: emailTemplateId === NO_TEMPLATE ? "" : emailTemplateId,
         smsTemplateId: smsTemplateId === NO_TEMPLATE ? "" : smsTemplateId,
         audienceSearch,
@@ -976,29 +982,51 @@ export function CampaignSettingsDialog({
                 the chosen event.
               </p>
               {calendlyEventId !== NO_EVENT ? (
-                <label
-                  htmlFor="campaign-fixed-time"
-                  className="border-border hover:bg-muted/40 mt-1 flex cursor-pointer items-start gap-3 rounded-lg border p-3"
-                >
-                  <Checkbox
-                    id="campaign-fixed-time"
-                    checked={fixedTimeBooking}
-                    onCheckedChange={(v) => setFixedTimeBooking(v === true)}
-                    className="mt-0.5"
-                  />
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-foreground text-sm font-medium">
-                      Fixed-time event (webinar)
-                    </span>
-                    <span className="text-muted-foreground text-xs">
-                      For a single set session everyone joins. The agent books
-                      the lead into this event&apos;s next opening from just
-                      their first name and email — no offering a choice of
-                      times. Leave off for one-on-one meetings where the lead
-                      picks a slot.
-                    </span>
+                <>
+                  <label
+                    htmlFor="campaign-fixed-time"
+                    className="border-border hover:bg-muted/40 mt-1 flex cursor-pointer items-start gap-3 rounded-lg border p-3"
+                  >
+                    <Checkbox
+                      id="campaign-fixed-time"
+                      checked={fixedTimeBooking}
+                      onCheckedChange={(v) => setFixedTimeBooking(v === true)}
+                      className="mt-0.5"
+                    />
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-foreground text-sm font-medium">
+                        Fixed-time event (webinar)
+                      </span>
+                      <span className="text-muted-foreground text-xs">
+                        For a single set session everyone joins. The agent books
+                        the lead into this event&apos;s next opening from just
+                        their first name and email — no offering a choice of
+                        times. Leave off for one-on-one meetings where the lead
+                        picks a slot, and for a recurring daily session.
+                      </span>
+                    </div>
+                  </label>
+                  <div className="mt-2 flex flex-col gap-2">
+                    <Label htmlFor="campaign-booking-utm">
+                      Booking UTM campaign
+                    </Label>
+                    <Input
+                      id="campaign-booking-utm"
+                      value={bookingUtmCampaign}
+                      onChange={(event) =>
+                        setBookingUtmCampaign(event.target.value)
+                      }
+                      placeholder="e.g. ai_voice_training_daily"
+                      maxLength={100}
+                    />
+                    <p className="text-muted-foreground text-xs">
+                      Stamped as utm_campaign on every Calendly booking this
+                      campaign makes, so its invitees are traceable in Calendly
+                      reporting. Lower-case letters, numbers, _ and - only.
+                      Leave blank to use the campaign name.
+                    </p>
                   </div>
-                </label>
+                </>
               ) : null}
             </div>
 

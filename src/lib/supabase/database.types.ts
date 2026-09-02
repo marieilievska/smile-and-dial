@@ -758,6 +758,7 @@ export type Database = {
           agent_id: string;
           audience_search: string | null;
           autopilot_enabled: boolean;
+          booking_utm_campaign: string | null;
           calendly_event_id: string | null;
           calling_hours_end: string;
           calling_hours_start: string;
@@ -791,6 +792,7 @@ export type Database = {
           agent_id: string;
           audience_search?: string | null;
           autopilot_enabled?: boolean;
+          booking_utm_campaign?: string | null;
           calendly_event_id?: string | null;
           calling_hours_end?: string;
           calling_hours_start?: string;
@@ -824,6 +826,7 @@ export type Database = {
           agent_id?: string;
           audience_search?: string | null;
           autopilot_enabled?: boolean;
+          booking_utm_campaign?: string | null;
           calendly_event_id?: string | null;
           calling_hours_end?: string;
           calling_hours_start?: string;
@@ -2294,13 +2297,6 @@ export type Database = {
         };
         Relationships: [
           {
-            foreignKeyName: "twilio_numbers_owner_id_fkey";
-            columns: ["owner_id"];
-            isOneToOne: false;
-            referencedRelation: "profiles";
-            referencedColumns: ["id"];
-          },
-          {
             foreignKeyName: "twilio_numbers_attached_campaign_fk";
             columns: ["attached_campaign_id"];
             isOneToOne: false;
@@ -2313,6 +2309,13 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "dial_queue";
             referencedColumns: ["campaign_id"];
+          },
+          {
+            foreignKeyName: "twilio_numbers_owner_id_fkey";
+            columns: ["owner_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
           },
         ];
       };

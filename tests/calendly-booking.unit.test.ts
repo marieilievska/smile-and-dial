@@ -6,6 +6,7 @@ import {
   bookingTracking,
   buildInviteeLocation,
   buildQuestionsAndAnswers,
+  normalizeUtmCampaign,
   OFFER_LOOKAHEAD_DAYS,
   relativeDayLabel,
 } from "../src/lib/calendly/booking";
@@ -180,6 +181,35 @@ describe("bookingTracking", () => {
     });
   });
 
+  it("the campaign's own Booking UTM setting wins over the legacy map AND the name", () => {
+    // The daily webinar: operator set booking_utm_campaign on the campaign.
+    // Even for an id that is in the legacy map, the setting must win.
+    const t = bookingTracking({
+      campaignId: "3cd40c9c-5a42-4476-9ef1-c6a1e0fc72d8",
+      campaignName: "HireAI Webinar",
+      leadId: "lead-4",
+      bookingUtmCampaign: "ai_voice_training_daily",
+    });
+    expect(t.utm_campaign).toBe("ai_voice_training_daily");
+    expect(t.utm_content).toBe("ai_voice_training_daily");
+    expect(t.utm_source).toBe("smile_dial");
+    expect(t.utm_medium).toBe("voice");
+    expect(t.salesforce_uuid).toBe("lead-4");
+  });
+
+  it("a blank or junk setting falls through to the old behaviour", () => {
+    for (const blank of ["", "   ", "$$$", null, undefined]) {
+      expect(
+        bookingTracking({
+          campaignId: "some-other-id",
+          campaignName: "Med Spa Q3",
+          leadId: "lead-5",
+          bookingUtmCampaign: blank,
+        }).utm_campaign,
+      ).toBe("Med Spa Q3");
+    }
+  });
+
   it("returns a COMPLETE (non-partial) object even with no campaign — Calendly rejects a partial tracking object", () => {
     const t = bookingTracking({
       campaignId: null,
@@ -191,6 +221,27 @@ describe("bookingTracking", () => {
     expect(t.salesforce_uuid).toBe("lead-3");
     expect(t.utm_source).toBe("smile_dial");
     expect(t.utm_medium).toBe("voice");
+  });
+});
+
+describe("normalizeUtmCampaign", () => {
+  it("lower-cases, joins words with underscores and strips everything else", () => {
+    expect(normalizeUtmCampaign("  AI Voice Training Daily ")).toBe(
+      "ai_voice_training_daily",
+    );
+    expect(normalizeUtmCampaign("ai_voice_training_daily")).toBe(
+      "ai_voice_training_daily",
+    );
+    expect(normalizeUtmCampaign("Webinar (Sept) #2!")).toBe("webinar_sept_2");
+  });
+
+  it("is empty for nothing usable, and caps at 100 chars", () => {
+    expect(normalizeUtmCampaign("")).toBe("");
+    expect(normalizeUtmCampaign("   ")).toBe("");
+    expect(normalizeUtmCampaign("$$$")).toBe("");
+    expect(normalizeUtmCampaign(null)).toBe("");
+    expect(normalizeUtmCampaign(undefined)).toBe("");
+    expect(normalizeUtmCampaign("a".repeat(150))).toHaveLength(100);
   });
 });
 

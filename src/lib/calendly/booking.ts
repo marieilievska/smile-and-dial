@@ -129,13 +129,32 @@ export type CalendlyTracking = {
   salesforce_uuid: string;
 };
 
-/** Per-campaign booking attribution, keyed by campaign id (an id survives a
- *  rename; a name doesn't). Mirrors CAMPAIGN_LINK_UTM in ../shortlinks/destination.
+/**
+ * Normalise an operator-typed UTM campaign value into something Calendly and
+ * ad-platform reporting group cleanly: lower-case, whitespace → underscores,
+ * only [a-z0-9_-], max 100 chars (the DB check constraint enforces the same
+ * shape). Returns "" when nothing usable is left, so callers can `||` through
+ * to their fallback. Pure, unit-tested.
+ */
+export function normalizeUtmCampaign(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_-]/g, "")
+    .slice(0, 100);
+}
+
+/** LEGACY per-campaign booking attribution, keyed by campaign id. Superseded
+ *  on 2026-09-02 by the per-campaign `booking_utm_campaign` setting (campaign
+ *  settings dialog → "Booking UTM campaign"), which bookingTracking checks
+ *  FIRST. Kept only so any campaign still relying on it keeps tagging.
+ *  Mirrors CAMPAIGN_LINK_UTM in ../shortlinks/destination.
  *
- *  ⚠️ Same sharp edge as the link map: a database reset recreates the campaign
- *  with a NEW id and this silently stops matching — bookings still tag, just with
- *  the fallback (campaign name) instead of the intended `utm_campaign`. If the
- *  Calendly report stops showing `voice_ai_webinar`, check this id first. */
+ *  ⚠️ The sharp edge that motivated the setting: a database reset recreates the
+ *  campaign with a NEW id and this silently stops matching — bookings still
+ *  tag, just with the fallback (campaign name). Prefer the setting. */
 const CAMPAIGN_BOOKING_UTM: Record<
   string,
   { source: string; campaign: string }
@@ -168,11 +187,19 @@ export function bookingTracking(args: {
   campaignId: string | null;
   campaignName: string | null;
   leadId: string;
+  /** The campaign's own "Booking UTM campaign" setting
+   *  (campaigns.booking_utm_campaign). When set it wins over the legacy id map
+   *  and the campaign name — it is the operator's explicit, per-campaign
+   *  answer to "what should these bookings be tagged as", and unlike the map
+   *  it survives the campaign being recreated. */
+  bookingUtmCampaign?: string | null;
 }): CalendlyTracking {
   const override = args.campaignId
     ? CAMPAIGN_BOOKING_UTM[args.campaignId]
     : undefined;
-  const campaign = override?.campaign ?? args.campaignName ?? "voice_ai";
+  const configured = normalizeUtmCampaign(args.bookingUtmCampaign);
+  const campaign =
+    configured || override?.campaign || args.campaignName || "voice_ai";
   return {
     utm_source: override?.source ?? "smile_dial",
     utm_medium: "voice",

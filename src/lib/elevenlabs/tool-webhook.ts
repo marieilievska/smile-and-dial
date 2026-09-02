@@ -222,6 +222,9 @@ type CampaignCalendly = {
   /** Fixed-time event (webinar): book the event's soonest opening without the
    *  lead choosing a time. See bookAppointment. */
   fixedTimeBooking: boolean;
+  /** The campaign's "Booking UTM campaign" setting — stamped as utm_campaign on
+   *  every booking. null = fall back to the legacy map / campaign name. */
+  bookingUtmCampaign: string | null;
 };
 
 /**
@@ -243,7 +246,9 @@ async function resolveCampaignCalendly(
 ): Promise<CampaignCalendly | null> {
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("owner_id, calendly_event_id, name, fixed_time_booking")
+    .select(
+      "owner_id, calendly_event_id, name, fixed_time_booking, booking_utm_campaign",
+    )
     .eq("id", campaignId)
     .maybeSingle();
   if (!campaign?.owner_id) return null;
@@ -270,6 +275,7 @@ async function resolveCampaignCalendly(
     eventTypeUri,
     campaignName: campaign.name ?? null,
     fixedTimeBooking: campaign.fixed_time_booking === true,
+    bookingUtmCampaign: campaign.booking_utm_campaign ?? null,
   };
 }
 
@@ -1225,6 +1231,7 @@ async function bookAppointment(
       campaignId: ctx.campaignId,
       campaignName: cal.campaignName,
       leadId: ctx.lead.id,
+      bookingUtmCampaign: cal.bookingUtmCampaign,
     });
     const result = await createInvitee(
       {
