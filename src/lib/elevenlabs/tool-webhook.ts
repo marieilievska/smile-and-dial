@@ -959,9 +959,17 @@ async function scheduleCallback(
     note: str(body.note),
   });
 
+  // The message is what the model sees LAST before it speaks again, so it
+  // carries the next step. Without it, gpt-class models fall back on their
+  // customer-service prior right after a successful tool call — "and before I
+  // let you go, can I help you with anything else?" — which the prompt forbids
+  // (outbound call) but which two of today's 31 wrap-ups still produced.
   return {
     success: true,
-    message: `Perfect — I've got you down for a callback then. We'll be in touch.`,
+    message:
+      `Callback set for ${fmtSlot(scheduledAt, ctx.lead.timezone)}. ` +
+      `NEXT: wrap up in ONE line ("Perfect, I'll give you a shout [day]. Appreciate you, talk soon.") ` +
+      `and end the call. Do NOT ask if there's anything else you can help with.`,
   };
 }
 
@@ -1200,7 +1208,7 @@ async function bookAppointment(
       });
       return {
         success: true,
-        message: `You're already booked for ${label} — a calendar invite is on its way to ${email}.`,
+        message: `Already booked: ${label}, invite going to ${email}. ${AFTER_BOOKING_NEXT_STEP}`,
       };
     }
 
@@ -1308,7 +1316,7 @@ async function bookAppointment(
     });
     return {
       success: true,
-      message: `You're booked for ${label}. A calendar invite is on its way to ${email}.`,
+      message: `Booked: ${label}, invite going to ${email}. ${AFTER_BOOKING_NEXT_STEP}`,
     };
   }
 
@@ -1320,11 +1328,21 @@ async function bookAppointment(
   });
   return {
     success: true,
-    message: `You're booked for ${label}. A calendar invite is on its way${
-      email ? ` to ${email}` : ""
-    }.`,
+    message: `Booked: ${label}${email ? `, invite going to ${email}` : ""}. ${AFTER_BOOKING_NEXT_STEP}`,
   };
 }
+
+/** Appended to every successful booking result. The tool result is the last
+ *  thing the model reads before its next line, so it is the most reliable
+ *  place to say what that line must be. On 2026-09-02 one of two bookings
+ *  skipped the scripted sign-off entirely and said "Can I help you with
+ *  anything else?" — the model's customer-service reflex after a successful
+ *  tool call. The prompt already forbids the phrase; this closes the gap at the
+ *  moment it actually happens. */
+const AFTER_BOOKING_NEXT_STEP =
+  "NEXT: say the sign-off from your script word for word (restate the day and time, " +
+  'invite\'s hitting their inbox, then "Appreciate you, talk soon") and end the call. ' +
+  "Do NOT ask if there's anything else you can help with.";
 
 // ---------------------------------------------------------------------------
 // mark_dnc
