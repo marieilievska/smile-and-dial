@@ -20,6 +20,7 @@ import { ConnectAgentDialog } from "./connect-agent-dialog";
 import { DeleteAgentDialog } from "./delete-agent-dialog";
 import { ResyncAgentsButton } from "./resync-agents-button";
 import { SyncAgentButton } from "./sync-agent-button";
+import { etDateTimeExact } from "@/lib/time/eastern";
 
 export default async function AgentsPage() {
   const supabase = await createClient();
@@ -147,7 +148,7 @@ export default async function AgentsPage() {
                       </TableCell>
                       <TableCell
                         className="text-muted-foreground tabular-nums"
-                        title={new Date(agent.created_at).toLocaleString()}
+                        title={etDateTimeExact(agent.created_at)}
                       >
                         {formatCreatedAt(agent.created_at, now)}
                       </TableCell>

@@ -17,6 +17,7 @@ import { pickBreakdown, type CostsRow } from "@/lib/analytics/costs";
 import { formatUsd as usd } from "@/lib/format-usd";
 
 import { formatStartedAt } from "./format-time";
+import { etDateTimeExact } from "@/lib/time/eastern";
 
 function fmtDuration(seconds: number | null): string {
   if (seconds == null || !Number.isFinite(seconds)) return "—";
@@ -102,7 +103,7 @@ export function PerCallTable({
                 breakdown={b}
                 campaignName={campaignName.get(r.campaign_id) ?? "—"}
                 startedLabel={formatStartedAt(startedIso, nowDate)}
-                startedTitle={new Date(startedIso).toLocaleString()}
+                startedTitle={etDateTimeExact(startedIso)}
                 duration={fmtDuration(r.duration_seconds)}
                 isExpanded={isExpanded}
                 onToggle={() => toggle(r.id)}

@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { formatUsd } from "@/lib/format-usd";
+import { ymdLabel } from "@/lib/time/eastern";
 
 /** One day-by-day series the chart can plot. `format` decides how the
  *  totals + tooltip render — counts vs dollars. Functions can't cross the
@@ -63,7 +64,7 @@ export function ActivityOverTime({
     if (!startDate) return `Day ${i + 1}`;
     const d = new Date(`${startDate}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() + i);
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return ymdLabel(d.toISOString().slice(0, 10));
   }
 
   return (

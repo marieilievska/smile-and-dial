@@ -17,6 +17,7 @@ import { InviteUserDialog } from "./invite-user-dialog";
 import { UserRowActions } from "./user-row-actions";
 import { UsersSearchInput } from "./users-search";
 import { UsersStatusTabs } from "./users-status-tabs";
+import { etDateTimeExact } from "@/lib/time/eastern";
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
@@ -161,7 +162,7 @@ export default async function UsersPage({
                   </TableCell>
                   <TableCell
                     className="text-muted-foreground tabular-nums"
-                    title={new Date(u.created_at).toLocaleString()}
+                    title={etDateTimeExact(u.created_at)}
                   >
                     {formatCreatedAt(u.created_at, now)}
                   </TableCell>

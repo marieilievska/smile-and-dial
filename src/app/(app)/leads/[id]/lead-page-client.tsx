@@ -28,7 +28,7 @@ import {
 import { leadStatusLabel } from "@/lib/labels";
 import {
   exactDateTime,
-  leadZoneClock,
+  etClock,
   relativeTime,
   relativeTimeSigned,
 } from "@/lib/relative-time";
@@ -402,18 +402,14 @@ export function LeadPageClient({
                           viewer's local zone + label when the lead has no
                           timezone. */}
                       <span className="text-muted-foreground text-[11px]">
-                        {leadZoneClock(meta.nextCallAt, meta.timezone)}
+                        {etClock(meta.nextCallAt)}
                       </span>
                     </span>
                   ) : (
                     relativeTimeSigned(meta.nextCallAt)
                   )
                 }
-                title={exactDateTime(
-                  meta.nextCallAt,
-                  "",
-                  meta.timezone ?? undefined,
-                )}
+                title={exactDateTime(meta.nextCallAt)}
               />
               <PipelineRow
                 label="Retry"

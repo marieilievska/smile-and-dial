@@ -1,3 +1,5 @@
+import { etDate } from "@/lib/time/eastern";
+
 /** Format a past timestamp as a human-readable "ago" string for the
  *  goals pipeline. Mirrors src/app/(app)/callbacks/format-when.ts but
  *  only handles the past direction.
@@ -48,12 +50,6 @@ export function formatSince(
   if (day < 30)
     return { label: `${Math.floor(day / 7)}w ago`, stale, staleFor };
 
-  const d = new Date(iso);
-  const monthDay = d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-  if (d.getFullYear() === now.getFullYear())
-    return { label: monthDay, stale, staleFor };
-  return { label: `${monthDay}, ${d.getFullYear()}`, stale, staleFor };
+  // "Mar 12" / "Mar 12, 2025" on the Eastern calendar (app-wide convention).
+  return { label: etDate(iso, "", now), stale, staleFor };
 }

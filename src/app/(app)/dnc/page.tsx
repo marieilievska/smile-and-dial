@@ -24,6 +24,7 @@ import { RemoveDncDialog } from "./remove-dnc-dialog";
 import { RowCheckbox, SelectAllCheckbox, SelectionProvider } from "./selection";
 import { fetchDncStats } from "./stats-query";
 import { SmartPagination } from "../leads/smart-pagination";
+import { etDateTimeExact } from "@/lib/time/eastern";
 
 const REASON_LABELS: Record<string, string> = {
   dnc_requested: "Caller requested",
@@ -299,7 +300,7 @@ export default async function DncPage({
                       </TableCell>
                       <TableCell
                         className="text-muted-foreground tabular-nums"
-                        title={new Date(entry.added_at).toLocaleString()}
+                        title={etDateTimeExact(entry.added_at)}
                       >
                         {formatAddedAt(entry.added_at, now)}
                       </TableCell>

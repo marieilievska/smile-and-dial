@@ -1,3 +1,5 @@
+import { etDateTime } from "@/lib/time/eastern";
+
 /** Variable interpolation for email templates (BUILD_PLAN §12).
  *
  *  Supported tokens:
@@ -33,9 +35,10 @@ export function renderTemplate(template: string, ctx: TemplateContext): string {
     if (scope === "owner") return String(ctx.owner?.full_name ?? "");
     if (scope === "appointment") {
       if (key === "time")
-        return ctx.appointment?.time
-          ? new Date(ctx.appointment.time).toLocaleString()
-          : "";
+        // Eastern with the zone spelled out ("Sep 4, 2:00 PM EDT") — the
+        // webinar runs on Eastern time, and a bare toLocaleString() renders
+        // in the server's UTC.
+        return etDateTime(ctx.appointment?.time, "", true);
       if (key === "url") return ctx.appointment?.url ?? "";
     }
     return "";

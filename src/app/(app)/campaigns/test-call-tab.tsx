@@ -6,6 +6,7 @@ import { Mic, MicOff, PhoneOff, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { getTestCallSession } from "@/lib/campaigns/test-call";
+import { etFormat } from "@/lib/time/eastern";
 
 /**
  * Real browser test call against THIS campaign's actual ElevenLabs agent.
@@ -21,12 +22,13 @@ type Line = { role: "agent" | "user"; text: string };
 /** Representative lead context so the agent's {{placeholders}} resolve during a
  *  test (there's no real lead behind a test call). */
 function testDynamicVariables(): Record<string, string> {
-  const today = new Intl.DateTimeFormat("en-US", {
+  // Eastern, matching the current_date the real dialer hands the agent.
+  const today = etFormat(new Date(), {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
-  }).format(new Date());
+  });
   return {
     call_type: "cold",
     last_call_summary: "",

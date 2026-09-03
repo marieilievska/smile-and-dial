@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { formatUsd } from "@/lib/format-usd";
 import type { PerTime } from "@/lib/analytics/costs";
+import { ymdLabel } from "@/lib/time/eastern";
 
 /** Daily-spend area chart for the Per-day view. Round 20 — replaces
  *  the list-of-bars treatment with a real client-side chart that
@@ -36,8 +37,7 @@ export function PerTimeChart({ data }: { data: PerTime[] }) {
   const avgPerDay = data.length === 0 ? 0 : totalSpend / data.length;
 
   function fmtDay(iso: string): string {
-    const d = new Date(`${iso}T00:00:00Z`);
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return ymdLabel(iso);
   }
 
   return (

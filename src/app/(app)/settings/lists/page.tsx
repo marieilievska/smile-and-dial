@@ -15,6 +15,7 @@ import { formatCreatedAt } from "../format-created";
 import { DeleteListDialog } from "./delete-list-dialog";
 import { ListAttachmentControls } from "./list-attachment-controls";
 import { ListFormDialog } from "./list-form-dialog";
+import { etDateTimeExact } from "@/lib/time/eastern";
 
 export default async function ListsPage() {
   const supabase = await createClient();
@@ -153,7 +154,7 @@ export default async function ListsPage() {
                       </TableCell>
                       <TableCell
                         className="text-muted-foreground tabular-nums"
-                        title={new Date(list.created_at).toLocaleString()}
+                        title={etDateTimeExact(list.created_at)}
                       >
                         {formatCreatedAt(list.created_at, now)}
                       </TableCell>

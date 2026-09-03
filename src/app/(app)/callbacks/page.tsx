@@ -341,7 +341,6 @@ export default async function CallbacksPage({
                     const when = formatScheduledWhen(
                       cb.scheduled_at,
                       now,
-                      cb.lead?.timezone ?? undefined,
                       !isPending, // resolved callbacks are never "overdue"
                     );
                     // Two-tone urgency rail: overdue reads as an alarm

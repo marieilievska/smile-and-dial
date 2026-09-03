@@ -10,6 +10,7 @@ import {
   saveCalendlyConnection,
   syncCalendly,
 } from "@/lib/calendly/actions";
+import { etDateTime } from "@/lib/time/eastern";
 
 export function CalendlyForm({
   connected,
@@ -38,7 +39,7 @@ export function CalendlyForm({
     <div className="flex flex-col gap-2">
       <p className="text-muted-foreground text-sm">
         {connected
-          ? `Connected${lastSyncAt ? ` · last synced ${new Date(lastSyncAt).toLocaleString()}` : ""} · ${eventTypeCount} event type${eventTypeCount === 1 ? "" : "s"}.`
+          ? `Connected${lastSyncAt ? ` · last synced ${etDateTime(lastSyncAt, "", true)}` : ""} · ${eventTypeCount} event type${eventTypeCount === 1 ? "" : "s"}.`
           : "Not connected. Paste your Calendly Personal Access Token to let the agent read your availability and book meetings on your calendar."}
       </p>
       {!connected ? (
