@@ -141,6 +141,15 @@ function bodySchemaFor(
         false,
       );
       add(
+        "agreed_day",
+        "The day the lead said YES to, in their words: 'today', 'tomorrow', or a " +
+          "weekday like 'Tuesday'. The booking is REFUSED if this day doesn't " +
+          "match the slot_id you pass. If the lead's day isn't in your " +
+          "get_available_times list, don't book: that day isn't open — say so " +
+          "and take the callback path instead.",
+        true,
+      );
+      add(
         "email",
         "The lead's email for the calendar invite, e.g. 'jane@business.com'.",
         true,

@@ -18,6 +18,7 @@ import {
   OFFER_LOOKAHEAD_DAYS,
   relativeDayLabel,
 } from "@/lib/calendly/booking";
+import { agreedDayMatchesSlot } from "@/lib/calendly/agreed-day";
 import { hasBookingAtSlot } from "@/lib/calendly/booking-dedup";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import {
@@ -1097,6 +1098,10 @@ async function bookAppointment(
   body: Record<string, unknown>,
 ): Promise<ToolWebhookResult> {
   let slotId = str(body.slot_id);
+  // Whether the AGENT picked this slot (vs. the fixed-time path below, where
+  // the server resolves it and the day guard must not apply).
+  const agentPickedSlot = Boolean(slotId);
+  const agreedDay = str(body.agreed_day);
   const email = str(body.email) || (ctx.lead.business_email ?? "");
   // Calendly REQUIRES an invitee name — a booking sent without one is rejected
   // ("invitee either name or first_name must be filled"), and the generic
@@ -1164,6 +1169,41 @@ async function bookAppointment(
     ? slotId
     : fmtSlot(slotId, ctx.lead.timezone);
 
+  // Agreed-day guard. On 2026-09-03 (Pamper Me Skin Care) the lead said
+  // "Tuesday", the agent's get_available_times list only held TODAY's slot
+  // (Thursday 2 PM ET), and the agent booked it anyway — then told the lead
+  // "Tuesday at 2". The server couldn't catch it because the tool never learned
+  // which day the lead agreed to. Now the agent must pass `agreed_day`, and a
+  // slot on a different day is refused. Only applies when the agent picked the
+  // slot (never on the fixed-time path, where we resolved it ourselves).
+  // "unrecognized" (or a missing agreed_day) FAILS OPEN: the ElevenLabs tool
+  // definition may still be the old one without the parameter, and a vague
+  // phrase must not stop real bookings — it's logged instead.
+  const dayCheck =
+    agentPickedSlot && !Number.isNaN(when.getTime())
+      ? agreedDayMatchesSlot(agreedDay, slotId, Date.now(), ctx.lead.timezone)
+      : null;
+  if (dayCheck?.verdict === "mismatch") {
+    await logToolEvent(ctx, "tool_book_appointment", {
+      slot_id: slotId,
+      email,
+      agreed_day: agreedDay,
+      slot_day: dayCheck.slotDay,
+      day_mismatch: true,
+    });
+    return {
+      success: false,
+      message: `NOT booked. The lead agreed to ${agreedDay}, but that slot is ${label} (${dayCheck.slotDay}). Never book a day the lead didn't agree to. If ${agreedDay} is in your get_available_times list, pass THAT slot's slot_id. If it isn't, it's not open: tell them, then take the callback path (ask when to check back and call smiledial_schedule_callback).`,
+    };
+  }
+  // Folded into every success-path audit log below so an unrecognized (or
+  // absent) agreed_day is visible without blocking the booking.
+  const agreedDayAudit = !dayCheck
+    ? {}
+    : dayCheck.verdict === "match"
+      ? { agreed_day: agreedDay }
+      : { agreed_day: agreedDay || null, agreed_day_unrecognized: true };
+
   // Live: book the slot directly on the campaign owner's Calendly.
   if (cal?.eventTypeUri) {
     if (Number.isNaN(when.getTime())) {
@@ -1209,6 +1249,7 @@ async function bookAppointment(
         email,
         live: true,
         already_booked: true,
+        ...agreedDayAudit,
       });
       return {
         success: true,
@@ -1317,6 +1358,7 @@ async function bookAppointment(
       email,
       live: true,
       invitee_uri: result.inviteeUri,
+      ...agreedDayAudit,
     });
     return {
       success: true,
@@ -1329,6 +1371,7 @@ async function bookAppointment(
     slot_id: slotId,
     email,
     name,
+    ...agreedDayAudit,
   });
   return {
     success: true,
