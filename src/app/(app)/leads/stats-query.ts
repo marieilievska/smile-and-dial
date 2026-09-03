@@ -51,23 +51,41 @@ export async function fetchLeadStats(
       .select("*", { count: "exact", head: true })
       .is("deleted_at", null)
       .eq("status", "callback"),
-    // Goals met this week = goal-met CALLS that ended this week. We count
-    // calls (not leads) so the tile matches its destination exactly: the
-    // Calls list filtered to goal_met=yes for the same window. `ended_at`
-    // never changes after a call finishes, so — unlike the old query, which
-    // keyed off the lead's updated_at — editing a long-ago won lead no
-    // longer re-counts it into this week.
-    supabase
-      .from("calls")
-      .select("*", { count: "exact", head: true })
-      .eq("goal_met", true)
-      .gte("ended_at", startOfWeekIso),
+    // Goals met this week = distinct BUSINESSES with a goal-met call created
+    // this week — the app-wide goal rule (a lead booked twice is one goal),
+    // on the same `created_at` column every other "this week/today" number
+    // uses. Paginated: PostgREST caps a response at 1,000 rows.
+    fetchGoalLeadsSince(supabase, startOfWeekIso),
   ]);
 
   return {
     readyToCall: readyResult.count ?? 0,
     callbacksDue: callbackResult.count ?? 0,
-    goalsMetThisWeek: goalsMetResult.count ?? 0,
+    goalsMetThisWeek: goalsMetResult,
     weekStartDate,
   };
+}
+
+const PAGE = 1000;
+
+/** Distinct leads with a goal-met call created at/after `isoStart`. */
+async function fetchGoalLeadsSince(
+  supabase: SupabaseServerClient,
+  isoStart: string,
+): Promise<number> {
+  const leads = new Set<string>();
+  for (let offset = 0; ; offset += PAGE) {
+    const { data } = await supabase
+      .from("calls")
+      .select("lead_id")
+      .eq("goal_met", true)
+      .gte("created_at", isoStart)
+      .order("created_at", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    const batch = (data ?? []) as { lead_id: string | null }[];
+    for (const row of batch) leads.add(row.lead_id ?? "");
+    if (batch.length < PAGE) break;
+    if (offset > 500_000) break; // safety backstop
+  }
+  return leads.size;
 }

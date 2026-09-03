@@ -146,10 +146,10 @@ export async function fetchDashboardKpis(
   for (let offset = 0; ; offset += PAGE) {
     let q = supabase
       .from("calls")
-      .select("started_at, outcome, duration_seconds, extracted_data, lead_id")
+      .select("created_at, outcome, duration_seconds, extracted_data, lead_id")
       .eq("direction", "outbound")
-      .gte("started_at", since)
-      .order("started_at", { ascending: false })
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
       .range(offset, offset + PAGE - 1);
     // All-agents mode counts every outbound call; scoped mode narrows by
     // agent/campaign.
@@ -209,8 +209,8 @@ export async function fetchCauseOfDeath(
         "lead_id, outcome, goal_met, objection_category, objection_specific, objection_quote",
       )
       .eq("direction", "outbound")
-      .gte("started_at", since)
-      .order("started_at", { ascending: false })
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
       .range(offset, offset + PAGE - 1);
     if (!scope.all) q = q.or(conds.join(","));
     const { data } = await q;
@@ -325,18 +325,18 @@ export async function fetchVoiceRows(
   const { data } = await supabase
     .from("calls")
     .select(
-      "id, started_at, lead_id, extracted_data, recording_path, lead:leads(company, list:lists(name))",
+      "id, created_at, lead_id, extracted_data, recording_path, lead:leads(company, list:lists(name))",
     )
     .eq("campaign_id", scope.campaignId)
     .eq("direction", "outbound")
-    .gte("started_at", sinceDaysAgoIso(VOICE_DAYS))
+    .gte("created_at", sinceDaysAgoIso(VOICE_DAYS))
     .not(`extracted_data->>${sentimentKey}`, "is", null)
-    .order("started_at", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(2000);
 
   type Raw = {
     id: string;
-    started_at: string | null;
+    created_at: string | null;
     lead_id: string | null;
     extracted_data: unknown;
     recording_path: string | null;
@@ -358,7 +358,7 @@ export async function fetchVoiceRows(
       const { company, list } = leadCompany(r.lead);
       return {
         id: r.id,
-        day: r.started_at ? etDay(r.started_at) : "",
+        day: r.created_at ? etDay(r.created_at) : "",
         company,
         list,
         leadId: r.lead_id,
@@ -383,20 +383,20 @@ export async function fetchHotLeadRows(
   const { data } = await supabase
     .from("calls")
     .select(
-      "id, started_at, lead_id, extracted_data, lead:leads(company, owner_name, manager_name, employee_name, list:lists(name))",
+      "id, created_at, lead_id, extracted_data, lead:leads(company, owner_name, manager_name, employee_name, list:lists(name))",
     )
     .eq("campaign_id", scope.campaignId)
     .eq("direction", "outbound")
-    .gte("started_at", sinceDaysAgoIso(VOICE_DAYS))
+    .gte("created_at", sinceDaysAgoIso(VOICE_DAYS))
     .in(`extracted_data->>${sentimentKey}`, warmValues)
-    .order("started_at", { ascending: false })
+    .order("created_at", { ascending: false })
     // Intentional cap: a 30-day campaign window won't realistically exceed this;
     // the newest 2,000 warm calls are shown (matches fetchVoiceRows).
     .limit(2000);
 
   type Raw = {
     id: string;
-    started_at: string | null;
+    created_at: string | null;
     lead_id: string | null;
     extracted_data: unknown;
     lead: unknown;
@@ -426,7 +426,7 @@ export async function fetchHotLeadRows(
       const info = leadInfo(r.lead);
       return {
         id: r.id,
-        day: r.started_at ? etDay(r.started_at) : "",
+        day: r.created_at ? etDay(r.created_at) : "",
         company: info.company,
         contact: info.contact,
         whyHot: detected.notesKey

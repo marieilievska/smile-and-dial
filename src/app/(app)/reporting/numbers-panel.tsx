@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/table";
 import { regionForAreaCode } from "@/lib/dialer/nanp-states";
 import { createClient } from "@/lib/supabase/server";
+import { etDateDaysAgo, etMidnightUtcIso } from "@/lib/time/eastern";
 
 // Shared with the Twilio numbers settings page — a pure presentational
 // sparkline, so both surfaces read the same shape and can't drift.
@@ -67,7 +68,8 @@ const MATCH_HELP: Record<string, string> = {
 export async function NumbersPanel({ days = 30 }: { days?: number }) {
   const supabase = await createClient();
   const now = new Date();
-  const since = new Date(now.getTime() - days * 86_400_000).toISOString();
+  // Whole Eastern days on created_at — the app-wide "calls" window/column.
+  const since = etMidnightUtcIso(etDateDaysAgo(days, now));
 
   // Outbound calls in the window, with the tier recorded at placement.
   // Paginate: PostgREST hard-caps every response at 1,000 rows, so a plain
@@ -84,7 +86,7 @@ export async function NumbersPanel({ days = 30 }: { days?: number }) {
       .from("calls")
       .select("outcome, local_match, dest_country, twilio_number_id")
       .eq("direction", "outbound")
-      .gte("started_at", since)
+      .gte("created_at", since)
       .range(from, from + 999);
     const page = (data ?? []) as CallRow[];
     calls.push(...page);
@@ -129,9 +131,7 @@ export async function NumbersPanel({ days = 30 }: { days?: number }) {
   const campaignName = new Map((campaignRows ?? []).map((c) => [c.id, c.name]));
 
   // 14-day history for the sparkline, oldest first.
-  const historySince = new Date(now.getTime() - 14 * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+  const historySince = etDateDaysAgo(14);
   const { data: statRows } = await supabase
     .from("twilio_number_daily_stats")
     .select("twilio_number_id, day, calls, connected, connect_rate")

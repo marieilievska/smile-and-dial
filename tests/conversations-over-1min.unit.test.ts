@@ -9,7 +9,7 @@ const AT = "2026-07-27T15:00:00.000Z";
 
 function call(p: Partial<AgentCallRow>): AgentCallRow {
   return {
-    started_at: AT,
+    created_at: AT,
     outcome: "gatekeeper",
     duration_seconds: 0,
     extracted_data: {},

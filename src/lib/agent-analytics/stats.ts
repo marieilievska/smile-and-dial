@@ -4,11 +4,14 @@
 
 import { callReachedDm } from "@/lib/calls/decision-maker";
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
+import { etDateDaysAgo, etMidnightUtcIso } from "@/lib/time/eastern";
 
 import { isWarm } from "./field-detect";
 
 export type AgentCallRow = {
-  started_at: string | null;
+  /** Bucketed by created_at (not started_at) — the same column every other
+   *  "calls" number in the app counts on. */
+  created_at: string | null;
   outcome: string | null;
   duration_seconds: number | null;
   extracted_data: unknown;
@@ -93,8 +96,8 @@ export function computeDailyKpis(
   // after the loop.
   const goalLeadsByDay = new Map<string, Set<string>>();
   for (const r of rows) {
-    if (!r.started_at) continue;
-    const day = etDay(r.started_at);
+    if (!r.created_at) continue;
+    const day = etDay(r.created_at);
     let k = byDay.get(day);
     if (!k) {
       k = emptyDay(day);
@@ -147,10 +150,12 @@ export function computeDailyKpis(
   return [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1));
 }
 
-/** ISO timestamp `days` ago — the lower bound for the history window. Lives
- *  here (not in the component) so the page's render stays pure. */
+/** ET midnight `days` ago (ISO) — the lower bound for the history window, so
+ *  the oldest day in the report is a whole Eastern day rather than a partial
+ *  one cut at "now minus N×24h". Lives here (not in the component) so the
+ *  page's render stays pure. */
 export function sinceDaysAgoIso(days: number): string {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  return etMidnightUtcIso(etDateDaysAgo(days));
 }
 
 /** Yesterday's ET date (YYYY-MM-DD) — the page's default selected day. */
