@@ -41,6 +41,11 @@ function testDynamicVariables(): Record<string, string> {
     google_reviews: "120",
     call_id: "test",
     current_date: today,
+    current_time: new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Chicago",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date()),
     lead_timezone: "America/Chicago",
   };
 }

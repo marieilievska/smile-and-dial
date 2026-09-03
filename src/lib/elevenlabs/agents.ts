@@ -26,6 +26,7 @@ import {
 } from "@/lib/elevenlabs/server-tools";
 import { DYNAMIC_VARIABLE_PLACEHOLDERS } from "@/lib/elevenlabs/conversation-init";
 import { appBaseUrl } from "@/lib/app-url";
+import { CALLBACK_TIME_RULES } from "./server-tools";
 
 export type AgentSyncPayload = {
   name: string;
@@ -139,14 +140,8 @@ const DATA_COLLECTION_FIELDS = [
     description:
       "The date and time to call the person back. Fill this ONLY when the " +
       "disposition is callback — i.e. they gave a specific time OR a timeframe. " +
-      "Output a full ISO 8601 datetime WITH a timezone offset, e.g. " +
-      "'2026-06-12T15:00:00-04:00'. Resolve relative requests against today, " +
-      "{{current_date}}: 'tomorrow at 3' -> tomorrow at 15:00; 'next Tuesday " +
-      "morning' -> that Tuesday at 09:00; a loose timeframe ('next week', 'in a " +
-      "couple days', 'sometime this afternoon') -> a sensible business-hours " +
-      "time inside it (e.g. the next business day in that window at 10:00). Use " +
-      "the lead's timezone {{lead_timezone}} for the offset. Leave blank when no " +
-      "time or timeframe was given. If you DO fill this " +
+      CALLBACK_TIME_RULES +
+      " Leave blank when no time or timeframe was given. If you DO fill this " +
       "field, the disposition MUST be callback (unless the goal was met) — never " +
       "gatekeeper.",
     type: "string",

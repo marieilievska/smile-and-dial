@@ -82,6 +82,28 @@ export function parseZonedDatetime(
 }
 
 /**
+ * Parse an agent-supplied callback datetime as the LEAD's local wall-clock
+ * time, IGNORING any UTC offset the model attached.
+ *
+ * Why: the model writes the clock time the person actually said ("tomorrow
+ * morning" -> 10:00) but stamps it with an Eastern offset (-04:00) for every
+ * lead, Hawaii included — so "10:00-04:00" for a Honolulu spa came out as
+ * 4 AM their time. The wall clock is the trustworthy part; the offset is
+ * not. Reading "YYYY-MM-DDTHH:mm" in the lead's zone makes 10:00 mean 10:00
+ * where they are. Falls back to the plain parser for non-ISO input.
+ */
+export function parseLeadLocalDatetime(
+  raw: string | null | undefined,
+  timeZone: string | null | undefined,
+): Date | null {
+  const s = (raw ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return parseZonedDatetime(s, timeZone);
+  return parseZonedDatetime(m[0], timeZone);
+}
+
+/**
  * Roll an absolute instant forward off the weekend, PRESERVING its local
  * wall-clock time in `timeZone`. A Saturday → the same time Monday (+2 days), a
  * Sunday → the same time Monday (+1). Weekdays return unchanged.

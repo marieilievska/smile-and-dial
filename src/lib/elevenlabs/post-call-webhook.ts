@@ -14,7 +14,7 @@ import { CONVERSATION_OUTCOMES } from "@/lib/calls/outcomes";
 import {
   deferSameDayCallbackIso,
   localHourDaysAheadIso,
-  parseZonedDatetime,
+  parseLeadLocalDatetime,
 } from "@/lib/dialer/local-schedule";
 import {
   applyRetryForCall,
@@ -1502,7 +1502,12 @@ export async function applyOutcomeSideEffects(
       .select("timezone")
       .eq("id", input.leadId)
       .maybeSingle();
-    const parsed = parseZonedDatetime(input.callbackDatetime, leadTz?.timezone);
+    // Lead-local wall clock; the model's offset is ignored (see
+    // parseLeadLocalDatetime).
+    const parsed = parseLeadLocalDatetime(
+      input.callbackDatetime,
+      leadTz?.timezone,
+    );
     // Honor the exact time the lead named, weekends included (agreed callbacks
     // dial on weekends now). Only the DEFAULT slot (no time given) rolls to a
     // weekday via nextDayLocalHourIso.
