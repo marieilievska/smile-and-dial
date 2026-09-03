@@ -89,17 +89,52 @@ describe("availabilityWindows", () => {
     expect(span).toBe(OFFER_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
   });
 
-  it("clamps a span above Calendly's 7-day per-query cap", () => {
-    const [w] = availabilityWindows(now, { windows: 1, spanDays: 30 });
+  it("a span of exactly 7 days is allowed — Calendly accepts a 7.0-day query (verified live 2026-09-03)", () => {
+    const [w] = availabilityWindows(now, { windows: 1, spanDays: 7 });
     const span = new Date(w.endISO).getTime() - new Date(w.startISO).getTime();
-    expect(span).toBeLessThan(7 * 24 * 60 * 60 * 1000);
+    expect(span).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it("clamps a span above Calendly's 7-day per-query cap to exactly 7 days", () => {
+    for (const spanDays of [8, 30]) {
+      const [w] = availabilityWindows(now, { windows: 1, spanDays });
+      const span =
+        new Date(w.endISO).getTime() - new Date(w.startISO).getTime();
+      expect(span).toBe(7 * 24 * 60 * 60 * 1000);
+    }
+  });
+
+  it("the offer window from a Thursday-morning call reaches next Wednesday's 2 PM ET session", () => {
+    // The webinar runs weekdays at 2 PM ET and its booking range counts
+    // BUSINESS days: 4 business days from a Thursday = next Wednesday. A
+    // 5-calendar-day window from Thursday 9:13 AM ET ended Tuesday morning and
+    // never saw Tuesday's or Wednesday's sessions.
+    const thursdayMorning = Date.UTC(2026, 8, 3, 13, 13, 0); // 2026-09-03T13:13Z
+    const [w] = availabilityWindows(thursdayMorning, {
+      windows: 1,
+      spanDays: OFFER_LOOKAHEAD_DAYS,
+    });
+    const nextWednesdaySession = Date.UTC(2026, 8, 9, 18, 0, 0); // Wed 2 PM ET
+    expect(new Date(w.endISO).getTime()).toBeGreaterThan(nextWednesdaySession);
+  });
+
+  it("the offer window from the real Pamper Me call (Thu 11:13 AM ET) reaches Tuesday's 2 PM ET session", () => {
+    // 2026-09-03T15:13:24Z: the old window ended Tuesday 11:28 AM ET, BEFORE
+    // Tuesday's 2 PM session, so the agent was offered only "today" and a lead
+    // who asked for Tuesday got booked for today.
+    const realCall = Date.UTC(2026, 8, 3, 15, 13, 24);
+    const [w] = availabilityWindows(realCall, {
+      windows: 1,
+      spanDays: OFFER_LOOKAHEAD_DAYS,
+    });
+    const tuesdaySession = Date.UTC(2026, 8, 8, 18, 0, 0); // Tue 2 PM ET
+    expect(new Date(w.endISO).getTime()).toBeGreaterThan(tuesdaySession);
   });
 });
 
 describe("OFFER_LOOKAHEAD_DAYS", () => {
-  it("covers the host's ~4-day booking range but stays inside one Calendly query", () => {
-    expect(OFFER_LOOKAHEAD_DAYS).toBeGreaterThanOrEqual(4);
-    expect(OFFER_LOOKAHEAD_DAYS).toBeLessThan(7);
+  it("is 7 days: reaches the 4th business day's session from any weekday call, inside one Calendly query", () => {
+    expect(OFFER_LOOKAHEAD_DAYS).toBe(7);
   });
 });
 
@@ -132,6 +167,28 @@ describe("relativeDayLabel", () => {
         "America/Los_Angeles",
       ),
     ).toBe("tomorrow");
+  });
+
+  it("says 'next <Weekday>' when the slot shares today's weekday a week out, bare weekday inside that", () => {
+    // Thursday 2026-09-03, 3 PM in New York (19:00Z). With a 7-day window the
+    // agent can see NEXT Thursday's 2 PM session, so "Thursday" alone would be
+    // ambiguous with today.
+    const thursdayAfternoon = Date.UTC(2026, 8, 3, 19, 0, 0);
+    expect(
+      relativeDayLabel(
+        "2026-09-10T18:00:00Z",
+        thursdayAfternoon,
+        "America/New_York",
+      ),
+    ).toBe("next Thursday");
+    // Six days out is still unambiguous: just "Wednesday".
+    expect(
+      relativeDayLabel(
+        "2026-09-09T18:00:00Z",
+        thursdayAfternoon,
+        "America/New_York",
+      ),
+    ).toBe("Wednesday");
   });
 
   it("falls back to Eastern when the lead has no timezone, and is empty for junk", () => {

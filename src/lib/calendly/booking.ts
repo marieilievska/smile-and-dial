@@ -29,20 +29,23 @@ export type AvailabilityWindow = { startISO: string; endISO: string };
 /**
  * How far ahead get_available_times looks when offering the lead a session.
  *
- * Deliberately SHORT. The daily webinar's Calendly event only lets invitees
- * book ~4 days out (the host's choice: a seat booked weeks ahead is a seat
- * nobody shows up for), so anything past that comes back empty from Calendly
- * anyway. Five days covers the host's range with a day to spare and keeps the
- * list the agent has to hold to a handful of lines — ONE tool call, and no dead
- * air on the phone while it re-checks a day the owner named. Calendly stays the
- * source of truth: shrinking or growing its range needs no change here unless
- * it passes five days.
+ * Deliberately SHORT — one Calendly query, a handful of lines for the agent to
+ * hold, no dead air re-checking a day the owner named. But it must reach every
+ * session the host actually lets people book. The daily webinar runs weekdays
+ * at 2 PM ET and its Calendly booking range counts BUSINESS days (~4): from a
+ * Thursday that is next WEDNESDAY, six calendar days out. The old 5-day window
+ * from a Thursday 11:13 AM ET call ended Tuesday 11:28 AM — before Tuesday's
+ * 2 PM session — so the agent was offered only "today", and a lead who asked
+ * for Tuesday was booked for today (the "Pamper Me Skin Care" mis-booking).
+ * Seven days reaches the 4th business day's 2 PM session from any weekday
+ * call and is exactly the largest span one Calendly query accepts (verified
+ * live 2026-09-03). Calendly stays the source of truth for what is bookable.
  *
  * NOT used for a fixed-time (single-session) event — see soonestCalendlyOpening
  * in the tool webhook, which keeps the long forward scan so a one-off date
  * weeks out is still found.
  */
-export const OFFER_LOOKAHEAD_DAYS = 5;
+export const OFFER_LOOKAHEAD_DAYS = 7;
 
 /**
  * Forward-scan windows for Calendly's event_type_available_times endpoint,
@@ -58,10 +61,12 @@ export function availabilityWindows(
 ): AvailabilityWindow[] {
   const windows = Math.max(1, opts?.windows ?? 6);
   const leadMinutes = opts?.leadMinutes ?? 15;
-  // 6.9 days by default: under Calendly's 7-day cap, and reused as the step so
-  // consecutive windows abut with no gap between them. A caller-supplied span
-  // is clamped to the same cap.
-  const spanDays = Math.min(6.9, Math.max(0.1, opts?.spanDays ?? 6.9));
+  // 6.9 days by default: safely under Calendly's 7-day cap for the multi-window
+  // forward scan, and reused as the step so consecutive windows abut with no
+  // gap between them. A caller-supplied span is clamped to exactly 7 days —
+  // Calendly accepts a 7.0-day query (verified live 2026-09-03), and the
+  // single-window daily-webinar offer needs the full week (OFFER_LOOKAHEAD_DAYS).
+  const spanDays = Math.min(7, Math.max(0.1, opts?.spanDays ?? 6.9));
   const SPAN_MS = Math.floor(spanDays * 24 * 60 * 60 * 1000);
   const base = nowMs + leadMinutes * 60 * 1000;
   const out: AvailabilityWindow[] = [];
@@ -77,12 +82,15 @@ export function availabilityWindows(
 
 /**
  * How a person would refer to a slot's day, relative to the lead's own today:
- * "today", "tomorrow", or the weekday name ("Thursday"). Computed in the LEAD's
- * timezone — late in a Pacific evening, a session on the lead's tomorrow is
- * already "today" in UTC, and the agent must say what the owner would say.
- * Only meaningful inside a short look-ahead (see OFFER_LOOKAHEAD_DAYS): within
- * five days a weekday name can never be ambiguous, which is what lets the agent
- * skip "this Thursday or next?" entirely. Empty string for an unparseable time.
+ * "today", "tomorrow", the weekday name ("Thursday"), or "next Thursday" once
+ * the slot is a full week out. Computed in the LEAD's timezone — late in a
+ * Pacific evening, a session on the lead's tomorrow is already "today" in UTC,
+ * and the agent must say what the owner would say. Only meaningful inside a
+ * short look-ahead (see OFFER_LOOKAHEAD_DAYS): two to six days out a weekday
+ * name is unambiguous, which lets the agent skip "this Thursday or next?". At
+ * seven days the slot shares TODAY's weekday (a Thursday 3 PM call sees next
+ * Thursday's 2 PM session), so it is labelled "next <Weekday>" to keep the two
+ * apart. Empty string for an unparseable time.
  */
 export function relativeDayLabel(
   slotISO: string,
@@ -109,7 +117,11 @@ export function relativeDayLabel(
   const diff = localDayNumber(slot) - localDayNumber(new Date(nowMs));
   if (diff === 0) return "today";
   if (diff === 1) return "tomorrow";
-  return slot.toLocaleDateString("en-US", { weekday: "long", timeZone: tz });
+  const weekday = slot.toLocaleDateString("en-US", {
+    weekday: "long",
+    timeZone: tz,
+  });
+  return diff >= 7 ? `next ${weekday}` : weekday;
 }
 
 /** The tracking fields Calendly stores on a booking (its invitee `tracking`
