@@ -22,7 +22,7 @@ import { hasBookingAtSlot } from "@/lib/calendly/booking-dedup";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import {
   localHourDaysAheadIso,
-  parseZonedDatetime,
+  parseLeadLocalDatetime,
 } from "@/lib/dialer/local-schedule";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
 import { shortenMessageLink } from "@/lib/shortlinks/shorten-message";
@@ -896,10 +896,10 @@ async function scheduleCallback(
   body: Record<string, unknown>,
 ): Promise<ToolWebhookResult> {
   const raw = str(body.callback_datetime);
-  // Trust an explicit offset; if the model dropped it, read the wall-clock time
-  // in the LEAD's timezone (not the server's UTC) so the callback isn't stored
-  // hours off.
-  const when = parseZonedDatetime(raw, ctx.lead.timezone);
+  // The clock time is read in the LEAD's timezone and any offset the model
+  // attached is ignored: it stamps -04:00 on every lead, so "10:00-04:00" for
+  // a Honolulu spa used to mean 4 AM there. 10:00 means 10:00 where they are.
+  const when = parseLeadLocalDatetime(raw, ctx.lead.timezone);
   if (!raw || !when || Number.isNaN(when.getTime())) {
     return {
       success: false,
@@ -956,6 +956,10 @@ async function scheduleCallback(
 
   await logToolEvent(ctx, "tool_schedule_callback", {
     scheduled_at: scheduledAt,
+    // What the model sent, so an audit can see when its offset disagreed
+    // with the lead's zone.
+    model_datetime: raw,
+    lead_timezone: ctx.lead.timezone,
     note: str(body.note),
   });
 

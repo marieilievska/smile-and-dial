@@ -81,6 +81,10 @@ export type ConversationInitResponse = {
     // agent can resolve "tomorrow at 3" / "next Tuesday" into an absolute time
     // when booking a callback. Without these it has no anchor for relative times.
     current_date: string;
+    // The clock time right now in the lead's timezone ("3:43 PM"), so "in two
+    // hours" / "later today" resolve against the lead's clock, not the model's
+    // guess at it.
+    current_time: string;
     lead_timezone: string;
     // The business's imported CRM / booking / scheduling software (the
     // `booking_crm_software` custom field). Reference-only context the agent can
@@ -118,12 +122,23 @@ export const DYNAMIC_VARIABLE_PLACEHOLDERS = {
   google_rating: "",
   google_reviews: "",
   current_date: "",
+  current_time: "",
   lead_timezone: "",
   booking_crm_software: "",
 } as const satisfies Record<
   keyof ConversationInitResponse["dynamic_variables"],
   string
 >;
+
+/** The clock time right now (e.g. "3:43 PM") in the given timezone, for the
+ *  agent's "in two hours" / "later today" callback reasoning. */
+function nowInTimezone(timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date());
+}
 
 /** Today's date spelled out (e.g. "Thursday, June 12, 2026") in the given
  *  timezone, for the agent's callback-time reasoning. */
@@ -221,6 +236,7 @@ function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
     // default timezone) so its callback-time reasoning has an anchor.
     call_type: "cold",
     current_date: todayInTimezone("America/New_York"),
+    current_time: nowInTimezone("America/New_York"),
   };
 }
 
@@ -354,6 +370,7 @@ async function buildVarsForCall(
     google_rating: numStr(lead?.google_rating),
     google_reviews: numStr(lead?.google_reviews),
     current_date: todayInTimezone(lead?.timezone || "America/New_York"),
+    current_time: nowInTimezone(lead?.timezone || "America/New_York"),
     lead_timezone: lead?.timezone ?? "",
     booking_crm_software: bookingCrmSoftware,
   };

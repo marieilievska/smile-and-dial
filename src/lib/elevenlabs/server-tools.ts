@@ -11,6 +11,12 @@ import {
 } from "@/lib/agents/prompt";
 import { appBaseUrl } from "@/lib/app-url";
 
+/** How the agent must express a callback time — shared by the in-call
+ *  schedule_callback tool and the post-call callback_datetime extraction so
+ *  both resolve "tomorrow morning" the same way: 10:00 in the LEAD's zone. */
+export const CALLBACK_TIME_RULES =
+  "Write the time in the LEAD's local time zone ({{lead_timezone}}) as a full ISO 8601 datetime with that zone's offset, e.g. '2026-01-15T14:00:00-06:00'. In the lead's zone it is now {{current_time}} on {{current_date}}; count from that for relative requests ('in 20 minutes', 'in two hours', 'later today'). 'tomorrow morning' / 'in the morning' / 'Tuesday morning' / 'when the owner is in' with no clock time -> 10:00 that day; 'afternoon' -> 14:00; 'tomorrow at 3' -> 15:00; a loose window ('next week', 'in a couple of days', 'end of the month', 'after she's back') -> the first business day in that window at 10:00. The clock time you write is read as the lead's local time.";
+
 /**
  * Register our custom server tools with ElevenLabs and map each to the
  * workspace tool id the agent references via `tool_ids`.
@@ -119,12 +125,7 @@ function bodySchemaFor(
     case "schedule_callback":
       add(
         "callback_datetime",
-        "The requested callback time as a full ISO 8601 datetime WITH timezone " +
-          "offset, e.g. '2026-01-15T14:00:00-06:00'. Today is {{current_date}}; " +
-          "resolve relative requests against it ('tomorrow at 3' -> tomorrow at " +
-          "14:00; 'next Tuesday morning' -> that Tuesday at 09:00; a loose " +
-          "timeframe like 'next week' -> a business-hours time inside it). Use " +
-          "the lead's timezone {{lead_timezone}} for the offset.",
+        "The requested callback time. " + CALLBACK_TIME_RULES,
         true,
       );
       add("note", "Optional note about the callback.", false);

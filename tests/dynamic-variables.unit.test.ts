@@ -32,6 +32,7 @@ const EXPECTED_VARIABLES = [
   "category",
   "city",
   "current_date",
+  "current_time",
   "employee_name",
   "google_rating",
   "google_reviews",
