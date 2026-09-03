@@ -1,6 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@supabase/supabase-js";
+import {
+  leadStatusAfterInviteeCreated,
+  verifyCalendlySignature,
+  type CalendlyWebhookPayload,
+} from "@/lib/calendly/webhook";
+import { getCalendlyWebhookSigningKey } from "@/lib/calendly/webhook-secret";
 import { etDateTime } from "@/lib/time/eastern";
 
 /** Calendly webhook handler (Step 37 / BUILD_PLAN §11).
@@ -10,9 +16,18 @@ import { etDateTime } from "@/lib/time/eastern";
  * first, then phone). Insert / update `calendly_events`, flip the lead's
  * status to `scheduled` (or revert) and notify the owner.
  *
- * Signature verification (X-Calendly-Webhook-Signature) is required by
- * Calendly in production; we wire the placeholder check here. CALENDLY_LIVE
- * gates strict enforcement.
+ * Signature: Calendly sends `Calendly-Webhook-Signature: t=<unix secs>,v1=<hex>`
+ * where v1 = HMAC-SHA256(signingKey, `${t}.${rawBody}`), the signing key being
+ * the one returned when the webhook subscription was created. We verify over
+ * the RAW request text whenever a key is configured (env
+ * CALENDLY_WEBHOOK_SIGNING_KEY, else app_settings.calendly_webhook_signing_key);
+ * with no key configured anywhere, unsigned deliveries are accepted as before.
+ *
+ * Host-side reschedule = `invitee.canceled` for the old invitee (with
+ * `rescheduled: true` + `new_invitee`) followed by `invitee.created` for the
+ * new one (with `old_invitee`). The upsert on invitee_uri yields one canceled
+ * row + one scheduled row; the lead's calendly_event_uri moves to the new
+ * event and a `goal_met` lead is NOT downgraded to `scheduled`.
  */
 export async function POST(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -28,9 +43,27 @@ export async function POST(request: NextRequest) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
+  const rawBody = await request.text();
+
+  const signingKey = await getCalendlyWebhookSigningKey();
+  if (signingKey) {
+    const check = verifyCalendlySignature(
+      rawBody,
+      request.headers.get("calendly-webhook-signature"),
+      signingKey,
+      Date.now(),
+    );
+    if (!check.ok) {
+      return NextResponse.json(
+        { ok: false, status: "bad_signature", reason: check.reason },
+        { status: 401 },
+      );
+    }
+  }
+
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(rawBody);
   } catch {
     return NextResponse.json(
       { ok: false, status: "invalid_json" },
@@ -38,31 +71,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const sig = request.headers.get("x-calendly-webhook-signature");
-  if (process.env.CALENDLY_LIVE === "live" && !sig) {
-    return NextResponse.json(
-      { ok: false, status: "missing_signature" },
-      { status: 401 },
-    );
-  }
-
-  type CalendlyPayload = {
-    event?: string;
-    payload?: {
-      uri?: string;
-      email?: string;
-      name?: string;
-      text_reminder_number?: string;
-      cancel_url?: string;
-      reschedule_url?: string;
-      scheduled_event?: {
-        uri?: string;
-        start_time?: string;
-        event_type?: string;
-      };
-    };
-  };
-  const data = body as CalendlyPayload;
+  const data = body as CalendlyWebhookPayload;
   const eventName = data.event ?? "";
   const p = data.payload ?? {};
   const inviteeUri = p.uri ?? "";
@@ -76,28 +85,31 @@ export async function POST(request: NextRequest) {
   // Match a lead by email (case-insensitive) first, then by phone.
   let leadOwnerId: string | null = null;
   let leadId: string | null = null;
+  let leadStatus: string | null = null;
   if (p.email) {
     const { data: matches } = await supabase
       .from("leads")
-      .select("id, owner_id")
+      .select("id, owner_id, status")
       .ilike("business_email", p.email)
       .is("deleted_at", null)
       .limit(1);
     if (matches && matches.length > 0) {
       leadId = matches[0].id;
       leadOwnerId = matches[0].owner_id;
+      leadStatus = matches[0].status;
     }
   }
   if (!leadId && p.text_reminder_number) {
     const { data: matches } = await supabase
       .from("leads")
-      .select("id, owner_id")
+      .select("id, owner_id, status")
       .eq("business_phone", p.text_reminder_number)
       .is("deleted_at", null)
       .limit(1);
     if (matches && matches.length > 0) {
       leadId = matches[0].id;
       leadOwnerId = matches[0].owner_id;
+      leadStatus = matches[0].status;
     }
   }
 
@@ -146,23 +158,26 @@ export async function POST(request: NextRequest) {
 
   if (leadId) {
     if (eventName === "invitee.created") {
-      // Flip the lead into the goal pipeline at "scheduled" and stash the
-      // Calendly link for the modal pill.
+      // Move the lead into the goal pipeline at "scheduled" (unless it is
+      // already goal_met — a reschedule must not downgrade a confirmed
+      // booking) and always repoint the Calendly link to the new event.
+      const nextStatus = leadStatusAfterInviteeCreated(leadStatus);
       await supabase
         .from("leads")
         .update({
-          status: "scheduled",
+          ...(nextStatus ? { status: nextStatus } : {}),
           calendly_event_uri: p.scheduled_event?.uri ?? null,
         })
         .eq("id", leadId);
+      const when = p.scheduled_event?.start_time
+        ? ` ${p.old_invitee ? "to" : "for"} ${etDateTime(p.scheduled_event.start_time, "", true)}`
+        : "";
       await supabase.from("notifications").insert({
         user_id: leadOwnerId,
         kind: "calendly_scheduled",
-        message: `New Calendly appointment booked${
-          p.scheduled_event?.start_time
-            ? ` for ${etDateTime(p.scheduled_event.start_time, "", true)}`
-            : ""
-        }.`,
+        message: p.old_invitee
+          ? `Calendly appointment moved${when}.`
+          : `New Calendly appointment booked${when}.`,
         ref_table: "leads",
         ref_id: leadId,
       });
@@ -172,6 +187,8 @@ export async function POST(request: NextRequest) {
         .update({ status: "no_show" })
         .eq("id", leadId);
     }
+    // invitee.canceled with rescheduled=true: nothing more to do to the lead;
+    // the matching invitee.created (old_invitee set) follows and repoints it.
   }
 
   await supabase.from("system_events").insert({
@@ -181,6 +198,9 @@ export async function POST(request: NextRequest) {
       invitee_uri: inviteeUri,
       lead_id: leadId,
       status: baseEventStatus,
+      rescheduled: p.rescheduled ?? false,
+      new_invitee: p.new_invitee ?? null,
+      old_invitee: p.old_invitee ?? null,
     },
   });
 
