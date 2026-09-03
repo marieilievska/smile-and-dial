@@ -14,6 +14,7 @@ import { createClient } from "@/lib/supabase/server";
 
 import { DeleteGoalDialog } from "./delete-goal-dialog";
 import { GoalFormDialog } from "./goal-form-dialog";
+import { etDateNumeric } from "@/lib/time/eastern";
 
 export default async function SettingsGoalsPage() {
   const supabase = await createClient();
@@ -145,7 +146,7 @@ export default async function SettingsGoalsPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-xs">
-                      {new Date(goal.created_at).toLocaleDateString()}
+                      {etDateNumeric(goal.created_at)}
                     </TableCell>
                     <TableCell>
                       <div className="ml-auto flex items-center justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">

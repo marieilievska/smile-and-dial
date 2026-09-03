@@ -22,6 +22,7 @@ import { formatCreatedAt } from "../format-created";
 import { ApiDocsTabs } from "./api-docs-tabs";
 import { ApiKeyCreateForm } from "./api-key-create-form";
 import { ApiKeyRevokeButton } from "./api-key-revoke-button";
+import { etDateTimeExact } from "@/lib/time/eastern";
 
 export default async function ApiPage() {
   const supabase = await createClient();
@@ -97,7 +98,7 @@ export default async function ApiPage() {
                       className="text-muted-foreground text-xs tabular-nums"
                       title={
                         k.last_used_at
-                          ? new Date(k.last_used_at).toLocaleString()
+                          ? etDateTimeExact(k.last_used_at)
                           : undefined
                       }
                     >

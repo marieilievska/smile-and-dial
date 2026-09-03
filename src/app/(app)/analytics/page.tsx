@@ -28,6 +28,7 @@ import { AnalyticsInsight } from "./analytics-insight";
 import { BestTimeHeatmap } from "./best-time-heatmap";
 import { CampaignLeaderboard, OutcomeBreakdown } from "./charts";
 import { KpiTile } from "./kpi-tile";
+import { dateRangeLabel } from "@/lib/time/eastern";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -57,15 +58,7 @@ function isMockMode(): boolean {
 }
 
 function fmtRangeLabel(from: string, to: string): string {
-  try {
-    const f = new Date(`${from}T00:00:00Z`);
-    const t = new Date(`${to}T00:00:00Z`);
-    const fmt: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
-    if (from === to) return f.toLocaleDateString(undefined, fmt);
-    return `${f.toLocaleDateString(undefined, fmt)} – ${t.toLocaleDateString(undefined, fmt)}`;
-  } catch {
-    return `${from} → ${to}`;
-  }
+  return dateRangeLabel(from, to);
 }
 
 export default async function AnalyticsPage({

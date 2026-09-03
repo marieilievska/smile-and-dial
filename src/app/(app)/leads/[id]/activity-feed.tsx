@@ -12,6 +12,7 @@ import Link from "next/link";
 
 import { humanizeFallback, outcomeLabel } from "@/lib/labels";
 import { relativeTime } from "@/lib/relative-time";
+import { etDateTimeExact } from "@/lib/time/eastern";
 
 /** Activity feed for the lead detail route. Merges three sources into
  *  one chronological stream:
@@ -136,7 +137,7 @@ export function LeadActivityFeed({
             <div className="flex flex-1 flex-col gap-0.5">
               <FeedLine item={item} />
               <p className="text-muted-foreground text-xs">
-                {relativeTime(item.at)} · {new Date(item.at).toLocaleString()}
+                {relativeTime(item.at)} · {etDateTimeExact(item.at)}
               </p>
             </div>
           </>

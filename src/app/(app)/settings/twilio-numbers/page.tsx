@@ -37,6 +37,7 @@ import { ConnectElevenLabsButton } from "./connect-elevenlabs-button";
 import { RepointWebhooksButton } from "./repoint-button";
 import { TwilioNumbersStatusTabs } from "./status-tabs";
 import { TwilioSyncButton } from "./sync-button";
+import { etDateTimeExact } from "@/lib/time/eastern";
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
@@ -301,7 +302,7 @@ export default async function TwilioNumbersPage({
                         </TableCell>
                         <TableCell
                           className="text-muted-foreground tabular-nums"
-                          title={new Date(number.purchased_at).toLocaleString()}
+                          title={etDateTimeExact(number.purchased_at)}
                         >
                           {formatCreatedAt(number.purchased_at, now)}
                         </TableCell>

@@ -71,6 +71,7 @@ import {
   callStatusBadgeVariant,
   outcomeBadgeVariant,
 } from "@/lib/outcome-style";
+import { etWallClockToIso } from "@/lib/time/eastern";
 
 function fmtDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds <= 0) return "—";
@@ -876,11 +877,14 @@ function ScheduleCallbackDialog({ callId }: { callId: string }) {
   const [pending, startTransition] = useTransition();
 
   function save() {
-    if (!when) return;
+    // The operator typed an Eastern wall-clock time, whatever zone the
+    // browser is in.
+    const scheduledAt = etWallClockToIso(when);
+    if (!scheduledAt) return;
     startTransition(async () => {
       const result = await scheduleManualCallback({
         callId,
-        scheduledAt: new Date(when).toISOString(),
+        scheduledAt,
       });
       if (result.error) {
         toast.error(result.error);
@@ -909,7 +913,7 @@ function ScheduleCallbackDialog({ callId }: { callId: string }) {
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="callback-when">When</Label>
+          <Label htmlFor="callback-when">When (Eastern time)</Label>
           <Input
             id="callback-when"
             type="datetime-local"

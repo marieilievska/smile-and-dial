@@ -4,6 +4,7 @@ import { leadStatusLabel } from "@/lib/labels";
 import { timezoneLabel } from "@/lib/leads/timezone";
 import { leadStatusBadgeVariant } from "@/lib/outcome-style";
 import { exactDateTime, relativeTimeSigned } from "@/lib/relative-time";
+import { etDateNumeric } from "@/lib/time/eastern";
 
 // Lead-status colors now live in `@/lib/outcome-style` (single source of
 // truth). Re-exported here under the historical name so the inline
@@ -57,7 +58,7 @@ export type LeadColumn = {
 
 /** Date for CSV: blank rather than an em dash when there is no value. */
 function dateText(value: string | null): string {
-  return value ? new Date(value).toLocaleDateString() : "";
+  return etDateNumeric(value, "");
 }
 
 /** Faint stage-colored left rail revealed on row hover. Returns a
@@ -302,7 +303,7 @@ export const LEAD_COLUMNS: LeadColumn[] = [
     cell: (l) => (
       <span
         className="text-muted-foreground"
-        title={exactDateTime(l.next_call_at, "", l.timezone ?? undefined)}
+        title={exactDateTime(l.next_call_at)}
       >
         {relativeTimeSigned(l.next_call_at)}
       </span>

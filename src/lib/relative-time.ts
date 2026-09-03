@@ -10,6 +10,8 @@
  *  All inputs are ISO strings (Supabase columns and JSON timestamps
  *  alike); a null/undefined input returns the supplied fallback so
  *  callers don't have to ternary at the call site. */
+import { etDate, etDateTime, etDateTimeExact } from "@/lib/time/eastern";
+
 export function relativeTime(
   iso: string | null | undefined,
   fallback = "—",
@@ -26,7 +28,7 @@ export function relativeTime(
   if (hr < 24) return `${hr}h ago`;
   const day = Math.floor(hr / 24);
   if (day < 14) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return etDate(iso, fallback);
 }
 
 /** Bidirectional short relative time. Past renders "2h ago", future
@@ -53,57 +55,27 @@ export function relativeTimeSigned(
   // Round (not floor) at the day scale so 47.8h reads "in 2d", not "in 1d".
   const day = Math.round(hr / 24);
   if (day < 14) return wrap(`${day}d`);
-  return new Date(iso).toLocaleDateString();
+  return etDate(iso, fallback);
 }
 
 /** Full, exact timestamp for hover tooltips — pairs with the relative
  *  helpers so the precise value (which the dialer actually reads for
- *  "Next call") is always one hover away.
- *
- *  Pass `timeZone` (an IANA zone like "America/New_York") to render the time
- *  IN THAT ZONE with a short tz abbreviation appended (e.g. "3:00 PM EDT") —
- *  used for a lead's "Next call", which fires in the LEAD's local time, so the
- *  operator can tell whose 3 PM it is. Omit it and the time renders in the
- *  viewer's local zone with no label, exactly as before (callers that show
- *  viewer-local times like a call's started_at are unaffected). */
+ *  "Next call") is always one hover away. Always Eastern, zone-labelled
+ *  ("9/2/2026, 9:43:48 PM EDT"): the team reads every time in ET, even for a
+ *  lead on the West Coast. */
 export function exactDateTime(
   iso: string | null | undefined,
   fallback = "",
-  timeZone?: string,
 ): string {
-  if (!iso) return fallback;
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return fallback;
-  // Only label the zone when an explicit timeZone is supplied, so unrelated
-  // viewer-local tooltips keep their existing bare format.
-  if (timeZone) {
-    return d.toLocaleString(undefined, { timeZone, timeZoneName: "short" });
-  }
-  return d.toLocaleString();
+  return etDateTimeExact(iso, fallback);
 }
 
-/** Compact absolute date + clock with a short timezone label, for a lead's
- *  "Next call" (and similar lead-local times). Renders like
- *  "Mar 5, 3:00 PM EDT". Pass the LEAD's IANA timezone so the operator sees the
- *  time in the zone the dialer will actually call in; when it's missing we fall
- *  back to the viewer's local zone but still append its label, so the time is
- *  never ambiguous. Returns the fallback for null/invalid input. */
-export function leadZoneClock(
-  iso: string | null | undefined,
-  timeZone?: string | null,
-  fallback = "",
-): string {
-  if (!iso) return fallback;
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return fallback;
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: timeZone || undefined,
-    timeZoneName: "short",
-  });
+/** Compact absolute date + clock with the Eastern zone label, for a lead's
+ *  "Next call" and similar: "Mar 5, 3:00 PM EDT". The dialer fires in the
+ *  LEAD's local time, but the team reads it in ET — a 3pm Pacific callback
+ *  shows here as 6:00 PM EDT on purpose. */
+export function etClock(iso: string | null | undefined, fallback = ""): string {
+  return etDateTime(iso, fallback, true);
 }
 
 /** Slightly more conversational variant: "just now" / "5 minutes ago"
@@ -127,5 +99,5 @@ export function relativeTimeLong(
   if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
   const day = Math.floor(hr / 24);
   if (day < 14) return `${day} day${day === 1 ? "" : "s"} ago`;
-  return new Date(iso).toLocaleDateString();
+  return etDate(iso, fallback);
 }

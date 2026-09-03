@@ -1,3 +1,5 @@
+import { ET_TZ, etDayDelta } from "@/lib/time/eastern";
+
 /** Format a scheduled-at timestamp as a human-readable relative
  *  time, plus indicate whether the callback is overdue or urgent
  *  (due within the next hour).
@@ -18,17 +20,13 @@ export type ScheduledUrgency = "overdue" | "urgent" | "normal";
 export function formatScheduledWhen(
   scheduledAtIso: string,
   now: Date = new Date(),
-  /** The LEAD's timezone, so "Tomorrow at 10:00 AM" and the clock time read in
-   *  the lead's local time — not the server's (UTC on Vercel), which rendered a
-   *  2:40pm-local callback as "7:40". Falls back to the runtime default tz. */
-  timeZone?: string,
   /** A resolved callback (completed/cancelled/missed) is never "overdue" — its
    *  scheduled time is just history, so show the absolute date/time, no urgency. */
   resolved = false,
 ): { primary: string; urgency: ScheduledUrgency } {
   const scheduled = new Date(scheduledAtIso);
   if (resolved) {
-    return { primary: formatAbsolute(scheduled, timeZone), urgency: "normal" };
+    return { primary: formatAbsolute(scheduled), urgency: "normal" };
   }
   const deltaMs = scheduled.getTime() - now.getTime();
   const absMin = Math.floor(Math.abs(deltaMs) / 60_000);
@@ -41,8 +39,9 @@ export function formatScheduledWhen(
     };
   }
 
-  // Calendar-day delta as seen in the lead's timezone (not server-local).
-  const dayDelta = tzDayDelta(now, scheduled, timeZone);
+  // Calendar-day delta in Eastern days (the app-wide convention) — never the
+  // server's UTC clock, which called a 9pm ET callback "tomorrow".
+  const dayDelta = etDayDelta(now, scheduled);
 
   if (dayDelta === 0) {
     // Today — show relative "In Xh Ym"
@@ -54,54 +53,44 @@ export function formatScheduledWhen(
 
   if (dayDelta === 1) {
     return {
-      primary: `Tomorrow at ${formatTime(scheduled, timeZone)}`,
+      primary: `Tomorrow at ${formatTime(scheduled)}`,
       urgency: "normal",
     };
   }
 
   if (dayDelta > 1 && dayDelta <= 6) {
     // Within the next week → "Wed at 3:00 PM"
-    const weekday = scheduled.toLocaleDateString(undefined, {
+    const weekday = scheduled.toLocaleDateString("en-US", {
       weekday: "short",
-      timeZone,
+      timeZone: ET_TZ,
     });
     return {
-      primary: `${weekday} at ${formatTime(scheduled, timeZone)}`,
+      primary: `${weekday} at ${formatTime(scheduled)}`,
       urgency: "normal",
     };
   }
 
   // Further out → "5/30 at 9:00 AM"
-  const date = scheduled.toLocaleDateString(undefined, {
+  const date = scheduled.toLocaleDateString("en-US", {
     month: "numeric",
     day: "numeric",
-    timeZone,
+    timeZone: ET_TZ,
   });
   return {
-    primary: `${date} at ${formatTime(scheduled, timeZone)}`,
+    primary: `${date} at ${formatTime(scheduled)}`,
     urgency: "normal",
   };
 }
 
-/** Whole-day difference between two instants as seen in `timeZone`, so a late-
- *  evening callback isn't called "tomorrow" just because it's past UTC
- *  midnight. */
-function tzDayDelta(now: Date, scheduled: Date, timeZone?: string): number {
-  const ymd = (d: Date) => d.toLocaleDateString("en-CA", { timeZone });
-  const a = new Date(`${ymd(now)}T00:00:00Z`).getTime();
-  const b = new Date(`${ymd(scheduled)}T00:00:00Z`).getTime();
-  return Math.round((b - a) / 86_400_000);
-}
-
 /** Absolute "M/D at h:mm AM TZ" — used for resolved callbacks (no relative
  *  "overdue"/"in Xh" framing). */
-function formatAbsolute(d: Date, timeZone?: string): string {
-  const date = d.toLocaleDateString(undefined, {
+function formatAbsolute(d: Date): string {
+  const date = d.toLocaleDateString("en-US", {
     month: "numeric",
     day: "numeric",
-    timeZone,
+    timeZone: ET_TZ,
   });
-  return `${date} at ${formatTime(d, timeZone)}`;
+  return `${date} at ${formatTime(d)}`;
 }
 
 function humanizeMinutes(min: number): string {
@@ -113,17 +102,14 @@ function humanizeMinutes(min: number): string {
   return `${h}h ${m}m`;
 }
 
-/** Clock time PLUS a short timezone abbreviation — "3:00 PM EDT". A callback
- *  fires in the LEAD's local time, so labeling the zone makes "whose 3 PM"
- *  unambiguous to the operator. When no lead timezone is known we fall back to
- *  the viewer's runtime zone (timeZone left undefined) and still label it, so
- *  the time is never bare. The `timeZoneName: "short"` part yields the
- *  abbreviation (EDT/CST/…); Intl appends it after the time. */
-function formatTime(d: Date, timeZone?: string): string {
-  return d.toLocaleTimeString(undefined, {
+/** Clock time PLUS the Eastern abbreviation — "3:00 PM EDT". A callback fires
+ *  in the LEAD's local time but the team reads it in Eastern (a 3pm Pacific
+ *  callback shows as 6:00 PM EDT), so the label makes that explicit. */
+function formatTime(d: Date): string {
+  return d.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
-    timeZone,
+    timeZone: ET_TZ,
     timeZoneName: "short",
   });
 }

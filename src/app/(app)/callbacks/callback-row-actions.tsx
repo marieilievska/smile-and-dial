@@ -40,6 +40,7 @@ import {
   deleteCallbacks,
   rescheduleCallback,
 } from "@/lib/callbacks/actions";
+import { etWallClock, etWallClockToIso } from "@/lib/time/eastern";
 
 /** Hover-only action cluster at the right edge of every pending
  *  callback row. Three affordances:
@@ -69,12 +70,9 @@ export function CallbackRowActions({
   const router = useRouter();
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
 
-  // datetime-local needs yyyy-MM-ddTHH:mm in LOCAL time, not ISO/UTC.
-  const initial = (() => {
-    const d = new Date(currentScheduledAt);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  })();
+  // datetime-local wants a bare yyyy-MM-ddTHH:mm; the team reads and types
+  // every time in EASTERN, whatever zone this laptop is set to.
+  const initial = etWallClock(currentScheduledAt);
   const [when, setWhen] = useState(initial);
   const [pending, startTransition] = useTransition();
 
@@ -89,11 +87,12 @@ export function CallbackRowActions({
   }
 
   function reschedule() {
-    if (!when) return;
+    const scheduledAt = etWallClockToIso(when);
+    if (!scheduledAt) return;
     startTransition(async () => {
       const result = await rescheduleCallback({
         callbackId,
-        scheduledAt: new Date(when).toISOString(),
+        scheduledAt,
       });
       if (result.error) {
         toast.error(result.error);
@@ -187,7 +186,9 @@ export function CallbackRowActions({
                 </DialogDescription>
               </DialogHeader>
               <div className="flex flex-col gap-2">
-                <Label htmlFor={`when-${callbackId}`}>When</Label>
+                <Label htmlFor={`when-${callbackId}`}>
+                  When (Eastern time)
+                </Label>
                 <Input
                   id={`when-${callbackId}`}
                   type="datetime-local"

@@ -16,6 +16,7 @@ import { formatCreatedAt } from "../format-created";
 import { DeleteKbDialog } from "./delete-kb-dialog";
 import { KbFormDialog } from "./kb-form-dialog";
 import { KbSourcesDialog, type KbSource } from "./kb-sources-dialog";
+import { etDateTimeExact } from "@/lib/time/eastern";
 
 export default async function KnowledgeBasesPage() {
   const supabase = await createClient();
@@ -103,7 +104,7 @@ export default async function KnowledgeBasesPage() {
                     </TableCell>
                     <TableCell
                       className="text-muted-foreground tabular-nums"
-                      title={new Date(kb.created_at).toLocaleString()}
+                      title={etDateTimeExact(kb.created_at)}
                     >
                       {formatCreatedAt(kb.created_at, now)}
                     </TableCell>

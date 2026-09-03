@@ -1,5 +1,6 @@
 "use client";
 
+import { etDateTimeExact } from "@/lib/time/eastern";
 import { useRef, useState } from "react";
 import { ChevronDown, Clock } from "lucide-react";
 import { toast } from "sonner";
@@ -112,7 +113,7 @@ export type LeadEvent = {
 };
 
 export function formatDateTime(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : "—";
+  return etDateTimeExact(value, "—");
 }
 
 /** Lead-status Badge variant. Re-exported from the shared color module

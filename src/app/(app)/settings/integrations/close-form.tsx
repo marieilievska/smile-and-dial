@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { disconnectClose, saveCloseConnection } from "@/lib/close/actions";
+import { etDateTime } from "@/lib/time/eastern";
 
 export function CloseForm({
   connected,
@@ -32,7 +33,7 @@ export function CloseForm({
     <div className="flex flex-col gap-2">
       <p className="text-muted-foreground text-sm">
         {connected
-          ? `Connected${connectedAt ? ` · since ${new Date(connectedAt).toLocaleString()}` : ""}.`
+          ? `Connected${connectedAt ? ` · since ${etDateTime(connectedAt, "", true)}` : ""}.`
           : "Not connected. Paste your Close API key to let the agent send emails from your Close account."}
       </p>
       {!connected ? (

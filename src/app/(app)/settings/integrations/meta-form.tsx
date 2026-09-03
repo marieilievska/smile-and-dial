@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { connectMeta, disconnectMeta, syncMetaNow } from "@/lib/meta/actions";
+import { etDateTime } from "@/lib/time/eastern";
 
 export function MetaForm({
   connected,
@@ -57,7 +58,7 @@ export function MetaForm({
           {lastSyncError
             ? `Last sync error: ${lastSyncError} — reconnect may be needed.`
             : lastSyncAt
-              ? `Last synced ${new Date(lastSyncAt).toLocaleString()} · ${lastSyncCount.toLocaleString()} contacts`
+              ? `Last synced ${etDateTime(lastSyncAt, "", true)} · ${lastSyncCount.toLocaleString()} contacts`
               : "Connected. Not synced yet."}
         </p>
         <div className="flex flex-wrap gap-2">

@@ -18,6 +18,7 @@ import { formatSince } from "./format-since";
 import { GoalStatusActions, ViewOriginalCallLink } from "./goal-status-actions";
 import type { PipelineLead } from "./pipeline-types";
 import { GOAL_STATUS_LABELS, goalStatusVariant } from "./status-variant";
+import { etDateTime } from "@/lib/time/eastern";
 
 /** Pipeline rendered as a flat table (no per-campaign sections — those
  *  belong in the filter popover now). Each row links to the lead;
@@ -123,14 +124,7 @@ export function PipelineTable({ leads }: { leads: PipelineLead[] }) {
                         {since.label}
                       </span>
                       <span className="text-[11px]">
-                        {lead.goalMetAt
-                          ? new Date(lead.goalMetAt).toLocaleString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                              hour: "numeric",
-                              minute: "2-digit",
-                            })
-                          : ""}
+                        {lead.goalMetAt ? etDateTime(lead.goalMetAt) : ""}
                       </span>
                     </div>
                   ) : (

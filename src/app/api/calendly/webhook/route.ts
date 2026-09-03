@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@supabase/supabase-js";
+import { etDateTime } from "@/lib/time/eastern";
 
 /** Calendly webhook handler (Step 37 / BUILD_PLAN §11).
  *
@@ -159,7 +160,7 @@ export async function POST(request: NextRequest) {
         kind: "calendly_scheduled",
         message: `New Calendly appointment booked${
           p.scheduled_event?.start_time
-            ? ` for ${new Date(p.scheduled_event.start_time).toLocaleString()}`
+            ? ` for ${etDateTime(p.scheduled_event.start_time, "", true)}`
             : ""
         }.`,
         ref_table: "leads",
