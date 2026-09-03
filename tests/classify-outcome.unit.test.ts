@@ -269,7 +269,10 @@ describe("classifyCallOutcome", () => {
     const r = classifyCallOutcome({
       transcript: t(
         ["user", "Honeycomb Salon, this is Erica. How may I help you?"],
-        ["agent", "Oh hey, honestly I'm calling a little out of the blue here…"],
+        [
+          "agent",
+          "Oh hey, honestly I'm calling a little out of the blue here…",
+        ],
       ),
       disposition: "",
       terminationReason: "Call ended by remote party",
@@ -491,7 +494,8 @@ describe("classifyCallOutcome", () => {
 
     it("downgrades when dm=unknown (or padded/upper-cased)", () => {
       expect(
-        classifyCallOutcome({ ...base, decisionMakerReached: "unknown" }).outcome,
+        classifyCallOutcome({ ...base, decisionMakerReached: "unknown" })
+          .outcome,
       ).toBe("gatekeeper_not_interested");
       expect(
         classifyCallOutcome({ ...base, decisionMakerReached: " No " }).outcome,
@@ -510,5 +514,76 @@ describe("classifyCallOutcome", () => {
       });
       expect(r.outcome).toBe("gatekeeper");
     });
+  });
+});
+
+// INBOUND calls: the "user" is a person who dialed US back after a missed call.
+// Nothing on our side of the line is a voicemail, so the outbound voicemail
+// tells ("sorry I missed your call", EL voicemail_detection, a silent line)
+// must never label an inbound call "voicemail".
+describe("classifyCallOutcome — inbound direction", () => {
+  it("a returning caller who says 'sorry I missed your call' then hangs up is a hang-up, not voicemail", () => {
+    const r = classifyCallOutcome({
+      direction: "inbound",
+      transcript: t(
+        ["agent", "Hello?"],
+        [
+          "user",
+          "Hi, this is Noah with Free To Be Chiropractic. Sorry I missed your call.",
+        ],
+        [
+          "agent",
+          "Oh yeah, [laugh] that was actually me. I was calling earlier to see if I could invite you to a free Zoom session we run called Answer Every Call, Book Every Lead. Genuinely not trying to sell you anything,...",
+        ],
+      ),
+      disposition: "",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 20,
+    });
+    expect(r.outcome).toBe("hung_up_immediately");
+    expect(r.reachedHuman).toBe(false);
+  });
+
+  it("a silent inbound caller is a hang-up even when EL guessed voicemail", () => {
+    const r = classifyCallOutcome({
+      direction: "inbound",
+      transcript: t(["agent", "Hello?"]),
+      disposition: "voicemail",
+      terminationReason: VM_DETECTED,
+      callDurationSecs: 22,
+    });
+    expect(r.outcome).toBe("hung_up_immediately");
+    expect(r.reachedHuman).toBe(false);
+  });
+
+  it("an inbound line that went dead is a hang-up, not no_answer", () => {
+    const r = classifyCallOutcome({
+      direction: "inbound",
+      transcript: t(
+        ["agent", "Hello?"],
+        ["agent", "Hey, uh, are you still there?"],
+      ),
+      disposition: "",
+      terminationReason: SILENCE,
+      callDurationSecs: 32,
+    });
+    expect(r.outcome).toBe("hung_up_later");
+    expect(r.reachedHuman).toBe(false);
+  });
+
+  it("outbound keeps the missed-your-call voicemail tell (direction unspecified)", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        [
+          "user",
+          "Hi, you've reached Free To Be Chiropractic. Sorry we missed your call, please leave a message.",
+        ],
+        ["agent", "Hi there, I'm calling for the owner..."],
+      ),
+      disposition: "",
+      terminationReason: VM_DETECTED,
+      callDurationSecs: 20,
+    });
+    expect(r.outcome).toBe("voicemail");
   });
 });

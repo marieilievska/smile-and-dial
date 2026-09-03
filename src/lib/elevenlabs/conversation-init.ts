@@ -6,6 +6,8 @@ import { createClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 
+import { resolveOrCreateInboundCall } from "./inbound-call";
+
 /**
  * Conversation-initiation client-data webhook.
  *
@@ -18,7 +20,15 @@ import type { Database } from "@/lib/supabase/database.types";
  *
  * We correlate on call_sid → calls.twilio_call_sid (stamped the moment the
  * dialer places the call), which gives us the lead + campaign to build the
- * per-call context. Read-only.
+ * per-call context.
+ *
+ * EL-NATIVE INBOUND (someone returning our missed call) has no such row yet —
+ * nothing on our side placed the call. For those we resolve the dialed number
+ * → campaign and the caller → lead, CREATE the calls row right here, and hand
+ * back call_type "inbound" plus the new call_id, so the agent opens as the
+ * returned call it is and its tools (callback / booking / DNC) can find the
+ * lead. Before this, every inbound call got blank "cold" context and every
+ * tool failed with "couldn't find the right record".
  *
  * ALL dynamic variables an agent declares must be present in the response
  * or the conversation can fail to start, so we always return the three keys
@@ -33,6 +43,7 @@ export type ConversationInitRequest = {
   agent_id?: string;
   called_number?: string;
   call_sid?: string;
+  conversation_id?: string;
 };
 
 /** Fallback greeting when an inbound call's campaign has no custom one set, so
@@ -431,8 +442,10 @@ async function resolveGreetingOverride(
 
 export async function buildConversationInitData(
   body: ConversationInitRequest,
+  /** Test seam: the service client to use (defaults to the real one). */
+  supabaseOverride?: SupabaseAdmin,
 ): Promise<ConversationInitResponse> {
-  const supabase = makeServiceClient();
+  const supabase = supabaseOverride ?? makeServiceClient();
 
   // The inbound greeting is keyed on the dialed number, independent of whether
   // we can resolve the call row — so a brand-new inbound caller (no call row
@@ -456,7 +469,21 @@ export async function buildConversationInitData(
     .select("id, lead_id, campaign_id")
     .eq("twilio_call_sid", callSid)
     .maybeSingle();
-  if (!call) return wrap(emptyVariables());
+  if (call) return wrap(await buildVarsForCall(supabase, call));
 
-  return wrap(await buildVarsForCall(supabase, call));
+  // No row → we didn't place this call. If the dialed number is one of ours,
+  // it's an EL-native INBOUND call (a returned missed call): attribute it to
+  // the caller's lead, create the row now, and mark the context "inbound".
+  // A dialed number that isn't ours (an outbound-shaped init, which in
+  // practice never reaches this webhook) resolves to nothing and stays blank.
+  const inbound = await resolveOrCreateInboundCall(supabase, {
+    agentNumber: body.called_number ?? "",
+    callerNumber: body.caller_id ?? "",
+    callSid,
+    conversationId: body.conversation_id?.trim() || null,
+  });
+  if (!inbound) return wrap(emptyVariables());
+
+  const vars = await buildVarsForCall(supabase, inbound);
+  return wrap({ ...vars, call_type: "inbound" });
 }
