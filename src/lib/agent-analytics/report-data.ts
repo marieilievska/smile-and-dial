@@ -16,6 +16,7 @@ import type { ObjectionRow } from "@/lib/agent-analytics/objections";
 import type { ObjectionCategory } from "@/lib/openai/objection-extractor";
 import { chunk } from "@/lib/leads/chunk";
 import type { Database } from "@/lib/supabase/database.types";
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 
 import { isWarm, type DetectedFields } from "./field-detect";
 import type { ReportScope } from "./scope";
@@ -322,18 +323,6 @@ export async function fetchVoiceRows(
 ): Promise<VoiceRow[]> {
   if (scope.kind !== "campaign" || !detected.sentimentKey) return [];
   const sentimentKey = detected.sentimentKey;
-  const { data } = await supabase
-    .from("calls")
-    .select(
-      "id, created_at, lead_id, extracted_data, recording_path, lead:leads(company, list:lists(name))",
-    )
-    .eq("campaign_id", scope.campaignId)
-    .eq("direction", "outbound")
-    .gte("created_at", sinceDaysAgoIso(VOICE_DAYS))
-    .not(`extracted_data->>${sentimentKey}`, "is", null)
-    .order("created_at", { ascending: false })
-    .limit(2000);
-
   type Raw = {
     id: string;
     created_at: string | null;
@@ -342,7 +331,24 @@ export async function fetchVoiceRows(
     recording_path: string | null;
     lead: unknown;
   };
-  return ((data ?? []) as unknown as Raw[])
+  // Paged: a `.limit(2000)` here was silently clamped to 1,000 by PostgREST, so
+  // the "All (N)" pill and every sentiment count were of a truncated set.
+  const data = await fetchAllRows<Raw>((from, to) =>
+    supabase
+      .from("calls")
+      .select(
+        "id, created_at, lead_id, extracted_data, recording_path, lead:leads(company, list:lists(name))",
+      )
+      .eq("campaign_id", scope.campaignId)
+      .eq("direction", "outbound")
+      .gte("created_at", sinceDaysAgoIso(VOICE_DAYS))
+      .not(`extracted_data->>${sentimentKey}`, "is", null)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to)
+      .then((r) => ({ data: r.data as unknown as Raw[] | null })),
+  );
+  return data
     .map((r): VoiceRow | null => {
       const ed =
         r.extracted_data && typeof r.extracted_data === "object"
@@ -380,20 +386,6 @@ export async function fetchHotLeadRows(
   if (warmValues.length === 0) return [];
   const sentimentKey = detected.sentimentKey;
 
-  const { data } = await supabase
-    .from("calls")
-    .select(
-      "id, created_at, lead_id, extracted_data, lead:leads(company, owner_name, manager_name, employee_name, list:lists(name))",
-    )
-    .eq("campaign_id", scope.campaignId)
-    .eq("direction", "outbound")
-    .gte("created_at", sinceDaysAgoIso(VOICE_DAYS))
-    .in(`extracted_data->>${sentimentKey}`, warmValues)
-    .order("created_at", { ascending: false })
-    // Intentional cap: a 30-day campaign window won't realistically exceed this;
-    // the newest 2,000 warm calls are shown (matches fetchVoiceRows).
-    .limit(2000);
-
   type Raw = {
     id: string;
     created_at: string | null;
@@ -401,7 +393,23 @@ export async function fetchHotLeadRows(
     extracted_data: unknown;
     lead: unknown;
   };
-  const rows = (data ?? []) as unknown as Raw[];
+  // Paged past PostgREST's 1,000-row cap (the old `.limit(2000)` never
+  // returned more than 1,000, so warm leads past that silently vanished).
+  const rows = await fetchAllRows<Raw>((from, to) =>
+    supabase
+      .from("calls")
+      .select(
+        "id, created_at, lead_id, extracted_data, lead:leads(company, owner_name, manager_name, employee_name, list:lists(name))",
+      )
+      .eq("campaign_id", scope.campaignId)
+      .eq("direction", "outbound")
+      .gte("created_at", sinceDaysAgoIso(VOICE_DAYS))
+      .in(`extracted_data->>${sentimentKey}`, warmValues)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to)
+      .then((r) => ({ data: r.data as unknown as Raw[] | null })),
+  );
   if (rows.length === 0) return [];
 
   // Exclude dismissed calls (chunk the id lookup past the 1,000-row cap).

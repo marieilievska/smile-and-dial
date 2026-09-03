@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { GOAL_STATUSES, type GoalStatus } from "@/lib/goals/goal-statuses";
+import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import { createClient } from "@/lib/supabase/server";
 
 import { PipelineBoard } from "./pipeline-board";
@@ -53,15 +55,23 @@ export default async function GoalsPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // 1) Pull every lead in a goal-pipeline status (RLS scopes it).
-  const { data: leadsRaw } = await supabase
-    .from("leads")
-    .select("id, company, business_phone, business_email, status, last_call_at")
-    .in("status", GOAL_STATUSES)
-    .is("deleted_at", null)
-    .order("last_call_at", { ascending: false });
+  // 1) Pull every lead in a goal-pipeline status (RLS scopes it). Paged —
+  //    PostgREST caps a response at 1,000 rows, and a lead dropped here
+  //    vanishes from every pipeline count below without a trace.
+  const leadsRaw = await fetchAllRows((from, to) =>
+    supabase
+      .from("leads")
+      .select(
+        "id, company, business_phone, business_email, status, last_call_at",
+      )
+      .in("status", GOAL_STATUSES)
+      .is("deleted_at", null)
+      .order("last_call_at", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
-  const leadIds = (leadsRaw ?? []).map((l) => l.id);
+  const leadIds = leadsRaw.map((l) => l.id);
 
   // 2) For each pipeline lead, find the most recent goal_met call.
   //    That tells us which campaign drove the conversion AND when the
@@ -78,19 +88,26 @@ export default async function GoalsPage({
       goal: { id: string; name: string } | null;
     } | null;
   };
-  let goalMetCalls: GoalMetCall[] = [];
-  if (leadIds.length > 0) {
-    const { data } = await supabase
-      .from("calls")
-      .select(
-        "id, lead_id, campaign_id, created_at, campaign:campaigns(id, name, goal_id, goal:goals(id, name))",
-      )
-      .in("lead_id", leadIds)
-      .eq("goal_met", true)
-      .order("created_at", { ascending: false });
-    goalMetCalls = (data ?? []) as unknown as GoalMetCall[];
+  //    Chunk the id list (a giant `.in()` overflows the URL) and page each
+  //    chunk past the 1,000-row cap.
+  const goalMetCalls: GoalMetCall[] = [];
+  for (const ids of chunk(leadIds, ID_CHUNK)) {
+    const rows = await fetchAllRows<GoalMetCall>((from, to) =>
+      supabase
+        .from("calls")
+        .select(
+          "id, lead_id, campaign_id, created_at, campaign:campaigns(id, name, goal_id, goal:goals(id, name))",
+        )
+        .in("lead_id", ids)
+        .eq("goal_met", true)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to)
+        .then((r) => ({ data: r.data as unknown as GoalMetCall[] | null })),
+    );
+    goalMetCalls.push(...rows);
   }
-  // Keep the newest hit per lead — `data` is desc by created_at.
+  // Keep the newest hit per lead — each chunk is desc by created_at.
   const sourceByLead = new Map<
     string,
     {
@@ -118,7 +135,7 @@ export default async function GoalsPage({
   // 3) Hydrate the PipelineLead rows — drop any lead we couldn't link
   //    back to a goal_met call (shouldn't happen in normal flow but
   //    guards against orphaned legacy data).
-  const allPipelineLeads: PipelineLead[] = (leadsRaw ?? [])
+  const allPipelineLeads: PipelineLead[] = leadsRaw
     .map((l): PipelineLead | null => {
       const src = sourceByLead.get(l.id);
       if (!src) return null;

@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import { createClient } from "@/lib/supabase/server";
 
 import { CampaignBoard, type CampaignCardItem } from "./campaign-board";
@@ -178,14 +179,21 @@ export default async function CampaignsPage({
   // per lead the same way) instead of the server's UTC clock.
   const listTimezones = new Map<string, Set<string>>();
   if (attachedListIds.size > 0) {
-    const { data: tzRows } = await supabase
-      .from("leads")
-      .select("list_id, timezone")
-      .is("deleted_at", null)
-      .not("timezone", "is", null)
-      .in("list_id", [...attachedListIds])
-      .limit(50000);
-    for (const r of tzRows ?? []) {
+    // Paged: `.limit(50000)` was silently clamped to 1,000 by PostgREST, so
+    // a big list's later timezones never reached the "calling now?" chip.
+    const tzRows = await fetchAllRows(
+      (from, to) =>
+        supabase
+          .from("leads")
+          .select("list_id, timezone")
+          .is("deleted_at", null)
+          .not("timezone", "is", null)
+          .in("list_id", [...attachedListIds])
+          .order("id", { ascending: true })
+          .range(from, to),
+      { max: 200_000 },
+    );
+    for (const r of tzRows) {
       const row = r as { list_id: string | null; timezone: string | null };
       if (!row.list_id || !row.timezone) continue;
       const set = listTimezones.get(row.list_id) ?? new Set<string>();

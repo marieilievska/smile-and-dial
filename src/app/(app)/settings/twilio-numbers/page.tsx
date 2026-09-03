@@ -17,7 +17,9 @@ import {
   type PoolSettings,
 } from "@/lib/dialer/number-pool";
 import { stateForAreaCode } from "@/lib/dialer/nanp-states";
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import { createClient } from "@/lib/supabase/server";
+import { etDateDaysAgo } from "@/lib/time/eastern";
 import { expectedNumberWebhooks } from "@/lib/twilio/numbers";
 
 import { formatCreatedAt } from "../format-created";
@@ -68,13 +70,17 @@ export default async function TwilioNumbersPage({
     ? str(params.status)
     : "all";
 
-  const { data: rawNumbers } = await supabase
-    .from("twilio_numbers")
-    .select(
-      "id, phone_number, friendly_name, country, monthly_cost, released_at, purchased_at, voice_webhook_url, status_webhook_url, elevenlabs_phone_number_id, attached_campaign_id, area_code, pool_status, rested_until, flagged_for_rotation, warmup_started_at, last_calls_count_24h, last_connect_rate_24h, daily_cap_override",
-    )
-    .order("purchased_at", { ascending: false });
-  const numbers = rawNumbers ?? [];
+  // Paged past PostgREST's 1,000-row cap so the tab counts stay whole.
+  const numbers = await fetchAllRows((from, to) =>
+    supabase
+      .from("twilio_numbers")
+      .select(
+        "id, phone_number, friendly_name, country, monthly_cost, released_at, purchased_at, voice_webhook_url, status_webhook_url, elevenlabs_phone_number_id, attached_campaign_id, area_code, pool_status, rested_until, flagged_for_rotation, warmup_started_at, last_calls_count_24h, last_connect_rate_24h, daily_cap_override",
+      )
+      .order("purchased_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
   // Campaigns, for the pool-buy dialog's picker and to label each number's
   // "Campaign" column. No soft-delete on campaigns — every row is live.
@@ -91,16 +97,21 @@ export default async function TwilioNumbersPage({
 
   // Connect-rate history per number, last 30 Eastern days, oldest first.
   // Recomputed every 30 min by refresh_twilio_number_daily_stats().
-  const historySince = new Date(now.getTime() - 30 * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-  const { data: statRows } = await supabase
-    .from("twilio_number_daily_stats")
-    .select("twilio_number_id, day, calls, connected, connect_rate")
-    .gte("day", historySince)
-    .order("day", { ascending: true });
+  // Paged: 30 days × N numbers passes PostgREST's 1,000-row cap at ~34
+  // numbers, and ascending-by-day means the NEWEST rows (the ones this page
+  // displays) were the ones silently dropped.
+  const historySince = etDateDaysAgo(30, now);
+  const statRows = await fetchAllRows((from, to) =>
+    supabase
+      .from("twilio_number_daily_stats")
+      .select("twilio_number_id, day, calls, connected, connect_rate")
+      .gte("day", historySince)
+      .order("day", { ascending: true })
+      .order("twilio_number_id", { ascending: true })
+      .range(from, to),
+  );
   const historyByNumber = new Map<string, DailyStat[]>();
-  for (const s of statRows ?? []) {
+  for (const s of statRows) {
     const list = historyByNumber.get(s.twilio_number_id) ?? [];
     list.push({
       day: s.day,
