@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { pickBreakdown } from "@/lib/analytics/costs";
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import {
   endOfEtDayUtcIso,
   etDateDaysAgo,
@@ -52,25 +53,11 @@ function yesterdayWindow(): { from: string; to: string } {
   return { from: etDayRangeUtc(y).startUtc, to: endOfEtDayUtcIso(y) };
 }
 
-const CALLS_PAGE = 1000;
-
 /** Page through a `calls` filter past PostgREST's 1,000-row response cap.
  *  Without this the hero counts (calls, connect rate, appointments, spend)
  *  silently undercount on days with >1,000 calls — the exact scale this
  *  dashboard is built for. */
-async function fetchAllCalls<T>(
-  build: (from: number, to: number) => PromiseLike<{ data: T[] | null }>,
-): Promise<T[]> {
-  const rows: T[] = [];
-  for (let offset = 0; ; offset += CALLS_PAGE) {
-    const { data } = await build(offset, offset + CALLS_PAGE - 1);
-    const batch = data ?? [];
-    rows.push(...batch);
-    if (batch.length < CALLS_PAGE) break;
-    if (offset > 500_000) break; // safety backstop
-  }
-  return rows;
-}
+const fetchAllCalls = fetchAllRows;
 
 export async function fetchHeroCounts(
   supabase: SupabaseClient,
@@ -78,16 +65,19 @@ export async function fetchHeroCounts(
 ): Promise<HeroCounts> {
   const start = todayStart();
   const yWindow = yesterdayWindow();
+  const nowIso = new Date().toISOString();
 
   // Today's + yesterday's calls — RLS scopes for members; admins see
   // everything. Paginated so busy days (>1,000 calls) don't silently
-  // undercount every metric derived below.
-  const callbacksQuery = supabase
-    .from("callbacks")
-    .select("id, scheduled_at")
-    .eq("status", "pending");
-
-  const [rowsToday, rowsYest, { data: callbacks }] = await Promise.all([
+  // undercount every metric derived below. Callbacks are server-side counts
+  // (the old row fetch stopped at 1,000 pending callbacks).
+  const [
+    rowsToday,
+    rowsYest,
+    { count: pendingCount },
+    { count: overdueCount },
+    { data: oldestOverdue },
+  ] = await Promise.all([
     fetchAllCalls<{
       id: string;
       lead_id: string;
@@ -116,7 +106,22 @@ export async function fetchHeroCounts(
         .order("created_at", { ascending: true })
         .range(from, to),
     ),
-    callbacksQuery,
+    supabase
+      .from("callbacks")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending"),
+    supabase
+      .from("callbacks")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .lt("scheduled_at", nowIso),
+    supabase
+      .from("callbacks")
+      .select("scheduled_at")
+      .eq("status", "pending")
+      .lt("scheduled_at", nowIso)
+      .order("scheduled_at", { ascending: true })
+      .limit(1),
   ]);
 
   // Appointments = DISTINCT businesses that met the goal, not goal-met calls, so
@@ -143,18 +148,12 @@ export async function fetchHeroCounts(
     0,
   );
 
-  // Callback urgency: pending and scheduled_at <= now is "overdue".
-  const now = Date.now();
-  const cbRows = callbacks ?? [];
-  let overdueCount = 0;
-  let oldestOverdueMs = 0;
-  for (const cb of cbRows) {
-    const t = cb.scheduled_at ? new Date(cb.scheduled_at).getTime() : 0;
-    if (t && t < now) {
-      overdueCount += 1;
-      oldestOverdueMs = Math.max(oldestOverdueMs, now - t);
-    }
-  }
+  // Callback urgency: pending and scheduled_at < now is "overdue"; the oldest
+  // one sets the "N min overdue" age.
+  const oldestAt = oldestOverdue?.[0]?.scheduled_at;
+  const oldestOverdueMs = oldestAt
+    ? Math.max(0, Date.parse(nowIso) - new Date(oldestAt).getTime())
+    : 0;
 
   void opts; // RLS handles member-vs-admin scoping at the row level
 
@@ -172,8 +171,8 @@ export async function fetchHeroCounts(
     appointmentsToday: apptsToday,
     appointmentsYesterday: apptsYest,
     costPerAppointmentToday: apptsToday === 0 ? 0 : spendToday / apptsToday,
-    pendingCallbacks: cbRows.length,
-    overdueCallbacks: overdueCount,
+    pendingCallbacks: pendingCount ?? 0,
+    overdueCallbacks: overdueCount ?? 0,
     oldestOverdueMinutes:
       oldestOverdueMs > 0 ? Math.floor(oldestOverdueMs / 60_000) : null,
   };
@@ -326,36 +325,56 @@ export async function fetchAppointmentPace(
   // pace comparison.
   const yesterdaySameInstant = now.getTime() - 24 * 60 * 60 * 1000;
 
-  const [{ data: todayApps }, { data: yestApps }] = await Promise.all([
-    supabase
-      .from("calls")
-      .select("created_at")
-      .eq("goal_met", true)
-      .gte("created_at", todayStartIso),
-    supabase
-      .from("calls")
-      .select("created_at")
-      .eq("goal_met", true)
-      .gte("created_at", yStartIso)
-      .lte("created_at", yEndIso),
+  // Paged (the old bare selects stopped at 1,000 rows). Goals are per
+  // BUSINESS: the first goal-met call per lead is the moment it converted, so
+  // these agree with the "goals met" tile (distinct leads) beside them.
+  type GoalRow = { created_at: string; lead_id: string | null };
+  const [todayApps, yestApps] = await Promise.all([
+    fetchAllRows<GoalRow>((from, to) =>
+      supabase
+        .from("calls")
+        .select("created_at, lead_id")
+        .eq("goal_met", true)
+        .gte("created_at", todayStartIso)
+        .order("created_at", { ascending: true })
+        .range(from, to),
+    ),
+    fetchAllRows<GoalRow>((from, to) =>
+      supabase
+        .from("calls")
+        .select("created_at, lead_id")
+        .eq("goal_met", true)
+        .gte("created_at", yStartIso)
+        .lte("created_at", yEndIso)
+        .order("created_at", { ascending: true })
+        .range(from, to),
+    ),
   ]);
+  const firstPerLead = (rows: GoalRow[]) => {
+    const seen = new Map<string, string>();
+    for (const r of rows) {
+      const key = r.lead_id ?? r.created_at;
+      if (!seen.has(key)) seen.set(key, r.created_at);
+    }
+    return [...seen.values()];
+  };
 
   // Bucket today's appointments by their Eastern hour (0..23).
   const hourly = new Array<number>(24).fill(0);
-  for (const r of todayApps ?? []) {
-    const h = etHour(new Date(r.created_at));
+  for (const at of firstPerLead(todayApps)) {
+    const h = etHour(new Date(at));
     if (h >= 0 && h < 24) hourly[h] += 1;
   }
 
-  const yesterdayRows = yestApps ?? [];
-  const yesterdayByNow = yesterdayRows.filter(
-    (r) => new Date(r.created_at).getTime() <= yesterdaySameInstant,
+  const yesterdayAts = firstPerLead(yestApps);
+  const yesterdayByNow = yesterdayAts.filter(
+    (at) => new Date(at).getTime() <= yesterdaySameInstant,
   ).length;
 
   return {
     hourly,
     yesterdayByNow,
-    yesterdayTotal: yesterdayRows.length,
+    yesterdayTotal: yesterdayAts.length,
   };
 }
 

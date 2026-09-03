@@ -8,6 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { regionForAreaCode } from "@/lib/dialer/nanp-states";
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import { createClient } from "@/lib/supabase/server";
 import { etDateDaysAgo, etMidnightUtcIso } from "@/lib/time/eastern";
 
@@ -132,13 +133,19 @@ export async function NumbersPanel({ days = 30 }: { days?: number }) {
 
   // 14-day history for the sparkline, oldest first.
   const historySince = etDateDaysAgo(14);
-  const { data: statRows } = await supabase
-    .from("twilio_number_daily_stats")
-    .select("twilio_number_id, day, calls, connected, connect_rate")
-    .gte("day", historySince)
-    .order("day", { ascending: true });
+  // Paged: 14 days × N numbers passes PostgREST's 1,000-row cap at ~72
+  // numbers, and the rows dropped were the newest — exactly the ones shown.
+  const statRows = await fetchAllRows((from, to) =>
+    supabase
+      .from("twilio_number_daily_stats")
+      .select("twilio_number_id, day, calls, connected, connect_rate")
+      .gte("day", historySince)
+      .order("day", { ascending: true })
+      .order("twilio_number_id", { ascending: true })
+      .range(from, to),
+  );
   const historyByNumber = new Map<string, DailyStat[]>();
-  for (const s of statRows ?? []) {
+  for (const s of statRows) {
     const list = historyByNumber.get(s.twilio_number_id) ?? [];
     list.push({
       day: s.day,

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import {
   endOfEtDayUtcIso,
   etDateDaysAgo,
@@ -248,17 +249,21 @@ export async function fetchLookupChargeTotal(
   supabase: SupabaseClient,
   slicers: Pick<Slicers, "from" | "to" | "ownerId">,
 ): Promise<number> {
-  let query = supabase
-    .from("lookup_charges")
-    .select("cost")
-    .gte("created_at", startOfDay(slicers.from))
-    .lte("created_at", endOfDay(slicers.to));
-  if (slicers.ownerId) query = query.eq("owner_id", slicers.ownerId);
-  const { data } = await query;
-  return (data ?? []).reduce(
-    (sum, r) => sum + (Number((r as { cost: number }).cost) || 0),
-    0,
-  );
+  // Paged: a bare select stops at 1,000 rows, and this total feeds the Costs
+  // headline — a big import day would silently under-report its lookup spend.
+  const rows = await fetchAllRows<{ cost: number }>((from, to) => {
+    let query = supabase
+      .from("lookup_charges")
+      .select("cost")
+      .gte("created_at", startOfDay(slicers.from))
+      .lte("created_at", endOfDay(slicers.to));
+    if (slicers.ownerId) query = query.eq("owner_id", slicers.ownerId);
+    return query
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to);
+  });
+  return rows.reduce((sum, r) => sum + (Number(r.cost) || 0), 0);
 }
 
 export type PerCampaign = {

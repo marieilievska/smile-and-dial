@@ -1,3 +1,4 @@
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import type { createClient } from "@/lib/supabase/server";
 import { etDayFilterBounds } from "@/lib/time/eastern";
 
@@ -166,15 +167,24 @@ export async function resolveLeadFilterIds(
   const hasOwner = UUID_RE.test(ownerId);
   if (!hasSearch && !hasOwner) return null;
 
-  let query = supabase.from("leads").select("id").limit(5000);
-  if (hasSearch) {
-    query = query.or(
-      `company.ilike.%${search}%,business_phone.ilike.%${search}%,business_email.ilike.%${search}%`,
-    );
-  }
-  if (hasOwner) {
-    query = query.eq("owner_id", ownerId);
-  }
-  const { data } = await query;
-  return (data ?? []).map((l) => l.id);
+  // Paged: `.limit(5000)` was silently clamped to 1,000 by PostgREST, so a
+  // search matching more leads than that filtered the list AND its exact
+  // count down to an arbitrary 1,000-lead slice. Capped at the same ceiling
+  // the bulk "select all matching" sweep uses.
+  const rows = await fetchAllRows<{ id: string }>(
+    (from, to) => {
+      let query = supabase.from("leads").select("id");
+      if (hasSearch) {
+        query = query.or(
+          `company.ilike.%${search}%,business_phone.ilike.%${search}%,business_email.ilike.%${search}%`,
+        );
+      }
+      if (hasOwner) {
+        query = query.eq("owner_id", ownerId);
+      }
+      return query.order("id", { ascending: true }).range(from, to);
+    },
+    { max: 50_000 },
+  );
+  return rows.map((l) => l.id);
 }

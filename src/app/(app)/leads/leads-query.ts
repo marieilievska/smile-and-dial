@@ -1,6 +1,7 @@
 import type { RecipeNode } from "@/lib/smart-lists/recipe";
 import { parseRecipeParam } from "@/lib/smart-lists/resolve";
 import type { Json } from "@/lib/supabase/database.types";
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import type { createClient } from "@/lib/supabase/server";
 import { endOfEtDayUtcIso, etDayRangeUtc } from "@/lib/time/eastern";
 
@@ -216,15 +217,19 @@ export async function fetchLeadSiblings(
   const select = calledFilterActive(params)
     ? `${sortCols}, _call:calls!inner(id)`
     : sortCols;
-  const { data } = await applyLeadFilters(
-    leadsIdSource(supabase, params, select),
-    params,
-  )
-    .order(sort, { ascending: dir === "asc" })
-    .order("id", { ascending: true })
-    .limit(SIBLING_SCAN_LIMIT);
+  // Paged up to the scan cap: a bare `.limit(5000)` was clamped to 1,000 by
+  // PostgREST, so "N of M" maxed at 1,000 and `capped` could never fire.
+  const data = await fetchAllRows<{ id: string }>(
+    (from, to) =>
+      applyLeadFilters(leadsIdSource(supabase, params, select), params)
+        .order(sort, { ascending: dir === "asc" })
+        .order("id", { ascending: true })
+        .range(from, to)
+        .then((r) => ({ data: r.data as unknown as { id: string }[] | null })),
+    { max: SIBLING_SCAN_LIMIT },
+  );
 
-  const ids = (data ?? []).map((r) => (r as unknown as { id: string }).id);
+  const ids = data.map((r) => r.id);
   const total = ids.length;
   const capped = total >= SIBLING_SCAN_LIMIT;
   const index = ids.indexOf(currentId);
