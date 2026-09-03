@@ -1,12 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { pickBreakdown } from "@/lib/analytics/costs";
 import { startOfTodayEtIso } from "@/lib/time/eastern";
 
 /** At-a-glance numbers for the /campaigns header strip:
  *   - active        — count(status = active)
  *   - paused        — count(status = paused)
  *   - callsToday    — total calls placed today across all campaigns
- *   - spendToday    — sum of cost_breakdown.total across today's calls
+ *   - spendToday    — sum of each call's cost (pickBreakdown, the same
+ *                     derivation Costs and Today use — the stored `total` is
+ *                     stale on rows where the Call Reviewer's OpenAI spend
+ *                     landed after the total was written)
  *
  *  "Today" is the Eastern-time calendar day, matching every other dashboard.
  *  All four respect RLS, so members only see their own campaigns;
@@ -62,19 +66,17 @@ export async function fetchCampaignStats(
       .from("calls")
       .select("id", { count: "exact", head: true })
       .gte("created_at", isoStart),
-    fetchTodayCallRows<{ cost_breakdown: { total?: number } | null }>(
+    fetchTodayCallRows<{ cost_breakdown: unknown }>(
       supabase,
       "cost_breakdown",
       isoStart,
     ),
   ]);
 
-  // Sum spend across today's calls. The cost_breakdown JSON looks like
-  // `{ total: 0.07, ... }`; we just sum the .total numbers.
+  // Sum spend across today's calls with the app-wide cost derivation.
   let spendToday = 0;
   for (const row of spendRows) {
-    const total = row.cost_breakdown?.total;
-    if (typeof total === "number") spendToday += total;
+    spendToday += pickBreakdown(row.cost_breakdown).total;
   }
 
   return {
@@ -98,7 +100,7 @@ export async function fetchPerCampaignSpend(
 ): Promise<Map<string, CampaignTodaySpend>> {
   const rows = await fetchTodayCallRows<{
     campaign_id: string | null;
-    cost_breakdown: { total?: number } | null;
+    cost_breakdown: unknown;
   }>(supabase, "campaign_id, cost_breakdown", startOfTodayEtIso());
 
   const out = new Map<string, CampaignTodaySpend>();
@@ -106,8 +108,7 @@ export async function fetchPerCampaignSpend(
     if (!row.campaign_id) continue;
     const prev = out.get(row.campaign_id) ?? { callsToday: 0, spendToday: 0 };
     prev.callsToday += 1;
-    const t = row.cost_breakdown?.total;
-    if (typeof t === "number") prev.spendToday += t;
+    prev.spendToday += pickBreakdown(row.cost_breakdown).total;
     out.set(row.campaign_id, prev);
   }
   return out;
