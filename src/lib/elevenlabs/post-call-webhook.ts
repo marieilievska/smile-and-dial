@@ -11,7 +11,6 @@ import {
 import { callReachedDm, outcomeImpliesDm } from "@/lib/calls/decision-maker";
 import { classifyCallOutcome } from "@/lib/calls/classify-outcome";
 import { resolveOrCreateInboundCall } from "@/lib/elevenlabs/inbound-call";
-import { CONVERSATION_OUTCOMES } from "@/lib/calls/outcomes";
 import {
   deferSameDayCallbackIso,
   localHourDaysAheadIso,
@@ -22,6 +21,7 @@ import {
   finalizeFailedCall,
 } from "@/lib/dialer/retry-engine";
 import { priceTwilioCall, elevenLabsUsdPerCredit } from "@/lib/costs/rates";
+import { syncLeadCallCounters } from "@/lib/leads/call-counters";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
@@ -965,20 +965,7 @@ async function processTranscription(
   // they stayed at 0. Recompute from the calls table on every call:
   // call_attempts = every call placed; conversations = the calls that became a
   // real two-way conversation.
-  {
-    const { data: leadCalls } = await supabase
-      .from("calls")
-      .select("outcome")
-      .eq("lead_id", call.lead_id);
-    const all = leadCalls ?? [];
-    const conversations = all.filter(
-      (c) => c.outcome && CONVERSATION_OUTCOMES.has(c.outcome),
-    ).length;
-    await supabase
-      .from("leads")
-      .update({ call_attempts: all.length, conversations })
-      .eq("id", call.lead_id);
-  }
+  await syncLeadCallCounters(supabase, call.lead_id);
 
   // Outcome-driven side effects: DNC insertion, callback row creation, and
   // lead-status transitions. Per BUILD_PLAN §8 outcome table:
@@ -1162,6 +1149,11 @@ async function processInitiationFailure(
   // lead kept its short claim-lease / placeholder next_call_at and got redialed
   // almost immediately, never reaching cool-off.
   await finalizeFailedCall(supabase, call.id);
+  // A failed-to-connect call is still an attempt on the lead. This path never
+  // reaches the transcription handler's recompute, so inbound callers who hung
+  // up while we answered (and busy/no-answer outbound legs) were leaving the
+  // lead's "Attempts" one short.
+  await syncLeadCallCounters(supabase, call.lead_id);
 
   return { ok: true, status: "applied" };
 }

@@ -19,6 +19,12 @@ const APPLY = process.argv.includes("--apply");
 const ALLOW_UNDNC = process.argv.includes("--allow-undnc");
 const map = JSON.parse(fs.readFileSync(mapPath, "utf8"));
 
+/** Mirrors CONVERSATION_OUTCOMES in src/lib/calls/outcomes.ts. */
+const CONVERSATION_OUTCOMES = new Set([
+  "goal_met", "callback", "not_interested", "gatekeeper",
+  "gatekeeper_not_interested", "transferred_to_human", "language_barrier",
+]);
+
 const DAY = 86400000;
 const iso = (ms) => new Date(ms).toISOString();
 const now = Date.now();
@@ -106,5 +112,17 @@ async function dncClean(leadId, callId) {
     if (a.undnc) for (const e of a.undnc.entries) await C.del(`dnc_entries?id=eq.${e.id}`);
     await C.patch(`leads?id=eq.${a.c.lead_id}`, a.lp);
   }
-  console.log(`applied ${actions.length} relabels.`);
+  // Re-derive each touched lead's call counters from its calls (mirrors
+  // src/lib/leads/call-counters.ts). Relabeling a call to/from a conversation
+  // outcome changes leads.conversations; skipping this left 6 leads stale on
+  // 2026-09-02 (the #425 hang-up split).
+  const leadIds = [...new Set(actions.map((a) => a.c.lead_id))];
+  for (const leadId of leadIds) {
+    const leadCalls = await C.get(`calls?lead_id=eq.${leadId}&select=outcome`);
+    await C.patch(`leads?id=eq.${leadId}`, {
+      call_attempts: leadCalls.length,
+      conversations: leadCalls.filter((c) => CONVERSATION_OUTCOMES.has(c.outcome)).length,
+    });
+  }
+  console.log(`applied ${actions.length} relabels; resynced counters on ${leadIds.length} leads.`);
 })().catch((e) => { console.error("ERR", e.message); process.exit(1); });

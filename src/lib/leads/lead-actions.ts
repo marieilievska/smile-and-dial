@@ -7,6 +7,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
+import { syncLeadCallCounters } from "./call-counters";
 import { IMPORTABLE_FIELDS } from "./import-fields";
 import { toE164UsCa } from "./twilio-lookup";
 
@@ -350,6 +351,12 @@ export async function mergeInboundLead(input: {
   if (mergeError) {
     return { error: "Could not merge the lead. Nothing was changed." };
   }
+
+  // The merge repoints the source's calls onto the destination but only adds
+  // the source's `conversations` — `call_attempts` stayed put, so every merged
+  // lead read one attempt short. Re-derive both from the calls that now sit on
+  // the destination.
+  await syncLeadCallCounters(makeServiceClient(), input.destinationLeadId);
 
   revalidatePath("/leads");
   return { error: null };
