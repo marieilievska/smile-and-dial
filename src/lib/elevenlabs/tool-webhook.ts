@@ -1036,7 +1036,7 @@ async function getAvailableTimesResult(
         return {
           success: true,
           message:
-            "Open sessions over the next few days, soonest first. Times are already in the lead's local time; `when` is how to say the day (today / tomorrow / the weekday).",
+            "Open sessions over the next few days, soonest first, times already in the lead's local time; `when` is how to say the day (today / tomorrow / the weekday). Offer up to three, soonest first, with their local times, in ONE question, then confirm the one they pick with its date. Never mention a day that is not in this list.",
           slots,
         };
       }
