@@ -130,18 +130,58 @@ export function genuineHumanReplyCount(transcript: unknown): number {
   return count;
 }
 
+/** A bare acknowledgement / prompt-to-repeat — "Hello?", "Hi.", "Yes", "What?",
+ *  "Who is this?" — is NOT engagement with the pitch. Someone who says "Hello?"
+ *  and hangs up hung up immediately. Matched against the whole (trimmed) turn,
+ *  so "Yeah, who's this?" or "You sound like a robot" stay substantive. */
+const FILLER_REPLY_RE =
+  /^(?:(?:hello[\s?.!,]*){1,3}|(?:hi|hey|hola|yes|yeah|yep|no|nope|what|huh|sorry|pardon|okay|ok|um+|uh+|hm+|who is this|who's this)[\s?.!,]*)$/i;
+
+/** Count SUBSTANTIVE human replies: genuine replies (see
+ *  genuineHumanReplyCount) minus pure filler like "Hello?" / "Hi." / "What?".
+ *  Used only for the immediate-vs-later hang-up split; the ≥2-reply
+ *  "real conversation" guards elsewhere keep using the genuine count. */
+export function substantiveHumanReplyCount(transcript: unknown): number {
+  const turns = normalizeTurns(transcript);
+  let agentSpoke = false;
+  let count = 0;
+  for (const t of turns) {
+    if (t.role === "agent" || t.role === "ai") {
+      agentSpoke = true;
+      continue;
+    }
+    if (t.role === "user" && agentSpoke) {
+      const m = t.message.trim();
+      if (
+        alphaLen(m) >= 2 &&
+        wordCount(m) <= 12 &&
+        !MACHINE_GREETING_RE.test(m) &&
+        !MACHINE_REPLY_RE.test(m) &&
+        !FILLER_REPLY_RE.test(m)
+      ) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
 /** Split a resolved hang-up into immediate vs later by engagement + time.
- *  A hang-up is `hung_up_immediately` only when the person gave NO genuine reply
- *  AND the call was short (≤15s) — i.e. they hung up during/right after the
- *  greeting. Otherwise (they said something back, or stayed on the line past 15s)
- *  it's a `hung_up_later`: they engaged, then hung up. */
-const IMMEDIATE_HANGUP_MAX_SECS = 15;
+ *  A hang-up is `hung_up_immediately` when the person never engaged with the
+ *  pitch — NO substantive reply (a bare "Hello?" doesn't count) — AND the call
+ *  was ≤30s. The window has to cover a receptionist greeting (~4s) plus Tom's
+ *  opener (~12s): with the old 15s cap, "Honeycomb Salon, this is Erica…" +
+ *  opener + click landed at 16–20s and was mislabeled `hung_up_later` (54 of
+ *  144 "later" calls on 2026-09-02, plus ~25 more where "Hello?" counted as a
+ *  reply). Otherwise — they said something real back, or stayed on the line
+ *  past 30s — it's a `hung_up_later`: they engaged, then hung up. */
+const IMMEDIATE_HANGUP_MAX_SECS = 30;
 export function hangUpKind(
   callDurationSecs: number,
-  humanReplies: number,
+  substantiveReplies: number,
 ): "hung_up_immediately" | "hung_up_later" {
   const immediate =
-    humanReplies === 0 && callDurationSecs <= IMMEDIATE_HANGUP_MAX_SECS;
+    substantiveReplies === 0 && callDurationSecs <= IMMEDIATE_HANGUP_MAX_SECS;
   return immediate ? "hung_up_immediately" : "hung_up_later";
 }
 
@@ -205,6 +245,8 @@ export function classifyCallOutcome(input: {
   const saysAi = calledPartySelfIdentifiesAsAi(transcript);
   const machineGreeting = transcriptLooksLikeMachine(transcript);
   const humanReplies = genuineHumanReplyCount(transcript);
+  // Only for the immediate-vs-later hang-up split: "Hello?" isn't engagement.
+  const substantiveReplies = substantiveHumanReplyCount(transcript);
   const vmByTermination = /voicemail/i.test(terminationReason);
   const silenceByTermination = /silence|no[ _-]?audio|no response/i.test(
     terminationReason,
@@ -276,7 +318,7 @@ export function classifyCallOutcome(input: {
   // greeting) vs later (engaged, or stayed on past 15s, then hung up). Covers
   // both the disposition=hung_up path and the short-call heuristic above.
   if (outcome === "hung_up_immediately") {
-    outcome = hangUpKind(callDurationSecs, humanReplies);
+    outcome = hangUpKind(callDurationSecs, substantiveReplies);
   }
 
   // FINAL FALLBACK — classifyCallOutcome must NEVER return null. The post-call
@@ -295,7 +337,7 @@ export function classifyCallOutcome(input: {
     outcome =
       humanReplies >= 2
         ? "gatekeeper"
-        : hangUpKind(callDurationSecs, humanReplies);
+        : hangUpKind(callDurationSecs, substantiveReplies);
   }
 
   // not_interested is DECISION-MAKER-only — which per the live disposition prompt
