@@ -85,14 +85,14 @@ describe("goals counted per business (distinct lead)", () => {
   it("computeDailyKpis (reporting): same lead twice in a day = one goal", () => {
     const rows: AgentCallRow[] = [
       {
-        started_at: AT,
+        created_at: AT,
         outcome: "goal_met",
         duration_seconds: 120,
         extracted_data: {},
         lead_id: "lead-1",
       },
       {
-        started_at: AT,
+        created_at: AT,
         outcome: "goal_met",
         duration_seconds: 120,
         extracted_data: {},

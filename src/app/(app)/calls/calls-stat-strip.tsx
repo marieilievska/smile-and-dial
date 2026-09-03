@@ -1,6 +1,8 @@
 import { PhoneCall, Target, TrendingUp } from "lucide-react";
 import Link from "next/link";
 
+import { etDayString } from "@/lib/time/eastern";
+
 import type { CallStats } from "./stats-query";
 
 /** 3-stat strip under the /calls header. Mirrors LeadsStatStrip — tile-
@@ -11,7 +13,9 @@ import type { CallStats } from "./stats-query";
  *  the dedicated /costs page where it has the proper breakdown and
  *  context. Removing it keeps the strip focused on activity. */
 export function CallsStatStrip({ stats }: { stats: CallStats }) {
-  const today = new Date().toISOString().slice(0, 10);
+  // The ET date the counts were computed for — a UTC date here sent the
+  // tiles to tomorrow's (empty) list every evening after 8pm ET.
+  const today = etDayString();
   return (
     <section
       data-testid="calls-stat-strip"

@@ -1,10 +1,10 @@
 import type { createClient } from "@/lib/supabase/server";
+import { etDayFilterBounds } from "@/lib/time/eastern";
 
 import type { SearchParams } from "./calls-url";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 
 /**
@@ -120,15 +120,14 @@ export function applyCallFilters<
     query = query.lte("duration_seconds", maxDur);
   }
 
-  const dateFilters: [string, string, string][] = [
-    ["from", "to", "started_at"],
-  ];
-  for (const [fromKey, toKey, column] of dateFilters) {
-    const from = str(params[fromKey]);
-    const to = str(params[toKey]);
-    if (DATE_RE.test(from)) query = query.gte(column, from);
-    if (DATE_RE.test(to)) query = query.lte(column, `${to}T23:59:59`);
-  }
+  // Date range = EASTERN calendar days on `created_at`, the same window and
+  // column every "calls today" tile uses (Today, Calls, Campaigns, Costs,
+  // Analytics). The old bare `"YYYY-MM-DD"` strings were read as UTC midnight,
+  // so the "Calls today" tile and the list it linked to disagreed by ~430
+  // calls every evening.
+  const bounds = etDayFilterBounds(str(params.from), str(params.to));
+  if (bounds.gte) query = query.gte("created_at", bounds.gte);
+  if (bounds.lte) query = query.lte("created_at", bounds.lte);
 
   return query;
 }

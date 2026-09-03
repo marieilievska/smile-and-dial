@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 
+import { etDateDaysAgo, etMidnightUtcIso } from "@/lib/time/eastern";
+
 import type { ReportScope } from "./scope";
 
 type DB = SupabaseClient<Database>;
@@ -82,14 +84,15 @@ export async function detectCampaignFields(
   supabase: DB,
   campaignId: string,
 ): Promise<DetectedFields> {
-  const since = new Date(Date.now() - SAMPLE_DAYS * 86_400_000).toISOString();
+  // Whole Eastern days on created_at (the app-wide "calls" window/column).
+  const since = etMidnightUtcIso(etDateDaysAgo(SAMPLE_DAYS));
   const { data } = await supabase
     .from("calls")
     .select("extracted_data")
     .eq("campaign_id", campaignId)
     .eq("direction", "outbound")
-    .gte("started_at", since)
-    .order("started_at", { ascending: false })
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
     .range(0, PAGE - 1);
   const rows = (data ?? []) as { extracted_data: unknown }[];
 

@@ -26,6 +26,12 @@ const ACTIVE_STATUSES = [
 
 const PAGE = 1000;
 
+type TodayStatRow = {
+  outcome: string | null;
+  goal_met: boolean | null;
+  lead_id: string | null;
+};
+
 /** Page past PostgREST's 1,000-row response cap. A bare `.limit(5000)` is
  *  silently clamped to 1,000 rows by the server, so on any day with >1,000
  *  calls the strip froze at exactly 1,000 and the connect/goal rates were
@@ -34,19 +40,16 @@ const PAGE = 1000;
 async function fetchTodayStatRows(
   supabase: SupabaseServerClient,
   isoStart: string,
-): Promise<{ outcome: string | null; goal_met: boolean | null }[]> {
-  const rows: { outcome: string | null; goal_met: boolean | null }[] = [];
+): Promise<TodayStatRow[]> {
+  const rows: TodayStatRow[] = [];
   for (let offset = 0; ; offset += PAGE) {
     const { data } = await supabase
       .from("calls")
-      .select("outcome, goal_met")
-      .gte("started_at", isoStart)
-      .order("started_at", { ascending: true })
+      .select("outcome, goal_met, lead_id")
+      .gte("created_at", isoStart)
+      .order("created_at", { ascending: true })
       .range(offset, offset + PAGE - 1);
-    const batch = (data ?? []) as {
-      outcome: string | null;
-      goal_met: boolean | null;
-    }[];
+    const batch = (data ?? []) as TodayStatRow[];
     rows.push(...batch);
     if (batch.length < PAGE) break;
     if (offset > 500_000) break; // safety backstop
@@ -64,8 +67,10 @@ async function fetchTodayStatRows(
 export async function fetchCallStats(
   supabase: SupabaseServerClient,
 ): Promise<CallStats> {
-  // Eastern day start — "today" matches the Today/Costs pages and the ET
-  // calendar, so a 9pm-ET call still counts as today (not tomorrow).
+  // Eastern day start on `created_at` — the SAME window and column as the
+  // Today, Campaigns, Costs and Analytics "calls today" numbers, so every page
+  // shows one figure. (This used to key on started_at, which drops the rare
+  // row whose dial never left the queue.)
   const startOfToday = startOfTodayEtIso();
 
   const [rows, { count: inProgressCount }] = await Promise.all([
@@ -80,13 +85,16 @@ export async function fetchCallStats(
   ]);
 
   let connected = 0;
-  let goalMet = 0;
   let aiError = 0;
+  // Goals are per BUSINESS (distinct lead), the app-wide rule — a lead booked
+  // twice in a day is one goal, matching the Today tile and Reporting.
+  const goalLeads = new Set<string>();
   for (const row of rows) {
     if (row.outcome && CONNECTED_OUTCOMES.has(row.outcome)) connected++;
     if (row.outcome === "ai_error") aiError++;
-    if (row.goal_met) goalMet++;
+    if (row.goal_met) goalLeads.add(row.lead_id ?? "");
   }
+  const goalMet = goalLeads.size;
   const callsToday = rows.length;
   // ai_error = OUR quota/platform failure — out of the connect-rate denominator
   // so an EL credit outage doesn't distort the rate.

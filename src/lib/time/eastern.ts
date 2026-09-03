@@ -84,6 +84,21 @@ export function etDateDaysAgo(n: number, now: Date = new Date()): string {
   return new Date(Date.UTC(y, mo - 1, d - n)).toISOString().slice(0, 10);
 }
 
+/** Query bounds for a YYYY-MM-DD `from`/`to` pair typed into a date filter:
+ *  `gte` = ET midnight of `from`, `lte` = last ms of the ET day `to`. Blank or
+ *  malformed inputs are dropped. Without this, `.gte(col, "2026-09-03")` is
+ *  read by Postgres as UTC midnight, 4–5 hours before the Eastern day. */
+export function etDayFilterBounds(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): { gte?: string; lte?: string } {
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const out: { gte?: string; lte?: string } = {};
+  if (from && DATE_RE.test(from)) out.gte = etMidnightUtcIso(from);
+  if (to && DATE_RE.test(to)) out.lte = endOfEtDayUtcIso(to);
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // DISPLAY. Every date/time the app SHOWS is rendered in Eastern, no matter
 // where it renders (Vercel = UTC on the server) or where the viewer's device
