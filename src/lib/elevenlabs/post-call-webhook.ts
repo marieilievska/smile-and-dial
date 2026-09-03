@@ -10,6 +10,7 @@ import {
 } from "@/lib/callbacks/sync-next-call";
 import { callReachedDm, outcomeImpliesDm } from "@/lib/calls/decision-maker";
 import { classifyCallOutcome } from "@/lib/calls/classify-outcome";
+import { resolveOrCreateInboundCall } from "@/lib/elevenlabs/inbound-call";
 import { CONVERSATION_OUTCOMES } from "@/lib/calls/outcomes";
 import {
   deferSameDayCallbackIso,
@@ -621,9 +622,10 @@ async function resolveCall(
   cost_breakdown: unknown;
   elevenlabs_conversation_id: string | null;
   started_at: string | null;
+  direction: string | null;
 } | null> {
   const cols =
-    "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id, started_at";
+    "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id, started_at, direction";
   let call = null as Awaited<ReturnType<typeof resolveCall>>;
   if (echoedCallId) {
     const { data } = await supabase
@@ -651,16 +653,13 @@ async function resolveCall(
 }
 
 /**
- * EL-native inbound has no echoed call_id, so {@link resolveCall} misses and the
- * call would be dropped as `unknown_conversation` — invisible in the app. When
- * the payload says it's an inbound phone call, create the `calls` row + lead
- * (our number → campaign, caller → the owner's matching lead or a new one in the
- * Inbound list) so it's logged, then let processTranscription fill it like any
- * other call. Returns null when it isn't an attributable inbound call.
- *
- * Idempotent: the unique `twilio_call_sid` means a re-delivered event reuses the
- * same row, and the conversation_id is stamped so later events (audio) resolve
- * to it normally.
+ * EL-native inbound fallback: when neither the echoed call_id nor the
+ * conversation_id resolves a row, and the payload says it's an inbound phone
+ * call, resolve/create the inbound `calls` row + lead (see
+ * resolveOrCreateInboundCall — shared with the conversation-init webhook,
+ * which normally creates this row at the START of the call so the agent has
+ * context and a working call_id). Returns null when it isn't an attributable
+ * inbound call.
  */
 async function createInboundCallFromPayload(
   supabase: SupabaseAdmin,
@@ -669,91 +668,12 @@ async function createInboundCallFromPayload(
 ): Promise<Awaited<ReturnType<typeof resolveCall>>> {
   const pc = payload.metadata?.phone_call;
   if (!pc || pc.direction !== "inbound") return null;
-  const agentNumber = (pc.agent_number ?? "").trim();
-  const callerNumber = (pc.external_number ?? "").trim();
-  const callSid = (pc.call_sid ?? "").trim();
-  if (!agentNumber || !callSid) return null;
-
-  // Our number → campaign (owner + agent).
-  const { data: numberRow } = await supabase
-    .from("twilio_numbers")
-    .select("id, attached_campaign_id")
-    .eq("phone_number", agentNumber)
-    .maybeSingle();
-  if (!numberRow?.attached_campaign_id) return null;
-  const { data: campaign } = await supabase
-    .from("campaigns")
-    .select("id, owner_id, agent_id")
-    .eq("id", numberRow.attached_campaign_id)
-    .maybeSingle();
-  if (!campaign) return null;
-
-  // Caller → lead: reuse the owner's matching lead, else create one in the
-  // owner's Inbound list (same path as the legacy app-bridged inbound route).
-  //
-  // People usually return a missed call from a DIFFERENT number than the one
-  // we dialed (their cell, a second line), so match on every phone column,
-  // not just business_phone. A merged inbound lead parks the caller's number
-  // on the destination's mobile_phone / owner_phone (merge_inbound_lead), so
-  // the next call from that number lands on the right lead instead of
-  // spawning another orphan. Soft-deleted leads (merged sources still carry
-  // the number) are excluded; the business line is preferred on a tie.
-  let leadId: string | null = null;
-  if (callerNumber) {
-    const { data: matches } = await supabase
-      .from("leads")
-      .select("id, business_phone")
-      .eq("owner_id", campaign.owner_id)
-      .is("deleted_at", null)
-      .or(
-        `business_phone.eq.${callerNumber},mobile_phone.eq.${callerNumber},owner_phone.eq.${callerNumber}`,
-      )
-      .order("created_at", { ascending: true })
-      .limit(5);
-    const existingLead =
-      matches?.find((m) => m.business_phone === callerNumber) ?? matches?.[0];
-    if (existingLead) leadId = existingLead.id;
-  }
-  if (!leadId) {
-    const { data: listId } = await supabase.rpc("get_or_create_inbound_list", {
-      in_owner: campaign.owner_id,
-    });
-    if (!listId) return null;
-    const { data: newLead } = await supabase
-      .from("leads")
-      .insert({
-        owner_id: campaign.owner_id,
-        list_id: listId as string,
-        business_phone: callerNumber || null,
-        company: callerNumber || "Inbound caller",
-      })
-      .select("id")
-      .single();
-    if (!newLead) return null;
-    leadId = newLead.id;
-  }
-
-  const cols =
-    "id, lead_id, campaign_id, cost_breakdown, elevenlabs_conversation_id, started_at";
-  const { data: call } = await supabase
-    .from("calls")
-    .upsert(
-      {
-        lead_id: leadId,
-        campaign_id: campaign.id,
-        agent_id: campaign.agent_id,
-        twilio_number_id: numberRow.id,
-        direction: "inbound",
-        status: "in_progress",
-        twilio_call_sid: callSid,
-        elevenlabs_conversation_id: conversationId,
-        started_at: new Date().toISOString(),
-      },
-      { onConflict: "twilio_call_sid" },
-    )
-    .select(cols)
-    .maybeSingle();
-  return (call ?? null) as Awaited<ReturnType<typeof resolveCall>>;
+  return resolveOrCreateInboundCall(supabase, {
+    agentNumber: pc.agent_number ?? "",
+    callerNumber: pc.external_number ?? "",
+    callSid: pc.call_sid ?? "",
+    conversationId,
+  });
 }
 
 /**
@@ -870,6 +790,9 @@ async function processTranscription(
       disposition,
       terminationReason,
       callDurationSecs,
+      // Inbound (a returned missed call) can't be a voicemail / no-answer —
+      // the classifier treats those signals as a caller hang-up instead.
+      direction: call.direction,
       // Owner-only guard for not_interested: the classifier downgrades it to
       // gatekeeper_not_interested unless the extractor confirmed dm="yes".
       decisionMakerReached: extractedDataOf(payload.analysis)

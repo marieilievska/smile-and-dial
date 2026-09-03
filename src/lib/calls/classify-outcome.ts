@@ -232,6 +232,12 @@ export function classifyCallOutcome(input: {
   terminationReason: string;
   callDurationSecs: number;
   decisionMakerReached?: unknown;
+  /** "inbound" when the far party dialed US (returning a missed call). On an
+   *  inbound call nothing on the line can be a voicemail or a no-answer — the
+   *  caller is a person who chose to dial — so every voicemail/no-answer
+   *  signal below is ignored and a caller who says nothing / drops is a
+   *  hang-up. Omitted or anything else = outbound, the historical behavior. */
+  direction?: string | null;
 }): { outcome: CallOutcome | null; reachedHuman: boolean } {
   const {
     transcript,
@@ -240,14 +246,21 @@ export function classifyCallOutcome(input: {
     callDurationSecs,
     decisionMakerReached,
   } = input;
+  const inbound = input.direction === "inbound";
 
-  const dispositionOutcome = DISPOSITION_TO_OUTCOME[disposition] ?? null;
+  // On inbound the agent's own "voicemail" guess is meaningless (it was
+  // answering, not dialing), and the machine-greeting tells ("sorry I missed
+  // your call", "return your call") are exactly what a HUMAN returning a call
+  // says — so neither may fire.
+  const rawDisposition = DISPOSITION_TO_OUTCOME[disposition] ?? null;
+  const dispositionOutcome =
+    inbound && rawDisposition === "voicemail" ? null : rawDisposition;
   const saysAi = calledPartySelfIdentifiesAsAi(transcript);
-  const machineGreeting = transcriptLooksLikeMachine(transcript);
+  const machineGreeting = !inbound && transcriptLooksLikeMachine(transcript);
   const humanReplies = genuineHumanReplyCount(transcript);
   // Only for the immediate-vs-later hang-up split: "Hello?" isn't engagement.
   const substantiveReplies = substantiveHumanReplyCount(transcript);
-  const vmByTermination = /voicemail/i.test(terminationReason);
+  const vmByTermination = !inbound && /voicemail/i.test(terminationReason);
   const silenceByTermination = /silence|no[ _-]?audio|no response/i.test(
     terminationReason,
   );
@@ -292,9 +305,18 @@ export function classifyCallOutcome(input: {
           : "gatekeeper"
         : "voicemail";
   } else if (silenceAbandon) {
-    outcome = "no_answer";
+    // Inbound: the CALLER went quiet on a line they opened — that's them
+    // dropping the call, not us failing to reach them.
+    outcome = inbound
+      ? hangUpKind(callDurationSecs, substantiveReplies)
+      : "no_answer";
   } else {
     outcome = dispositionOutcome ?? telephonyOutcome(terminationReason);
+    // Inbound can't be a voicemail or an unanswered ring (see `direction`);
+    // drop those so the hang-up fallback below buckets it.
+    if (inbound && (outcome === "voicemail" || outcome === "no_answer")) {
+      outcome = null;
+    }
   }
 
   // Immediate-hang-up correction: a sub-20s call the OTHER party ended has no
