@@ -269,12 +269,18 @@ const MERGEABLE_FIELDS = [
  * is_inbound_default list (the system-managed "Inbound" list); the
  * destination must belong to the same owner.
  *
- * Side effects:
+ * Side effects (all inside the `merge_inbound_lead` Postgres function, see
+ * migration 20260902210000):
  *   - Non-null fields from source fill empty fields on destination
- *   - All `calls` rows for source are repointed to destination
- *   - All `callbacks` for source are repointed to destination
+ *   - The caller's number (source business_phone) is kept on the destination
+ *     (mobile_phone, else owner_phone) so the next inbound from it matches
+ *   - calls, callbacks, texts, emails, short_links, calendly_events repoint;
+ *     lead_campaign_summaries move or append; custom values fill gaps
+ *   - Status carries: goal_met/dnc from the source wins; otherwise a pending
+ *     callback parks the destination (status=callback, next_call_at=earliest)
  *   - Source lead is soft-deleted (deleted_at = now)
- *   - Audit log: system_events kind='lead_merged' with {from, to}
+ *   - Audit log: system_events kind='lead_merged' with
+ *     {from, to, merged_phone, phone_stored_in, status_carried}
  */
 export async function mergeInboundLead(input: {
   sourceLeadId: string;

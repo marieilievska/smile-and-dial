@@ -87,9 +87,10 @@ export function MergeInboundDialog({ sourceLeadId }: { sourceLeadId: string }) {
           <DialogTitle>Merge into existing lead</DialogTitle>
           <DialogDescription>
             Search your leads, then pick the one this inbound caller actually
-            belongs to. Empty fields on the destination get filled from the
-            source; call history and callbacks move over; the inbound lead is
-            archived.
+            belongs to. The number they called from is kept on that lead (so
+            their next call lands there too), empty fields get filled in, and
+            every call, callback, summary and booking moves over. The inbound
+            lead is archived.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3">

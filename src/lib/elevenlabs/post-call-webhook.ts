@@ -690,14 +690,28 @@ async function createInboundCallFromPayload(
 
   // Caller → lead: reuse the owner's matching lead, else create one in the
   // owner's Inbound list (same path as the legacy app-bridged inbound route).
+  //
+  // People usually return a missed call from a DIFFERENT number than the one
+  // we dialed (their cell, a second line), so match on every phone column,
+  // not just business_phone. A merged inbound lead parks the caller's number
+  // on the destination's mobile_phone / owner_phone (merge_inbound_lead), so
+  // the next call from that number lands on the right lead instead of
+  // spawning another orphan. Soft-deleted leads (merged sources still carry
+  // the number) are excluded; the business line is preferred on a tie.
   let leadId: string | null = null;
   if (callerNumber) {
-    const { data: existingLead } = await supabase
+    const { data: matches } = await supabase
       .from("leads")
-      .select("id")
+      .select("id, business_phone")
       .eq("owner_id", campaign.owner_id)
-      .eq("business_phone", callerNumber)
-      .maybeSingle();
+      .is("deleted_at", null)
+      .or(
+        `business_phone.eq.${callerNumber},mobile_phone.eq.${callerNumber},owner_phone.eq.${callerNumber}`,
+      )
+      .order("created_at", { ascending: true })
+      .limit(5);
+    const existingLead =
+      matches?.find((m) => m.business_phone === callerNumber) ?? matches?.[0];
     if (existingLead) leadId = existingLead.id;
   }
   if (!leadId) {
@@ -858,7 +872,8 @@ async function processTranscription(
       callDurationSecs,
       // Owner-only guard for not_interested: the classifier downgrades it to
       // gatekeeper_not_interested unless the extractor confirmed dm="yes".
-      decisionMakerReached: extractedDataOf(payload.analysis)?.decision_maker_reached,
+      decisionMakerReached: extractedDataOf(payload.analysis)
+        ?.decision_maker_reached,
     },
   );
 
