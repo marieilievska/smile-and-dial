@@ -229,7 +229,7 @@ describe("classifyCallOutcome", () => {
     expect(r.reachedHuman).toBe(false);
   });
 
-  it("splits a hang-up into immediate (no reply, ≤15s) vs later (engaged or stayed on)", () => {
+  it("splits a hang-up into immediate (no real reply, ≤30s) vs later (engaged or stayed on)", () => {
     // No reply, short → immediate.
     const immediate = classifyCallOutcome({
       transcript: t(["agent", "Hi, honestly I'm calling out of the blue..."]),
@@ -252,7 +252,7 @@ describe("classifyCallOutcome", () => {
     expect(engaged.outcome).toBe("hung_up_later");
     expect(engaged.reachedHuman).toBe(false);
 
-    // No reply, but stayed on the line past 15s → later.
+    // No reply, but stayed on the line past 30s → later.
     const stayedOn = classifyCallOutcome({
       transcript: t(["agent", "Hi, honestly I'm calling out of the blue..."]),
       disposition: "hung_up",
@@ -262,10 +262,54 @@ describe("classifyCallOutcome", () => {
     expect(stayedOn.outcome).toBe("hung_up_later");
   });
 
-  it("hangUpKind: boundary at 15s with no reply", () => {
-    expect(hangUpKind(15, 0)).toBe("hung_up_immediately");
-    expect(hangUpKind(16, 0)).toBe("hung_up_later");
-    expect(hangUpKind(3, 1)).toBe("hung_up_later"); // any reply → later
+  // 2026-09-02: 54 of 144 "later" calls were a receptionist greeting + Tom's
+  // opener + click at 16–20s, and ~25 more were a bare "Hello?" counted as a
+  // reply. Neither is engagement — both are immediate hang-ups.
+  it("immediate: receptionist greeting + opener + click at 19s, no reply", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Honeycomb Salon, this is Erica. How may I help you?"],
+        ["agent", "Oh hey, honestly I'm calling a little out of the blue here…"],
+      ),
+      disposition: "",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 19,
+    });
+    expect(r.outcome).toBe("hung_up_immediately");
+  });
+
+  it("immediate: a bare 'Hello?' after the opener is not engagement", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["agent", "Hi, is the owner around?"],
+        ["user", "Hello?"],
+        ["agent", "Hi, honestly I'm calling a little out of the blue…"],
+        ["user", "Hello? Hello?"],
+      ),
+      disposition: "hung_up",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 22,
+    });
+    expect(r.outcome).toBe("hung_up_immediately");
+  });
+
+  it("later: a real remark before the click stays hung_up_later", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["agent", "Hi, is the owner around?"],
+        ["user", "You sound like a robot, man."],
+      ),
+      disposition: "hung_up",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 12,
+    });
+    expect(r.outcome).toBe("hung_up_later");
+  });
+
+  it("hangUpKind: boundary at 30s with no substantive reply", () => {
+    expect(hangUpKind(30, 0)).toBe("hung_up_immediately");
+    expect(hangUpKind(31, 0)).toBe("hung_up_later");
+    expect(hangUpKind(3, 1)).toBe("hung_up_later"); // a real reply → later
     expect(hangUpKind(0, 0)).toBe("hung_up_immediately");
   });
 
