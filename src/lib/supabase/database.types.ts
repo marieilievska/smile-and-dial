@@ -338,6 +338,7 @@ export type Database = {
           agent_analytics_share_token: string | null;
           best_time_heatmap: Json | null;
           best_time_heatmap_at: string | null;
+          calendly_webhook_signing_key: string | null;
           dialer_tick_secret: string | null;
           elevenlabs_init_webhook_secret: string | null;
           elevenlabs_post_call_webhook_id: string | null;
@@ -353,6 +354,7 @@ export type Database = {
           agent_analytics_share_token?: string | null;
           best_time_heatmap?: Json | null;
           best_time_heatmap_at?: string | null;
+          calendly_webhook_signing_key?: string | null;
           dialer_tick_secret?: string | null;
           elevenlabs_init_webhook_secret?: string | null;
           elevenlabs_post_call_webhook_id?: string | null;
@@ -368,6 +370,7 @@ export type Database = {
           agent_analytics_share_token?: string | null;
           best_time_heatmap?: Json | null;
           best_time_heatmap_at?: string | null;
+          calendly_webhook_signing_key?: string | null;
           dialer_tick_secret?: string | null;
           elevenlabs_init_webhook_secret?: string | null;
           elevenlabs_post_call_webhook_id?: string | null;
