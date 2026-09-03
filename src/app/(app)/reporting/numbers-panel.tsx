@@ -7,6 +7,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 import { regionForAreaCode } from "@/lib/dialer/nanp-states";
 import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import { createClient } from "@/lib/supabase/server";
@@ -29,20 +30,13 @@ import {
  * only be answered by hand-joining the database. Read it before spending.
  */
 
-/** A call is "connected" when it reached a person. This list must stay exactly
- *  in step with the SQL definition in monitor_twilio_connect_rates and
- *  twilio_number_daily_stats — ('voicemail', 'no_answer', 'busy', 'failed',
- *  'invalid_number') — so the scoreboards, the per-number Connect column, and
- *  the trend sparkline all agree. (The outcome value is `invalid_number`, not
- *  `invalid`; `invalid` is a line_type, and using it here silently counted
- *  dead-number calls as connections.) */
-const NOT_CONNECTED = new Set([
-  "voicemail",
-  "no_answer",
-  "busy",
-  "failed",
-  "invalid_number",
-]);
+/** A call is "connected" when a PERSON picked up — the app-wide
+ *  CONNECTED_OUTCOMES list (outcomes.ts), the same one the Today, Calls,
+ *  Reporting and Analytics connect rates use. The SQL behind the trend
+ *  sparkline / 24h figure (refresh_twilio_number_daily_stats,
+ *  monitor_twilio_connect_rates) mirrors that list; keep them in step. The old
+ *  local "everything except voicemail/no_answer/busy/failed/invalid_number"
+ *  rule counted an AI receptionist bot answering as a connection. */
 
 type Row = { calls: number; connected: number };
 
@@ -102,7 +96,7 @@ export async function NumbersPanel({ days = 30 }: { days?: number }) {
     // both the connected count AND the denominator so an EL credit outage
     // doesn't distort a number's connect rate.
     if (c.outcome === "ai_error") continue;
-    const connected = c.outcome !== null && !NOT_CONNECTED.has(c.outcome);
+    const connected = c.outcome !== null && CONNECTED_OUTCOMES.has(c.outcome);
     const bump = (m: Map<string, Row>, k: string) => {
       const r = m.get(k) ?? { calls: 0, connected: 0 };
       r.calls++;
