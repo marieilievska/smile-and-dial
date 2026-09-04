@@ -293,7 +293,7 @@ export async function NumbersPanel({ days = 30 }: { days?: number }) {
                 <TableHead>Region</TableHead>
                 <TableHead>Campaign</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Calls ({days}d)</TableHead>
+                <TableHead className="text-right">Outbound calls ({days}d)</TableHead>
                 <TableHead className="text-right">Connect</TableHead>
                 <TableHead>Trend (14d)</TableHead>
               </TableRow>

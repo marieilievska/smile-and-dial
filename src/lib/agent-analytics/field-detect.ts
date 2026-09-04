@@ -90,7 +90,6 @@ export async function detectCampaignFields(
     .from("calls")
     .select("extracted_data")
     .eq("campaign_id", campaignId)
-    .eq("direction", "outbound")
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .range(0, PAGE - 1);
