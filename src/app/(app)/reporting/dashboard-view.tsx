@@ -180,7 +180,7 @@ export function DashboardView({
   // a manager can still hover to decode any column. (The CSV export below uses
   // the spelled-out snake_case names, so downstream data stays self-describing.)
   const NUM_HEADERS: { label: string; title: string }[] = [
-    { label: "Calls", title: "Outbound calls made" },
+    { label: "Calls", title: "Calls made (outbound + inbound)" },
     { label: "Conn.", title: "Connected — the call reached a live line" },
     { label: ">1m", title: "Conversations longer than 1 minute" },
     { label: "DMs", title: "Decision-makers reached" },
@@ -244,7 +244,7 @@ export function DashboardView({
       </div>
 
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
-        <KpiTile label="Outbound calls" value={sel.callsMade.toLocaleString()} />
+        <KpiTile label="Calls made" value={sel.callsMade.toLocaleString()} />
         <KpiTile label="Connected" value={sel.connected.toLocaleString()} />
         <KpiTile
           label="Conversations >1 min"
@@ -264,7 +264,7 @@ export function DashboardView({
 
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <MiniSpark
-          label={`Outbound calls · last ${historyDays}d`}
+          label={`Calls made · last ${historyDays}d`}
           total={callsTotal.toLocaleString()}
           values={chrono.map((k) => k.callsMade)}
           color="var(--primary)"

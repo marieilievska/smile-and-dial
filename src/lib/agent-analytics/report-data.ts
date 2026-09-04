@@ -148,11 +148,11 @@ export async function fetchDashboardKpis(
     let q = supabase
       .from("calls")
       .select("created_at, outcome, duration_seconds, extracted_data, lead_id")
-      .eq("direction", "outbound")
       .gte("created_at", since)
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE - 1);
-    // All-agents mode counts every outbound call; scoped mode narrows by
+    // All-agents mode counts every call (outbound AND inbound — a returned
+    // missed call is a call, per Marija 2026-09-03); scoped mode narrows by
     // agent/campaign.
     if (!scope.all) q = q.or(conds.join(","));
     const { data } = await q;
@@ -164,7 +164,7 @@ export async function fetchDashboardKpis(
   return computeDailyKpis(rows, sentimentKey);
 }
 
-/** Cause of death: for every lead with ≥1 outbound call in the dashboard window
+/** Cause of death: for every lead with ≥1 call in the dashboard window
  *  (scoped), the single primary reason it isn't won. Pages the calls query
  *  around the 1,000-row cap, then chunk-loads the leads' status/dm flag. */
 export async function fetchCauseOfDeath(
@@ -190,7 +190,7 @@ export async function fetchCauseOfDeath(
     };
   }
 
-  // (a) Page every in-window outbound call → per-lead outcome set + goalMet +
+  // (a) Page every in-window call (any direction) → per-lead outcome set + goalMet +
   //     the lead's objection (first call, in paged order, that carries one).
   type LeadObjection = {
     category: ObjectionCategory;
@@ -209,7 +209,6 @@ export async function fetchCauseOfDeath(
       .select(
         "lead_id, outcome, goal_met, objection_category, objection_specific, objection_quote",
       )
-      .eq("direction", "outbound")
       .gte("created_at", since)
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE - 1);
@@ -340,7 +339,6 @@ export async function fetchVoiceRows(
         "id, created_at, lead_id, extracted_data, recording_path, lead:leads(company, list:lists(name))",
       )
       .eq("campaign_id", scope.campaignId)
-      .eq("direction", "outbound")
       .gte("created_at", sinceDaysAgoIso(VOICE_DAYS))
       .not(`extracted_data->>${sentimentKey}`, "is", null)
       .order("created_at", { ascending: false })
@@ -402,7 +400,6 @@ export async function fetchHotLeadRows(
         "id, created_at, lead_id, extracted_data, lead:leads(company, owner_name, manager_name, employee_name, list:lists(name))",
       )
       .eq("campaign_id", scope.campaignId)
-      .eq("direction", "outbound")
       .gte("created_at", sinceDaysAgoIso(VOICE_DAYS))
       .in(`extracted_data->>${sentimentKey}`, warmValues)
       .order("created_at", { ascending: false })
