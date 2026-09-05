@@ -369,9 +369,12 @@ export type FetchedAgent = {
   aiModel: string | null;
 };
 
-/** Our post-call webhook block (when a webhook id is configured). Requests
- *  the audio event too (send_audio) so completed calls get their recording
- *  stored, not just the transcript. */
+/** Our post-call webhook block (when a webhook id is configured). Transcript
+ *  and initiation-failure events only — NOT audio. The audio event carried
+ *  the whole call as base64 in the request body, which Vercel rejects over
+ *  4.5 MB (HTTP 413), so recordings are pulled from the API after the
+ *  transcript instead (recording-fetch.ts). Both the legacy `send_audio` flag
+ *  and the newer `events` list have to agree, or ElevenLabs keeps pushing. */
 async function postCallWebhookBlock(): Promise<
   Record<string, unknown> | undefined
 > {
@@ -379,9 +382,9 @@ async function postCallWebhookBlock(): Promise<
   if (!webhookId) return undefined;
   return {
     post_call_webhook_id: webhookId,
-    events: ["transcript", "audio", "call_initiation_failure"],
+    events: ["transcript", "call_initiation_failure"],
     transcript_format: "json",
-    send_audio: true,
+    send_audio: false,
   };
 }
 
@@ -821,13 +824,18 @@ async function liveSync(
   if (webhookId) {
     workspaceOverrides.webhooks = {
       post_call_webhook_id: webhookId,
-      events: ["transcript", "audio", "call_initiation_failure"],
+      // No "audio": that event carried the whole call as base64 in the request
+      // body, which Vercel rejects over 4.5 MB (HTTP 413) — so most calls over
+      // ~3 minutes lost their recording. Recordings are pulled from the API
+      // after the transcript instead (recording-fetch.ts).
+      events: ["transcript", "call_initiation_failure"],
       // MUST stay "json" — our post-call handler parses the JSON transcript
       // envelope (data.analysis.disposition). "opentelemetry" would deliver
       // OTLP trace data instead and break outcome parsing.
       transcript_format: "json",
-      // Request the audio event so completed calls get their recording stored.
-      send_audio: true,
+      // Legacy flag for the same audio event; must agree with `events` above
+      // or ElevenLabs keeps pushing the oversized body.
+      send_audio: false,
     };
   }
   if (initWebhook) {
