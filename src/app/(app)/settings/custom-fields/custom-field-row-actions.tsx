@@ -28,13 +28,17 @@ export function CustomFieldRowActions({
   field,
   isFirst,
   isLast,
-  isAdmin,
+  canEdit,
+  canDelete,
 }: {
   field: CustomFieldData;
   isFirst: boolean;
   isLast: boolean;
-  /** Only admins may delete a field — it drops that column for every lead. */
-  isAdmin: boolean;
+  /** The caller created this field (or is an admin and nobody did): may
+   *  edit and reorder it. Mirrors the RLS update policy. */
+  canEdit: boolean;
+  /** The creator, or any admin — deleting drops the column for every lead. */
+  canDelete: boolean;
 }) {
   const [pending, startTransition] = useTransition();
 
@@ -50,28 +54,40 @@ export function CustomFieldRowActions({
     });
   }
 
+  if (!canEdit && !canDelete) {
+    return (
+      <p className="text-muted-foreground text-right text-xs">
+        Created by a teammate
+      </p>
+    );
+  }
+
   return (
     <div className="flex items-center justify-end gap-1">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={`Move ${field.name} up`}
-        disabled={isFirst || pending}
-        onClick={() => run(() => moveCustomField(field.id, "up"))}
-      >
-        <ArrowUp className="size-4" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={`Move ${field.name} down`}
-        disabled={isLast || pending}
-        onClick={() => run(() => moveCustomField(field.id, "down"))}
-      >
-        <ArrowDown className="size-4" />
-      </Button>
-      <CustomFieldDialog mode="edit" field={field} />
-      {isAdmin ? (
+      {canEdit ? (
+        <>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Move ${field.name} up`}
+            disabled={isFirst || pending}
+            onClick={() => run(() => moveCustomField(field.id, "up"))}
+          >
+            <ArrowUp className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Move ${field.name} down`}
+            disabled={isLast || pending}
+            onClick={() => run(() => moveCustomField(field.id, "down"))}
+          >
+            <ArrowDown className="size-4" />
+          </Button>
+          <CustomFieldDialog mode="edit" field={field} />
+        </>
+      ) : null}
+      {canDelete ? (
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button

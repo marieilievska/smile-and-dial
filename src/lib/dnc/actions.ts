@@ -17,7 +17,15 @@ export type DncResult = { error: string | null };
 
 const DNC_PATH = "/dnc";
 
-/** Add one phone number to the workspace DNC list. */
+/**
+ * DNC lists are PER USER (20260905192000): every read and delete below is
+ * scoped by RLS to the caller's own entries, and `owner_id` is stamped by a
+ * BEFORE INSERT trigger (auth.uid() for these cookie-client writes), so no
+ * insert here needs to pass it. Enforcement is still workspace-wide: the
+ * dialer refuses a number on ANY user's list.
+ */
+
+/** Add one phone number to the caller's DNC list. */
 export async function addToDnc(input: {
   phone: string;
   reason: DncReason;
@@ -46,6 +54,9 @@ export async function addToDnc(input: {
   if (error) {
     return {
       error:
+        // 23505: the number is already listed -- by the caller, or by a
+        // teammate (phone is still unique workspace-wide, see the
+        // migration). Either way the dialer already blocks it.
         error.code === "23505"
           ? "That number is already on the DNC list."
           : "Could not add the number.",
@@ -56,7 +67,7 @@ export async function addToDnc(input: {
   return { error: null };
 }
 
-/** Remove a number from the DNC list. Admin only; logs the removal. */
+/** Remove a number from the caller's own DNC list; logs the removal. */
 export async function removeFromDnc(input: {
   phone: string;
   reasonText: string;
@@ -72,14 +83,14 @@ export async function removeFromDnc(input: {
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") {
-    return { error: "Only admins can remove numbers from DNC." };
-  }
+  // RLS scopes this to the caller's entries, so "not found" also covers a
+  // number that is only on a teammate's list.
+  const { data: entry } = await supabase
+    .from("dnc_entries")
+    .select("id")
+    .eq("phone", input.phone)
+    .maybeSingle();
+  if (!entry) return { error: "That number is not on your DNC list." };
 
   // Log first so we never delete without a paper trail.
   const { error: logError } = await supabase.from("dnc_removals").insert({
@@ -89,19 +100,22 @@ export async function removeFromDnc(input: {
   });
   if (logError) return { error: "Could not log the removal." };
 
-  const { error: deleteError } = await supabase
+  const { data: removed, error: deleteError } = await supabase
     .from("dnc_entries")
     .delete()
-    .eq("phone", input.phone);
-  if (deleteError) return { error: "Could not remove the number." };
+    .eq("id", entry.id)
+    .select("id");
+  if (deleteError || !removed || removed.length === 0) {
+    return { error: "Could not remove the number." };
+  }
 
   revalidatePath(DNC_PATH);
   return { error: null };
 }
 
 /**
- * Bulk-remove DNC entries by id. Admin only. Writes one row to
- * `dnc_removals` per phone (with the shared reason text) before deleting,
+ * Bulk-remove DNC entries by id from the caller's own list. Writes one row
+ * to `dnc_removals` per phone (with the shared reason text) before deleting,
  * so the audit log captures every removal even when done in a batch.
  */
 export async function bulkRemoveFromDnc(input: {
@@ -122,22 +136,14 @@ export async function bulkRemoveFromDnc(input: {
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") {
-    return { error: "Only admins can remove numbers from DNC." };
-  }
-
-  // Look up the phones being removed so the audit log captures them.
+  // Look up the phones being removed so the audit log captures them. RLS
+  // drops any id that isn't the caller's own entry.
   const { data: entries } = await supabase
     .from("dnc_entries")
     .select("id, phone")
     .in("id", input.ids);
   if (!entries || entries.length === 0) {
-    return { error: "Those numbers are not on the list." };
+    return { error: "Those numbers are not on your list." };
   }
 
   // Log every removal first — never delete without a paper trail.
@@ -151,17 +157,20 @@ export async function bulkRemoveFromDnc(input: {
     .insert(logRows);
   if (logError) return { error: "Could not log the removals." };
 
-  const { error: deleteError } = await supabase
+  const { data: removed, error: deleteError } = await supabase
     .from("dnc_entries")
     .delete()
     .in(
       "id",
       entries.map((e) => e.id),
-    );
-  if (deleteError) return { error: "Could not remove the numbers." };
+    )
+    .select("id");
+  if (deleteError || !removed || removed.length === 0) {
+    return { error: "Could not remove the numbers." };
+  }
 
   revalidatePath(DNC_PATH);
-  return { error: null, removed: entries.length };
+  return { error: null, removed: removed.length };
 }
 
 /**

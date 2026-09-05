@@ -39,14 +39,19 @@ export async function rescheduleRegistration(input: {
     return { error: "This lead has no active registration to move." };
   }
 
-  const { error } = await supabase
+  // `.select()` so a policy miss shows up as zero rows instead of a silent
+  // no-op (calendly_events writes were admin-only until 20260905191000).
+  const { data: moved, error } = await supabase
     .from("calendly_events")
     .update({
       scheduled_at: when.toISOString(),
       rescheduled_at: new Date().toISOString(),
     })
-    .eq("id", reg.id);
-  if (error) return { error: "Could not move the registration." };
+    .eq("id", reg.id)
+    .select("id");
+  if (error || !moved || moved.length === 0) {
+    return { error: "Could not move the registration." };
+  }
 
   const { error: leadError } = await supabase
     .from("leads")

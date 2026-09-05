@@ -35,10 +35,12 @@ function normalizePhone(raw: string): string {
 }
 
 /**
- * Import phone numbers onto the workspace DNC list from a parsed CSV. The
+ * Import phone numbers onto the caller's DNC list from a parsed CSV. The
  * caller picks which CSV header holds the phone (required) and optionally
  * which holds the company. Every inserted row is stamped `reason="imported"`
- * (per BUILD_PLAN Section 5.7). Already-on-DNC numbers are silently skipped.
+ * (per BUILD_PLAN Section 5.7). Already-on-DNC numbers are silently skipped
+ * (the caller's own, or a teammate's -- phone is unique workspace-wide and
+ * the dialer already blocks it). `owner_id` is stamped by the DB trigger.
  */
 export async function importDnc(input: {
   phoneHeader: string;

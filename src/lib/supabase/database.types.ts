@@ -1003,6 +1003,7 @@ export type Database = {
       custom_field_defs: {
         Row: {
           created_at: string;
+          created_by: string | null;
           id: string;
           name: string;
           options: Json;
@@ -1013,6 +1014,7 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          created_by?: string | null;
           id?: string;
           name: string;
           options?: Json;
@@ -1023,6 +1025,7 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          created_by?: string | null;
           id?: string;
           name?: string;
           options?: Json;
@@ -1060,6 +1063,7 @@ export type Database = {
           added_by_user_id: string | null;
           company_snapshot: string | null;
           id: string;
+          owner_id: string | null;
           phone: string;
           reason: string;
           source_call_id: string | null;
@@ -1069,6 +1073,7 @@ export type Database = {
           added_by_user_id?: string | null;
           company_snapshot?: string | null;
           id?: string;
+          owner_id?: string | null;
           phone: string;
           reason: string;
           source_call_id?: string | null;
@@ -1078,6 +1083,7 @@ export type Database = {
           added_by_user_id?: string | null;
           company_snapshot?: string | null;
           id?: string;
+          owner_id?: string | null;
           phone?: string;
           reason?: string;
           source_call_id?: string | null;
@@ -2662,6 +2668,10 @@ export type Database = {
         Returns: undefined;
       };
       monitor_campaign_spend_caps: { Args: never; Returns: number };
+      move_custom_field: {
+        Args: { in_direction: string; in_id: string };
+        Returns: string;
+      };
       monitor_twilio_connect_rates: { Args: never; Returns: number };
       pool_number_usage_24h: {
         Args: { in_campaign_id: string };
@@ -2680,6 +2690,7 @@ export type Database = {
         Args: { in_days_back?: number };
         Returns: number;
       };
+      update_my_profile: { Args: { patch: Json }; Returns: number };
     };
     Enums: {
       [_ in never]: never;

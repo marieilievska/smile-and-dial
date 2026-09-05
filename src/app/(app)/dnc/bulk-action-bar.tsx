@@ -24,10 +24,11 @@ import { useSelection } from "./selection";
 
 /**
  * The bar that appears above the DNC table when one or more entries are
- * checked. Offers export-selected for everyone and an admin-only bulk
- * remove with a required reason.
+ * checked. Offers export-selected and bulk remove with a required reason.
+ * Every row on the page is the caller's own entry (DNC lists are per user),
+ * so removal needs no admin gate.
  */
-export function DncBulkActionBar({ isAdmin }: { isAdmin: boolean }) {
+export function DncBulkActionBar() {
   const { selected, clear } = useSelection();
   const count = selected.size;
   if (count === 0) return null;
@@ -52,23 +53,21 @@ export function DncBulkActionBar({ isAdmin }: { isAdmin: boolean }) {
         Export selected
       </Button>
 
-      {isAdmin ? (
-        <BulkRemoveDialog
-          count={count}
-          onRemove={async (reasonText) => {
-            const result = await bulkRemoveFromDnc({ ids, reasonText });
-            if (result.error) toast.error(result.error);
-            else {
-              toast.success(
-                `Removed ${result.removed ?? count} ${
-                  (result.removed ?? count) === 1 ? "number" : "numbers"
-                } from DNC.`,
-              );
-              clear();
-            }
-          }}
-        />
-      ) : null}
+      <BulkRemoveDialog
+        count={count}
+        onRemove={async (reasonText) => {
+          const result = await bulkRemoveFromDnc({ ids, reasonText });
+          if (result.error) toast.error(result.error);
+          else {
+            toast.success(
+              `Removed ${result.removed ?? count} ${
+                (result.removed ?? count) === 1 ? "number" : "numbers"
+              } from DNC.`,
+            );
+            clear();
+          }
+        }}
+      />
 
       <Button
         variant="ghost"

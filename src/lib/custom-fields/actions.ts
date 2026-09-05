@@ -17,23 +17,14 @@ export type CustomFieldInput = {
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
-async function requireAdmin(
-  supabase: Supabase,
-): Promise<{ ok: true } | { error: string }> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "You are not signed in." };
-
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin") return { error: "You are not authorized." };
-
-  return { ok: true };
-}
+/**
+ * Ownership (20260905193000): everyone can see and use every field, but only
+ * the person who created a field may edit or reorder it (an admin may also
+ * manage one with no creator), and the creator or an admin may delete it.
+ * RLS enforces that; a policy miss surfaces as zero rows, never as an error,
+ * so every write below reads its row count back and turns zero into this.
+ */
+const NOT_CREATOR = "Only the person who created this field can change it.";
 
 async function requireSignedIn(
   supabase: Supabase,
@@ -58,10 +49,10 @@ function slugify(name: string): string {
  *  inline-create affordance) can auto-map the column to the new field
  *  without a round-trip through Settings.
  *
- *  Open to any signed-in teammate (members included) — the RLS insert
- *  policy allows members; only field DELETE stays admin-only. Limits the
- *  type set to the four primitive types since picking options for a
- *  "select" field requires more UI than the inline dialog should carry. */
+ *  Open to any signed-in teammate (members included). `created_by`
+ *  defaults to the caller in the database. Limits the type set to the four
+ *  primitive types since picking options for a "select" field requires
+ *  more UI than the inline dialog should carry. */
 export async function createCustomFieldInline(input: {
   name: string;
   type: "text" | "number" | "date" | "boolean";
@@ -166,7 +157,7 @@ export async function updateCustomField(
   const name = input.name.trim();
   if (!name) return { error: "Enter a field name." };
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("custom_field_defs")
     .update({
       name,
@@ -174,30 +165,41 @@ export async function updateCustomField(
       required: input.required,
       options: input.type === "select" ? input.options : [],
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) return { error: "Could not update the field." };
+  if (!updated || updated.length === 0) return { error: NOT_CREATOR };
 
   revalidatePath("/settings/custom-fields");
   return { error: null };
 }
 
+/** Delete a field. The creator or an admin (RLS); zero rows means neither. */
 export async function deleteCustomField(
   id: string,
 ): Promise<FieldActionResult> {
   const supabase = await createClient();
-  const auth = await requireAdmin(supabase);
+  const auth = await requireSignedIn(supabase);
   if ("error" in auth) return { error: auth.error };
 
-  const { error } = await supabase
+  const { data: deleted, error } = await supabase
     .from("custom_field_defs")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) return { error: "Could not delete the field." };
+  if (!deleted || deleted.length === 0) return { error: NOT_CREATOR };
 
   revalidatePath("/settings/custom-fields");
   return { error: null };
 }
 
+/** Swap a field with its neighbour. Done in the database
+ *  (`move_custom_field`, 20260905193000) because the swap touches two rows
+ *  and the neighbour is usually someone else's field: two plain updates
+ *  under the creator-only policy would half-apply. The function checks the
+ *  caller may move the field they picked and swaps regardless of who owns
+ *  the neighbour -- position in the shared list is not part of a field. */
 export async function moveCustomField(
   id: string,
   direction: "up" | "down",
@@ -206,28 +208,14 @@ export async function moveCustomField(
   const auth = await requireSignedIn(supabase);
   if ("error" in auth) return { error: auth.error };
 
-  const { data: fields } = await supabase
-    .from("custom_field_defs")
-    .select("id, sort_order")
-    .order("sort_order", { ascending: true });
-  if (!fields) return { error: "Could not reorder the fields." };
-
-  const index = fields.findIndex((f) => f.id === id);
-  const swapWith = direction === "up" ? index - 1 : index + 1;
-  if (index < 0 || swapWith < 0 || swapWith >= fields.length) {
-    return { error: null };
+  const { data: outcome, error } = await supabase.rpc("move_custom_field", {
+    in_id: id,
+    in_direction: direction,
+  });
+  if (error) return { error: "Could not reorder the fields." };
+  if (outcome === "not_owner" || outcome === "not_found") {
+    return { error: NOT_CREATOR };
   }
-
-  const current = fields[index];
-  const neighbor = fields[swapWith];
-  await supabase
-    .from("custom_field_defs")
-    .update({ sort_order: neighbor.sort_order })
-    .eq("id", current.id);
-  await supabase
-    .from("custom_field_defs")
-    .update({ sort_order: current.sort_order })
-    .eq("id", neighbor.id);
 
   revalidatePath("/settings/custom-fields");
   return { error: null };
