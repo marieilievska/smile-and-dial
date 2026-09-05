@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import { test, expect, request as playwrightRequest } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
@@ -10,10 +12,13 @@ test.describe.configure({ mode: "serial" });
  *
  * Coverage:
  *  - renderTemplate substitutes the documented variables
- *  - Inbound webhook with email.received matches a lead by from-address,
- *    writes a received emails row, flips lead.status to email_replied,
- *    and inserts a notification for the owner
- *  - A reply matched via in_reply_to attaches to the original thread
+ *  - Inbound webhook (Close's real `{ event: { object_type: "activity.email",
+ *    action: "created", data } }` shape, signed with the per-user
+ *    signature_key) matches a lead by sender address, writes a received
+ *    emails row, flips lead.status to email_replied, and inserts a
+ *    notification for the owner
+ *  - A reply matched via in_reply_to_id attaches to the original thread
+ *  - An unsigned delivery is rejected with 401
  */
 test.describe("Close email integration", () => {
   test.use({ storageState: "playwright/.auth/user.json" });
@@ -29,6 +34,37 @@ test.describe("Close email integration", () => {
   const closeReplyId = `close-reply-${stamp}`;
   const closeReplyId2 = `close-reply-thread-${stamp}`;
 
+  // A signature_key as Close returns it (hex). Installed on the test user for
+  // the run and restored afterwards so a real subscription isn't clobbered.
+  const SIG_KEY =
+    "058bfb6a3d8cfdc4da7c3be5901b16ae11da982b46a25fb2cd7016e97a140a1c";
+  let previousSigKey: string | null = null;
+
+  function signedHeaders(rawBody: string) {
+    const t = String(Math.floor(Date.now() / 1000));
+    const hash = createHmac("sha256", Buffer.from(SIG_KEY, "hex"))
+      .update(t + rawBody)
+      .digest("hex");
+    return {
+      "content-type": "application/json",
+      "close-sig-timestamp": t,
+      "close-sig-hash": hash,
+    };
+  }
+
+  function emailCreated(data: Record<string, unknown>) {
+    return JSON.stringify({
+      event: {
+        object_type: "activity.email",
+        action: "created",
+        object_id: data.id,
+        lead_id: "lead_e2e",
+        data,
+      },
+      subscription_id: "whsub_e2e",
+    });
+  }
+
   test.beforeAll(async () => {
     admin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -41,6 +77,19 @@ test.describe("Close email integration", () => {
       .eq("email", process.env.E2E_TEST_EMAIL ?? "")
       .single();
     ownerId = owner!.id;
+
+    const { data: integ } = await admin
+      .from("user_integrations")
+      .select("close_webhook_signature_key")
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    previousSigKey = integ?.close_webhook_signature_key ?? null;
+    await admin
+      .from("user_integrations")
+      .upsert(
+        { user_id: ownerId, close_webhook_signature_key: SIG_KEY },
+        { onConflict: "user_id" },
+      );
 
     const { data: list } = await admin
       .from("lists")
@@ -97,6 +146,10 @@ test.describe("Close email integration", () => {
     await admin.from("notifications").delete().eq("ref_id", leadId);
     if (leadId) await admin.from("leads").delete().eq("id", leadId);
     if (listId) await admin.from("lists").delete().eq("id", listId);
+    await admin
+      .from("user_integrations")
+      .update({ close_webhook_signature_key: previousSigKey })
+      .eq("user_id", ownerId);
   });
 
   test("renderTemplate substitutes the documented variables", () => {
@@ -110,22 +163,36 @@ test.describe("Close email integration", () => {
     expect(out).toBe("Hi Pat — Q1 Outbound for Acme");
   });
 
-  test("inbound email.received matches by from-address and flips status", async ({
+  test("an unsigned delivery is rejected", async ({ baseURL }) => {
+    const api = await playwrightRequest.newContext({ baseURL });
+    const raw = emailCreated({
+      id: `close-forged-${stamp}`,
+      direction: "incoming",
+      sender: `e2e-close-${stamp}@example.com`,
+    });
+    const r = await api.post(`/api/close/webhook?u=${ownerId}`, {
+      data: raw,
+      headers: { "content-type": "application/json" },
+    });
+    expect(r.status()).toBe(401);
+  });
+
+  test("inbound activity.email created (incoming) matches by sender and flips status", async ({
     baseURL,
   }) => {
     const api = await playwrightRequest.newContext({ baseURL });
-    const r = await api.post("/api/close/webhook", {
-      data: {
-        event: "email.received",
-        data: {
-          id: closeReplyId,
-          from: `e2e-close-${stamp}@example.com`,
-          to: "owner@smileanddial.test",
-          subject: "Re: Thread starter",
-          body_text: "Sounds good!",
-          date_received: new Date().toISOString(),
-        },
-      },
+    const raw = emailCreated({
+      id: closeReplyId,
+      direction: "incoming",
+      sender: `E2E Lead <e2e-close-${stamp}@example.com>`,
+      to: ["owner@smileanddial.test"],
+      subject: "Re: Thread starter",
+      body_text: "Sounds good!",
+      date_created: new Date().toISOString(),
+    });
+    const r = await api.post(`/api/close/webhook?u=${ownerId}`, {
+      data: raw,
+      headers: signedHeaders(raw),
     });
     expect(r.status()).toBe(200);
 
@@ -153,21 +220,21 @@ test.describe("Close email integration", () => {
     expect((notifs ?? []).length).toBeGreaterThan(0);
   });
 
-  test("reply with in_reply_to attaches to the original thread", async ({
+  test("reply with in_reply_to_id attaches to the original thread", async ({
     baseURL,
   }) => {
     const api = await playwrightRequest.newContext({ baseURL });
-    const r = await api.post("/api/close/webhook", {
-      data: {
-        event: "email.received",
-        data: {
-          id: closeReplyId2,
-          from: `someone-else-${stamp}@example.com`,
-          subject: "Re: Thread starter",
-          in_reply_to: `mock-sent-${stamp}`,
-          body_text: "Following up.",
-        },
-      },
+    const raw = emailCreated({
+      id: closeReplyId2,
+      direction: "incoming",
+      sender: `someone-else-${stamp}@example.com`,
+      subject: "Re: Thread starter",
+      in_reply_to_id: `mock-sent-${stamp}`,
+      body_text: "Following up.",
+    });
+    const r = await api.post(`/api/close/webhook?u=${ownerId}`, {
+      data: raw,
+      headers: signedHeaders(raw),
     });
     expect(r.status()).toBe(200);
 
