@@ -20,6 +20,10 @@ import {
 } from "@/lib/calendly/booking";
 import { agreedDayMatchesSlot } from "@/lib/calendly/agreed-day";
 import { hasBookingAtSlot } from "@/lib/calendly/booking-dedup";
+import {
+  BOOKING_NOT_CONFIGURED_MESSAGE,
+  planBookingTool,
+} from "@/lib/calendly/booking-tools-plan";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import {
   localHourDaysAheadIso,
@@ -316,11 +320,11 @@ export async function executeServerTool(
   const callId = str(body.call_id);
   const ctx = await resolveCallContext(supabase, callId);
 
-  // get_available_times can fall back to generic slots, so it doesn't hard
-  // require a resolved call — but it uses one (when present) to pick the
-  // campaign's Calendly event type in live mode.
+  // get_available_times doesn't hard require a resolved call: off-live it falls
+  // back to generic slots, and on a live call it declines honestly (it needs
+  // the call to know whose Calendly to read).
   if (tool === "get_available_times") {
-    return getAvailableTimesResult(ctx);
+    return getAvailableTimesResult(supabase, ctx, callId);
   }
 
   if (!ctx) {
@@ -362,6 +366,57 @@ async function logToolEvent(
     ref_id: ctx.callId,
     payload: payload as Json,
   });
+}
+
+/** One `tool_booking_not_configured` row per campaign per hour. A campaign of
+ *  300 dials whose owner never connected Calendly would otherwise write 300
+ *  identical rows into the Activity feed. */
+const BOOKING_NOT_CONFIGURED_LOG_THROTTLE_MS = 60 * 60 * 1000;
+
+/** Record that a LIVE call reached a booking tool with no Calendly behind it,
+ *  so the gap is visible instead of silently eating every booking attempt.
+ *  Campaign-scoped (ref_table "campaigns") and throttled to once an hour per
+ *  campaign; with no resolvable campaign it's logged against the call id every
+ *  time (rare — the tool definition lost its call_id). Best-effort. */
+async function logBookingNotConfigured(
+  supabase: SupabaseAdmin,
+  input: {
+    campaignId: string | null;
+    callId: string | null;
+    tool: "get_available_times" | "book_appointment";
+    reason: "owner_calendly_not_connected" | "unresolved_call";
+  },
+): Promise<void> {
+  try {
+    if (input.campaignId) {
+      const since = new Date(
+        Date.now() - BOOKING_NOT_CONFIGURED_LOG_THROTTLE_MS,
+      ).toISOString();
+      const { data: recent } = await supabase
+        .from("system_events")
+        .select("id")
+        .eq("kind", "tool_booking_not_configured")
+        .eq("ref_table", "campaigns")
+        .eq("ref_id", input.campaignId)
+        .gte("created_at", since)
+        .limit(1);
+      if (recent && recent.length > 0) return; // throttled
+    }
+    await supabase.from("system_events").insert({
+      kind: "tool_booking_not_configured",
+      actor_user_id: null,
+      ref_table: input.campaignId ? "campaigns" : "calls",
+      ref_id: input.campaignId ?? input.callId,
+      payload: {
+        campaign_id: input.campaignId,
+        call_id: input.callId,
+        tool: input.tool,
+        reason: input.reason,
+      },
+    });
+  } catch {
+    // best-effort — never fail the tool call over an audit row
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -994,22 +1049,43 @@ const MAX_OFFERED_SLOTS = 6;
 type OfferedSlot = { slot_id: string; label: string; when: string };
 
 async function getAvailableTimesResult(
+  supabase: SupabaseAdmin,
   ctx: CallContext | null,
+  callId: string,
 ): Promise<ToolWebhookResult> {
+  const live = process.env.ELEVENLABS_LIVE === "live";
   // Offer the campaign owner's real Calendly openings over the next few days.
-  // Falls back to generic slots only if the owner hasn't connected Calendly at
-  // all, so the conversation moves.
+  // Generic slots are a NON-LIVE convenience only (dev/test flows): on a real
+  // call with no Calendly to book into, invented times are a promise the
+  // booking tool can't keep, so the agent is told to decline instead.
   if (ctx) {
     const cal = await resolveCampaignCalendly(ctx.supabase, ctx.campaignId);
+    const plan = planBookingTool({
+      live,
+      hasToken: Boolean(cal),
+      hasEventType: Boolean(cal?.eventTypeUri),
+    });
     // Calendly is connected but this campaign has no event chosen → booking is
     // intentionally off; don't offer times.
-    if (cal && !cal.eventTypeUri) {
+    if (plan === "disabled") {
       return {
         success: false,
         message: "Scheduling isn't enabled for this campaign.",
       };
     }
-    if (cal?.eventTypeUri) {
+    if (plan === "not_configured") {
+      await logBookingNotConfigured(ctx.supabase, {
+        campaignId: ctx.campaignId,
+        callId: ctx.callId,
+        tool: "get_available_times",
+        reason: "owner_calendly_not_connected",
+      });
+      return {
+        success: false,
+        message: BOOKING_NOT_CONFIGURED_MESSAGE.get_available_times,
+      };
+    }
+    if (plan === "live" && cal?.eventTypeUri) {
       // ONE short window (see OFFER_LOOKAHEAD_DAYS). The daily webinar runs
       // every weekday and its Calendly event only books a few days out, so the
       // agent gets EVERY open session in that range in a single call — a
@@ -1053,13 +1129,29 @@ async function getAvailableTimesResult(
       };
     }
   }
-  // Only reached with no resolved call, or an owner who hasn't connected
+  // Live with no resolved call: we can't tell whose Calendly to read, so there
+  // is nothing real to offer. Never hand out slots that can't be booked.
+  if (!ctx && live) {
+    await logBookingNotConfigured(supabase, {
+      campaignId: null,
+      callId: callId || null,
+      tool: "get_available_times",
+      reason: "unresolved_call",
+    });
+    return {
+      success: false,
+      message:
+        "I couldn't find the right record for this call, so I can't offer times right now. Don't invent a time — offer to have the team follow up instead.",
+    };
+  }
+  // Only reached off-live: no resolved call, or an owner who hasn't connected
   // Calendly at all → generic demo/mock slots keep the conversation moving.
   return genericAvailableTimes(ctx?.lead.timezone);
 }
 
 /** Three generic weekday slots at 10am / 2pm in the LEAD's local timezone, used
- *  in mock mode or when live Calendly has no openings in the window. Built with
+ *  in mock (non-live) mode only — a live call with no Calendly declines instead
+ *  (see planBookingTool). Built with
  *  `localHourDaysAheadIso` (which anchors the hour in `tz` and rolls weekends
  *  forward) so a Mountain-time lead is offered 10am/2pm Mountain — not the fixed
  *  Eastern instants the old version produced. slot_id carries the ISO time so
@@ -1092,7 +1184,7 @@ function genericAvailableTimes(
 }
 
 // ---------------------------------------------------------------------------
-// book_appointment (Calendly — mock until the integration goes live)
+// book_appointment (live Calendly when configured; mock only off-live)
 // ---------------------------------------------------------------------------
 async function bookAppointment(
   ctx: CallContext,
@@ -1121,10 +1213,15 @@ async function bookAppointment(
   // supplies its own time, so we need to know that before deciding a missing
   // slot_id is a problem.
   const cal = await resolveCampaignCalendly(ctx.supabase, ctx.campaignId);
+  const plan = planBookingTool({
+    live: process.env.ELEVENLABS_LIVE === "live",
+    hasToken: Boolean(cal),
+    hasEventType: Boolean(cal?.eventTypeUri),
+  });
 
   // Calendly is connected but this campaign has no event chosen → booking is
   // intentionally off. Decline instead of faking a confirmation.
-  if (cal && !cal.eventTypeUri) {
+  if (plan === "disabled") {
     await logToolEvent(ctx, "tool_book_appointment", {
       slot_id: slotId,
       email,
@@ -1134,6 +1231,27 @@ async function bookAppointment(
       success: false,
       message:
         "I'm not able to book a meeting on this call, but I'll make sure the team follows up.",
+    };
+  }
+
+  // LIVE call, owner never connected Calendly. The old code took the mock
+  // branch here and told a real lead "Booked: Tuesday at 2" with nothing behind
+  // it. Refuse honestly, and flag the campaign so someone connects Calendly.
+  if (plan === "not_configured") {
+    await logBookingNotConfigured(ctx.supabase, {
+      campaignId: ctx.campaignId,
+      callId: ctx.callId,
+      tool: "book_appointment",
+      reason: "owner_calendly_not_connected",
+    });
+    await logToolEvent(ctx, "tool_book_appointment", {
+      slot_id: slotId,
+      email,
+      not_configured: true,
+    });
+    return {
+      success: false,
+      message: BOOKING_NOT_CONFIGURED_MESSAGE.book_appointment,
     };
   }
 
@@ -1373,7 +1491,9 @@ async function bookAppointment(
     };
   }
 
-  // Mock: record the intent and confirm so the conversation completes.
+  // Mock — NON-LIVE only (planBookingTool routed a live call without Calendly
+  // to the honest refusal above): record the intent and confirm so dev/test
+  // conversations complete.
   await logToolEvent(ctx, "tool_book_appointment", {
     slot_id: slotId,
     email,

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { ToolsEnabled } from "@/lib/agents/prompt";
 import { normalizeUtmCampaign } from "@/lib/calendly/booking";
 import { sanitizeAudienceSearch } from "@/lib/campaigns/audience-filter";
+import { campaignLaunchBlocker } from "@/lib/campaigns/integration-check";
 import { applyConnectedAgentIntegration } from "@/lib/elevenlabs/agents";
 import { createAdminClient as createServiceClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -296,6 +297,20 @@ export async function createCampaign(
   if (authError) return { error: authError };
 
   const payload = buildUpdate(input);
+  // "Save & launch" goes live in one step, so it gets the same gate as Launch:
+  // the owner's Calendly/Close must be connected if this setup uses them. A
+  // blocked launch creates nothing — the dialog stays open, and "Save as draft"
+  // is always available (drafts are never gated).
+  if (launch) {
+    const blocker = await campaignLaunchBlocker({
+      ownerId: userId!,
+      actorUserId: userId,
+      agentId: payload.agent_id,
+      calendlyEventId: payload.calendly_event_id,
+      fixedTimeBooking: payload.fixed_time_booking,
+    });
+    if (blocker) return { error: blocker };
+  }
   const status = launch ? "active" : "draft";
   const { data: created, error } = await supabase
     .from("campaigns")
@@ -328,13 +343,26 @@ export async function launchCampaign(id: string): Promise<CampaignResult> {
 
   const { data: camp } = await supabase
     .from("campaigns")
-    .select("status, agent_id")
+    .select("status, agent_id, owner_id, calendly_event_id, fixed_time_booking")
     .eq("id", id)
     .maybeSingle();
   if (!camp) return { error: "That campaign no longer exists." };
   if (camp.status !== "draft") {
     return { error: "Only a draft campaign can be launched." };
   }
+
+  // Going live is the moment the agent's tools start hitting the OWNER's
+  // Calendly/Close. If this campaign books or messages and the owner hasn't
+  // connected the account behind it, the calls would only be able to refuse
+  // ("scheduling isn't set up") — so say it here, before a single dial.
+  const blocker = await campaignLaunchBlocker({
+    ownerId: camp.owner_id,
+    actorUserId: userId,
+    agentId: camp.agent_id,
+    calendlyEventId: camp.calendly_event_id,
+    fixedTimeBooking: camp.fixed_time_booking,
+  });
+  if (blocker) return { error: blocker };
 
   const { error } = await supabase
     .from("campaigns")
@@ -436,8 +464,26 @@ export async function pauseCampaign(id: string): Promise<CampaignResult> {
 
 /** Resume a paused campaign. */
 export async function resumeCampaign(id: string): Promise<CampaignResult> {
-  const { supabase, error: authError } = await requireAuth();
+  const { supabase, userId, error: authError } = await requireAuth();
   if (authError) return { error: authError };
+
+  const { data: camp } = await supabase
+    .from("campaigns")
+    .select("agent_id, owner_id, calendly_event_id, fixed_time_booking")
+    .eq("id", id)
+    .maybeSingle();
+  if (!camp) return { error: "That campaign no longer exists." };
+
+  // Same gate as launch: resuming puts the agent's tools back on the owner's
+  // Calendly/Close (a connection can be removed while a campaign sits paused).
+  const blocker = await campaignLaunchBlocker({
+    ownerId: camp.owner_id,
+    actorUserId: userId,
+    agentId: camp.agent_id,
+    calendlyEventId: camp.calendly_event_id,
+    fixedTimeBooking: camp.fixed_time_booking,
+  });
+  if (blocker) return { error: blocker };
 
   const { error } = await supabase
     .from("campaigns")
@@ -450,12 +496,7 @@ export async function resumeCampaign(id: string): Promise<CampaignResult> {
   if (error) return { error: "Could not resume the campaign." };
 
   // Reactivating puts the agent back into service — refresh its webhooks.
-  const { data: camp } = await supabase
-    .from("campaigns")
-    .select("agent_id")
-    .eq("id", id)
-    .maybeSingle();
-  await reapplyAgentIntegration(supabase, camp?.agent_id);
+  await reapplyAgentIntegration(supabase, camp.agent_id);
 
   revalidatePath(CAMPAIGNS_PATH);
   return { error: null, campaignId: id };
