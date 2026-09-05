@@ -6,12 +6,22 @@ import { refreshSmartListMembers } from "@/lib/smart-lists/cache";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
+// Every attached list is rebuilt in one pass (delete + re-select over all of
+// the owner's leads, per list). Give the pass a full minute so a large
+// workspace can't hit the default function timeout part-way through the loop.
+export const maxDuration = 60;
+
 /**
  * Rebuild the smart-list membership cache for every attached smart list. The
  * pg_cron job hits this every few minutes (via pg_net); an attach also kicks an
  * immediate refresh inline (see campaigns/actions). Secret-gated EXACTLY like
  * /api/dialer/tick and /api/best-time/refresh — the `x-dialer-secret` header
  * compared to DIALER_TICK_SECRET, with a signed-in admin fallback.
+ *
+ * Responds with `{ ok, refreshed, failed, totalMembers, failures }`. A list
+ * that fails to rebuild is counted in `failed` (and recorded on the list +
+ * system_events by the refresh itself) rather than aborting the pass, so one
+ * bad recipe can never leave every other list stale.
  */
 export async function POST(request: NextRequest) {
   const secret = request.headers.get("x-dialer-secret");

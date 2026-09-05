@@ -81,6 +81,28 @@ export async function deleteSmartList(input: {
 }): Promise<{ error: string | null }> {
   const { supabase, ok } = await requireAuth();
   if (!ok) return { error: "You are not signed in." };
+
+  // Refuse while a campaign still targets this list. campaigns.smart_list_id
+  // is `on delete set null`, so without this check the delete would quietly
+  // detach the list and the campaign would carry on with a smaller audience
+  // and no trace of why. RLS scopes the lookup to the caller's campaigns
+  // (all of them for an admin, their own for a member — the ones that matter).
+  const { data: users, error: usersError } = await supabase
+    .from("campaigns")
+    .select("name")
+    .eq("smart_list_id", input.id)
+    .order("name");
+  if (usersError)
+    return { error: "Could not check the smart list's campaigns." };
+  if (users && users.length > 0) {
+    const names = users.map((c) => c.name).join(", ");
+    return {
+      error: `This smart list is used by ${users.length} ${
+        users.length === 1 ? "campaign" : "campaigns"
+      }: ${names}. Detach it from those campaigns first.`,
+    };
+  }
+
   const { error } = await supabase
     .from("smart_lists")
     .delete()

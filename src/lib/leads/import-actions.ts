@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -13,7 +14,16 @@ import {
   type LineType,
 } from "./import-fields";
 import { phoneToTimezone, stateFromPhone, stateToTimezone } from "./timezone";
-import { isLookupLive, lookupLineType, toE164UsCa } from "./twilio-lookup";
+import {
+  isDefinitiveLineType,
+  isLookupLive,
+  lineTypesForRows,
+  lookupLineType,
+  phonesNeedingLookup,
+  sanitizeKnownLineTypes,
+  toE164UsCa,
+  type DefinitiveLineType,
+} from "./twilio-lookup";
 
 type LeadInsert = Database["public"]["Tables"]["leads"]["Insert"];
 type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
@@ -21,6 +31,73 @@ type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
 const FIELD_KEYS = new Set<string>(IMPORTABLE_FIELDS.map((f) => f.key));
 const NUMERIC_FIELDS = new Set(["google_rating", "google_reviews"]);
 const INSERT_BATCH = 500;
+/** Phones per `.in()` against the line-type cache — keeps the request URL
+ *  well clear of the length limit a giant `.in()` can hit. */
+const CACHE_CHUNK = 200;
+
+/**
+ * Service-role client for the shared phone_line_types cache (RLS on, no
+ * policies — only this client can read or write it). Null when the env isn't
+ * there, in which case the cache is simply skipped: it only ever saves money,
+ * so its absence must never break an import.
+ */
+function lineTypeCacheClient(): ReturnType<typeof createAdminClient> | null {
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.SUPABASE_SERVICE_ROLE_KEY
+  ) {
+    return null;
+  }
+  try {
+    return createAdminClient();
+  } catch {
+    return null;
+  }
+}
+
+/** Cached line types for these phones (only definitive ones are ever stored). */
+async function readLineTypeCache(
+  phones: string[],
+): Promise<Map<string, DefinitiveLineType>> {
+  const out = new Map<string, DefinitiveLineType>();
+  if (phones.length === 0) return out;
+  const admin = lineTypeCacheClient();
+  if (!admin) return out;
+  try {
+    for (let i = 0; i < phones.length; i += CACHE_CHUNK) {
+      const { data } = await admin
+        .from("phone_line_types")
+        .select("phone, line_type")
+        .in("phone", phones.slice(i, i + CACHE_CHUNK));
+      for (const row of data ?? []) {
+        if (isDefinitiveLineType(row.line_type))
+          out.set(row.phone, row.line_type);
+      }
+    }
+  } catch {
+    // best-effort — a cache miss just means a lookup
+  }
+  return out;
+}
+
+/** Remember what Twilio said, so no one pays for this number again. */
+async function writeLineTypeCache(
+  entries: { phone: string; line_type: DefinitiveLineType }[],
+): Promise<void> {
+  if (entries.length === 0) return;
+  const admin = lineTypeCacheClient();
+  if (!admin) return;
+  const looked_up_at = new Date().toISOString();
+  try {
+    await admin.from("phone_line_types").upsert(
+      entries.map((e) => ({ ...e, looked_up_at })),
+      { onConflict: "phone" },
+    );
+  } catch {
+    // best-effort — the lookup already happened; a failed write only means
+    // the next import may pay once more for this number
+  }
+}
 
 function slugify(name: string): string {
   return name
@@ -100,22 +177,35 @@ async function countImportDuplicates(
  * import versus be skipped (mobile numbers for TCPA compliance, or
  * invalid/disconnected numbers). Shown to the user before they commit.
  *
- * Numbers that are ALREADY leads this owner has are not re-looked-up: their
- * stored `line_type` is reused, so a re-import that overlaps existing leads
- * doesn't pay Twilio again. Only numbers new to this owner are billed.
+ * Twilio is paid per lookup, so a number is sent there at most once. Before
+ * any call, a phone is resolved from (in order):
+ *   1. `knownLineTypes` — what the wizard learned on an earlier pass over this
+ *      file (Back → "Review import" re-analyses everything);
+ *   2. leads this owner already has — their stored `line_type` is reused even
+ *      when it is unknown, so a re-import never pays for numbers on file;
+ *   3. the shared phone_line_types cache, written after every live lookup by
+ *      any teammate (a line type belongs to the number, not the user);
+ * and only the unique remainder goes to Twilio — a number repeated inside the
+ * file is looked up once. `lookups`/`lookupCost` count ONLY answers Twilio
+ * actually billed (2xx); missing credentials, 404s, 429s and network errors
+ * come back "unknown"/"invalid" at no charge and stay out of the ledger.
  *
  * Set `skipLookup` to true to bypass Twilio entirely — all rows pass
  * through as importable, line types come back as "unknown", and the
- * estimated cost is $0. Skipping the lookup means mobile numbers are
- * NOT detected or filtered at any later point — there is no runtime
- * line-type gate — so they may be imported and dialed. Run the lookup
- * if you want mobiles flagged.
+ * cost is $0. Skipping the lookup means mobile numbers are NOT detected or
+ * filtered at any later point — there is no runtime line-type gate — so
+ * they may be imported and dialed. Run the lookup if you want mobiles
+ * flagged.
  */
 export async function analyzeImport(input: {
   mapping: Record<string, string>;
   rows: Record<string, string>[];
   skipLookup?: boolean;
   splitMobiles?: boolean;
+  /** E.164 phone → line type already known to the wizard (from an earlier
+   *  analysis in this session). Those phones skip Twilio. Only definitive
+   *  types are honoured; anything else is ignored. */
+  knownLineTypes?: Record<string, LineType>;
 }): Promise<ImportAnalysis> {
   const empty: ImportAnalysis = {
     total: input.rows.length,
@@ -124,7 +214,8 @@ export async function analyzeImport(input: {
     invalid: 0,
     duplicateExisting: 0,
     duplicateInFile: 0,
-    estCost: 0,
+    lookups: 0,
+    lookupCost: 0,
     rowLineTypes: [],
     skipped: [],
     error: null,
@@ -164,7 +255,8 @@ export async function analyzeImport(input: {
       invalid: 0,
       duplicateExisting: dups.duplicateExisting,
       duplicateInFile: dups.duplicateInFile,
-      estCost: 0,
+      lookups: 0,
+      lookupCost: 0,
       rowLineTypes: unknownTypes,
       skipped: [],
       error: null,
@@ -176,61 +268,77 @@ export async function analyzeImport(input: {
   let mobile = 0;
   let invalid = 0;
 
-  const rowLineTypes: LineType[] = new Array(input.rows.length).fill("unknown");
+  // phone → line type for everything we can resolve WITHOUT paying. Built up
+  // in priority order; phonesNeedingLookup() then yields only the remainder.
+  const resolved = new Map<string, LineType>();
 
-  // Reuse line types we already have on file. A number that's already a lead
-  // this owner has was classified on a previous import, so re-running Twilio
-  // Lookup on it is wasted spend. Fetch the stored line_type for the batch's
-  // numbers and reuse it; only numbers new to this owner hit Twilio and are
-  // billed. (Numbers repeated within THIS file are still looked up per
-  // occurrence — we only skip numbers that already exist as leads.)
-  const ownedLineType = new Map<string, LineType | null>();
-  const uniquePhones = [...new Set(e164s.filter((p): p is string => !!p))];
-  if (uniquePhones.length > 0) {
+  // 1. What the wizard already learned about these numbers this session.
+  for (const [phone, type] of sanitizeKnownLineTypes(input.knownLineTypes)) {
+    resolved.set(phone, type);
+  }
+
+  // 2. Reuse line types we already have on file. A number that's already a
+  // lead this owner has was classified on a previous import, so re-running
+  // Twilio Lookup on it is wasted spend — even when the stored type is
+  // unknown (it's the dialer's lock column; a re-import must not re-bill it).
+  const ownedPhones = phonesNeedingLookup(e164s, resolved);
+  if (ownedPhones.length > 0) {
     const { data: owned } = await supabase
       .from("leads")
       .select("business_phone, line_type")
       .eq("owner_id", user.id)
       .not("business_phone", "is", null)
-      .in("business_phone", uniquePhones);
+      .in("business_phone", ownedPhones);
     for (const lead of owned ?? []) {
       if (lead.business_phone) {
         const key = toE164UsCa(lead.business_phone) ?? lead.business_phone;
-        ownedLineType.set(key, (lead.line_type as LineType | null) ?? null);
+        resolved.set(
+          key,
+          isDefinitiveLineType(lead.line_type) ? lead.line_type : "unknown",
+        );
       }
     }
   }
 
-  // Run the Twilio lookups CONCURRENTLY with a bounded pool. Sequential
-  // lookups (one await per row) made large imports time the function out; a
-  // pool keeps each batch fast while staying well under Twilio's rate limit.
-  // Results are written back by index so rowLineTypes stays aligned to rows.
+  // 3. The shared cross-import cache (live mode only — mock answers must never
+  // be persisted where a live import would trust them).
+  const live = isLookupLive();
+  if (live) {
+    const cached = await readLineTypeCache(
+      phonesNeedingLookup(e164s, resolved),
+    );
+    for (const [phone, type] of cached) resolved.set(phone, type);
+  }
+
+  // 4. Twilio, once per remaining unique number. Run CONCURRENTLY with a
+  // bounded pool: sequential lookups (one await per row) made large imports
+  // time the function out; a pool keeps each batch fast while staying well
+  // under Twilio's rate limit.
+  const toLookup = phonesNeedingLookup(e164s, resolved);
   const CONCURRENCY = 15;
   let cursor = 0;
+  let lookups = 0;
+  const learned: { phone: string; line_type: DefinitiveLineType }[] = [];
   async function worker() {
     for (;;) {
       const i = cursor++;
-      if (i >= e164s.length) return;
-      const phone = e164s[i];
-      if (!phone) continue; // no phone → leave "unknown"
-      if (ownedLineType.has(phone)) {
-        // Already a lead we own — reuse the stored classification, no charge.
-        rowLineTypes[i] = ownedLineType.get(phone) ?? "unknown";
-        continue;
+      if (i >= toLookup.length) return;
+      const phone = toLookup[i];
+      const result = await lookupLineType(phone);
+      resolved.set(phone, result.type);
+      if (result.billed) lookups++;
+      if (live && isDefinitiveLineType(result.type)) {
+        learned.push({ phone, line_type: result.type });
       }
-      rowLineTypes[i] = await lookupLineType(phone);
     }
   }
   await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, input.rows.length) }, worker),
+    Array.from({ length: Math.min(CONCURRENCY, toLookup.length) }, worker),
   );
+  await writeLineTypeCache(learned);
 
-  // Bill only for numbers actually sent to Twilio — the ones new to this owner.
-  // Numbers reused from existing leads cost nothing.
-  let lookups = 0;
-  for (const phone of e164s) {
-    if (phone && !ownedLineType.has(phone)) lookups++;
-  }
+  const rowLineTypes = lineTypesForRows(e164s, resolved);
+
   e164s.forEach((phone, i) => {
     const lineType = rowLineTypes[i];
     if (!phone) {
@@ -250,19 +358,29 @@ export async function analyzeImport(input: {
     }
   });
 
-  const estCost = lookups * COST_PER_LOOKUP;
+  let lookupCost = lookups * COST_PER_LOOKUP;
 
   // Record the lookup spend so it shows on the Costs page. Lookups are billed
   // by Twilio here, at analysis time (not during a call), so there's no call
   // row to hang the cost on — we log it to the lookup_charges ledger instead.
-  // Only when live (mock lookups are free) and only when lookups actually ran.
-  if (isLookupLive() && lookups > 0) {
-    await supabase.from("lookup_charges").insert({
-      owner_id: user.id,
-      lookups,
-      cost: estCost,
-      source: "import",
-    });
+  // `lookups` already excludes mock answers and every unbilled response, so
+  // a row here is exactly what Twilio will invoice. The figures we show the
+  // user are read back from the ledger row so the two can never disagree.
+  if (lookups > 0) {
+    const { data: charge } = await supabase
+      .from("lookup_charges")
+      .insert({
+        owner_id: user.id,
+        lookups,
+        cost: lookupCost,
+        source: "import",
+      })
+      .select("lookups, cost")
+      .single();
+    if (charge) {
+      lookups = charge.lookups;
+      lookupCost = Number(charge.cost);
+    }
   }
 
   const dups = await countImportDuplicates(
@@ -279,7 +397,8 @@ export async function analyzeImport(input: {
     invalid,
     duplicateExisting: dups.duplicateExisting,
     duplicateInFile: dups.duplicateInFile,
-    estCost,
+    lookups,
+    lookupCost,
     rowLineTypes,
     skipped,
     error: null,

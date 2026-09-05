@@ -33,7 +33,7 @@ import { buildLeadsQuery, parseSort, str } from "./leads-query";
 import { AdvancedFilters } from "./advanced-filters";
 import { FilterBuilder } from "./filter-builder";
 import { LeadsSearchHint } from "./search-hint";
-import { SmartListPicker } from "./smart-list-picker";
+import { SmartListPicker, type SmartListPickerItem } from "./smart-list-picker";
 import { STATUSES } from "./leads-statuses";
 import { leadStatusLabel } from "@/lib/labels";
 import { parseRecipeParam } from "@/lib/smart-lists/resolve";
@@ -202,7 +202,8 @@ export default async function LeadsPage({
     }));
   }
 
-  // Advanced-filter (Smart Lists) inputs — an admin-only surface.
+  // Advanced-filter (Smart Lists) inputs. Owner options only exist for admins
+  // (members can't reassign, so they have nothing to filter on there).
   const statusOptions = STATUSES.map((s) => ({
     value: s,
     label: leadStatusLabel(s),
@@ -216,14 +217,14 @@ export default async function LeadsPage({
   }));
   const initialRecipe =
     (parseRecipeParam(str(params.recipe)) as Group | null) ?? EMPTY_RECIPE;
-  let smartLists: { id: string; name: string; filter: unknown }[] = [];
-  if (isAdmin) {
-    const { data: sl } = await supabase
-      .from("smart_lists")
-      .select("id, name, filter")
-      .order("created_at", { ascending: false });
-    smartLists = sl ?? [];
-  }
+  // Every signed-in user gets their smart lists: RLS on smart_lists is
+  // owner-or-admin, so a member sees only the lists they own and an admin sees
+  // all of them. The freshness columns feed the picker's one-line status.
+  const { data: smartListRows } = await supabase
+    .from("smart_lists")
+    .select("id, name, filter, last_refreshed_at, last_refresh_error")
+    .order("created_at", { ascending: false });
+  const smartLists: SmartListPickerItem[] = smartListRows ?? [];
 
   // Export carries every filter except pagination — it exports all matches.
   const exportQs = new URLSearchParams();
@@ -314,15 +315,13 @@ export default async function LeadsPage({
 
       {/* Advanced filter — opt-in panel, available to everyone. The recipe
           resolves through the leads' own RLS (security-invoker function), so a
-          member only ever matches their own leads. Smart-list saving/loading
-          stays admin-only; members persist an advanced filter as a saved view. */}
+          member only ever matches their own leads. Smart lists are owner-scoped
+          the same way, so members save, load and delete their own lists here. */}
       <AdvancedFilters defaultOpen={initialRecipe.children.length > 0}>
-        {isAdmin ? (
-          <SmartListPicker
-            lists={smartLists}
-            activeRecipeJson={str(params.recipe)}
-          />
-        ) : null}
+        <SmartListPicker
+          lists={smartLists}
+          activeRecipeJson={str(params.recipe)}
+        />
         <FilterBuilder
           initialRecipe={initialRecipe}
           statusOptions={statusOptions}
