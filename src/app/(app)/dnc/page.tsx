@@ -106,13 +106,9 @@ export default async function DncPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  const isAdmin = me?.role === "admin";
-
+  // DNC lists are per user (20260905192000): RLS returns only the caller's
+  // own entries, and every row shown is theirs to remove -- so there is no
+  // admin gate on the remove controls any more.
   let query = supabase
     .from("dnc_entries")
     .select("id, phone, company_snapshot, reason, added_by_user_id, added_at", {
@@ -184,8 +180,9 @@ export default async function DncPage({
               <DncSparkline values={stats.addedDaily} />
             </div>
             <p className="text-muted-foreground mt-1 text-sm">
-              Numbers here are off-limits — the dialer skips them across every
-              campaign, so you stay compliant without thinking about it.
+              Your do-not-call numbers. The dialer skips every number on any
+              teammate&apos;s list, across every campaign — but each person sees
+              and manages only their own entries.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -239,7 +236,7 @@ export default async function DncPage({
           </div>
         ) : null}
 
-        <DncBulkActionBar isAdmin={isAdmin} />
+        <DncBulkActionBar />
 
         {entries.length > 0 ? (
           <>
@@ -313,9 +310,7 @@ export default async function DncPage({
                       >
                         <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                           <CopyPhoneButton phone={entry.phone} />
-                          {isAdmin ? (
-                            <RemoveDncDialog phone={entry.phone} />
-                          ) : null}
+                          <RemoveDncDialog phone={entry.phone} />
                         </div>
                       </TableCell>
                     </TableRow>

@@ -36,25 +36,36 @@ export default async function CustomFieldsPage() {
     .select("role")
     .eq("id", user.id)
     .single();
-  // Members (builders) can create + edit fields (needed for lead import);
-  // only deleting a field (destroys its data workspace-wide) is admin-only.
   const isAdmin = me?.role === "admin";
 
+  // Everyone sees every field. Who may change one follows the RLS policies
+  // (20260905193000): edit / reorder = the creator, or an admin when the
+  // field has no creator; delete = the creator or any admin. The controls
+  // below mirror that so a teammate never sees a button that would fail.
   const { data } = await supabase
     .from("custom_field_defs")
-    .select("id, name, slug, type, required, options, sort_order")
-    .order("sort_order", { ascending: true });
+    .select("id, name, slug, type, required, options, sort_order, created_by")
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
 
-  const fields = (data ?? []).map((f) => ({
-    id: f.id,
-    name: f.name,
-    slug: f.slug,
-    type: f.type as CustomFieldType,
-    required: f.required,
-    options: Array.isArray(f.options)
-      ? f.options.filter((o): o is string => typeof o === "string")
-      : [],
-  }));
+  const fields = (data ?? []).map((f) => {
+    const isMine = f.created_by === user.id;
+    const orphan = f.created_by === null;
+    return {
+      id: f.id,
+      name: f.name,
+      slug: f.slug,
+      type: f.type as CustomFieldType,
+      required: f.required,
+      options: Array.isArray(f.options)
+        ? f.options.filter((o): o is string => typeof o === "string")
+        : [],
+      isMine,
+      canEdit: isMine || (orphan && isAdmin),
+      canDelete: isMine || isAdmin,
+    };
+  });
 
   return (
     <div className="flex flex-col gap-5 p-6">
@@ -64,7 +75,8 @@ export default async function CustomFieldsPage() {
             Custom fields
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Extra fields added to every lead in the workspace.
+            Extra fields added to every lead in the workspace. Anyone can add a
+            field; only the person who created one can change it.
           </p>
         </div>
         <CustomFieldDialog mode="create" />
@@ -85,7 +97,14 @@ export default async function CustomFieldsPage() {
             <TableBody>
               {fields.map((field, index) => (
                 <TableRow key={field.id} className="group">
-                  <TableCell className="font-medium">{field.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <span className="inline-flex items-center gap-2">
+                      {field.name}
+                      {field.isMine ? (
+                        <Badge variant="secondary">Yours</Badge>
+                      ) : null}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-muted-foreground font-mono text-xs">
                     {field.slug}
                   </TableCell>
@@ -107,7 +126,8 @@ export default async function CustomFieldsPage() {
                         field={field}
                         isFirst={index === 0}
                         isLast={index === fields.length - 1}
-                        isAdmin={isAdmin}
+                        canEdit={field.canEdit}
+                        canDelete={field.canDelete}
                       />
                     </div>
                   </TableCell>
