@@ -427,8 +427,10 @@ export type Database = {
       };
       calendly_events: {
         Row: {
+          attended_at: string | null;
           cancel_url: string | null;
           created_at: string;
+          dial_day: string | null;
           event_type_uri: string | null;
           event_uri: string;
           id: string;
@@ -440,13 +442,17 @@ export type Database = {
           owner_id: string;
           raw: Json | null;
           reschedule_url: string | null;
+          rescheduled_at: string | null;
+          sale_at: string | null;
           scheduled_at: string | null;
           status: string;
           updated_at: string;
         };
         Insert: {
+          attended_at?: string | null;
           cancel_url?: string | null;
           created_at?: string;
+          dial_day?: string | null;
           event_type_uri?: string | null;
           event_uri: string;
           id?: string;
@@ -458,13 +464,17 @@ export type Database = {
           owner_id: string;
           raw?: Json | null;
           reschedule_url?: string | null;
+          rescheduled_at?: string | null;
+          sale_at?: string | null;
           scheduled_at?: string | null;
           status?: string;
           updated_at?: string;
         };
         Update: {
+          attended_at?: string | null;
           cancel_url?: string | null;
           created_at?: string;
+          dial_day?: string | null;
           event_type_uri?: string | null;
           event_uri?: string;
           id?: string;
@@ -476,6 +486,8 @@ export type Database = {
           owner_id?: string;
           raw?: Json | null;
           reschedule_url?: string | null;
+          rescheduled_at?: string | null;
+          sale_at?: string | null;
           scheduled_at?: string | null;
           status?: string;
           updated_at?: string;
