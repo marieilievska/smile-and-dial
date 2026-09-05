@@ -46,6 +46,13 @@ function leadPatch(to, spec) {
       return { ...base, status: "resting", resting_until: iso(now + 30 * DAY), next_call_at: iso(now + 30 * DAY), retry_counter: 0, retry_position: 0, call_back_later_count: 0 };
     case "goal_met":
       return { ...base, status: "goal_met", next_call_at: null, resting_until: null };
+    case "dnc":
+      // Terminal + compliance. Mirrors the app own DNC path (inline-actions
+      // setLeadStage / bulkAddLeadsToDnc): the status flips AND next_call_at is
+      // cleared so the lead drops out of the queue. The dnc_entries row is
+      // written separately on apply - leads.status alone is a split-brain,
+      // because dial_queue/pre_call_check gate on dnc_entries.phone, not status.
+      return { ...base, status: "dnc", next_call_at: null, resting_until: null };
     case "callback":
       if (!spec.scheduled_at) throw new Error("callback target needs scheduled_at");
       return { ...base, status: "callback", next_call_at: spec.scheduled_at, resting_until: null };
@@ -73,6 +80,12 @@ async function dncClean(leadId, callId) {
   const ids = Object.keys(map);
   const calls = await C.get(`calls?id=in.(${C.inList(ids)})&select=id,lead_id,campaign_id,outcome`);
   const byId = {}; for (const c of calls) byId[c.id] = c;
+  // Lead phone/company are needed to write a dnc_entries row for a `dnc` target.
+  const leadIdsUp = [...new Set(calls.map((c) => c.lead_id).filter(Boolean))];
+  const leadInfo = {};
+  for (let i = 0; i < leadIdsUp.length; i += 100) {
+    for (const l of await C.get(`leads?id=in.(${C.inList(leadIdsUp.slice(i, i + 100))})&select=id,business_phone,company`)) leadInfo[l.id] = l;
+  }
 
   let planned = 0, skipped = 0;
   const actions = [];
@@ -89,7 +102,9 @@ async function dncClean(leadId, callId) {
     }
     let lp;
     try { lp = leadPatch(spec.to, spec); } catch (e) { console.log(`SKIP ${callId}: ${e.message}`); skipped++; continue; }
-    console.log(`${c.outcome} -> ${spec.to}  call=${callId} lead=${c.lead_id} => lead.status=${lp.status}${undnc ? ` (+delete ${undnc.entries.length} dnc_entries)` : ""}${spec.scheduled_at ? ` @${spec.scheduled_at}` : ""}`);
+    const li = leadInfo[c.lead_id] || {};
+    const addDnc = spec.to === "dnc" ? (li.business_phone ? ` (+dnc_entries ${li.business_phone})` : " (WARN no business_phone - NO dnc_entries row, lead stays dialable)") : "";
+    console.log(`${c.outcome} -> ${spec.to}  call=${callId} lead=${li.company ?? c.lead_id} => lead.status=${lp.status}${undnc ? ` (+delete ${undnc.entries.length} dnc_entries)` : ""}${addDnc}${spec.scheduled_at ? ` @${spec.scheduled_at}` : ""}`);
     actions.push({ callId, c, spec, lp, undnc });
     planned++;
   }
@@ -110,6 +125,22 @@ async function dncClean(leadId, callId) {
       await C.post("callbacks", { lead_id: a.c.lead_id, campaign_id: a.c.campaign_id, originating_call_id: a.callId, scheduled_at: a.spec.scheduled_at, status: "pending", voicemail_attempts: 0 });
     }
     if (a.undnc) for (const e of a.undnc.entries) await C.del(`dnc_entries?id=eq.${e.id}`);
+    // Relabeling TO dnc must block the PHONE, not just flip the status: the
+    // dialer gates on dnc_entries.phone. Upsert on the phone unique index so a
+    // number already listed is a no-op instead of a 23505 failure.
+    if (a.spec.to === "dnc") {
+      const li = leadInfo[a.c.lead_id] || {};
+      if (li.business_phone) {
+        const r = await fetch(C.rest("dnc_entries?on_conflict=phone"), {
+          method: "POST",
+          headers: { ...C.H, Prefer: "resolution=ignore-duplicates,return=minimal" },
+          body: JSON.stringify({ phone: li.business_phone, reason: "dnc_requested", company_snapshot: li.company ?? null, source_call_id: a.callId }),
+        });
+        if (!r.ok) console.log(`  WARN dnc_entries insert failed for ${li.company}: ${r.status} ${await r.text()}`);
+      } else {
+        console.log(`  WARN ${a.c.lead_id} has no business_phone - dnc_entries NOT written; lead still dialable by phone.`);
+      }
+    }
     await C.patch(`leads?id=eq.${a.c.lead_id}`, a.lp);
   }
   // Re-derive each touched lead's call counters from its calls (mirrors
