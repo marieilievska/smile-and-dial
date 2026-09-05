@@ -26,6 +26,7 @@ import {
   parseLeadLocalDatetime,
 } from "@/lib/dialer/local-schedule";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
+import { etDayString } from "@/lib/time/eastern";
 import { shortenMessageLink } from "@/lib/shortlinks/shorten-message";
 import { linkUtmParams } from "@/lib/shortlinks/destination";
 import type { LeadLinkParams } from "@/lib/shortlinks/destination";
@@ -1346,6 +1347,12 @@ async function bookAppointment(
         invitee_name: name || null,
         scheduled_at: when.toISOString(),
         status: "scheduled",
+        // The booking happens DURING the call, so today's ET day is the dial
+        // day whose spend produced it. Stored rather than derived from
+        // created_at because a later reschedule creates the row on the day of
+        // the reschedule, which would silently re-date the cohort and move the
+        // credit to a day that paid for nothing. See the cohort design doc.
+        dial_day: etDayString(),
       });
     }
 
