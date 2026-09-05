@@ -5,10 +5,17 @@
 //   node scripts/wipe-data.mjs --yes      # performs the deletion
 //
 // Deletes, in FK-safe order: call recordings (Storage) -> calls -> callbacks
-// -> leads (cascades custom values/emails) -> campaigns (releases Twilio
-// numbers) -> the DNC entry -> system_events.
+// -> calendly_events -> leads (cascades custom values/emails) -> campaigns
+// (releases Twilio numbers) -> the DNC entry -> system_events ->
+// cost_rollup_daily.
 // KEEPS: lookup_charges, goals (definitions), lists, agents, twilio_numbers,
 // dnc_removals, and ElevenLabs (untouched).
+//
+// calendly_events and cost_rollup_daily were both missed originally. Neither is
+// reachable by cascade: calendly_events.lead_id is `on delete set null`, and
+// cost_rollup_daily has no foreign keys at all. Left behind, they produced a
+// "clean slate" that still carried old registrations and old spend — days
+// showing cost and registrations with no calls and no outcomes behind them.
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -30,31 +37,39 @@ const admin = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } },
 );
 
-async function count(table) {
+// `key` is the NOT NULL column used to match every row. It defaults to the `id`
+// primary key, but cost_rollup_daily has NO id column — its PK is composite
+// (et_day, campaign_id, list_id, owner_id) — so callers pass a column that
+// exists, or both the count and the delete fail against it.
+async function count(table, key = "id") {
   const { count } = await admin
     .from(table)
-    .select("id", { count: "exact", head: true });
+    .select(key, { count: "exact", head: true });
   return count ?? 0;
 }
 async function report(label) {
   const tables = [
-    "leads",
-    "calls",
-    "callbacks",
-    "campaigns",
-    "dnc_entries",
-    "system_events",
-    "goals",
-    "lookup_charges",
-    "lists",
+    ["leads"],
+    ["calls"],
+    ["callbacks"],
+    ["campaigns"],
+    ["calendly_events"],
+    ["cost_rollup_daily", "et_day"],
+    ["dnc_entries"],
+    ["system_events"],
+    ["goals"],
+    ["lookup_charges"],
+    ["lists"],
   ];
   console.log(`\n=== ${label} ===`);
-  for (const t of tables) console.log(`  ${t.padEnd(16)} ${await count(t)}`);
+  for (const [t, key] of tables)
+    console.log(`  ${t.padEnd(20)} ${await count(t, key)}`);
 }
 
-async function deleteAll(table) {
-  // A real WHERE clause is required; id is a NOT NULL PK so this matches all.
-  const { error } = await admin.from(table).delete().not("id", "is", null);
+async function deleteAll(table, key = "id") {
+  // A real WHERE clause is required; the key is a NOT NULL PK column so this
+  // matches all rows.
+  const { error } = await admin.from(table).delete().not(key, "is", null);
   if (error) throw new Error(`delete ${table}: ${error.message}`);
 }
 
@@ -85,6 +100,8 @@ await deleteAll("calls");
 console.log("Deleted calls");
 await deleteAll("callbacks");
 console.log("Deleted callbacks");
+await deleteAll("calendly_events");
+console.log("Deleted calendly events (webinar registrations)");
 await deleteAll("leads");
 console.log("Deleted leads (custom values/emails cascade)");
 await deleteAll("campaigns");
@@ -93,6 +110,8 @@ await deleteAll("dnc_entries");
 console.log("Deleted DNC entries");
 await deleteAll("system_events");
 console.log("Deleted system events");
+await deleteAll("cost_rollup_daily", "et_day");
+console.log("Deleted cost rollup (pre-wipe spend rows)");
 
 await report("AFTER");
 console.log("\nDone.");
