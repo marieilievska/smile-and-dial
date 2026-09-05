@@ -422,6 +422,56 @@ export async function ensureCloseLeadCustomFields(
   return out;
 }
 
+/** Create a webhook subscription (POST /webhook/). Close returns the
+ *  subscription id and, ONCE, the `signature_key` that signs every delivery —
+ *  store both. Returns an error string (with Close's status) on failure so the
+ *  caller can surface why reply tracking didn't turn on. */
+export async function createCloseWebhookSubscription(
+  apiKey: string,
+  input: {
+    url: string;
+    events: readonly { object_type: string; action: string }[];
+  },
+): Promise<
+  { id: string; signatureKey: string; error: null } | { error: string }
+> {
+  const res = await fetch(`${BASE}/webhook/`, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(apiKey),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url: input.url, events: input.events }),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      detail = JSON.stringify(await res.json()).slice(0, 200);
+    } catch {
+      /* non-JSON error body */
+    }
+    return { error: `Close returned ${res.status}. ${detail}`.trim() };
+  }
+  const json = (await res.json()) as { id?: string; signature_key?: string };
+  if (!json.id || !json.signature_key) {
+    return { error: "Close did not return a subscription id and key." };
+  }
+  return { id: json.id, signatureKey: json.signature_key, error: null };
+}
+
+/** Delete a webhook subscription (DELETE /webhook/{id}/). A 404 counts as
+ *  deleted — the goal (no subscription) is met either way. */
+export async function deleteCloseWebhookSubscription(
+  apiKey: string,
+  subscriptionId: string,
+): Promise<boolean> {
+  const res = await fetch(
+    `${BASE}/webhook/${encodeURIComponent(subscriptionId)}/`,
+    { method: "DELETE", headers: { Authorization: authHeader(apiKey) } },
+  );
+  return res.ok || res.status === 404;
+}
+
 /** Set lead custom-field values on a Close lead — PUT /lead/{id}/ with
  *  `custom.<field_id>` keys. Returns true on success. */
 export async function setCloseLeadCustomFields(

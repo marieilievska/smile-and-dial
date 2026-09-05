@@ -176,6 +176,37 @@ export async function assignAgentToNumber(
   }
 }
 
+/** Remove an imported number from the ElevenLabs workspace
+ *  (DELETE /v1/convai/phone-numbers/{id}) — the counterpart of the import
+ *  above, for when the Twilio number is released so EL doesn't keep a dead
+ *  number (and its inbound agent assignment) around. A 404 means it's already
+ *  gone, which is the goal. Mocked unless ELEVENLABS_LIVE=live. */
+export async function deleteElevenLabsPhoneNumber(
+  elevenlabsPhoneNumberId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isLive()) return { ok: true };
+  const apiKey = elevenLabsApiKey();
+  if (!apiKey) return { ok: false, error: "ELEVENLABS_API_KEY is not set." };
+  try {
+    const res = await fetch(
+      `${ELEVENLABS_BASE}/v1/convai/phone-numbers/${encodeURIComponent(
+        elevenlabsPhoneNumberId,
+      )}`,
+      { method: "DELETE", headers: { "xi-api-key": apiKey } },
+    );
+    if (!res.ok && res.status !== 404) {
+      const detail = await res.text().catch(() => "");
+      return {
+        ok: false,
+        error: `ElevenLabs number removal failed (${res.status})${detail ? ` ${detail.slice(0, 200)}` : ""}.`,
+      };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "ElevenLabs number removal request failed." };
+  }
+}
+
 export type PlaceCallInput = {
   /** Our internal call_id. Passed to ElevenLabs as a dynamic variable so the
    *  post-call webhook can resolve our `calls` row deterministically. */
