@@ -10,7 +10,12 @@ import { createClient } from "@/lib/supabase/server";
  *  controls will respect it too.
  *
  *  Setting `null` clears the preference and falls back to "ask each
- *  time" behaviour for manual calls. */
+ *  time" behaviour for manual calls.
+ *
+ *  Writes through `update_my_profile` (20260905190000): the profiles
+ *  UPDATE policy is admin-only, so a direct update matched zero rows for a
+ *  member and reported success. The function touches only the caller's
+ *  own row and returns how many rows it changed, which we check. */
 export async function setActiveCampaign(
   campaignId: string | null,
 ): Promise<{ error: string | null }> {
@@ -34,11 +39,10 @@ export async function setActiveCampaign(
     }
   }
 
-  const { error } = await supabase
-    .from("profiles")
-    .update({ active_campaign_id: campaignId })
-    .eq("id", user.id);
-  if (error) {
+  const { data: updated, error } = await supabase.rpc("update_my_profile", {
+    patch: { active_campaign_id: campaignId },
+  });
+  if (error || !updated) {
     return { error: "Could not update active campaign." };
   }
 

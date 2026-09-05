@@ -245,6 +245,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      alert_state: {
+        Row: {
+          last_fired_at: string;
+          ref_id: string;
+          rule: string;
+        };
+        Insert: {
+          last_fired_at?: string;
+          ref_id: string;
+          rule: string;
+        };
+        Update: {
+          last_fired_at?: string;
+          ref_id?: string;
+          rule?: string;
+        };
+        Relationships: [];
+      };
       api_idempotency_keys: {
         Row: {
           api_key_id: string;
@@ -1075,6 +1093,7 @@ export type Database = {
       custom_field_defs: {
         Row: {
           created_at: string;
+          created_by: string | null;
           id: string;
           name: string;
           options: Json;
@@ -1085,6 +1104,7 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          created_by?: string | null;
           id?: string;
           name: string;
           options?: Json;
@@ -1095,6 +1115,7 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          created_by?: string | null;
           id?: string;
           name?: string;
           options?: Json;
@@ -1126,12 +1147,52 @@ export type Database = {
         };
         Relationships: [];
       };
+      dialer_heartbeats: {
+        Row: {
+          blocked_reasons: Json;
+          candidates: number;
+          dialed: number;
+          duration_ms: number | null;
+          errors: number;
+          id: string;
+          pool_exhausted_campaigns: string[];
+          queue_read_failed: boolean;
+          ran_at: string;
+          summary: Json | null;
+        };
+        Insert: {
+          blocked_reasons?: Json;
+          candidates?: number;
+          dialed?: number;
+          duration_ms?: number | null;
+          errors?: number;
+          id?: string;
+          pool_exhausted_campaigns?: string[];
+          queue_read_failed?: boolean;
+          ran_at?: string;
+          summary?: Json | null;
+        };
+        Update: {
+          blocked_reasons?: Json;
+          candidates?: number;
+          dialed?: number;
+          duration_ms?: number | null;
+          errors?: number;
+          id?: string;
+          pool_exhausted_campaigns?: string[];
+          queue_read_failed?: boolean;
+          ran_at?: string;
+          summary?: Json | null;
+        };
+        Relationships: [];
+      };
       dnc_entries: {
         Row: {
           added_at: string;
           added_by_user_id: string | null;
           company_snapshot: string | null;
           id: string;
+          owner_id: string | null;
           phone: string;
           reason: string;
           source_call_id: string | null;
@@ -1141,6 +1202,7 @@ export type Database = {
           added_by_user_id?: string | null;
           company_snapshot?: string | null;
           id?: string;
+          owner_id?: string | null;
           phone: string;
           reason: string;
           source_call_id?: string | null;
@@ -1150,6 +1212,7 @@ export type Database = {
           added_by_user_id?: string | null;
           company_snapshot?: string | null;
           id?: string;
+          owner_id?: string | null;
           phone?: string;
           reason?: string;
           source_call_id?: string | null;
@@ -1443,27 +1506,33 @@ export type Database = {
       knowledge_base_sources: {
         Row: {
           created_at: string;
+          elevenlabs_document_id: string | null;
           file_path: string | null;
           id: string;
           kb_id: string;
+          sync_error: string | null;
           synced_at: string | null;
           type: string;
           url: string | null;
         };
         Insert: {
           created_at?: string;
+          elevenlabs_document_id?: string | null;
           file_path?: string | null;
           id?: string;
           kb_id: string;
+          sync_error?: string | null;
           synced_at?: string | null;
           type: string;
           url?: string | null;
         };
         Update: {
           created_at?: string;
+          elevenlabs_document_id?: string | null;
           file_path?: string | null;
           id?: string;
           kb_id?: string;
+          sync_error?: string | null;
           synced_at?: string | null;
           type?: string;
           url?: string | null;
@@ -2617,6 +2686,10 @@ export type Database = {
         Args: { col: string; op: string; val: Json };
         Returns: string;
       };
+      alert_fire: {
+        Args: { in_period: string; in_ref: string; in_rule: string };
+        Returns: boolean;
+      };
       bump_api_rate_limit: {
         Args: { in_api_key_id: string; in_window_seconds: number };
         Returns: number;
@@ -2646,6 +2719,11 @@ export type Database = {
       };
       elevenlabs_voice_ids: { Args: never; Returns: string };
       expire_resting_leads: { Args: never; Returns: number };
+      cron_schedule_minutes: {
+        Args: { in_schedule: string };
+        Returns: number;
+      };
+      evaluate_alerts: { Args: never; Returns: Json };
       get_or_create_inbound_list: {
         Args: { in_owner: string };
         Returns: string;
@@ -2736,6 +2814,10 @@ export type Database = {
         Returns: undefined;
       };
       monitor_campaign_spend_caps: { Args: never; Returns: number };
+      move_custom_field: {
+        Args: { in_direction: string; in_id: string };
+        Returns: string;
+      };
       monitor_twilio_connect_rates: { Args: never; Returns: number };
       pool_number_usage_24h: {
         Args: { in_campaign_id: string };
@@ -2754,6 +2836,7 @@ export type Database = {
         Args: { in_days_back?: number };
         Returns: number;
       };
+      update_my_profile: { Args: { patch: Json }; Returns: number };
     };
     Enums: {
       [_ in never]: never;

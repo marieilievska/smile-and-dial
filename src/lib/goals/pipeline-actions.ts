@@ -57,7 +57,11 @@ export async function transitionLeadGoalStatus(input: {
     const target = pickRegistrationToMark(regs ?? []);
     if (target) {
       const stamp = new Date().toISOString();
-      await supabase
+      // `.select()` so a policy miss shows up as zero rows instead of a
+      // silent no-op (calendly_events writes were admin-only until
+      // 20260905191000, which is exactly how members' attendees ended up
+      // counted as no-shows). Zero rows here is an error, not a success.
+      const { data: marked, error: markError } = await supabase
         .from("calendly_events")
         .update(
           input.status === "sale"
@@ -66,7 +70,14 @@ export async function transitionLeadGoalStatus(input: {
               { sale_at: stamp, attended_at: target.attended_at ?? stamp }
             : { attended_at: stamp },
         )
-        .eq("id", target.id);
+        .eq("id", target.id)
+        .select("id");
+      if (markError || !marked || marked.length === 0) {
+        return {
+          error:
+            "The lead moved, but the outcome could not be recorded on the registration. Try again.",
+        };
+      }
     }
   }
 

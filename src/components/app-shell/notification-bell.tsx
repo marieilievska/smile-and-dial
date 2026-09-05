@@ -41,7 +41,36 @@ const KIND_HREF: Record<string, (n: NotificationItem) => string | null> = {
   dialer_paused_low_credits: () => `/campaigns`,
   dialer_resumed_credits_restored: () => `/campaigns`,
   elevenlabs_credits_warning: () => `/campaigns`,
+  // Silent-stop alerts (evaluate_alerts() in SQL + the dialer tick). Each
+  // routes to the page where the fix lives.
+  cap_hit_daily: () => `/campaigns`,
+  cap_hit_hourly: () => `/campaigns`,
+  dialer_stalled: () => `/campaigns`,
+  pool_exhausted: () => `/settings/twilio-numbers`,
+  placement_storm: () => `/settings/twilio-numbers`,
+  callbacks_piling_paused: () => `/callbacks`,
+  integration_missing: () => `/settings/integrations`,
+  meta_sync_failed: () => `/settings/integrations`,
+  credit_read_failed: () => `/campaigns`,
+  cron_missed: () => `/campaigns`,
+  post_call_webhook_failing: () => `/calls`,
 };
+
+/** Kinds that mean "dialing has stopped or results are being lost" — their
+ *  unread dot renders in the destructive tone so they stand out from the
+ *  routine goal_met / email_replied stream. */
+const ALERT_KINDS: ReadonlySet<string> = new Set([
+  "dialer_stalled",
+  "pool_exhausted",
+  "placement_storm",
+  "credit_read_failed",
+  "cron_missed",
+  "post_call_webhook_failing",
+  "integration_missing",
+  "meta_sync_failed",
+  "campaign_paused_low_credits",
+  "dialer_paused_low_credits",
+]);
 
 /** Top-bar notification bell (Step 40 / BUILD_PLAN §5.0).
  *  Shows the most recent notifications with an unread badge; clicking a row
@@ -164,7 +193,11 @@ export function NotificationBell({
                         {isUnread ? (
                           <span
                             aria-hidden
-                            className="bg-primary mt-1.5 size-2 shrink-0 rounded-full"
+                            className={`mt-1.5 size-2 shrink-0 rounded-full ${
+                              ALERT_KINDS.has(item.kind)
+                                ? "bg-destructive"
+                                : "bg-primary"
+                            }`}
                           />
                         ) : (
                           <span className="mt-1.5 size-2 shrink-0" />

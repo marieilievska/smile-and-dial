@@ -18,6 +18,13 @@ import { enforceElevenLabsCreditGate } from "@/lib/dialer/credit-gate";
 import { sweepStuckCallbacks } from "@/lib/callbacks/sweep";
 import { withRecomputedTotal } from "@/lib/costs/breakdown";
 import {
+  maybeCheckPostCallWebhook,
+  recordPoolExhausted,
+  recordQueueReadFailure,
+  writeDialerHeartbeat,
+  type WebhookHealthCheck,
+} from "@/lib/alerts/heartbeat";
+import {
   backfillMissingRecordings,
   type RecordingBackfillSummary,
 } from "@/lib/elevenlabs/recording-fetch";
@@ -52,6 +59,21 @@ export type TickSummary = {
    *  recording, pulled from the ElevenLabs API a few per tick. Runs AFTER the
    *  dial loop and never throws, so it can't delay or break a dial. */
   recordingsBackfilled?: RecordingBackfillSummary;
+  /** Set when the campaign list or a campaign's dial_queue slice could not
+   *  be read. Used to be discarded as "0 candidates" — which is exactly how a
+   *  dial_queue timeout became a silent full outbound stop (#374). Counted in
+   *  `errors`, logged to system_events (throttled) and stamped on the
+   *  heartbeat so evaluate_alerts() can raise `dialer_stalled`. */
+  queueReadFailed?: boolean;
+  /** Campaigns for which every pool number was capped/rested this tick. */
+  poolExhaustedCampaigns?: string[];
+  /** Wall-clock for the whole tick, dial loop + backfill + health checks. */
+  durationMs?: number;
+  /** Post-call webhook health, present only on the ticks that ran the
+   *  (10-minute-throttled) ElevenLabs check. */
+  webhookHealth?: WebhookHealthCheck;
+  /** Whether this tick's dialer_heartbeats row was written. */
+  heartbeat?: "written" | "failed";
   liveMode: { twilio: boolean; elevenlabs: boolean };
 };
 
@@ -413,20 +435,37 @@ async function readFairQueue(
   rows: QueueRow[];
   campaignsRead: number;
   campaignsSkippedForFanoutCap: number;
+  /** Reads that errored (the campaign list, or one campaign's slice). A
+   *  failed read is NOT "no candidates" — the caller flags the tick. */
+  readErrors: number;
+  readErrorMessages: string[];
 }> {
   // Only ACTIVE campaigns can produce queue rows (dial_queue joins on
   // `c.status = 'active'`), so this is the complete candidate set and nothing
   // narrower. Ordered by created_at purely for a deterministic fan-out set.
-  const { data: activeCampaigns } = await supabase
+  const { data: activeCampaigns, error: campaignsError } = await supabase
     .from("campaigns")
     .select("id")
     .eq("status", "active")
     .order("created_at", { ascending: true });
 
+  const readErrorMessages: string[] = [];
+  if (campaignsError) {
+    // A failed campaign read used to fall through to "no active campaigns"
+    // and a clean-looking tick with 0 candidates. Surface it instead.
+    readErrorMessages.push(`campaigns: ${campaignsError.message}`);
+  }
+
   const allIds = (activeCampaigns ?? []).map((c) => c.id);
   const ids = allIds.slice(0, MAX_CAMPAIGN_FANOUT);
   if (ids.length === 0) {
-    return { rows: [], campaignsRead: 0, campaignsSkippedForFanoutCap: 0 };
+    return {
+      rows: [],
+      campaignsRead: 0,
+      campaignsSkippedForFanoutCap: 0,
+      readErrors: readErrorMessages.length,
+      readErrorMessages,
+    };
   }
 
   const perCampaign = await Promise.all(
@@ -452,7 +491,15 @@ async function readFairQueue(
       if (options.leadIds && options.leadIds.length > 0) {
         query = query.in("lead_id", options.leadIds);
       }
-      const { data } = await query;
+      const { data, error } = await query;
+      if (error) {
+        // Do NOT read this as an empty slice. A dial_queue read that errors
+        // or times out (the O(leads×pool) ceiling, #374) is the single most
+        // damaging silent stop this dialer has had: every campaign "had no
+        // candidates" for as long as the view stayed slow.
+        readErrorMessages.push(`dial_queue ${campaignId}: ${error.message}`);
+        return [] as QueueRow[];
+      }
       return (data ?? []) as QueueRow[];
     }),
   );
@@ -461,6 +508,8 @@ async function readFairQueue(
     rows: mergeFairShare(perCampaign, options.limit),
     campaignsRead: ids.length,
     campaignsSkippedForFanoutCap: allIds.length - ids.length,
+    readErrors: readErrorMessages.length,
+    readErrorMessages,
   };
 }
 
@@ -475,22 +524,88 @@ async function readFairQueue(
 export async function runDialerTick(
   options: { limit?: number; leadIds?: string[] } = {},
 ): Promise<TickSummary> {
-  const summary = await runDialerTickCore(options);
+  const startedAt = Date.now();
+
+  let summary: TickSummary;
+  try {
+    summary = await runDialerTickCore(options);
+  } catch (err) {
+    // A thrown core = the route answers 500 and nothing dialed. Leave a
+    // heartbeat that says so (errors=1, the message in `summary`) so the
+    // SQL evaluator can tell "ticking but crashing" from "no tick at all",
+    // then let the route report the failure exactly as before.
+    await recordCrashedTick(err, Date.now() - startedAt);
+    throw err;
+  }
 
   // Recording backfill — strictly AFTER the dial loop (every return path of
   // the core), so a slow ElevenLabs download can never delay a dial. Pulls
   // a few completed calls' recordings per tick; the existing backlog drains
   // in minutes and any future miss self-heals. Best-effort: never throws.
+  let admin: SupabaseAdmin | null = null;
   try {
-    summary.recordingsBackfilled = await backfillMissingRecordings(
-      makeServiceClient(),
-      { limit: RECORDING_BACKFILL_PER_TICK },
-    );
+    admin = makeServiceClient();
+    summary.recordingsBackfilled = await backfillMissingRecordings(admin, {
+      limit: RECORDING_BACKFILL_PER_TICK,
+    });
   } catch {
     /* swallow — a backfill failure must not break the tick */
   }
 
+  // Post-call webhook health — SQL can't call ElevenLabs, so the tick does,
+  // at most every 10 minutes (throttled off the heartbeat table), live mode
+  // only, and after the dial loop so it never delays a dial. Best-effort.
+  if (admin && summary.liveMode.elevenlabs) {
+    try {
+      const check = await maybeCheckPostCallWebhook(admin);
+      if (check) summary.webhookHealth = check;
+    } catch {
+      /* swallow — the health check must not break the tick */
+    }
+  }
+
+  // Heartbeat — LAST, so it records the whole tick. This row is what turns
+  // "the tick stopped" and "the tick runs but nothing dials" into alerts
+  // (evaluate_alerts() in SQL); without it the summary died with the HTTP
+  // response and pg_net pruned it unread.
+  summary.durationMs = Date.now() - startedAt;
+  if (admin) {
+    const written = await writeDialerHeartbeat(admin, {
+      candidates: summary.candidates,
+      dialed: summary.dialed,
+      errors: summary.errors,
+      blockedReasons: summary.blockedReasons,
+      poolExhaustedCampaigns: summary.poolExhaustedCampaigns,
+      queueReadFailed: summary.queueReadFailed,
+      durationMs: summary.durationMs,
+      summary,
+    });
+    summary.heartbeat = written ? "written" : "failed";
+  } else {
+    summary.heartbeat = "failed";
+  }
+
   return summary;
+}
+
+/** Best-effort heartbeat for a tick whose core threw before producing a
+ *  summary. Never throws itself — the caller re-throws the original error. */
+async function recordCrashedTick(err: unknown, durationMs: number) {
+  try {
+    await writeDialerHeartbeat(makeServiceClient(), {
+      candidates: 0,
+      dialed: 0,
+      errors: 1,
+      blockedReasons: {},
+      durationMs,
+      summary: {
+        crashed: true,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    });
+  } catch {
+    /* the heartbeat is best-effort; the re-throw is the real signal */
+  }
 }
 
 /** Calls whose recording the tick pulls from ElevenLabs per run. Five a minute
@@ -593,6 +708,17 @@ async function runDialerTickCore(
   if (fair.campaignsSkippedForFanoutCap > 0) {
     summary.campaignsSkippedForFanoutCap = fair.campaignsSkippedForFanoutCap;
   }
+  if (fair.readErrors > 0) {
+    // Stop discarding read errors as "0 candidates": count them, flag the
+    // summary (→ heartbeat.queue_read_failed → dialer_stalled alert) and
+    // leave one audit row per 30 minutes. Best-effort, never throws.
+    summary.queueReadFailed = true;
+    summary.errors += fair.readErrors;
+    await recordQueueReadFailure(supabase, {
+      messages: fair.readErrorMessages,
+      campaignsRead: fair.campaignsRead,
+    });
+  }
 
   // Per-tick pacing state: each campaign's dial interval (cached) and the last
   // time we placed a call for it, so we space this campaign's dials out inside
@@ -609,6 +735,10 @@ async function runDialerTickCore(
   // out, out of budget, no numbers). Every remaining candidate of that campaign
   // would hit the identical wall, so they're skipped without another round trip.
   const campaignBlocked = new Map<string, PreCallReason>();
+  // Campaigns whose whole pool was capped/rested this tick → how many leads
+  // that blocked. Reported on the summary + heartbeat; one audit row per
+  // campaign per hour (see recordPoolExhausted).
+  const poolExhaustedCampaigns = new Map<string, number>();
 
   for (const c of candidates) {
     // The queue can produce rows where the typed columns are nominally
@@ -761,6 +891,10 @@ async function runDialerTickCore(
         summary.blocked++;
         summary.blockedReasons["pool_exhausted"] =
           (summary.blockedReasons["pool_exhausted"] ?? 0) + 1;
+        poolExhaustedCampaigns.set(
+          c.campaign_id,
+          (poolExhaustedCampaigns.get(c.campaign_id) ?? 0) + 1,
+        );
       } else if (res.redialNumberUnusable) {
         // Call 1's number is no longer usable, so the redial was deliberately
         // skipped rather than falling back to a different pool number (see
@@ -783,6 +917,13 @@ async function runDialerTickCore(
       });
       if (callId) summary.dialed++;
       else summary.errors++;
+    }
+  }
+
+  if (poolExhaustedCampaigns.size > 0) {
+    summary.poolExhaustedCampaigns = [...poolExhaustedCampaigns.keys()];
+    for (const [campaignId, blocked] of poolExhaustedCampaigns) {
+      await recordPoolExhausted(supabase, campaignId, blocked);
     }
   }
 
