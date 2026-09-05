@@ -92,7 +92,7 @@ export default async function IntegrationsPage() {
 
         <IntegrationCard
           title="Close"
-          description="Email + SMS gateway. Connect to let the agent send emails and texts from your Close account. With reply tracking on, Close also tells the app when a lead writes back (email_replied / text_replied) and when someone texts STOP."
+          description="Your own Close account — every user connects theirs. Needed for the send_email and send_text agent tools (a campaign whose agent emails or texts can't launch without it). With reply tracking on, Close also tells the app when a lead writes back (email_replied / text_replied) and when someone texts STOP."
           connected={closeConnected}
           subtitle={
             closeConnected && integ?.close_connected_at
@@ -115,7 +115,7 @@ export default async function IntegrationsPage() {
 
         <IntegrationCard
           title="Calendly"
-          description="Connect Calendly to enable agent appointment booking and to auto-flip leads into the goal pipeline when an invitee schedules."
+          description="Your own Calendly account — every user connects theirs. Needed for agent appointment booking (a campaign whose agent books meetings can't launch without it), and to auto-flip leads into the goal pipeline when an invitee schedules."
           connected={calendlyConnected}
           subtitle={
             calendlyConnected && integ?.calendly_last_sync_at
