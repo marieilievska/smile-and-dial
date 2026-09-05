@@ -2521,7 +2521,7 @@ export type Database = {
           connected: number;
           dial_day: string;
           dms: number;
-          last_session: string | null;
+          last_session: string;
           no_show: number;
           pending: number;
           regs: number;
