@@ -30,7 +30,13 @@ function fmt(f) {
  *  today/history entries look like { date, ratios: { <key>: number, ... } }. */
 function driftReport({ today, history, watches = DEFAULT_WATCHES, lookback = 5, minHistory = 2 }) {
   const prior = (history || [])
-    .filter((h) => h && h.date && h.date !== today.date)
+    // STRICTLY BEFORE today, not merely "a different day". Excluding only the
+    // same date silently let LATER days into a "trailing" baseline, so
+    // re-auditing a historical day compared it against its own future (running
+    // the audit across 2026-09-02..04 measured Sep 2 against Sep 3 + Sep 4).
+    // Invisible in the normal flow, where the day being audited is always the
+    // newest row — which is exactly why it survived this long.
+    .filter((h) => h && h.date && h.date < today.date)
     .sort((a, b) => (a.date < b.date ? 1 : -1)) // newest first
     .slice(0, lookback);
   if (prior.length < minHistory) {
