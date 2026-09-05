@@ -203,6 +203,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      alert_state: {
+        Row: {
+          last_fired_at: string;
+          ref_id: string;
+          rule: string;
+        };
+        Insert: {
+          last_fired_at?: string;
+          ref_id: string;
+          rule: string;
+        };
+        Update: {
+          last_fired_at?: string;
+          ref_id?: string;
+          rule?: string;
+        };
+        Relationships: [];
+      };
       api_idempotency_keys: {
         Row: {
           api_key_id: string;
@@ -1054,6 +1072,45 @@ export type Database = {
           note?: string;
           updated_at?: string;
           updated_by?: string | null;
+        };
+        Relationships: [];
+      };
+      dialer_heartbeats: {
+        Row: {
+          blocked_reasons: Json;
+          candidates: number;
+          dialed: number;
+          duration_ms: number | null;
+          errors: number;
+          id: string;
+          pool_exhausted_campaigns: string[];
+          queue_read_failed: boolean;
+          ran_at: string;
+          summary: Json | null;
+        };
+        Insert: {
+          blocked_reasons?: Json;
+          candidates?: number;
+          dialed?: number;
+          duration_ms?: number | null;
+          errors?: number;
+          id?: string;
+          pool_exhausted_campaigns?: string[];
+          queue_read_failed?: boolean;
+          ran_at?: string;
+          summary?: Json | null;
+        };
+        Update: {
+          blocked_reasons?: Json;
+          candidates?: number;
+          dialed?: number;
+          duration_ms?: number | null;
+          errors?: number;
+          id?: string;
+          pool_exhausted_campaigns?: string[];
+          queue_read_failed?: boolean;
+          ran_at?: string;
+          summary?: Json | null;
         };
         Relationships: [];
       };
@@ -2551,6 +2608,10 @@ export type Database = {
         Args: { col: string; op: string; val: Json };
         Returns: string;
       };
+      alert_fire: {
+        Args: { in_period: string; in_ref: string; in_rule: string };
+        Returns: boolean;
+      };
       bump_api_rate_limit: {
         Args: { in_api_key_id: string; in_window_seconds: number };
         Returns: number;
@@ -2578,6 +2639,11 @@ export type Database = {
       };
       elevenlabs_voice_ids: { Args: never; Returns: string };
       expire_resting_leads: { Args: never; Returns: number };
+      cron_schedule_minutes: {
+        Args: { in_schedule: string };
+        Returns: number;
+      };
+      evaluate_alerts: { Args: never; Returns: Json };
       get_or_create_inbound_list: {
         Args: { in_owner: string };
         Returns: string;
