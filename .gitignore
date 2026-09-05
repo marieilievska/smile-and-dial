@@ -55,3 +55,7 @@ next-env.d.ts
 .vercel
 .shaken-sync.log
 scripts/_shaken-sync-hidden.vbs
+
+# Local data dumps taken before a wipe. Contain full lead PII (names, phone
+# numbers, emails) and must never be committed.
+/backups/

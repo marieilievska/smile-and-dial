@@ -33,6 +33,8 @@ const TABLES = [
   "calls",
   "callbacks",
   "campaigns",
+  "calendly_events",
+  "cost_rollup_daily",
   "dnc_entries",
   "dnc_removals",
   "system_events",
