@@ -49,6 +49,10 @@ export type CallDetail = {
   endedAt: string | null;
   durationSeconds: number | null;
   talkTimeSeconds: number | null;
+  /** calls.created_at — what the nightly retention sweep keys off, so the
+   *  modal can tell "never had a recording" from "audio pruned after 90
+   *  days" (see lib/maintenance/retention-window). */
+  createdAt: string;
   recordingPath: string | null;
   /** A directly-playable URL for the recording: a short-lived signed URL
    *  when recording_path is a storage object, or the stored URL as-is for
@@ -90,7 +94,7 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
   const { data: raw, error } = await supabase
     .from("calls")
     .select(
-      "id, direction, status, outcome, outcome_source, goal_met, " +
+      "id, direction, status, outcome, outcome_source, goal_met, created_at, " +
         "started_at, answered_at, ended_at, duration_seconds, talk_time_seconds, " +
         "recording_path, summary, transcript_json, extracted_data, " +
         "cost_breakdown, twilio_call_sid, elevenlabs_conversation_id, " +
@@ -111,6 +115,7 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
     outcome: string | null;
     outcome_source: string | null;
     goal_met: boolean;
+    created_at: string;
     started_at: string | null;
     answered_at: string | null;
     ended_at: string | null;
@@ -226,6 +231,7 @@ export async function getCallDetail(callId: string): Promise<CallDetailResult> {
       endedAt: data.ended_at,
       durationSeconds: data.duration_seconds,
       talkTimeSeconds: data.talk_time_seconds,
+      createdAt: data.created_at,
       recordingPath: data.recording_path,
       recordingUrl,
       summary: data.summary,
