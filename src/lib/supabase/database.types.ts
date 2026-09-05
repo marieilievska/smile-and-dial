@@ -1434,27 +1434,33 @@ export type Database = {
       knowledge_base_sources: {
         Row: {
           created_at: string;
+          elevenlabs_document_id: string | null;
           file_path: string | null;
           id: string;
           kb_id: string;
+          sync_error: string | null;
           synced_at: string | null;
           type: string;
           url: string | null;
         };
         Insert: {
           created_at?: string;
+          elevenlabs_document_id?: string | null;
           file_path?: string | null;
           id?: string;
           kb_id: string;
+          sync_error?: string | null;
           synced_at?: string | null;
           type: string;
           url?: string | null;
         };
         Update: {
           created_at?: string;
+          elevenlabs_document_id?: string | null;
           file_path?: string | null;
           id?: string;
           kb_id?: string;
+          sync_error?: string | null;
           synced_at?: string | null;
           type?: string;
           url?: string | null;
