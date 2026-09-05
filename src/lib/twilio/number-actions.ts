@@ -4,8 +4,14 @@ import { revalidatePath } from "next/cache";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { ensureNumberImportedToElevenLabs } from "@/lib/twilio/place-call";
-import { assignNumberToShaken } from "@/lib/twilio/shaken";
+import {
+  deleteElevenLabsPhoneNumber,
+  ensureNumberImportedToElevenLabs,
+} from "@/lib/twilio/place-call";
+import {
+  assignNumberToShaken,
+  unassignNumberFromShaken,
+} from "@/lib/twilio/shaken";
 
 import {
   type AvailableNumber,
@@ -143,8 +149,8 @@ export async function purchaseNumber(input: {
   });
   if (error) return { error: "Could not save the purchased number." };
 
-  // Sign the number for SHAKEN/STIR now (best-effort; the 30-min reconcile task
-  // backstops a miss, and a not-yet-configured parent token simply skips).
+  // Sign the number for SHAKEN/STIR now (best-effort; a not-yet-configured
+  // parent token simply skips).
   if (twilioSid) {
     try {
       const shaken = await assignNumberToShaken(twilioSid);
@@ -203,7 +209,52 @@ export async function renameNumber(input: {
   return { error: null };
 }
 
-/** Release a number — gives it up at Twilio and marks it released. */
+/** Tear down what a number holds OUTSIDE our database once it's been given up
+ *  at Twilio: its SHAKEN/STIR assignments on the parent Trust Hub and its
+ *  ElevenLabs phone-number object. Both are best-effort — a hiccup is logged,
+ *  never thrown. Reports whether the ElevenLabs object is now gone (true when
+ *  there was none), so callers null the column only when that's the truth. */
+async function teardownReleasedNumber(number: {
+  phone_number: string;
+  twilio_sid: string | null;
+  elevenlabs_phone_number_id: string | null;
+}): Promise<{ elevenLabsCleared: boolean }> {
+  if (number.twilio_sid) {
+    try {
+      const shaken = await unassignNumberFromShaken(number.twilio_sid);
+      if (!shaken.ok && !shaken.skipped) {
+        console.warn(
+          `SHAKEN/STIR un-sign failed for ${number.phone_number}: ${shaken.error}`,
+        );
+      }
+    } catch (e) {
+      console.warn(`SHAKEN/STIR un-sign threw for ${number.phone_number}`, e);
+    }
+  }
+
+  if (!number.elevenlabs_phone_number_id) return { elevenLabsCleared: true };
+  try {
+    const el = await deleteElevenLabsPhoneNumber(
+      number.elevenlabs_phone_number_id,
+    );
+    if (!el.ok) {
+      console.warn(
+        `ElevenLabs number removal failed for ${number.phone_number}: ${el.error}`,
+      );
+    }
+    return { elevenLabsCleared: el.ok };
+  } catch (e) {
+    console.warn(
+      `ElevenLabs number removal threw for ${number.phone_number}`,
+      e,
+    );
+    return { elevenLabsCleared: false };
+  }
+}
+
+/** Release a number — gives it up at Twilio, marks it released and detaches it
+ *  from its campaign, then un-signs it (SHAKEN/STIR) and removes it from
+ *  ElevenLabs so nothing outside the app keeps pointing at a dead number. */
 export async function releaseNumber(id: string): Promise<ActionResult> {
   const {
     supabase,
@@ -215,7 +266,9 @@ export async function releaseNumber(id: string): Promise<ActionResult> {
 
   const { data: number } = await supabase
     .from("twilio_numbers")
-    .select("twilio_sid, released_at, attached_campaign_id")
+    .select(
+      "phone_number, twilio_sid, released_at, attached_campaign_id, elevenlabs_phone_number_id",
+    )
     .eq("id", id)
     .maybeSingle();
   if (!number) return { error: "That number no longer exists." };
@@ -239,11 +292,34 @@ export async function releaseNumber(id: string): Promise<ActionResult> {
   const { error: releaseError } = await releaseTwilioNumber(number.twilio_sid);
   if (releaseError) return { error: releaseError };
 
+  // Twilio has the number back: record that and detach it from its campaign in
+  // the same write, so a released number never sits "attached" to anything.
   const { error } = await supabase
     .from("twilio_numbers")
-    .update({ released_at: new Date().toISOString() })
+    .update({
+      released_at: new Date().toISOString(),
+      attached_campaign_id: null,
+    })
     .eq("id", id);
   if (error) return { error: "Could not release the number." };
+
+  // Sever the legacy single-number pointer too, or a later campaign-settings
+  // save could re-claim a number that no longer exists.
+  await supabase
+    .from("campaigns")
+    .update({ twilio_number_id: null })
+    .eq("twilio_number_id", id);
+
+  // Un-sign it on the parent Trust Hub and drop its ElevenLabs object. Neither
+  // can fail the release; the EL id is cleared only once EL confirms it's gone,
+  // so a miss stays visible and the delete path retries it.
+  const { elevenLabsCleared } = await teardownReleasedNumber(number);
+  if (elevenLabsCleared && number.elevenlabs_phone_number_id) {
+    await supabase
+      .from("twilio_numbers")
+      .update({ elevenlabs_phone_number_id: null })
+      .eq("id", id);
+  }
 
   revalidatePath(NUMBERS_PATH);
   return { error: null };
@@ -259,7 +335,7 @@ export async function deleteTwilioNumber(id: string): Promise<ActionResult> {
 
   const { data: number } = await supabase
     .from("twilio_numbers")
-    .select("released_at")
+    .select("phone_number, twilio_sid, released_at, elevenlabs_phone_number_id")
     .eq("id", id)
     .maybeSingle();
   if (!number) return { error: "That number no longer exists." };
@@ -267,11 +343,29 @@ export async function deleteTwilioNumber(id: string): Promise<ActionResult> {
     return { error: "Release the number before deleting it." };
   }
 
-  // Service role for the delete: detach any historical calls, then remove the
-  // row (twilio_numbers has no per-user delete RLS policy).
+  // Numbers released before the release path learned to un-sign are still on
+  // the parent Trust Hub / in ElevenLabs; this is where they finally come off
+  // (a no-op for ones the release already cleaned up). Deleting the row would
+  // lose the only record of the EL object, so an EL miss blocks the delete —
+  // the row stays under "Released" and the admin simply tries again.
+  const { elevenLabsCleared } = await teardownReleasedNumber(number);
+  if (!elevenLabsCleared) {
+    return {
+      error:
+        "Could not remove the number from ElevenLabs, so nothing was deleted. Try again, or remove it in the ElevenLabs dashboard first.",
+    };
+  }
+
+  // Service role for the delete: detach any historical calls and any campaign
+  // still pointing at it, then remove the row (twilio_numbers has no per-user
+  // delete RLS policy).
   const admin = createAdminClient();
   await admin
     .from("calls")
+    .update({ twilio_number_id: null })
+    .eq("twilio_number_id", id);
+  await admin
+    .from("campaigns")
     .update({ twilio_number_id: null })
     .eq("twilio_number_id", id);
   const { error } = await admin.from("twilio_numbers").delete().eq("id", id);

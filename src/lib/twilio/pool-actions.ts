@@ -200,8 +200,8 @@ export async function addNumbersToPool(input: {
       }
     }
 
-    // A-attestation now, so the number never dials unsigned (best-effort; the
-    // 30-min reconcile task backstops a miss / a not-yet-configured token).
+    // A-attestation now, so the number never dials unsigned (best-effort; a
+    // not-yet-configured parent token simply skips).
     if (twilioSid) {
       try {
         const shaken = await assignNumberToShaken(twilioSid);
