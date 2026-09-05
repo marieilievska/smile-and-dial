@@ -2,11 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 
+import { primeEffectiveRates } from "@/lib/costs/effective-rates";
+import { twilioLookupUsd } from "@/lib/costs/rates";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
 import {
-  COST_PER_LOOKUP,
   IMPORTABLE_FIELDS,
   type ImportAnalysis,
   type ImportResult,
@@ -250,7 +251,11 @@ export async function analyzeImport(input: {
     }
   });
 
-  const estCost = lookups * COST_PER_LOOKUP;
+  // Price at the EFFECTIVE Twilio Lookup rate (cost_rates, derived from the
+  // usage records) — COST_PER_LOOKUP is the module-load estimate the wizard
+  // shows; the ledger should carry what Twilio actually charges.
+  await primeEffectiveRates(supabase);
+  const estCost = Number((lookups * twilioLookupUsd()).toFixed(4));
 
   // Record the lookup spend so it shows on the Costs page. Lookups are billed
   // by Twilio here, at analysis time (not during a call), so there's no call

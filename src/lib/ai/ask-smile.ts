@@ -6,6 +6,12 @@ import {
   type ActionItem,
   type HeroCounts,
 } from "@/lib/today/queries";
+import {
+  chatCompletionUsage,
+  recordAiChargeAsService,
+  type TokenUsage,
+} from "@/lib/costs/ai-charges";
+import { priceOpenAiTokens } from "@/lib/costs/rates";
 import { openAiKey } from "@/lib/openai/live";
 import { createClient } from "@/lib/supabase/server";
 
@@ -131,11 +137,13 @@ function mockAnswer(
   return `Here's where things stand: ${hero.callsToday} calls today at a ${fmtPct(hero.connectRateToday)} connect rate, ${hero.appointmentsToday} appointment${hero.appointmentsToday === 1 ? "" : "s"} booked${hero.overdueCallbacks > 0 ? `, and ${hero.overdueCallbacks} overdue callback${hero.overdueCallbacks === 1 ? "" : "s"} to clear` : ""}. Ask me about connect rate, costs, callbacks, or what to do next.`;
 }
 
+const ASK_MODEL = "gpt-5.4";
+
 async function callOpenAi(
   apiKey: string,
   question: string,
   context: string,
-): Promise<string | null> {
+): Promise<{ answer: string | null; usage: TokenUsage }> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -143,7 +151,7 @@ async function callOpenAi(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-5.4",
+      model: ASK_MODEL,
       messages: [
         {
           role: "system",
@@ -176,11 +184,16 @@ async function callOpenAi(
       max_completion_tokens: 2000,
     }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    return { answer: null, usage: { inputTokens: 0, outputTokens: 0 } };
+  }
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
   };
-  return data.choices?.[0]?.message?.content?.trim() ?? null;
+  return {
+    answer: data.choices?.[0]?.message?.content?.trim() ?? null,
+    usage: chatCompletionUsage(data),
+  };
 }
 
 export async function askSmile(question: string): Promise<AskSmileResult> {
@@ -224,7 +237,22 @@ export async function askSmile(question: string): Promise<AskSmileResult> {
   if (apiKey) {
     try {
       const context = buildContext(hero, actions);
-      const answer = await callOpenAi(apiKey, trimmed, context);
+      const { answer, usage } = await callOpenAi(apiKey, trimmed, context);
+      // A 2xx was billed whether or not the answer was usable.
+      if (usage.inputTokens > 0 || usage.outputTokens > 0) {
+        await recordAiChargeAsService({
+          ownerId: user.id,
+          kind: "ask_smile",
+          model: ASK_MODEL,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cost: priceOpenAiTokens(
+            usage.inputTokens,
+            usage.outputTokens,
+            ASK_MODEL,
+          ),
+        });
+      }
       if (answer) {
         return {
           answer,

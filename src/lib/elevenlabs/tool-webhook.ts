@@ -40,8 +40,10 @@ import { deliverSmsViaClose } from "@/lib/close/send-sms";
 import { planTextSend } from "@/lib/close/text-send-plan";
 import {
   ownSiteOrigin,
-  researchBusiness,
+  researchBusinessWithUsage,
 } from "@/lib/openai/business-research";
+import { recordAiCharge } from "@/lib/costs/ai-charges";
+import { numField, withRecomputedTotal } from "@/lib/costs/breakdown";
 import type { Database, Json } from "@/lib/supabase/database.types";
 
 /**
@@ -1594,6 +1596,34 @@ async function resolveBookingSoftware(
   return s.trim() || null;
 }
 
+/** Add an in-call OpenAI spend (the live research) to the call's
+ *  cost_breakdown.openai and recompute the stored total. Read-merge-write on
+ *  the current row: the post-call webhook, which lands later, carries any
+ *  prior `openai` forward. Best-effort. */
+async function addOpenAiCostToCall(
+  ctx: CallContext,
+  cost: number,
+): Promise<void> {
+  if (!(cost > 0)) return;
+  const { data: row } = await ctx.supabase
+    .from("calls")
+    .select("cost_breakdown")
+    .eq("id", ctx.callId)
+    .maybeSingle();
+  const prev = ((row?.cost_breakdown ?? {}) as Record<string, unknown>) ?? {};
+  const next = withRecomputedTotal({
+    ...prev,
+    openai: Number((numField(prev, "openai") + cost).toFixed(4)),
+  });
+  await ctx.supabase
+    .from("calls")
+    .update({
+      cost_breakdown:
+        next as unknown as Database["public"]["Tables"]["calls"]["Update"]["cost_breakdown"],
+    })
+    .eq("id", ctx.callId);
+}
+
 /**
  * Research the lead's business live so the agent can role-play their own front
  * desk. Returns the brief alongside a speakable `message`; the agent's own
@@ -1609,7 +1639,7 @@ async function demoFrontDesk(
 ): Promise<ToolWebhookResult> {
   const startedAt = Date.now();
 
-  const brief = await researchBusiness({
+  const { brief, usage } = await researchBusinessWithUsage({
     company: ctx.lead.company,
     city: ctx.lead.city,
     state: ctx.lead.state,
@@ -1617,6 +1647,25 @@ async function demoFrontDesk(
     bookingSoftware: await resolveBookingSoftware(ctx),
     heardOnCall: str(body.heard_on_call) || null,
   });
+
+  // Book the research spend: to the ledger (so the Costs page lists it under
+  // "Other AI usage") AND onto this call's cost_breakdown.openai, so the
+  // call's own cost includes the research it triggered. Best-effort — the
+  // caller is on the phone.
+  if (usage && usage.cost > 0) {
+    await recordAiCharge(ctx.supabase, {
+      ownerId: ctx.lead.owner_id,
+      kind: "business_research",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cost: usage.cost,
+      refTable: "calls",
+      refId: ctx.callId,
+      detail: { web_search_calls: usage.webSearchCalls, found: brief.found },
+    });
+    await addOpenAiCostToCall(ctx, usage.cost);
+  }
 
   // Free enrichment: essentially no lead has a website today, and that column
   // is what pins the NEXT research run. Only ever fill a blank — never

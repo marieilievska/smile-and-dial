@@ -203,6 +203,48 @@ export type Database = {
         };
         Relationships: [];
       };
+      ai_charges: {
+        Row: {
+          cost: number;
+          created_at: string;
+          detail: Json;
+          id: string;
+          input_tokens: number;
+          kind: string;
+          model: string | null;
+          output_tokens: number;
+          owner_id: string;
+          ref_id: string | null;
+          ref_table: string | null;
+        };
+        Insert: {
+          cost: number;
+          created_at?: string;
+          detail?: Json;
+          id?: string;
+          input_tokens?: number;
+          kind: string;
+          model?: string | null;
+          output_tokens?: number;
+          owner_id: string;
+          ref_id?: string | null;
+          ref_table?: string | null;
+        };
+        Update: {
+          cost?: number;
+          created_at?: string;
+          detail?: Json;
+          id?: string;
+          input_tokens?: number;
+          kind?: string;
+          model?: string | null;
+          output_tokens?: number;
+          owner_id?: string;
+          ref_id?: string | null;
+          ref_table?: string | null;
+        };
+        Relationships: [];
+      };
       alert_state: {
         Row: {
           last_fired_at: string;
@@ -958,10 +1000,37 @@ export type Database = {
           },
         ];
       };
+      cost_rates: {
+        Row: {
+          detail: Json;
+          key: string;
+          observed_at: string;
+          rate: number;
+          source: string;
+          updated_at: string;
+        };
+        Insert: {
+          detail?: Json;
+          key: string;
+          observed_at?: string;
+          rate: number;
+          source: string;
+          updated_at?: string;
+        };
+        Update: {
+          detail?: Json;
+          key?: string;
+          observed_at?: string;
+          rate?: number;
+          source?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       cost_rollup_daily: {
         Row: {
           calls: number;
-          campaign_id: string;
+          campaign_id: string | null;
           elevenlabs: number;
           elevenlabs_credits: number;
           elevenlabs_llm: number;
@@ -969,6 +1038,7 @@ export type Database = {
           elevenlabs_voice: number;
           elevenlabs_voice_credits: number;
           et_day: string;
+          goal_leads: number;
           goal_met: number;
           list_id: string;
           lookup: number;
@@ -980,7 +1050,7 @@ export type Database = {
         };
         Insert: {
           calls?: number;
-          campaign_id: string;
+          campaign_id?: string | null;
           elevenlabs?: number;
           elevenlabs_credits?: number;
           elevenlabs_llm?: number;
@@ -988,6 +1058,7 @@ export type Database = {
           elevenlabs_voice?: number;
           elevenlabs_voice_credits?: number;
           et_day: string;
+          goal_leads?: number;
           goal_met?: number;
           list_id: string;
           lookup?: number;
@@ -999,7 +1070,7 @@ export type Database = {
         };
         Update: {
           calls?: number;
-          campaign_id?: string;
+          campaign_id?: string | null;
           elevenlabs?: number;
           elevenlabs_credits?: number;
           elevenlabs_llm?: number;
@@ -1007,6 +1078,7 @@ export type Database = {
           elevenlabs_voice?: number;
           elevenlabs_voice_credits?: number;
           et_day?: string;
+          goal_leads?: number;
           goal_met?: number;
           list_id?: string;
           lookup?: number;
@@ -2622,6 +2694,8 @@ export type Database = {
         Args: { in_api_key_id: string; in_window_seconds: number };
         Returns: number;
       };
+      call_cost_components: { Args: { j: Json }; Returns: number };
+      call_cost_total: { Args: { j: Json }; Returns: number };
       claim_lead_for_dial: {
         Args: { in_campaign_id: string; in_lead_id: string };
         Returns: boolean;

@@ -156,7 +156,10 @@ export async function buildTemplateDraftFromAgent(
       (await fetchElevenLabsAgentPrompt(agent.elevenlabs_agent_id)) ?? "";
   }
 
-  const split = await splitAgentIntoTemplate(promptText, agent.name);
+  const split = await splitAgentIntoTemplate(promptText, agent.name, {
+    ownerId: auth.userId,
+    agentId,
+  });
   const draft: AgentTemplate = {
     key: "draft",
     name: split.name,

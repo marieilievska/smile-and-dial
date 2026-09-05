@@ -34,7 +34,7 @@ import type {
   KeyDetail,
 } from "@/lib/agents/templates";
 import { validateScript } from "@/lib/agents/validate";
-import { tidyProse } from "@/lib/ai/tidy-prose";
+import { tidyProseAction as tidyProse } from "@/lib/ai/tidy-prose-action";
 import type { FixedVoice } from "@/lib/elevenlabs/voices";
 import type { ToolsEnabled } from "@/lib/agents/prompt";
 

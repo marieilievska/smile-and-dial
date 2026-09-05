@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import { ACTIVE_CALL_STATUSES } from "@/lib/calls/live-calls";
+import { withRecomputedTotal } from "@/lib/costs/breakdown";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
 import { selectPoolNumber } from "@/lib/dialer/number-pool";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
@@ -374,13 +375,12 @@ export async function callNow(input: {
       ).toISOString(),
       duration_seconds: durationSeconds,
       talk_time_seconds: 0,
-      cost_breakdown: {
+      cost_breakdown: withRecomputedTotal({
         twilio: 0.02,
         elevenlabs: 0,
         openai: 0,
         lookup: 0,
-        total: 0.02,
-      },
+      }),
     })
     .select("id")
     .single();

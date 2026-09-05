@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { breakdownTotal } from "@/lib/costs/breakdown";
+
 // Canonical outcome groupings — shared across every metric surface so connect
 // rate (and conversation / DM-reached) means the same thing everywhere.
 import {
@@ -83,22 +85,11 @@ export type FunnelStep = { label: string; count: number };
 
 export type TimeBucket = { day: string; count: number; spend: number };
 
+/** A call's cost — the one definition in lib/costs/breakdown (component sum,
+ *  falling back to the stored total for un-itemized legacy rows), so
+ *  /analytics can never undercount vs /costs again. */
 function pickCostTotal(value: unknown): number {
-  if (!value || typeof value !== "object") return 0;
-  const v = value as Record<string, unknown>;
-  const n = (k: string) =>
-    typeof v[k] === "number" && Number.isFinite(v[k] as number)
-      ? (v[k] as number)
-      : 0;
-  // Prefer the sum of itemized vendor costs over the stored `total`, which
-  // can be missing or stale relative to the parts. Fall back to the stored
-  // total only when there's no itemization (legacy rows), so a real-but-
-  // unitemized cost is never dropped. Mirrors pickBreakdown in costs.ts —
-  // which folds openai_review (Call-Reviewer spend, stored as a SEPARATE key)
-  // into openai; omitting it here made /analytics undercount vs /costs.
-  const componentSum =
-    n("twilio") + n("elevenlabs") + n("openai") + n("openai_review") + n("lookup");
-  return componentSum > 0 ? componentSum : n("total");
+  return breakdownTotal(value);
 }
 
 // Day bounds in Eastern time, so a range like "Jun 1–Jun 1" captures the full

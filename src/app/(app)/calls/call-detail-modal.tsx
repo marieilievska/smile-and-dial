@@ -63,6 +63,7 @@ import {
   type TranscriptTurn,
 } from "@/lib/calls/actions";
 import { OVERRIDABLE_OUTCOMES, outcomeLabel } from "@/lib/calls/outcomes";
+import { breakdownTotal } from "@/lib/costs/breakdown";
 import { callStatusLabel } from "@/lib/labels";
 import {
   RETENTION_DAYS,
@@ -84,10 +85,12 @@ function fmtDuration(seconds: number | null | undefined): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
+/** The call's cost as the Costs page counts it (component sum, never the
+ *  possibly-stale stored total). "—" for a row with no cost data at all. */
 function fmtCost(breakdown: Record<string, unknown> | null): string {
   if (!breakdown) return "—";
-  const total = breakdown.total;
-  if (typeof total !== "number") return "—";
+  const total = breakdownTotal(breakdown);
+  if (total === 0 && typeof breakdown.total !== "number") return "—";
   return `$${total.toFixed(2)}`;
 }
 
