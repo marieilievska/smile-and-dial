@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { FileText, Link2, Trash2 } from "lucide-react";
+import { FileText, Link2, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,14 @@ import {
   addFileSource,
   addUrlSource,
   removeSource,
+  retryKnowledgeBaseSync,
 } from "@/lib/knowledge-bases/actions";
+import {
+  KNOWLEDGE_FILE_ACCEPT,
+  knowledgeSourceName,
+  sourceSyncState,
+  validateKnowledgeFile,
+} from "@/lib/knowledge-bases/rules";
 import { createClient } from "@/lib/supabase/client";
 
 export type KbSource = {
@@ -29,13 +36,32 @@ export type KbSource = {
   file_path: string | null;
   url: string | null;
   synced_at: string | null;
+  elevenlabs_document_id: string | null;
+  sync_error: string | null;
 };
 
 const BUCKET = "knowledge-base-files";
 
-function sourceLabel(source: KbSource): string {
-  if (source.type === "url") return source.url ?? "";
-  return source.file_path?.split("/").pop() ?? "File";
+/** The truthful sync pill: a source is only useful to an agent once
+ *  ElevenLabs holds its document. */
+function SyncBadge({ source }: { source: KbSource }) {
+  const state = sourceSyncState(source);
+  if (state === "synced") return <Badge variant="success">Synced</Badge>;
+  if (state === "error") {
+    return (
+      <Badge
+        variant="destructive"
+        title={source.sync_error ?? "The ElevenLabs upload failed."}
+      >
+        Sync failed
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="warning" title="Not uploaded to ElevenLabs yet.">
+      Not synced
+    </Badge>
+  );
 }
 
 export function KbSourcesDialog({
@@ -49,13 +75,19 @@ export function KbSourcesDialog({
   const [url, setUrl] = useState("");
   const [uploading, setUploading] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [syncing, startSync] = useTransition();
+
+  const unsyncedCount = sources.filter(
+    (s) => sourceSyncState(s) !== "synced",
+  ).length;
 
   function addUrl() {
     startTransition(async () => {
       const result = await addUrlSource(kb.id, url);
       if (result.error) toast.error(result.error);
       else {
-        toast.success("URL added.");
+        if (result.warning) toast.warning(result.warning);
+        else toast.success("URL added and synced.");
         setUrl("");
       }
     });
@@ -65,6 +97,13 @@ export function KbSourcesDialog({
     const input = event.target;
     const file = input.files?.[0];
     if (!file) return;
+
+    const invalid = validateKnowledgeFile(file);
+    if (invalid) {
+      toast.error(invalid);
+      input.value = "";
+      return;
+    }
 
     setUploading(true);
     try {
@@ -79,7 +118,8 @@ export function KbSourcesDialog({
       }
       const result = await addFileSource(kb.id, path);
       if (result.error) toast.error(result.error);
-      else toast.success("File added.");
+      else if (result.warning) toast.warning(result.warning);
+      else toast.success("File added and synced.");
     } finally {
       setUploading(false);
       input.value = "";
@@ -93,6 +133,31 @@ export function KbSourcesDialog({
     });
   }
 
+  function sync() {
+    startSync(async () => {
+      const result = await retryKnowledgeBaseSync(kb.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      const failed = result.failed ?? 0;
+      const synced = result.synced ?? 0;
+      if (failed > 0) {
+        toast.warning(
+          `${synced} synced, ${failed} still failing. Hover a "Sync failed" pill for the reason.`,
+        );
+      } else {
+        toast.success(
+          synced === 1
+            ? "1 source synced to ElevenLabs."
+            : `${synced} sources synced to ElevenLabs.`,
+        );
+      }
+    });
+  }
+
+  const busy = pending || syncing || uploading;
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -105,47 +170,72 @@ export function KbSourcesDialog({
         <DialogHeader>
           <DialogTitle>Sources — {kb.name}</DialogTitle>
           <DialogDescription>
-            Add files and URLs for the AI agent to draw on.
+            Add files and URLs for the AI agent to draw on. Each source is
+            uploaded to ElevenLabs and attached to every agent that uses this
+            knowledge base.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
           {sources.length > 0 ? (
             <ul className="flex flex-col gap-2">
-              {sources.map((source) => (
-                <li
-                  key={source.id}
-                  className="border-border flex items-center gap-2 rounded-lg border px-3 py-2"
-                >
-                  {source.type === "url" ? (
-                    <Link2 className="text-muted-foreground size-4 shrink-0" />
-                  ) : (
-                    <FileText className="text-muted-foreground size-4 shrink-0" />
-                  )}
-                  <span
-                    className="text-foreground flex-1 truncate text-sm"
-                    title={sourceLabel(source)}
+              {sources.map((source) => {
+                const label = knowledgeSourceName(source);
+                return (
+                  <li
+                    key={source.id}
+                    className="border-border flex items-center gap-2 rounded-lg border px-3 py-2"
                   >
-                    {sourceLabel(source)}
-                  </span>
-                  <Badge variant="secondary">
-                    {source.synced_at ? "Synced" : "Not synced"}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Remove ${sourceLabel(source)}`}
-                    disabled={pending}
-                    onClick={() => remove(source.id)}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </li>
-              ))}
+                    {source.type === "url" ? (
+                      <Link2 className="text-muted-foreground size-4 shrink-0" />
+                    ) : (
+                      <FileText className="text-muted-foreground size-4 shrink-0" />
+                    )}
+                    <span
+                      className="text-foreground flex-1 truncate text-sm"
+                      title={label}
+                    >
+                      {label}
+                    </span>
+                    <SyncBadge source={source} />
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove ${label}`}
+                      disabled={busy}
+                      onClick={() => remove(source.id)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="text-muted-foreground text-sm">No sources yet.</p>
           )}
+
+          {unsyncedCount > 0 ? (
+            <div className="border-border bg-muted/30 flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+              <p className="text-muted-foreground text-xs">
+                {unsyncedCount === 1
+                  ? "1 source isn't on ElevenLabs yet, so agents can't use it."
+                  : `${unsyncedCount} sources aren't on ElevenLabs yet, so agents can't use them.`}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={sync}
+                disabled={busy}
+                aria-label="Sync sources to ElevenLabs"
+              >
+                <RefreshCw
+                  className={`size-4 ${syncing ? "animate-spin" : ""}`}
+                />
+                {syncing ? "Syncing…" : "Sync"}
+              </Button>
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="kb-url">Add a URL</Label>
@@ -156,7 +246,7 @@ export function KbSourcesDialog({
                 placeholder="https://…"
                 onChange={(event) => setUrl(event.target.value)}
               />
-              <Button onClick={addUrl} disabled={pending || !url.trim()}>
+              <Button onClick={addUrl} disabled={busy || !url.trim()}>
                 Add
               </Button>
             </div>
@@ -167,12 +257,15 @@ export function KbSourcesDialog({
             <Input
               id="kb-file"
               type="file"
+              accept={KNOWLEDGE_FILE_ACCEPT}
               onChange={onFile}
-              disabled={uploading}
+              disabled={busy}
             />
-            {uploading ? (
-              <p className="text-muted-foreground text-sm">Uploading…</p>
-            ) : null}
+            <p className="text-muted-foreground text-xs">
+              {uploading
+                ? "Uploading…"
+                : "PDF, TXT, MD, DOCX or HTML, up to 10 MB."}
+            </p>
           </div>
         </div>
       </DialogContent>

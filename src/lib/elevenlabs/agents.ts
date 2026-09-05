@@ -25,6 +25,11 @@ import {
   toolIdsForEnabled,
 } from "@/lib/elevenlabs/server-tools";
 import { DYNAMIC_VARIABLE_PLACEHOLDERS } from "@/lib/elevenlabs/conversation-init";
+import {
+  managedKnowledgeDocumentIds,
+  mergeKnowledgeBase,
+  resolveAgentKnowledgeBase,
+} from "@/lib/elevenlabs/knowledge-base";
 import { appBaseUrl } from "@/lib/app-url";
 import { CALLBACK_TIME_RULES } from "./server-tools";
 
@@ -47,6 +52,10 @@ export type AgentSyncPayload = {
    *  (send_email, schedule_callback, get_available_times, book_appointment,
    *  mark_dnc) are registered with ElevenLabs and attached as tool_ids. */
   toolsEnabled?: ToolsEnabled;
+  /** The app knowledge bases attached in the wizard (agents.knowledge_base_ids).
+   *  Resolved at sync time to the ElevenLabs documents of their SYNCED
+   *  sources and sent as prompt.knowledge_base (lib/elevenlabs/knowledge-base). */
+  knowledgeBaseIds?: string[];
 };
 
 export type SyncResult = {
@@ -418,14 +427,16 @@ function buildInitOverrides(
  * Overlay OUR platform integration onto an agent that was built in ElevenLabs
  * and connected by ID — without disturbing the prompt/voice/model/guardrails
  * the user set up there. We read the agent's current config, then PATCH it
- * back with our webhooks, the call_id dynamic variable, and the enabled
- * server tools merged in. Read-modify-write so nothing is lost; a rejected
- * PATCH is a benign no-op (never data loss). Mocked off-live.
+ * back with our webhooks, the call_id dynamic variable, the enabled server
+ * tools, and the documents of the knowledge bases picked in our wizard merged
+ * in. Read-modify-write so nothing is lost; a rejected PATCH is a benign
+ * no-op (never data loss). Mocked off-live.
  */
 export async function applyConnectedAgentIntegration(
   agentId: string,
   toolsEnabled: ToolsEnabled | undefined,
   extraDataCollection: ExtraDataCollectionField[] = [],
+  knowledgeBaseIds: string[] = [],
 ): Promise<{ error: string | null }> {
   if (!isLive()) return { error: null };
   const apiKey = fetchApiKey();
@@ -499,6 +510,27 @@ export async function applyConnectedAgentIntegration(
     }
     promptPatch.built_in_tools = { ...salvaged, ...existingBuiltIn };
     delete promptPatch.tools;
+  }
+
+  // Attach the documents behind the knowledge bases picked in our wizard.
+  // Documents the user attached in the ElevenLabs dashboard are kept; entries
+  // pointing at documents WE manage are replaced by the current set, so a
+  // source or knowledge base removed here disappears there too. RAG is
+  // switched on whenever we attach documents so a large file is retrieved by
+  // relevance instead of being stuffed into every turn's prompt.
+  const ourKnowledge = await resolveAgentKnowledgeBase(knowledgeBaseIds);
+  const managedDocs = await managedKnowledgeDocumentIds();
+  promptPatch.knowledge_base = mergeKnowledgeBase(
+    prompt.knowledge_base,
+    ourKnowledge,
+    managedDocs,
+  );
+  if (ourKnowledge.length > 0) {
+    const existingRag =
+      prompt.rag && typeof prompt.rag === "object"
+        ? (prompt.rag as Record<string, unknown>)
+        : {};
+    promptPatch.rag = { ...existingRag, enabled: true };
   }
 
   const dv = (agent.dynamic_variables ?? {}) as Record<string, unknown>;
@@ -815,6 +847,13 @@ async function liveSync(
   const serverToolMap = await ensureServerTools();
   const serverToolIds = toolIdsForEnabled(serverToolMap, payload.toolsEnabled);
 
+  // The ElevenLabs documents behind the agent's attached knowledge bases
+  // (every synced source of each). Always set — like tool_ids, an empty list
+  // clears documents the agent no longer uses on an update.
+  const knowledgeBase = await resolveAgentKnowledgeBase(
+    payload.knowledgeBaseIds,
+  );
+
   // workspace_overrides carries the two workspace-level webhooks every agent
   // shares: the post-call webhook (transcript/audio/failure events) and the
   // conversation-initiation webhook (per-call dynamic variables). Each is
@@ -891,6 +930,15 @@ async function liveSync(
           // Workspace tool ids for the enabled custom server tools. Set
           // unconditionally so disabling a tool removes it on the next sync.
           tool_ids: serverToolIds,
+          // Knowledge documents, one per synced source of each attached
+          // knowledge base: { type, id, name, usage_mode: "auto" }.
+          knowledge_base: knowledgeBase,
+          // RAG only when there are documents, so agents without a knowledge
+          // base keep exactly the body they had. With RAG on, "auto" documents
+          // are retrieved by relevance per turn instead of pasted whole into
+          // the prompt; ElevenLabs indexes them itself once a RAG-enabled
+          // agent references them.
+          ...(knowledgeBase.length > 0 ? { rag: { enabled: true } } : {}),
         },
       },
       ...(includeTts ? { tts: ttsBase } : {}),

@@ -45,7 +45,9 @@ export function DeleteKbDialog({ kb }: { kb: { id: string; name: string } }) {
         <AlertDialogHeader>
           <AlertDialogTitle>Delete &ldquo;{kb.name}&rdquo;?</AlertDialogTitle>
           <AlertDialogDescription>
-            This removes the knowledge base and every file and URL inside it.
+            This removes the knowledge base, every file and URL inside it, and
+            their copies on ElevenLabs. A knowledge base that is still attached
+            to an agent can&apos;t be deleted — detach it from the agent first.
             This action cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
