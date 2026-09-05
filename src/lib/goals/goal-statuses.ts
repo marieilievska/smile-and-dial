@@ -5,6 +5,7 @@ export type GoalStatus =
   | "goal_met"
   | "attended"
   | "no_show"
+  | "rescheduled"
   | "sale"
   | "closed";
 
@@ -12,6 +13,7 @@ export const GOAL_STATUSES: GoalStatus[] = [
   "goal_met",
   "attended",
   "no_show",
+  "rescheduled",
   "sale",
   "closed",
 ];
