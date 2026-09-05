@@ -16,7 +16,6 @@ import {
 import {
   type AvailableNumber,
   type Country,
-  expectedNumberWebhooks,
   listOwnedNumbers,
   pointNumberWebhooks,
   purchaseTwilioNumber,
@@ -497,14 +496,4 @@ export async function connectNumberToElevenLabs(
 
   revalidatePath(NUMBERS_PATH);
   return { error: null };
-}
-
-/** Expose the webhook URLs the page expects (ElevenLabs' native inbound
- *  endpoints) so the UI can render "ok / mismatch" without recomputing them
- *  client-side. */
-export async function getExpectedWebhookUrls(): Promise<{
-  voiceUrl: string;
-  statusCallback: string;
-}> {
-  return expectedNumberWebhooks();
 }
