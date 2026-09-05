@@ -4,15 +4,15 @@ Internal AI calling platform for Referrizer — outbound and inbound AI voice
 calls (ElevenLabs agents + Twilio) with lead management, scoring, callbacks,
 DNC, analytics, cost tracking, and Calendly / Close integrations.
 
-The full specification lives in [BUILD_PLAN.md](./BUILD_PLAN.md) and is the
+The app is the specification: see the code, the migrations and the agent prompts in docs/agent-prompts.
 source of truth for every architectural and design decision.
 
 ## Tech stack
 
 - **Framework:** Next.js 16 (App Router, TypeScript)
-- **Styling:** Tailwind CSS v4 + shadcn/ui, design tokens per BUILD_PLAN.md Section 19
+- **Styling:** Tailwind CSS v4 + shadcn/ui, design tokens in src/app/globals.css
 - **Database / auth:** Supabase (Postgres, RLS, Supabase Auth)
-- **Testing:** Playwright E2E, run on every pull request via GitHub Actions
+- **Testing:** Vitest unit tests (`npm test`); changes are verified with tsc, eslint and a production build before merging
 - **Hosting:** Vercel
 
 ## Getting started
@@ -35,11 +35,11 @@ invite-only — there is no public signup. Use a seeded account to sign in.
 | `npm run start`  | Serve the production build        |
 | `npm run lint`   | Run ESLint                        |
 | `npm run format` | Format the codebase with Prettier |
-| `npm test`       | Run the Playwright E2E suite      |
+| `npm test`       | Run the Vitest unit tests         |
 
 ## Development workflow
 
-The project is built phase by phase per BUILD_PLAN.md Section 17. Each step is
+The project is built feature by feature, one pull request each. Each change is
 a single pull request that includes at least one Playwright test covering the
 new behaviour. Commits are checked locally by Husky + lint-staged (ESLint and
 Prettier).
