@@ -3,8 +3,6 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
   detectCampaignFields,
-  hotLeadsUnavailableReason,
-  voiceUnavailableReason,
   type DetectedFields,
 } from "@/lib/agent-analytics/field-detect";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
@@ -13,9 +11,7 @@ import {
   fetchCauseOfDeath,
   fetchChangelogRows,
   fetchDashboardKpis,
-  fetchHotLeadRows,
   fetchPromptLogRows,
-  fetchVoiceRows,
   type DashboardKpiScope,
 } from "@/lib/agent-analytics/report-data";
 import {
@@ -24,17 +20,15 @@ import {
   type ReportScope,
 } from "@/lib/agent-analytics/scope";
 
+import { CohortsView } from "./cohorts-view";
 import { CauseOfDeathView } from "./cause-of-death-view";
 import { ChangelogTable } from "./changelog-table";
 import { CopyShareLinkButton } from "./copy-share-link-button";
 import { DashboardView } from "./dashboard-view";
-import { HotLeadsTable } from "./hot-leads-table";
 import { PromptLogTable } from "./prompt-log-table";
 import { NumbersPanel } from "./numbers-panel";
-import { ReportingNotice } from "./reporting-notice";
 import { ReportingTabs, reportingTabsFor } from "./reporting-tabs";
 import { ScopePicker } from "./scope-picker";
-import { VoiceTable } from "./voice-table";
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
@@ -67,7 +61,13 @@ export default async function AgentAnalyticsPage({
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") redirect("/");
+  // Reporting is open to members, not admins only. Every figure on the tabs a
+  // member can see is scoped by row-level security to leads they own —
+  // `calls_select` reads "admin sees all, else leads you own", as do `leads`,
+  // `calendly_events` and `cost_rollup_daily`, and the Cohorts RPC is
+  // SECURITY INVOKER so the same policies apply to it. There is deliberately no
+  // second check here: a UI filter that disagreed with RLS is how data leaks.
+  const isAdmin = me?.role === "admin";
 
   const [{ data: campaignRows }, { data: agentRows }] = await Promise.all([
     supabase.from("campaigns").select("id, name").order("name"),
@@ -94,12 +94,10 @@ export default async function AgentAnalyticsPage({
     scope.kind === "campaign"
       ? await detectCampaignFields(supabase, scope.campaignId)
       : { sentimentKey: null, sentimentValues: [], notesKey: null };
-  // Voice of Customer + Hot Leads always stay in the nav; when they can't render
-  // for this scope they show an explanatory notice instead of a table (null =
-  // renderable). Keeps the tabs from silently vanishing under the combined view.
-  const voiceReason = voiceUnavailableReason(scope, detected);
-  const hotLeadsReason = hotLeadsUnavailableReason(scope, detected);
-  const visibleTabs = reportingTabsFor();
+  // The tab list is the authority on what this viewer may open — never the raw
+  // query parameter. A member deep-linking to an admin-only tab lands on
+  // Dashboard rather than being shown an empty table.
+  const visibleTabs = reportingTabsFor({ isAdmin });
   const tab = visibleTabs.some((t) => t.key === str(params.tab))
     ? str(params.tab)
     : "dashboard";
@@ -154,21 +152,12 @@ export default async function AgentAnalyticsPage({
           slug={slug}
           sentimentKey={detected.sentimentKey}
           sentimentValues={detected.sentimentValues}
+          isAdmin={isAdmin}
         />
+      ) : tab === "cohorts" ? (
+        <CohortsView />
       ) : tab === "cause-of-death" ? (
         <CauseOfDeathTab kpiScope={kpiScope} />
-      ) : tab === "voice" ? (
-        voiceReason ? (
-          <ReportingNotice tab="voice" message={voiceReason} />
-        ) : (
-          <VoiceTab scope={scope} detected={detected} slug={slug} />
-        )
-      ) : tab === "hot-leads" ? (
-        hotLeadsReason ? (
-          <ReportingNotice tab="hot-leads" message={hotLeadsReason} />
-        ) : (
-          <HotLeadsTab scope={scope} detected={detected} slug={slug} />
-        )
       ) : tab === "numbers" ? (
         <NumbersPanel />
       ) : tab === "changelog" ? (
@@ -187,6 +176,7 @@ async function DashboardTab({
   slug,
   sentimentKey,
   sentimentValues,
+  isAdmin,
 }: {
   kpiScope: DashboardKpiScope;
   selectedDay: string;
@@ -194,6 +184,7 @@ async function DashboardTab({
   slug: string;
   sentimentKey: string | null;
   sentimentValues: string[];
+  isAdmin: boolean;
 }) {
   const supabase = await createClient();
   const kpis = await fetchDashboardKpis(supabase, kpiScope, sentimentKey);
@@ -215,7 +206,7 @@ async function DashboardTab({
         `/reporting?tab=dashboard&scope=${scopeParam}&day=${d}`
       }
       notes={notes}
-      notesEditable
+      notesEditable={isAdmin}
       scopeSlug={slug}
       sentimentValues={sentimentValues}
     />
@@ -243,44 +234,6 @@ async function CauseOfDeathTab({ kpiScope }: { kpiScope: DashboardKpiScope }) {
         objectionsByCause={objectionsByCause}
       />
     </section>
-  );
-}
-
-async function VoiceTab({
-  scope,
-  detected,
-  slug,
-}: {
-  scope: ReportScope;
-  detected: DetectedFields;
-  slug: string;
-}) {
-  const supabase = await createClient();
-  return (
-    <VoiceTable
-      rows={await fetchVoiceRows(supabase, scope, detected)}
-      sentimentValues={detected.sentimentValues}
-      recordingBase="/api/reporting/recording"
-      scopeSlug={slug}
-    />
-  );
-}
-
-async function HotLeadsTab({
-  scope,
-  detected,
-  slug,
-}: {
-  scope: ReportScope;
-  detected: DetectedFields;
-  slug: string;
-}) {
-  const supabase = await createClient();
-  return (
-    <HotLeadsTable
-      rows={await fetchHotLeadRows(supabase, scope, detected)}
-      scopeSlug={slug}
-    />
   );
 }
 

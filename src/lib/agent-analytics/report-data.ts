@@ -16,13 +16,10 @@ import type { ObjectionRow } from "@/lib/agent-analytics/objections";
 import type { ObjectionCategory } from "@/lib/openai/objection-extractor";
 import { chunk } from "@/lib/leads/chunk";
 import type { Database } from "@/lib/supabase/database.types";
-import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 
-import { isWarm, type DetectedFields } from "./field-detect";
 import type { ReportScope } from "./scope";
 import {
   computeDailyKpis,
-  etDay,
   sinceDaysAgoIso,
   type AgentCallRow,
   type DailyKpi,
@@ -30,7 +27,6 @@ import {
 
 type DB = SupabaseClient<Database>;
 
-const VOICE_DAYS = 30;
 export const DASHBOARD_DAYS = 30;
 
 // --- Row shapes (consumed by the client table components) ------------------
@@ -85,39 +81,6 @@ export type PromptLogRow = {
 };
 
 // --- Helpers ---------------------------------------------------------------
-
-function leadCompany(lead: unknown): { company: string; list: string } {
-  const l = Array.isArray(lead) ? lead[0] : lead;
-  const obj = l && typeof l === "object" ? (l as Record<string, unknown>) : {};
-  const company = typeof obj.company === "string" ? obj.company : "";
-  const listRaw = Array.isArray(obj.list) ? obj.list[0] : obj.list;
-  const listObj =
-    listRaw && typeof listRaw === "object"
-      ? (listRaw as Record<string, unknown>)
-      : {};
-  const list = typeof listObj.name === "string" ? listObj.name : "";
-  return { company, list };
-}
-
-function leadInfo(lead: unknown): {
-  company: string;
-  contact: string;
-  list: string;
-} {
-  const l = Array.isArray(lead) ? lead[0] : lead;
-  const obj = l && typeof l === "object" ? (l as Record<string, unknown>) : {};
-  const s = (k: string) =>
-    typeof obj[k] === "string" ? (obj[k] as string).trim() : "";
-  const company = s("company");
-  const contact = s("owner_name") || s("manager_name") || s("employee_name");
-  const listRaw = Array.isArray(obj.list) ? obj.list[0] : obj.list;
-  const listObj =
-    listRaw && typeof listRaw === "object"
-      ? (listRaw as Record<string, unknown>)
-      : {};
-  const list = typeof listObj.name === "string" ? listObj.name : "";
-  return { company, contact, list };
-}
 
 // --- Fetchers --------------------------------------------------------------
 
@@ -313,134 +276,6 @@ export async function fetchCauseOfDeath(
   }
 
   return { result, companyByLead, objectionsByCause };
-}
-
-export async function fetchVoiceRows(
-  supabase: DB,
-  scope: ReportScope,
-  detected: DetectedFields,
-): Promise<VoiceRow[]> {
-  if (scope.kind !== "campaign" || !detected.sentimentKey) return [];
-  const sentimentKey = detected.sentimentKey;
-  type Raw = {
-    id: string;
-    created_at: string | null;
-    lead_id: string | null;
-    extracted_data: unknown;
-    recording_path: string | null;
-    lead: unknown;
-  };
-  // Paged: a `.limit(2000)` here was silently clamped to 1,000 by PostgREST, so
-  // the "All (N)" pill and every sentiment count were of a truncated set.
-  const data = await fetchAllRows<Raw>((from, to) =>
-    supabase
-      .from("calls")
-      .select(
-        "id, created_at, lead_id, extracted_data, recording_path, lead:leads(company, list:lists(name))",
-      )
-      .eq("campaign_id", scope.campaignId)
-      .gte("created_at", sinceDaysAgoIso(VOICE_DAYS))
-      .not(`extracted_data->>${sentimentKey}`, "is", null)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: true })
-      .range(from, to)
-      .then((r) => ({ data: r.data as unknown as Raw[] | null })),
-  );
-  return data
-    .map((r): VoiceRow | null => {
-      const ed =
-        r.extracted_data && typeof r.extracted_data === "object"
-          ? (r.extracted_data as Record<string, unknown>)
-          : {};
-      const sentiment = String(ed[sentimentKey] ?? "")
-        .trim()
-        .toLowerCase();
-      if (!sentiment) return null; // belt-and-suspenders vs the DB JSON filter
-      const notes = detected.notesKey
-        ? String(ed[detected.notesKey] ?? "").trim()
-        : "";
-      const { company, list } = leadCompany(r.lead);
-      return {
-        id: r.id,
-        day: r.created_at ? etDay(r.created_at) : "",
-        company,
-        list,
-        leadId: r.lead_id,
-        sentiment,
-        notes,
-        recordingPath: r.recording_path,
-      };
-    })
-    .filter((r): r is VoiceRow => r !== null);
-}
-
-export async function fetchHotLeadRows(
-  supabase: DB,
-  scope: ReportScope,
-  detected: DetectedFields,
-): Promise<HotLeadRow[]> {
-  if (scope.kind !== "campaign" || !detected.sentimentKey) return [];
-  const warmValues = detected.sentimentValues.filter(isWarm);
-  if (warmValues.length === 0) return [];
-  const sentimentKey = detected.sentimentKey;
-
-  type Raw = {
-    id: string;
-    created_at: string | null;
-    lead_id: string | null;
-    extracted_data: unknown;
-    lead: unknown;
-  };
-  // Paged past PostgREST's 1,000-row cap (the old `.limit(2000)` never
-  // returned more than 1,000, so warm leads past that silently vanished).
-  const rows = await fetchAllRows<Raw>((from, to) =>
-    supabase
-      .from("calls")
-      .select(
-        "id, created_at, lead_id, extracted_data, lead:leads(company, owner_name, manager_name, employee_name, list:lists(name))",
-      )
-      .eq("campaign_id", scope.campaignId)
-      .gte("created_at", sinceDaysAgoIso(VOICE_DAYS))
-      .in(`extracted_data->>${sentimentKey}`, warmValues)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: true })
-      .range(from, to)
-      .then((r) => ({ data: r.data as unknown as Raw[] | null })),
-  );
-  if (rows.length === 0) return [];
-
-  // Exclude dismissed calls (chunk the id lookup past the 1,000-row cap).
-  const ids = rows.map((r) => r.id);
-  const dismissed = new Set<string>();
-  for (let i = 0; i < ids.length; i += 1000) {
-    const { data: dis } = await supabase
-      .from("hot_lead_dismissals")
-      .select("call_id")
-      .in("call_id", ids.slice(i, i + 1000));
-    for (const d of dis ?? [])
-      dismissed.add((d as { call_id: string }).call_id);
-  }
-
-  return rows
-    .filter((r) => !dismissed.has(r.id))
-    .map((r): HotLeadRow => {
-      const ed =
-        r.extracted_data && typeof r.extracted_data === "object"
-          ? (r.extracted_data as Record<string, unknown>)
-          : {};
-      const info = leadInfo(r.lead);
-      return {
-        id: r.id,
-        day: r.created_at ? etDay(r.created_at) : "",
-        company: info.company,
-        contact: info.contact,
-        whyHot: detected.notesKey
-          ? String(ed[detected.notesKey] ?? "").trim()
-          : "",
-        list: info.list,
-        leadId: r.lead_id,
-      };
-    });
 }
 
 export async function fetchChangelogRows(
