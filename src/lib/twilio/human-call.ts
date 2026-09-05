@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 
+import { selectPoolNumber } from "@/lib/dialer/number-pool";
+import { syncLeadCallCounters } from "@/lib/leads/call-counters";
 import type { Database } from "@/lib/supabase/database.types";
+import { rankHumanCallCampaigns } from "@/lib/twilio/human-call-policy";
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
 
@@ -40,6 +43,33 @@ export function buildDialTwiml(opts: {
   );
 }
 
+/** The lead fields a human dial needs: who owns it (authorisation), its stage
+ *  (a 'dnc' lead is never dialed), the two numbers, and its list / owning
+ *  campaign (caller-ID resolution). */
+export type HumanCallLead = {
+  id: string;
+  owner_id: string;
+  status: string;
+  business_phone: string | null;
+  owner_phone: string | null;
+  list_id: string | null;
+  owner_campaign_id: string | null;
+};
+
+export async function loadHumanCallLead(
+  supabase: SupabaseAdmin,
+  leadId: string,
+): Promise<HumanCallLead | null> {
+  const { data } = await supabase
+    .from("leads")
+    .select(
+      "id, owner_id, status, business_phone, owner_phone, list_id, owner_campaign_id",
+    )
+    .eq("id", leadId)
+    .maybeSingle();
+  return data ?? null;
+}
+
 export type HumanCallTarget = {
   leadPhone: string;
   callerId: string;
@@ -49,24 +79,48 @@ export type HumanCallTarget = {
   dialedTarget: "business" | "owner";
 };
 
+/** Who is dialing, for campaign scoping: members may only borrow a caller ID
+ *  from their own campaigns; admins from any. */
+export type HumanCallScope = { userId: string; isAdmin: boolean };
+
+/** A number's E.164 string, or null when it is unknown or has been released. */
+async function poolNumberPhone(
+  supabase: SupabaseAdmin,
+  numberId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("twilio_numbers")
+    .select("phone_number")
+    .eq("id", numberId)
+    .is("released_at", null)
+    .maybeSingle();
+  return data?.phone_number ?? null;
+}
+
 /**
- * Resolve where a human call to `leadId` should go: the chosen phone (business
- * line by default, or the owner's direct line when `target` is "owner"), the
- * campaign that owns the lead's list, and that campaign's Twilio number (caller
- * ID). Returns null when the lead has no such number or no active campaign with
- * a usable number.
+ * Resolve where a human call to `lead` should go: the chosen phone (business
+ * line by default, or the owner's direct line when `target` is "owner"), an
+ * active campaign attached to the lead's list that the caller may use, and a
+ * caller ID from that campaign's number pool.
+ *
+ * The caller ID comes from the SAME pool selector the AI dialer uses
+ * (selectPoolNumber), so a human call honours rested / flagged / released
+ * numbers and spreads load like an AI call would. The legacy single-number
+ * column (campaigns.twilio_number_id) is only a fallback for a campaign whose
+ * pool yields nothing — the pool UI clears that column when a number moves, so
+ * requiring it (as this used to) failed every pool-managed campaign with "no
+ * phone number to call from".
+ *
+ * Returns null when the lead has no such number, or no visible active campaign
+ * has a usable number.
  */
 export async function resolveHumanCallTarget(
   supabase: SupabaseAdmin,
-  leadId: string,
-  target: "business" | "owner" = "business",
+  lead: HumanCallLead,
+  target: "business" | "owner",
+  scope: HumanCallScope,
 ): Promise<HumanCallTarget | null> {
-  const { data: lead } = await supabase
-    .from("leads")
-    .select("business_phone, owner_phone, list_id, owner_campaign_id")
-    .eq("id", leadId)
-    .maybeSingle();
-  if (!lead?.list_id) return null;
+  if (!lead.list_id) return null;
   const leadPhone = target === "owner" ? lead.owner_phone : lead.business_phone;
   if (!leadPhone) return null;
 
@@ -81,34 +135,58 @@ export async function resolveHumanCallTarget(
 
   const { data: campaigns } = await supabase
     .from("campaigns")
-    .select("id, twilio_number_id, status")
+    .select("id, owner_id, twilio_number_id")
     .in("id", campaignIds)
-    .eq("status", "active")
-    .not("twilio_number_id", "is", null);
-  // Prefer the lead's owning campaign when it's among the active-with-number
-  // set; otherwise fall back to the first available one.
-  const usable = (campaigns ?? []).filter((c) => c.twilio_number_id !== null);
-  const campaign =
-    usable.find((c) => c.id === lead.owner_campaign_id) ?? usable[0];
-  if (!campaign?.twilio_number_id) return null;
+    .eq("status", "active");
+  const ranked = rankHumanCallCampaigns(campaigns ?? [], {
+    userId: scope.userId,
+    isAdmin: scope.isAdmin,
+    preferredCampaignId: lead.owner_campaign_id,
+  });
+  if (ranked.length === 0) return null;
 
-  const { data: num } = await supabase
-    .from("twilio_numbers")
-    .select("phone_number")
-    .eq("id", campaign.twilio_number_id)
-    .maybeSingle();
-  if (!num?.phone_number) return null;
+  // Pool first — the lead's owning campaign gets the first pick.
+  for (const campaign of ranked) {
+    const picked = await selectPoolNumber(
+      supabase,
+      campaign.id,
+      leadPhone,
+      lead.id, // stable spread key, mirroring Call Now and the tick
+    );
+    if (!picked) continue;
+    const callerId = await poolNumberPhone(supabase, picked.numberId);
+    if (!callerId) continue;
+    return {
+      leadPhone,
+      callerId,
+      campaignId: campaign.id,
+      twilioNumberId: picked.numberId,
+      dialedTarget: target,
+    };
+  }
 
-  return {
-    leadPhone,
-    callerId: num.phone_number,
-    campaignId: campaign.id,
-    twilioNumberId: campaign.twilio_number_id,
-    dialedTarget: target,
-  };
+  // Legacy fallback: a campaign still carrying the single-number pointer.
+  for (const campaign of ranked) {
+    if (!campaign.twilio_number_id) continue;
+    const callerId = await poolNumberPhone(supabase, campaign.twilio_number_id);
+    if (!callerId) continue;
+    return {
+      leadPhone,
+      callerId,
+      campaignId: campaign.id,
+      twilioNumberId: campaign.twilio_number_id,
+      dialedTarget: target,
+    };
+  }
+
+  return null;
 }
 
-/** Create the calls row for a human call and return its id. */
+/** Create the calls row for a human call and return its id. Also bumps the
+ *  lead like every other dial path does: last_call_at moves to now and the
+ *  Attempts / Conversations counters are recomputed from the calls table
+ *  (syncLeadCallCounters is the one place they are derived — a human call that
+ *  skipped it left the lead one attempt short). */
 export async function createHumanCallRow(
   supabase: SupabaseAdmin,
   input: {
@@ -124,6 +202,7 @@ export async function createHumanCallRow(
     dialedTarget?: "business" | "owner";
   },
 ): Promise<string | null> {
+  const startedAt = new Date().toISOString();
   const { data, error } = await supabase
     .from("calls")
     .insert({
@@ -137,10 +216,17 @@ export async function createHumanCallRow(
       outcome_source: "manual",
       twilio_call_sid: input.callSid ?? null,
       dialed_target: input.dialedTarget === "owner" ? "owner" : null,
-      started_at: new Date().toISOString(),
+      started_at: startedAt,
     })
     .select("id")
     .single();
   if (error || !data) return null;
+
+  await supabase
+    .from("leads")
+    .update({ last_call_at: startedAt })
+    .eq("id", input.leadId);
+  await syncLeadCallCounters(supabase, input.leadId);
+
   return data.id;
 }

@@ -49,7 +49,7 @@ export default async function AppLayout({
     supabase
       .from("profiles")
       .select(
-        "full_name, email, role, active_campaign_id, onboarding_dismissed_at",
+        "full_name, email, role, active, active_campaign_id, onboarding_dismissed_at",
       )
       .eq("id", user.id)
       .single(),
@@ -90,6 +90,14 @@ export default async function AppLayout({
       .eq("status", "paused")
       .not("paused_reason", "is", null),
   ]);
+
+  // A deactivated teammate can still hold an unexpired session — the auth ban
+  // only stops it from refreshing. The profile is already being read here, so
+  // this costs nothing: send them to the sign-out route, which clears the
+  // session (globally) and explains why on the login page.
+  if (profile && profile.active === false) {
+    redirect("/auth/signout?reason=deactivated");
+  }
 
   const name = profile?.full_name || profile?.email || user.email || "User";
   const email = profile?.email || user.email || "";

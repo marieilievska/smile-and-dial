@@ -3,18 +3,27 @@
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { applyOutcomeSideEffects } from "@/lib/elevenlabs/post-call-webhook";
 import { OVERRIDABLE_OUTCOMES } from "@/lib/calls/outcomes";
+import { syncLeadCallCounters } from "@/lib/leads/call-counters";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Set the outcome of the user's most recent human call to a lead, then run the
- * SAME retry/side-effect pipeline AI calls use. The note is appended to the
- * call summary.
+ * Set the outcome of the user's own human call to a lead, then run the SAME
+ * retry/side-effect pipeline AI calls use. The note is appended to the call
+ * summary.
+ *
+ * The call is pinned by the Twilio CallSid the softphone saw (the parent leg's
+ * SID, which is what voice-browser-dial stamped on the row); without one we
+ * fall back to the caller's latest human call to the lead. Either way the row
+ * must have been placed_by this user — a member can never relabel a teammate's
+ * call, and the lead itself must be visible to them under RLS.
  */
 export async function dispositionHumanCall(input: {
   leadId: string;
   outcome: string;
   note?: string;
+  /** `call.parameters.CallSid` from the browser call that just ended. */
+  callSid?: string | null;
 }): Promise<{ error?: string }> {
   const authed = await createClient();
   const {
@@ -25,16 +34,30 @@ export async function dispositionHumanCall(input: {
     return { error: "Pick a valid outcome." };
   }
 
+  // RLS: members only see their own leads. Refuse before touching anything
+  // with the service client.
+  const { data: visibleLead } = await authed
+    .from("leads")
+    .select("id")
+    .eq("id", input.leadId)
+    .maybeSingle();
+  if (!visibleLead) return { error: "This lead is not available to you." };
+
   const supabase = createAdminClient();
-  const { data: call } = await supabase
+  const ownCalls = supabase
     .from("calls")
-    .select("id, summary, campaign_id, ended_at")
+    .select("id, summary, campaign_id, started_at, ended_at")
     .eq("lead_id", input.leadId)
     .eq("call_mode", "human")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!call) return { error: "No recent human call to update." };
+    .eq("placed_by", user.id);
+  const callSid = input.callSid?.trim();
+  const { data: call } = callSid
+    ? await ownCalls.eq("twilio_call_sid", callSid).maybeSingle()
+    : await ownCalls
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+  if (!call) return { error: "No recent human call of yours to update." };
 
   const summary = input.note?.trim()
     ? [call.summary, `Note: ${input.note.trim()}`].filter(Boolean).join("\n")
@@ -73,5 +96,19 @@ export async function dispositionHumanCall(input: {
     // callback rows, so fall back to at least running retry scheduling.
     await applyRetryForCall(call.id);
   }
+
+  // Keep the lead's counters honest, exactly like an AI call does: last_call_at
+  // reflects this call (never moved backwards past a newer call), and
+  // Attempts / Conversations are recomputed from the calls table now that the
+  // outcome — possibly adjusted by the side effects above — is final.
+  const lastCallAt =
+    call.started_at ?? call.ended_at ?? new Date().toISOString();
+  await supabase
+    .from("leads")
+    .update({ last_call_at: lastCallAt })
+    .eq("id", input.leadId)
+    .or(`last_call_at.is.null,last_call_at.lt.${lastCallAt}`);
+  await syncLeadCallCounters(supabase, input.leadId);
+
   return {};
 }

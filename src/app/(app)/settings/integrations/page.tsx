@@ -30,7 +30,7 @@ export default async function IntegrationsPage() {
     supabase
       .from("user_integrations")
       .select(
-        "calendly_connected_at, calendly_last_sync_at, close_connected_at, meta_connected_at, meta_access_token, meta_last_sync_at, meta_last_sync_count, meta_last_sync_error",
+        "calendly_connected_at, calendly_last_sync_at, close_connected_at, close_webhook_id, close_webhook_created_at, meta_connected_at, meta_access_token, meta_last_sync_at, meta_last_sync_count, meta_last_sync_error",
       )
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -42,6 +42,9 @@ export default async function IntegrationsPage() {
   ]);
 
   const closeConnected = Boolean(integ?.close_connected_at);
+  // Reply tracking = a Close webhook subscription exists for this user. Only
+  // the id + timestamp are read; the signature key never reaches the client.
+  const closeReplyTracking = closeConnected && Boolean(integ?.close_webhook_id);
   const calendlyConnected = Boolean(integ?.calendly_connected_at);
   // meta_access_token is only read to compute `connected`; never sent to the
   // client form.
@@ -89,11 +92,11 @@ export default async function IntegrationsPage() {
 
         <IntegrationCard
           title="Close"
-          description="Your own Close account — every user connects theirs. Needed for the send_email and send_text agent tools (a campaign whose agent emails or texts can't launch without it), and to receive email_replied notifications when a lead writes back."
+          description="Your own Close account — every user connects theirs. Needed for the send_email and send_text agent tools (a campaign whose agent emails or texts can't launch without it). With reply tracking on, Close also tells the app when a lead writes back (email_replied / text_replied) and when someone texts STOP."
           connected={closeConnected}
           subtitle={
             closeConnected && integ?.close_connected_at
-              ? `Connected ${formatCreatedAt(integ.close_connected_at, now)}`
+              ? `Connected ${formatCreatedAt(integ.close_connected_at, now)}${closeReplyTracking ? " · reply tracking on" : " · reply tracking off"}`
               : undefined
           }
           delay={150}
@@ -101,6 +104,12 @@ export default async function IntegrationsPage() {
           <CloseForm
             connected={closeConnected}
             connectedAt={integ?.close_connected_at ?? null}
+            replyTracking={closeReplyTracking}
+            replyTrackingSince={
+              closeReplyTracking
+                ? (integ?.close_webhook_created_at ?? null)
+                : null
+            }
           />
         </IntegrationCard>
 

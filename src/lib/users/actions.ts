@@ -75,6 +75,29 @@ export async function setUserActive(
     ban_duration: active ? "none" : "876000h",
   });
 
+  if (!active) {
+    // Cut off every other way in, not just the next password login.
+    //
+    // API keys are bearer credentials that never expire on their own, so
+    // revoke them (soft, like the Settings → API "Revoke" button: revoked_at
+    // is set and the row stays for audit). Re-activating does NOT restore
+    // them — the user creates a fresh key.
+    await admin
+      .from("api_keys")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("owner_id", targetUserId)
+      .is("revoked_at", null);
+
+    // Sessions: the ban above stops the user's session from REFRESHING, but an
+    // already-issued access token stays valid until it expires (~1h). This
+    // supabase-js (2.106) admin API can only sign out a session whose JWT it
+    // holds (`auth.admin.signOut(jwt)`) — there is no "sign out user by id" —
+    // so the (app) layout reads profiles.active on every page render and
+    // bounces a deactivated user to /auth/signout, which revokes their
+    // sessions globally from their own browser. The browser-dial TwiML route
+    // checks profiles.active too, so a lingering token cannot place calls.
+  }
+
   revalidatePath("/settings/users");
   return { error: null };
 }

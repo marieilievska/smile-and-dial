@@ -626,6 +626,8 @@ export type Database = {
           outcome: string | null;
           outcome_source: string | null;
           placed_by: string | null;
+          recording_fetch_attempts: number;
+          recording_fetch_error: string | null;
           recording_path: string | null;
           retry_applied_at: string | null;
           started_at: string | null;
@@ -665,6 +667,8 @@ export type Database = {
           outcome?: string | null;
           outcome_source?: string | null;
           placed_by?: string | null;
+          recording_fetch_attempts?: number;
+          recording_fetch_error?: string | null;
           recording_path?: string | null;
           retry_applied_at?: string | null;
           started_at?: string | null;
@@ -704,6 +708,8 @@ export type Database = {
           outcome?: string | null;
           outcome_source?: string | null;
           placed_by?: string | null;
+          recording_fetch_attempts?: number;
+          recording_fetch_error?: string | null;
           recording_path?: string | null;
           retry_applied_at?: string | null;
           started_at?: string | null;
@@ -2383,6 +2389,9 @@ export type Database = {
           close_api_key: string | null;
           close_connected_at: string | null;
           close_sms_from_number: string | null;
+          close_webhook_created_at: string | null;
+          close_webhook_id: string | null;
+          close_webhook_signature_key: string | null;
           meta_access_token: string | null;
           meta_ad_account_id: string | null;
           meta_audience_terms_accepted_at: string | null;
@@ -2403,6 +2412,9 @@ export type Database = {
           close_api_key?: string | null;
           close_connected_at?: string | null;
           close_sms_from_number?: string | null;
+          close_webhook_created_at?: string | null;
+          close_webhook_id?: string | null;
+          close_webhook_signature_key?: string | null;
           meta_access_token?: string | null;
           meta_ad_account_id?: string | null;
           meta_audience_terms_accepted_at?: string | null;
@@ -2423,6 +2435,9 @@ export type Database = {
           close_api_key?: string | null;
           close_connected_at?: string | null;
           close_sms_from_number?: string | null;
+          close_webhook_created_at?: string | null;
+          close_webhook_id?: string | null;
+          close_webhook_signature_key?: string | null;
           meta_access_token?: string | null;
           meta_ad_account_id?: string | null;
           meta_audience_terms_accepted_at?: string | null;

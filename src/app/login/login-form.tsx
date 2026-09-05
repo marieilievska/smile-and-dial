@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
 import { login, type LoginState } from "@/lib/auth/actions";
 
-export function LoginForm() {
+export function LoginForm({ notice = null }: { notice?: string | null }) {
   const [state, formAction, pending] = useActionState<LoginState, FormData>(
     login,
     null,
@@ -27,6 +27,17 @@ export function LoginForm() {
           Sign in with the email your admin invited you with.
         </p>
       </div>
+
+      {/* Why the user landed here (e.g. their account was deactivated). */}
+      {notice ? (
+        <div
+          role="status"
+          className="border-destructive/30 bg-destructive/5 text-destructive flex items-start gap-2 rounded-lg border px-3 py-2 text-sm"
+        >
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          <p>{notice}</p>
+        </div>
+      ) : null}
 
       <form
         action={formAction}

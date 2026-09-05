@@ -5,12 +5,15 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
+import { appBaseUrl } from "@/lib/app-url";
 import { getScheduledEventHostEmail } from "@/lib/calendly/api";
 
 import {
   createCloseLead,
   createCloseNote,
   createCloseTask,
+  createCloseWebhookSubscription,
+  deleteCloseWebhookSubscription,
   ensureCloseLeadCustomFields,
   findCloseLeadByEmail,
   findCloseUserByEmail,
@@ -24,6 +27,7 @@ import {
   pickKeyAnswers,
 } from "./handoff";
 import { renderTemplate, type TemplateContext } from "./templates";
+import { CLOSE_WEBHOOK_EVENTS } from "./webhook";
 
 function makeServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -33,12 +37,16 @@ function makeServiceClient() {
   });
 }
 
+type ServiceClient = ReturnType<typeof makeServiceClient>;
+
 /** Connect the signed-in user's own Close account by pasting an API key.
- *  Per-user: the AI sends from the campaign owner's Close. (Live send itself
- *  is a separate build; this stores the credential.) */
+ *  Per-user: the AI sends from the campaign owner's Close. Connecting also
+ *  subscribes Close's webhook to us (reply tracking) — see
+ *  setupCloseWebhook. A webhook failure is returned as a `warning`, not an
+ *  error: the key IS saved and the card offers "Enable reply tracking". */
 export async function saveCloseConnection(
   apiKey: string,
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; warning?: string }> {
   const key = apiKey.trim();
   if (!key) return { error: "Paste your Close API key." };
 
@@ -60,7 +68,15 @@ export async function saveCloseConnection(
     { onConflict: "user_id" },
   );
   if (error) return { error: "Couldn't save the connection." };
+
+  const hook = await setupCloseWebhook(admin, user.id, key);
   revalidatePath("/settings/integrations");
+  if (hook.error) {
+    return {
+      error: null,
+      warning: `Connected, but reply tracking couldn't be enabled: ${hook.error}`,
+    };
+  }
   return { error: null };
 }
 
@@ -71,16 +87,173 @@ export async function disconnectClose(): Promise<{ error: string | null }> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
   const admin = makeServiceClient();
+
+  // Best-effort: remove the webhook subscription first, so Close stops
+  // posting to a route that would reject every delivery once the key is
+  // gone (and its own health-check doesn't flag us). The columns are cleared
+  // regardless — without the API key there is nothing left to verify with.
+  const { data: integ } = await admin
+    .from("user_integrations")
+    .select("close_api_key, close_webhook_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (integ?.close_webhook_id && integ.close_api_key) {
+    await deleteCloseWebhookSubscription(
+      integ.close_api_key,
+      integ.close_webhook_id,
+    ).catch(() => false);
+  }
+
   await admin
     .from("user_integrations")
     .update({
       close_api_key: null,
       close_connected_at: null,
+      close_webhook_id: null,
+      close_webhook_signature_key: null,
+      close_webhook_created_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", user.id);
   revalidatePath("/settings/integrations");
   return { error: null };
+}
+
+/** Create (or re-create) this user's Close webhook subscription and store its
+ *  id + signature key. Close posts `activity.email created` and
+ *  `activity.sms created` to `/api/close/webhook?u=<user_id>`; the route
+ *  verifies every delivery against the stored key.
+ *
+ *  An existing subscription is deleted and a fresh one created ("Refresh"
+ *  semantics): the URL is rebuilt from the current app domain and the signing
+ *  key rotates. Chosen over "already enabled" so a stale URL (domain move) or
+ *  a subscription Close paused after repeated failures is always repaired by
+ *  one click. Returns an error string on failure. */
+async function setupCloseWebhook(
+  admin: ServiceClient,
+  userId: string,
+  apiKey: string,
+): Promise<{ error: string | null }> {
+  const base = appBaseUrl();
+  if (!base) {
+    return { error: "No public app URL is configured (local dev)." };
+  }
+
+  const { data: integ } = await admin
+    .from("user_integrations")
+    .select("close_webhook_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (integ?.close_webhook_id) {
+    // Best-effort: a stale id that 404s is fine, and even a failed delete
+    // shouldn't block creating the subscription that will actually work.
+    await deleteCloseWebhookSubscription(apiKey, integ.close_webhook_id).catch(
+      () => false,
+    );
+  }
+
+  const url = `${base}/api/close/webhook?u=${encodeURIComponent(userId)}`;
+  let created: Awaited<ReturnType<typeof createCloseWebhookSubscription>>;
+  try {
+    created = await createCloseWebhookSubscription(apiKey, {
+      url,
+      events: CLOSE_WEBHOOK_EVENTS,
+    });
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : "Close request failed.",
+    };
+  }
+  if (created.error !== null) return { error: created.error };
+
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from("user_integrations")
+    .update({
+      close_webhook_id: created.id,
+      close_webhook_signature_key: created.signatureKey,
+      close_webhook_created_at: now,
+      updated_at: now,
+    })
+    .eq("user_id", userId);
+  if (error) {
+    // A subscription whose key we failed to store can never verify; remove it
+    // so Close doesn't keep posting deliveries the route will reject.
+    await deleteCloseWebhookSubscription(apiKey, created.id).catch(() => false);
+    return { error: "Couldn't store the webhook key." };
+  }
+  return { error: null };
+}
+
+/** Turn on (or refresh) reply tracking for the signed-in user: subscribe
+ *  their Close account's inbound emails + SMS to this app. Uses THEIR Close
+ *  key. See setupCloseWebhook for the re-create semantics. */
+export async function enableCloseInboundWebhook(): Promise<{
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const admin = makeServiceClient();
+  const { data: integ } = await admin
+    .from("user_integrations")
+    .select("close_api_key")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const key = integ?.close_api_key?.trim() || null;
+  if (!key) return { error: "Connect Close first." };
+
+  const result = await setupCloseWebhook(admin, user.id, key);
+  revalidatePath("/settings/integrations");
+  return result;
+}
+
+/** Turn off reply tracking: delete the Close subscription and clear the stored
+ *  id/key so the route stops accepting deliveries for this user. If Close
+ *  won't delete it, the columns are left in place and an error is returned so
+ *  the user can retry — clearing them while Close keeps posting would just
+ *  turn every delivery into a 401. */
+export async function disableCloseInboundWebhook(): Promise<{
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const admin = makeServiceClient();
+  const { data: integ } = await admin
+    .from("user_integrations")
+    .select("close_api_key, close_webhook_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const key = integ?.close_api_key?.trim() || null;
+  if (integ?.close_webhook_id && key) {
+    const deleted = await deleteCloseWebhookSubscription(
+      key,
+      integ.close_webhook_id,
+    ).catch(() => false);
+    if (!deleted) {
+      return { error: "Couldn't remove the subscription in Close. Try again." };
+    }
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from("user_integrations")
+    .update({
+      close_webhook_id: null,
+      close_webhook_signature_key: null,
+      close_webhook_created_at: null,
+      updated_at: now,
+    })
+    .eq("user_id", user.id);
+  revalidatePath("/settings/integrations");
+  return { error: error ? "Couldn't turn off reply tracking." : null };
 }
 
 /** Send an email via Close. The agent's `send_email` tool calls into this, and

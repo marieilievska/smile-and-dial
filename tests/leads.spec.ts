@@ -92,7 +92,7 @@ test.describe("leads table", () => {
 
 test.describe("manual resting stamps a wake-up date", () => {
   // Contract for the inline Stage picker: picking "Resting" by hand must set
-  // a resting_until (and mirror it into next_call_at), or the nightly
+  // a resting_until (and mirror it into next_call_at), or the half-hourly
   // expire_resting_leads() job never revives the lead and it rests forever.
   const stamp = Date.now();
   const company = `E2E Rest Co ${stamp}`;

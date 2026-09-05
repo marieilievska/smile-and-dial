@@ -64,6 +64,10 @@ import {
 } from "@/lib/calls/actions";
 import { OVERRIDABLE_OUTCOMES, outcomeLabel } from "@/lib/calls/outcomes";
 import { callStatusLabel } from "@/lib/labels";
+import {
+  RETENTION_DAYS,
+  isPastRetention,
+} from "@/lib/maintenance/retention-window";
 import { exactDateTime, relativeTime } from "@/lib/relative-time";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -86,6 +90,12 @@ function fmtCost(breakdown: Record<string, unknown> | null): string {
   if (typeof total !== "number") return "—";
   return `$${total.toFixed(2)}`;
 }
+
+/** Shown in place of the outcome-based empty state once the nightly
+ *  retention sweep has pruned a call's audio + transcript from our side.
+ *  Older ones still live in the ElevenLabs dashboard (the "Open recording in
+ *  ElevenLabs" link beneath keeps working for admins). */
+const RETENTION_NOTE = `Audio and transcript are kept for ${RETENTION_DAYS} days; older ones are available in ElevenLabs.`;
 
 /** Plain-English explanation of why a call has no recording, keyed off
  *  the outcome. Used as the empty-state body when `recordingPath` is
@@ -436,7 +446,13 @@ export function CallDetailModal({ isAdmin = false }: { isAdmin?: boolean }) {
                   <div className="border-border bg-muted/30 flex items-start gap-3 rounded-xl border p-3">
                     <Mic className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                     <p className="text-muted-foreground text-sm">
-                      {noRecordingReason(call.outcome)}
+                      {/* Past the retention window with nothing left on our
+                          side: say so, rather than an outcome-based reason
+                          that would imply the call never had audio. */}
+                      {isPastRetention(call.createdAt) &&
+                      call.transcript.length === 0
+                        ? RETENTION_NOTE
+                        : noRecordingReason(call.outcome)}
                     </p>
                   </div>
                 )}
