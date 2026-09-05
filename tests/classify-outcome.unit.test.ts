@@ -453,10 +453,14 @@ describe("classifyCallOutcome", () => {
   it("does NOT downgrade a real human disposition to no_answer on a silence end", () => {
     // If the agent captured a real human outcome (not_interested), a trailing
     // silence must not erase it.
+    // NB: the reply here is a plain decline on purpose. It used to read "take me
+    // off your list", which is a DNC request in its own right — that now
+    // (correctly) classifies as `dnc`, which would test the removal net rather
+    // than the silence rule this case exists for.
     const r = classifyCallOutcome({
       transcript: t(
         ["agent", "Is the owner around?"],
-        ["user", "Not interested, take me off your list."],
+        ["user", "We're not interested, thanks."],
       ),
       disposition: "not_interested",
       terminationReason: "Ending conversation after 40 seconds of silence.",
@@ -585,5 +589,145 @@ describe("classifyCallOutcome — inbound direction", () => {
       callDurationSecs: 20,
     });
     expect(r.outcome).toBe("voicemail");
+  });
+});
+
+// A person asking us to stop is compliance-critical and used to reach the
+// classifier ONLY via the agent's own disposition guess. The 2026-09-05
+// full-corpus audit (all 8,123 calls) found 5 calls where someone plainly said
+// "don't call us again" but the agent said gatekeeper_not_interested — 4 were
+// queued to be re-dialled. These lock in the safety net and the two traps that
+// were proved against the corpus.
+describe("classifyCallOutcome — lead asked to stop (DNC safety net)", () => {
+  const ENDED = "Call ended by remote party";
+
+  it("forces dnc when the lead says don't call again but the agent guessed a gatekeeper decline", () => {
+    // Verbatim: Park & Eve - Hair Studio, 2026-09-04 (was queued for Sep 17).
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Hello, Puck and Eve. How can I help you?"],
+        ["agent", "Hi, I'm reaching out to a few salons... are you the owner?"],
+        ["user", "Nope. Don't call us again."],
+      ),
+      disposition: "gatekeeper_not_interested",
+      terminationReason: ENDED,
+      callDurationSecs: 23,
+    });
+    expect(r.outcome).toBe("dnc");
+    expect(r.reachedHuman).toBe(true);
+  });
+
+  it("matches a CURLY apostrophe — ElevenLabs writes don’t, not don't", () => {
+    // Verbatim: Healing Waters Wellness. A `don'?t` pattern misses this, which
+    // is exactly how this one slipped through (~134 curly turns per 400 calls).
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Healing Waters Wellness and Med Spa, this is Claire."],
+        ["agent", "Hi Claire, this is Tom calling back..."],
+        ["user", "No, don’t call back. We are not interested."],
+      ),
+      disposition: "gatekeeper_not_interested",
+      terminationReason: ENDED,
+      callDurationSecs: 34,
+    });
+    expect(r.outcome).toBe("dnc");
+  });
+
+  it("beats the short-call hang-up correction", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["agent", "Hi, I'm calling for the owner..."],
+        ["user", "Stop calling."],
+      ),
+      disposition: "hung_up",
+      terminationReason: ENDED,
+      callDurationSecs: 11,
+    });
+    expect(r.outcome).toBe("dnc");
+  });
+
+  it("catches the other real phrasings", () => {
+    const say = (m: string) =>
+      classifyCallOutcome({
+        transcript: t(["agent", "Hi, is the owner around?"], ["user", m]),
+        disposition: "gatekeeper",
+        terminationReason: ENDED,
+        callDurationSecs: 30,
+      }).outcome;
+    expect(say("Do not call this number again.")).toBe("dnc");
+    expect(say("Please take us off your calling list.")).toBe("dnc");
+    expect(say("Can you please remove me from your call list?")).toBe("dnc");
+    expect(say("No, take us off your list.")).toBe("dnc");
+  });
+
+  // TRAP 1 — the pattern must never fire on a recorded greeting. A looser
+  // version matched "leave us a voicemail and watch out for a text": 14 false
+  // positives across the corpus, every one a machine.
+  it("does NOT fire on a voicemail greeting that says 'leave us a voicemail... watch out for'", () => {
+    const r = classifyCallOutcome({
+      transcript: t([
+        "user",
+        "Thanks for calling. Unfortunately, we cannot take your call right now. Feel free to leave us a voicemail and watch out for a text from our virtual agent who will be able to help you manage bookings.",
+      ]),
+      disposition: "voicemail",
+      terminationReason: VM_DETECTED,
+      callDurationSecs: 27,
+    });
+    expect(r.outcome).toBe("voicemail");
+    expect(r.reachedHuman).toBe(false);
+  });
+
+  it("does not let a machine greeting be forced to dnc even when it says do-not-call", () => {
+    const r = classifyCallOutcome({
+      transcript: t([
+        "user",
+        "You've reached our office. To be added to our do not call list, press one, or leave a message after the tone.",
+      ]),
+      disposition: "voicemail",
+      terminationReason: VM_DETECTED,
+      callDurationSecs: 22,
+    });
+    expect(r.outcome).toBe("voicemail");
+  });
+
+  it("ignores the AGENT offering removal — only the called party's own words count", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Hello, this is the front desk."],
+        ["agent", "No problem, I'll make sure we don't call you again. Take care."],
+      ),
+      disposition: "gatekeeper",
+      terminationReason: ENDED,
+      callDurationSecs: 30,
+    });
+    expect(r.outcome).toBe("gatekeeper");
+  });
+
+  // TRAP 2 — goal_met wins, and it costs nothing: goal_met is terminal too, so
+  // the lead is never dialled again either way; we just keep the real booking.
+  it("does not override a booking", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["agent", "Great, you're booked for Tuesday at 2."],
+        ["user", "Perfect. And don't call this line again, use my email."],
+      ),
+      disposition: "goal_met",
+      terminationReason: ENDED,
+      callDurationSecs: 210,
+    });
+    expect(r.outcome).toBe("goal_met");
+  });
+
+  it("leaves an ordinary gatekeeper alone", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "She's not in today, try Wednesday."],
+        ["agent", "No worries, I'll try then."],
+      ),
+      disposition: "gatekeeper",
+      terminationReason: ENDED,
+      callDurationSecs: 40,
+    });
+    expect(r.outcome).toBe("gatekeeper");
   });
 });

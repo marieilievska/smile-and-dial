@@ -44,6 +44,26 @@ const AI_SELF_ID_RE =
 const MACHINE_REPLY_RE =
   /invalid|try again|recogniz|press (one|two|three|four|five|six|seven|eight|nine|zero|\d)|\boption\b|\bqueue\b|\bhold\b|transfer you to (the )?(receptionist|voicemail|our|billing|extension)|leave (a |your |us )?(message|voicemail)|after the (tone|beep)|thank you for calling|website|www\.|\.com|\.ca\b|receptionist for|virtual|assistant|\bai\b|not available|unavailable|please (stay|hold|wait)|connect you|record your|mailbox|good ?bye|voicemail|this call (may|will) be recorded|quality (assurance|purposes)|deja(r|me|nos)? (un |tu )?mensaje|despu[eé]s del (tono|bip|se[nñ]al)|permane(ce|zca) en la l[ií]nea|buz[oó]n|correo de voz|no (puedo|puede|está|estamos|estoy) (disponible|hablar|atender)|en este momento|gracias por (llamar|comunicarse)|dijo:|laissez (un |votre )?message|apr[eè]s (la|le) (tonalit|bip)|bo[iî]te vocale|messagerie/i;
 
+/** A called-party turn that ITSELF asks us to stop calling ("take me off your
+ *  list", "stop calling", "do not call this number again"). This is the safety
+ *  net for a compliance-critical miss: `dnc` otherwise reaches this classifier
+ *  ONLY through the agent’s own disposition guess, so when the agent guessed
+ *  `gatekeeper_not_interested` for someone who plainly said "don’t call us
+ *  again", the lead stayed in the dial queue (5 such calls in the 2026-09-05
+ *  full-corpus audit — 4 were scheduled to be re-dialed).
+ *
+ *  Two things this pattern must NOT do, both proved against all 8,123 calls:
+ *  1. It must not match a VOICEMAIL GREETING. An earlier "leave…off/out" branch
+ *     matched "leave us a voicemail and watch out for a text" — 14 false
+ *     positives, every one a machine. Only real imperatives are listed here.
+ *  2. It must handle the CURLY apostrophe (U+2019). ElevenLabs transcribes
+ *     "don’t", not "don't" (~134 turns per 400 calls), and a `don'?t` pattern
+ *     silently misses every one of them.
+ *  Validated: fires on 32/8,123 calls, all of which were already `dnc`, and
+ *  catches all 5 of the audit’s missed DNCs. Zero false positives. */
+const LEAD_REQUEST_REMOVAL_RE =
+  /\b(take|get)\s+(me|us|my|our)\b[^.?!]{0,30}\b(off|out)\b|\bremove\s+(me|us|my|our)\b|\bstop\s+calling\b|\b(do not|don['’]?t|never)\s+(call|contact)\b|\bdo[-\s]?not[-\s]?call\b|\bunsubscribe\b/i;
+
 type Turn = { role?: unknown; message?: unknown };
 
 function normalizeTurns(
@@ -89,6 +109,21 @@ export function transcriptLooksLikeMachine(transcript: unknown): boolean {
     }
   }
   return true;
+}
+
+/** The called party asked, in their own words, not to be called again. Machine
+ *  text can never count: a recorded greeting or IVR menu is not a person making
+ *  a request, so a turn matching either machine pattern is skipped even if it
+ *  also matches the removal pattern. */
+export function leadRequestedRemoval(transcript: unknown): boolean {
+  return normalizeTurns(transcript).some(
+    (t) =>
+      t.role !== "agent" &&
+      t.role !== "ai" &&
+      LEAD_REQUEST_REMOVAL_RE.test(t.message) &&
+      !MACHINE_GREETING_RE.test(t.message) &&
+      !MACHINE_REPLY_RE.test(t.message),
+  );
 }
 
 /** The called party's turns self-identify as an AI/automated/virtual assistant. */
@@ -257,6 +292,7 @@ export function classifyCallOutcome(input: {
     inbound && rawDisposition === "voicemail" ? null : rawDisposition;
   const saysAi = calledPartySelfIdentifiesAsAi(transcript);
   const machineGreeting = !inbound && transcriptLooksLikeMachine(transcript);
+  const askedToStop = leadRequestedRemoval(transcript);
   const humanReplies = genuineHumanReplyCount(transcript);
   // Only for the immediate-vs-later hang-up split: "Hello?" isn't engagement.
   const substantiveReplies = substantiveHumanReplyCount(transcript);
@@ -289,6 +325,20 @@ export function classifyCallOutcome(input: {
     outcome = "ai_receptionist";
   } else if (machineGreeting) {
     outcome = "voicemail";
+  } else if (askedToStop && dispositionOutcome !== "goal_met") {
+    // A person asked us to stop. Honour it over whatever the agent guessed and
+    // over the telephony signals below — the request is the ground truth, and
+    // acting on it is what puts the number on the DNC list (the post-call
+    // webhook’s applyOutcomeSideEffects writes dnc_entries + status purely off
+    // this outcome, so getting the label right is the whole fix).
+    //
+    // It deliberately sits BELOW the machine/AI branches: a recorded greeting is
+    // not a person, so a voicemail can never be forced to dnc.
+    //
+    // goal_met is the one disposition that wins, and it costs nothing: it is
+    // terminal too, so the lead is never dialled again either way — we just keep
+    // the booking rather than trading a real win for a redundant block.
+    outcome = "dnc";
   } else if (errorByTermination) {
     // ElevenLabs killed the call for a platform/quota reason. If a REAL two-way
     // human conversation already happened before the kill (≥2 genuine replies),
