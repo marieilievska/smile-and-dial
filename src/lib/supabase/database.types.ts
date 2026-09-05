@@ -626,6 +626,8 @@ export type Database = {
           outcome: string | null;
           outcome_source: string | null;
           placed_by: string | null;
+          recording_fetch_attempts: number;
+          recording_fetch_error: string | null;
           recording_path: string | null;
           retry_applied_at: string | null;
           started_at: string | null;
@@ -665,6 +667,8 @@ export type Database = {
           outcome?: string | null;
           outcome_source?: string | null;
           placed_by?: string | null;
+          recording_fetch_attempts?: number;
+          recording_fetch_error?: string | null;
           recording_path?: string | null;
           retry_applied_at?: string | null;
           started_at?: string | null;
@@ -704,6 +708,8 @@ export type Database = {
           outcome?: string | null;
           outcome_source?: string | null;
           placed_by?: string | null;
+          recording_fetch_attempts?: number;
+          recording_fetch_error?: string | null;
           recording_path?: string | null;
           retry_applied_at?: string | null;
           started_at?: string | null;

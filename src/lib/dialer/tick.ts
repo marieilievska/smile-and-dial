@@ -16,6 +16,10 @@ import { isCampaignLevelBlock } from "@/lib/dialer/block-scope";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 import { enforceElevenLabsCreditGate } from "@/lib/dialer/credit-gate";
 import { sweepStuckCallbacks } from "@/lib/callbacks/sweep";
+import {
+  backfillMissingRecordings,
+  type RecordingBackfillSummary,
+} from "@/lib/elevenlabs/recording-fetch";
 
 import { type PreCallReason } from "./queue";
 
@@ -43,6 +47,10 @@ export type TickSummary = {
    *  terminal/deleted) + mis-statused dialable leads re-parked as callbacks.
    *  Best-effort — a sweep failure never breaks the tick. */
   callbacksSwept?: { cancelled: number; resynced: number };
+  /** Recording backfill this tick: completed AI calls still missing their
+   *  recording, pulled from the ElevenLabs API a few per tick. Runs AFTER the
+   *  dial loop and never throws, so it can't delay or break a dial. */
+  recordingsBackfilled?: RecordingBackfillSummary;
   liveMode: { twilio: boolean; elevenlabs: boolean };
 };
 
@@ -465,6 +473,32 @@ async function readFairQueue(
  * `place-call.ts` / `agent-dial.ts` — the outbound TwiML route has been removed.
  */
 export async function runDialerTick(
+  options: { limit?: number; leadIds?: string[] } = {},
+): Promise<TickSummary> {
+  const summary = await runDialerTickCore(options);
+
+  // Recording backfill — strictly AFTER the dial loop (every return path of
+  // the core), so a slow ElevenLabs download can never delay a dial. Pulls
+  // a few completed calls' recordings per tick; the existing backlog drains
+  // in minutes and any future miss self-heals. Best-effort: never throws.
+  try {
+    summary.recordingsBackfilled = await backfillMissingRecordings(
+      makeServiceClient(),
+      { limit: RECORDING_BACKFILL_PER_TICK },
+    );
+  } catch {
+    /* swallow — a backfill failure must not break the tick */
+  }
+
+  return summary;
+}
+
+/** Calls whose recording the tick pulls from ElevenLabs per run. Five a minute
+ *  is ~300/hour: plenty for the day's calls plus a backlog, small enough that
+ *  the downloads (up to ~16 MB each) stay well inside the tick's budget. */
+const RECORDING_BACKFILL_PER_TICK = 5;
+
+async function runDialerTickCore(
   options: { limit?: number; leadIds?: string[] } = {},
 ): Promise<TickSummary> {
   const twilioLive = process.env.TWILIO_LIVE === "live";

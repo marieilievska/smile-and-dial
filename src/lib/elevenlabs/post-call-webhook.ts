@@ -3,6 +3,7 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
+import { after } from "next/server";
 
 import {
   resolveDueCallbacksForLead,
@@ -11,6 +12,7 @@ import {
 import { callReachedDm, outcomeImpliesDm } from "@/lib/calls/decision-maker";
 import { classifyCallOutcome } from "@/lib/calls/classify-outcome";
 import { resolveOrCreateInboundCall } from "@/lib/elevenlabs/inbound-call";
+import { fetchAndStoreRecording } from "@/lib/elevenlabs/recording-fetch";
 import {
   deferSameDayCallbackIso,
   localHourDaysAheadIso,
@@ -576,6 +578,33 @@ function makeServiceClient(): SupabaseAdmin {
   });
 }
 
+/**
+ * Fetch a call's recording from the ElevenLabs API once this webhook has
+ * answered. Uses Next's after() so the fetch (up to ~16 MB for a 1000 s
+ * call) never holds up the 200 ElevenLabs is waiting for. after() only works
+ * inside a request scope — outside one (a script, a unit test) it throws, and
+ * we fall back to an inline, bounded fetch instead. Either way nothing here
+ * can throw out of the webhook: fetchAndStoreRecording returns typed failures
+ * and records them on the call for the tick's backfill sweep to retry.
+ */
+function scheduleRecordingFetch(
+  supabase: SupabaseAdmin,
+  input: { callId: string; conversationId: string },
+): void | Promise<void> {
+  const run = async () => {
+    try {
+      await fetchAndStoreRecording(supabase, input);
+    } catch {
+      /* never let a recording fetch fail the post-call pipeline */
+    }
+  };
+  try {
+    after(run);
+  } catch {
+    return run();
+  }
+}
+
 /** The post-call webhook's HMAC signing secret. Env wins; otherwise the value
  *  stored in app_settings (Vercel's env store has been unreliable for this
  *  project, so the DB is the dependable source). Returns null when neither is
@@ -918,6 +947,20 @@ async function processTranscription(
     return { ok: false, reason: "could_not_update_call" };
   }
 
+  // Pull the recording ourselves now that the call row is final. ElevenLabs
+  // used to PUSH it as a base64 MP3 in the post_call_audio body, but Vercel
+  // rejects bodies over 4.5 MB (HTTP 413) before the route runs, so most
+  // calls over ~3 minutes never got one. Scheduled with after() so this
+  // webhook still answers fast; the dialer tick's backfill sweep covers any
+  // miss here (audio not ready yet, a network blip). Skipped when the payload
+  // already handed us a recording location.
+  if (!callUpdate.recording_path) {
+    await scheduleRecordingFetch(supabase, {
+      callId: call.id,
+      conversationId,
+    });
+  }
+
   // Surface the identity the call heard (names, email) on the lead, filling
   // only fields the lead left BLANK — imported CSV data always wins, so a
   // mis-transcription can't overwrite a good value. Runs regardless of whether
@@ -1041,6 +1084,12 @@ async function processTranscription(
  * Audio event (type=post_call_audio): decode the base64 MP3 and store it in
  * the private call-recordings bucket, then point calls.recording_path at the
  * stored object. Idempotent on (conversation_id, "post_call_audio").
+ *
+ * We no longer ASK for this event (agents sync with send_audio=false and no
+ * "audio" in the webhook events — see agents.ts): the base64 body blew past
+ * Vercel's 4.5 MB request limit on any call over ~3 minutes, so recordings are
+ * pulled from the API instead (recording-fetch.ts). This handler stays so an
+ * agent that hasn't been re-synced yet still gets its short recordings stored.
  */
 async function processAudio(data: ElevenLabsAudioData): Promise<ProcessResult> {
   const conversationId = data.conversation_id ?? "";
@@ -1065,6 +1114,19 @@ async function processAudio(data: ElevenLabsAudioData): Promise<ProcessResult> {
     return { ok: false, reason: "could_not_log_event" };
   }
 
+  // Compensating delete for every failure below: we claimed the idempotency
+  // row FIRST, so if we bail before the recording is stored a retry would
+  // dedupe as "duplicate" and the recording would be lost for good. Release
+  // the claim (this conversation's audio row only) so a later attempt —
+  // ElevenLabs's retry, or our own API pull — can succeed.
+  const releaseClaim = async () => {
+    await supabase
+      .from("elevenlabs_webhook_events")
+      .delete()
+      .eq("conversation_id", conversationId)
+      .eq("event_type", "post_call_audio");
+  };
+
   const call = await resolveCall(
     supabase,
     conversationId,
@@ -1072,25 +1134,36 @@ async function processAudio(data: ElevenLabsAudioData): Promise<ProcessResult> {
       data.call_id ??
       null,
   );
-  if (!call) return { ok: true, status: "unknown_conversation" };
+  if (!call) {
+    await releaseClaim();
+    return { ok: true, status: "unknown_conversation" };
+  }
 
   // Decode base64 MP3 → upload. Path keyed by call id so it's stable.
   let bytes: Buffer;
   try {
     bytes = Buffer.from(data.full_audio, "base64");
   } catch {
+    await releaseClaim();
     return { ok: false, reason: "bad_audio_encoding" };
   }
   const path = `${call.id}.mp3`;
   const { error: uploadError } = await supabase.storage
     .from("call-recordings")
     .upload(path, bytes, { contentType: "audio/mpeg", upsert: true });
-  if (uploadError) return { ok: false, reason: "could_not_store_audio" };
+  if (uploadError) {
+    await releaseClaim();
+    return { ok: false, reason: "could_not_store_audio" };
+  }
 
-  await supabase
+  const { error: updateError } = await supabase
     .from("calls")
-    .update({ recording_path: path })
+    .update({ recording_path: path, recording_fetch_error: null })
     .eq("id", call.id);
+  if (updateError) {
+    await releaseClaim();
+    return { ok: false, reason: "could_not_update_call" };
+  }
 
   return { ok: true, status: "applied" };
 }
