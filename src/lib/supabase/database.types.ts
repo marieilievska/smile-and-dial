@@ -1935,6 +1935,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      phone_line_types: {
+        Row: {
+          line_type: string;
+          looked_up_at: string;
+          phone: string;
+        };
+        Insert: {
+          line_type: string;
+          looked_up_at?: string;
+          phone: string;
+        };
+        Update: {
+          line_type?: string;
+          looked_up_at?: string;
+          phone?: string;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: {
           active: boolean;
@@ -2128,6 +2146,8 @@ export type Database = {
           description: string | null;
           filter: Json;
           id: string;
+          last_refresh_error: string | null;
+          last_refreshed_at: string | null;
           name: string;
           owner_id: string;
           updated_at: string;
@@ -2137,6 +2157,8 @@ export type Database = {
           description?: string | null;
           filter?: Json;
           id?: string;
+          last_refresh_error?: string | null;
+          last_refreshed_at?: string | null;
           name: string;
           owner_id: string;
           updated_at?: string;
@@ -2146,6 +2168,8 @@ export type Database = {
           description?: string | null;
           filter?: Json;
           id?: string;
+          last_refresh_error?: string | null;
+          last_refreshed_at?: string | null;
           name?: string;
           owner_id?: string;
           updated_at?: string;

@@ -43,7 +43,7 @@ export type ImportResult = {
 
 /**
  * Pre-commit analysis of a CSV: how many rows will import, how many are
- * skipped (and why), and the estimated Twilio Lookup cost.
+ * skipped (and why), and what the Twilio lookups for it actually cost.
  */
 export type ImportAnalysis = {
   total: number;
@@ -57,7 +57,13 @@ export type ImportAnalysis = {
   /** Rows whose number repeats an earlier row in the same file — only the first
    *  occurrence imports; the rest collapse into it. */
   duplicateInFile: number;
-  estCost: number;
+  /** Twilio lookups that were actually BILLED for this batch (a 2xx answer
+   *  from Twilio). Numbers reused from your leads, the shared line-type cache,
+   *  an earlier pass over the same file, or that Twilio rejected/rate-limited
+   *  cost nothing and are not counted. */
+  lookups: number;
+  /** USD for `lookups`, as written to the lookup_charges ledger. */
+  lookupCost: number;
   /** Line type per row, aligned to the rows array by index. */
   rowLineTypes: LineType[];
   /** Skipped rows, for the downloadable error report. */

@@ -41,15 +41,38 @@ export function isLookupLive(): boolean {
 }
 
 /**
+ * Outcome of one lookup. `billed` is true ONLY when Twilio answered 2xx — the
+ * only case it charges for a Line Type Intelligence package. A mock result,
+ * a missing-credentials short-circuit, a 404 (number does not exist), a 429
+ * or any other error, and a network failure all cost nothing and must not
+ * reach the spend ledger.
+ */
+export type LookupResult = { type: LineType; billed: boolean };
+
+/** A line type Twilio actually decided. "unknown" is the absence of one. */
+export type DefinitiveLineType = Exclude<LineType, "unknown">;
+
+const DEFINITIVE: ReadonlySet<string> = new Set([
+  "landline",
+  "mobile",
+  "voip",
+  "invalid",
+]);
+
+export function isDefinitiveLineType(v: unknown): v is DefinitiveLineType {
+  return typeof v === "string" && DEFINITIVE.has(v);
+}
+
+/**
  * Classify a phone number's line type via Twilio Lookup.
  *
  * Real Twilio lookups cost money, so they only run in live mode. Otherwise a
  * deterministic mock is used — this keeps tests free and prevents accidental
  * spend during development.
  */
-export async function lookupLineType(phone: string): Promise<LineType> {
+export async function lookupLineType(phone: string): Promise<LookupResult> {
   if (!isLookupLive()) {
-    return mockLineType(phone);
+    return { type: mockLineType(phone), billed: false };
   }
   return liveLineType(phone);
 }
@@ -66,10 +89,40 @@ function mockLineType(phone: string): LineType {
   return "landline";
 }
 
-async function liveLineType(phone: string): Promise<LineType> {
+/**
+ * Turn a Twilio Lookup v2 HTTP status + JSON body into a LookupResult. Pure,
+ * so the billed/unbilled boundary is unit-tested without a network:
+ *   404          → invalid, not billed (Twilio: no such number; no package sold)
+ *   other non-2xx → unknown, not billed (429 rate limit, 5xx, auth errors…)
+ *   2xx          → billed; valid:false → invalid, else by line_type_intelligence
+ */
+export function classifyLookupResponse(
+  status: number,
+  body: unknown,
+): LookupResult {
+  if (status === 404) return { type: "invalid", billed: false };
+  if (status < 200 || status >= 300) return { type: "unknown", billed: false };
+
+  const parsed = (body && typeof body === "object" ? body : {}) as {
+    valid?: boolean;
+    line_type_intelligence?: { type?: string | null } | null;
+  };
+  if (parsed.valid === false) return { type: "invalid", billed: true };
+
+  const type = parsed.line_type_intelligence?.type ?? "";
+  if (type === "mobile") return { type: "mobile", billed: true };
+  if (type === "fixedVoip" || type === "nonFixedVoip") {
+    return { type: "voip", billed: true };
+  }
+  if (!type) return { type: "unknown", billed: true };
+  return { type: "landline", billed: true };
+}
+
+async function liveLineType(phone: string): Promise<LookupResult> {
   const sid = process.env.TWILIO_API_KEY_SID;
   const secret = process.env.TWILIO_API_KEY_SECRET;
-  if (!sid || !secret) return "unknown";
+  // No credentials → no request was made → nothing to bill.
+  if (!sid || !secret) return { type: "unknown", billed: false };
 
   try {
     const auth = Buffer.from(`${sid}:${secret}`).toString("base64");
@@ -78,21 +131,71 @@ async function liveLineType(phone: string): Promise<LineType> {
         "?Fields=line_type_intelligence",
       { headers: { Authorization: `Basic ${auth}` } },
     );
-    if (res.status === 404) return "invalid";
-    if (!res.ok) return "unknown";
-
-    const body = (await res.json()) as {
-      valid?: boolean;
-      line_type_intelligence?: { type?: string | null } | null;
-    };
-    if (body.valid === false) return "invalid";
-
-    const type = body.line_type_intelligence?.type ?? "";
-    if (type === "mobile") return "mobile";
-    if (type === "fixedVoip" || type === "nonFixedVoip") return "voip";
-    if (!type) return "unknown";
-    return "landline";
+    let body: unknown = null;
+    if (res.ok) {
+      try {
+        body = await res.json();
+      } catch {
+        body = null;
+      }
+    }
+    return classifyLookupResponse(res.status, body);
   } catch {
-    return "unknown";
+    return { type: "unknown", billed: false };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Lookup planning — pure helpers shared by the import analysis and its tests.
+// ---------------------------------------------------------------------------
+
+/**
+ * The unique E.164 phones that still need a Twilio call: nulls (no parseable
+ * phone) are dropped, a number repeated in the file is kept once, and any
+ * number already in `known` is skipped. Order = first appearance, so a
+ * concurrency pool processes them in file order.
+ */
+export function phonesNeedingLookup(
+  e164s: readonly (string | null)[],
+  known: ReadonlyMap<string, LineType>,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const phone of e164s) {
+    if (!phone || seen.has(phone) || known.has(phone)) continue;
+    seen.add(phone);
+    out.push(phone);
+  }
+  return out;
+}
+
+/**
+ * Per-row line types, aligned to `e164s` by index, from a phone → type map.
+ * A row with no phone, or a phone nothing resolved, is "unknown".
+ */
+export function lineTypesForRows(
+  e164s: readonly (string | null)[],
+  known: ReadonlyMap<string, LineType>,
+): LineType[] {
+  return e164s.map((phone) =>
+    phone ? (known.get(phone) ?? "unknown") : "unknown",
+  );
+}
+
+/**
+ * Accept a client-supplied phone → line type record (the wizard's memory of
+ * earlier analyses) as a Map, keeping only E.164 US/CA keys with a definitive
+ * type. "unknown" is dropped on purpose: it would suppress a lookup that
+ * could still resolve the number, and anything else is not a line type.
+ */
+export function sanitizeKnownLineTypes(
+  input: Record<string, unknown> | null | undefined,
+): Map<string, LineType> {
+  const out = new Map<string, LineType>();
+  if (!input || typeof input !== "object") return out;
+  for (const [phone, type] of Object.entries(input)) {
+    if (!isUsCaNumber(phone) || !isDefinitiveLineType(type)) continue;
+    out.set(phone, type);
+  }
+  return out;
 }
