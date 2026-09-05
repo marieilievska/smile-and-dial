@@ -2513,6 +2513,23 @@ export type Database = {
         Args: { in_campaign_id: string; in_lead_id: string };
         Returns: boolean;
       };
+      cohort_rows: {
+        Args: { p_end: string; p_start: string };
+        Returns: {
+          attended: number;
+          calls: number;
+          connected: number;
+          dial_day: string;
+          dms: number;
+          last_session: string | null;
+          no_show: number;
+          pending: number;
+          regs: number;
+          rescheduled: number;
+          sales: number;
+          spend: number;
+        }[];
+      };
       elevenlabs_voice_ids: { Args: never; Returns: string };
       expire_resting_leads: { Args: never; Returns: number };
       get_or_create_inbound_list: {

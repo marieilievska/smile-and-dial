@@ -1,12 +1,11 @@
 import Link from "next/link";
 import {
   Bot,
+  CalendarClock,
   PhoneCall,
-  Flame,
   HeartCrack,
   History,
   LayoutDashboard,
-  MessageSquare,
 } from "lucide-react";
 
 /** The Reporting hub's tabs. Shared by the in-app page and the public
@@ -14,9 +13,8 @@ import {
  *  so both Server Components can import the array + component safely. */
 export const REPORTING_TABS = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { key: "cohorts", label: "Cohorts", icon: CalendarClock },
   { key: "cause-of-death", label: "Cause of Death", icon: HeartCrack },
-  { key: "voice", label: "Voice of Customer", icon: MessageSquare },
-  { key: "hot-leads", label: "Hot Leads", icon: Flame },
   { key: "numbers", label: "Numbers", icon: PhoneCall },
   { key: "changelog", label: "App Changelog", icon: History },
   { key: "prompt-log", label: "Agent Prompt Log", icon: Bot },
@@ -24,23 +22,35 @@ export const REPORTING_TABS = [
 
 export type ReportingTabKey = (typeof REPORTING_TABS)[number]["key"];
 
-/** The tabs to show for the current scope. Voice of Customer and Hot Leads are
- *  always present: they stay openable and explain themselves with an in-tab
- *  notice when there's nothing to render (combined view, or a campaign with no
- *  sentiment field) — see voiceUnavailableReason / hotLeadsUnavailableReason —
- *  rather than silently vanishing from the nav. Numbers is admin-only: the
- *  public token-gated share surface must pass `showNumbers: false` so external
- *  recipients never see it, since it lists our own phone numbers, their
- *  campaigns, and which are burned or resting — operational detail an external
- *  recipient has no business seeing, and a shopping list for anyone wanting to
- *  report our numbers as spam. */
+/** The tabs to show for the current audience.
+ *
+ *  `showNumbers: false` is for the public token-gated share surface: the
+ *  Numbers tab lists our own phone numbers, their campaigns, and which are
+ *  burned or resting — operational detail an external recipient has no business
+ *  seeing, and a shopping list for anyone wanting to report our numbers as spam.
+ *
+ *  `isAdmin: false` hides App Changelog and Agent Prompt Log from members. Not
+ *  a policy choice so much as an honesty one: their RLS is admin-only
+ *  (`app_changelog_admin_all`, `agent_prompt_log_admin_all`), so a member
+ *  opening either would be shown a permanently empty table with no explanation.
+ *  Hiding beats explaining. Everything else is scoped by RLS to the leads the
+ *  viewer owns, which is exactly what a member should see. */
 export function reportingTabsFor({
   showNumbers = true,
+  showCohorts = true,
+  isAdmin = true,
 }: {
   showNumbers?: boolean;
+  showCohorts?: boolean;
+  isAdmin?: boolean;
 } = {}): readonly (typeof REPORTING_TABS)[number][] {
   return REPORTING_TABS.filter((t) => {
     if (t.key === "numbers") return showNumbers;
+    // Cohorts is kept off the public share: it puts cost per registration and
+    // cost per sale on screen, which is our economics, not a recipient's
+    // business.
+    if (t.key === "cohorts") return showCohorts;
+    if (t.key === "changelog" || t.key === "prompt-log") return isAdmin;
     return true;
   });
 }
