@@ -73,3 +73,28 @@ test("uses only the last lookback prior days and excludes today's own date", () 
   const r = D.driftReport({ today: day("2026-08-11", { connect_rate: 0.41 }), history: hist });
   assert.equal(r.flags.find((x) => x.key === "connect_rate"), undefined);
 });
+
+test("baseline is STRICTLY prior days — a re-audited old day ignores later ones", () => {
+  // Re-running the audit over a historical day must not measure it against its
+  // own future. Sep 2 is the earliest day, so it has NO baseline at all, even
+  // though later rows exist in the scorecard.
+  const hist = [
+    day("2026-09-03", { goal_met: 10, dnc: 9 }),
+    day("2026-09-04", { goal_met: 5, dnc: 8 }),
+  ];
+  const r = D.driftReport({ today: day("2026-09-02", { goal_met: 5, dnc: 19 }), history: hist });
+  assert.equal(r.baselineBuilding, true, "later days must not count as prior");
+  assert.equal(r.priorDays, 0);
+  assert.equal(r.flags.length, 0);
+});
+
+test("the newest day still sees every earlier day", () => {
+  const hist = [
+    day("2026-09-02", { connect_rate: 0.334 }),
+    day("2026-09-03", { connect_rate: 0.404 }),
+    day("2026-09-04", { connect_rate: 0.546 }),
+  ];
+  const r = D.driftReport({ today: day("2026-09-05", { connect_rate: 0.4 }), history: hist });
+  assert.equal(r.baselineBuilding, false);
+  assert.equal(r.priorDays, 3);
+});
