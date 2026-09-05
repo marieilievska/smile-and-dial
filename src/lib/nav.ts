@@ -78,11 +78,13 @@ export const navItems: NavItem[] = [
     section: "operations",
   },
   {
+    // Not adminOnly since #447: members see Reporting scoped by RLS to their
+    // own leads. Leaving the flag on would have hidden the link from exactly
+    // the people the page was opened for — reachable only by typing the URL.
     label: "Reporting",
     href: "/reporting",
     icon: Bot,
     section: "operations",
-    adminOnly: true,
   },
   { label: "Do not call", href: "/dnc", icon: Ban, section: "operations" },
   { label: "Costs", href: "/costs", icon: DollarSign, section: "operations" },
