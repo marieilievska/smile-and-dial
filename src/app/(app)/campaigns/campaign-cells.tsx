@@ -173,3 +173,52 @@ export function HoursLabel({
     </span>
   );
 }
+
+/** The silent-stop alert kinds that get a chip on the campaign card/row:
+ *  the ones that mean "this campaign is not dialing right now". The other
+ *  alert kinds (placement storms, missing integrations, ...) stay in the
+ *  bell only — they don't change what the card's live signals mean. */
+export const CAMPAIGN_ALERT_KINDS = [
+  "cap_hit_daily",
+  "dialer_stalled",
+  "pool_exhausted",
+] as const;
+
+export type CampaignAlert = {
+  kind: string;
+  /** The notification's full plain-English message (shown on hover). */
+  message: string;
+};
+
+const ALERT_CHIP: Record<
+  string,
+  { label: string; tone: "warning" | "destructive" }
+> = {
+  cap_hit_daily: { label: "Daily cap hit", tone: "warning" },
+  dialer_stalled: { label: "Dialer stalled", tone: "destructive" },
+  pool_exhausted: { label: "No usable numbers", tone: "destructive" },
+};
+
+/** Small status chip for the newest UNREAD silent-stop alert on a campaign.
+ *  Amber for a cap (routine: resets at midnight ET), red for a fault (the
+ *  dialer stalled, the pool is exhausted). Reading the notification in the
+ *  bell clears it. */
+export function CampaignAlertChip({ alert }: { alert: CampaignAlert | null }) {
+  if (!alert) return null;
+  const chip = ALERT_CHIP[alert.kind];
+  if (!chip) return null;
+  const tone =
+    chip.tone === "destructive"
+      ? "text-destructive bg-destructive/10"
+      : "text-warning bg-warning/10";
+  return (
+    <span
+      className={`${tone} inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium`}
+      title={alert.message}
+      data-testid="campaign-alert-chip"
+      data-alert-kind={alert.kind}
+    >
+      {chip.label}
+    </span>
+  );
+}
