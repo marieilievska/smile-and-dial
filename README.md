@@ -4,8 +4,9 @@ Internal AI calling platform for Referrizer — outbound and inbound AI voice
 calls (ElevenLabs agents + Twilio) with lead management, scoring, callbacks,
 DNC, analytics, cost tracking, and Calendly / Close integrations.
 
-The app is the specification: see the code, the migrations and the agent prompts in docs/agent-prompts.
-source of truth for every architectural and design decision.
+The app is the specification: the code, the migrations and the agent prompts
+in docs/agent-prompts are the source of truth for every architectural and
+design decision.
 
 ## Tech stack
 
@@ -39,7 +40,6 @@ invite-only — there is no public signup. Use a seeded account to sign in.
 
 ## Development workflow
 
-The project is built feature by feature, one pull request each. Each change is
-a single pull request that includes at least one Playwright test covering the
-new behaviour. Commits are checked locally by Husky + lint-staged (ESLint and
-Prettier).
+The project is built feature by feature, one pull request each, with Vitest
+unit tests covering the new behaviour. Commits are checked locally by Husky +
+lint-staged (ESLint and Prettier).

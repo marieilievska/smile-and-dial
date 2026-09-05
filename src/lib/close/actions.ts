@@ -20,13 +20,11 @@ import {
   getCloseMe,
   setCloseLeadCustomFields,
 } from "./api";
-import { deliverEmailViaClose } from "./send-email";
 import {
   buildHandoffNote,
   buildHandoffTaskText,
   pickKeyAnswers,
 } from "./handoff";
-import { renderTemplate, type TemplateContext } from "./templates";
 import { CLOSE_WEBHOOK_EVENTS } from "./webhook";
 
 function makeServiceClient() {
@@ -254,158 +252,6 @@ export async function disableCloseInboundWebhook(): Promise<{
     .eq("user_id", user.id);
   revalidatePath("/settings/integrations");
   return { error: error ? "Couldn't turn off reply tracking." : null };
-}
-
-/** Send an email via Close. The agent's `send_email` tool calls into this, and
- *  the lead-detail Activity area exposes a manual send. When the lead's owner
- *  has connected their Close account, this REALLY sends: it finds-or-creates the
- *  contact in Close and posts an outbox email from the owner's connected email
- *  account. Owners with no Close connection fall back to logging the email
- *  locally so the flow still works for them. */
-export async function sendEmail(input: {
-  leadId: string;
-  templateId: string;
-  campaignId?: string;
-  callId?: string;
-}): Promise<{ error: string | null; emailId?: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "You are not signed in." };
-
-  const { data: lead } = await supabase
-    .from("leads")
-    .select("*, list:lists(name)")
-    .eq("id", input.leadId)
-    .single();
-  if (!lead) return { error: "Lead not found." };
-  if (!lead.business_email) return { error: "Lead has no email." };
-
-  const { data: template } = await supabase
-    .from("email_templates")
-    .select("id, name, subject, body, owner_id")
-    .eq("id", input.templateId)
-    .single();
-  if (!template) return { error: "Template not found." };
-
-  // Pull custom field values + owner profile for the template context.
-  const [{ data: customValues }, { data: defs }, { data: ownerProfile }] =
-    await Promise.all([
-      supabase
-        .from("lead_custom_values")
-        .select("custom_field_id, value")
-        .eq("lead_id", lead.id),
-      supabase.from("custom_field_defs").select("id, name"),
-      supabase
-        .from("profiles")
-        .select("full_name")
-        .eq("id", lead.owner_id)
-        .single(),
-    ]);
-  const defById = new Map((defs ?? []).map((d) => [d.id, d.name] as const));
-  const customFields: Record<string, string> = {};
-  for (const v of customValues ?? []) {
-    const slug = defById.get(v.custom_field_id);
-    if (slug && v.value != null) customFields[slug] = String(v.value);
-  }
-
-  const leadRecord = lead as unknown as Record<string, unknown>;
-  const ctx: TemplateContext = {
-    lead: {
-      company: leadRecord.company as string | null | undefined,
-      business_phone: leadRecord.business_phone as string | null | undefined,
-      business_email: leadRecord.business_email as string | null | undefined,
-      owner_name: leadRecord.owner_name as string | null | undefined,
-      manager_name: leadRecord.manager_name as string | null | undefined,
-      employee_name: leadRecord.employee_name as string | null | undefined,
-      city: leadRecord.city as string | null | undefined,
-      state: leadRecord.state as string | null | undefined,
-    },
-    owner: { full_name: ownerProfile?.full_name ?? null },
-    customFields,
-  };
-
-  const subject = renderTemplate(template.subject, ctx);
-  const body = renderTemplate(template.body, ctx);
-
-  const admin = makeServiceClient();
-  const toAddress = leadRecord.business_email as string;
-
-  // Send from the LEAD OWNER's own Close account (per-user). If they've
-  // connected Close, this really sends via their connected email; otherwise we
-  // log the email locally (mock) so the flow still works without Close.
-  const { data: ownerIntegration } = await admin
-    .from("user_integrations")
-    .select("close_api_key")
-    .eq("user_id", lead.owner_id)
-    .maybeSingle();
-  const closeKey = ownerIntegration?.close_api_key?.trim() || null;
-
-  let closeMessageId: string;
-  let fromAddress: string;
-
-  if (closeKey) {
-    const delivered = await deliverEmailViaClose({
-      closeKey,
-      senderName: ownerProfile?.full_name ?? null,
-      toAddress,
-      subject,
-      body,
-      contactName:
-        (leadRecord.owner_name as string | null | undefined) ||
-        (leadRecord.manager_name as string | null | undefined) ||
-        null,
-      company: (leadRecord.company as string | null | undefined) ?? null,
-      businessPhone:
-        (leadRecord.business_phone as string | null | undefined) ?? null,
-    });
-    if (!delivered.ok) {
-      const error =
-        delivered.error === "no_connected_sending_email"
-          ? "Your Close account has no connected email to send from. Connect an email account in Close, then try again."
-          : delivered.error === "could_not_create_contact"
-            ? "Could not create the contact in Close."
-            : "Couldn't send the email through Close.";
-      return { error };
-    }
-    closeMessageId = delivered.closeMessageId;
-    fromAddress = delivered.fromAddress;
-  } else {
-    // No Close connected for this owner — log the email without sending.
-    closeMessageId = `mock-msg-${Date.now()}`;
-    fromAddress = ownerProfile?.full_name
-      ? `${ownerProfile.full_name} via Close`
-      : "Close mock";
-  }
-
-  const { data: email, error: emailErr } = await admin
-    .from("emails")
-    .insert({
-      lead_id: lead.id,
-      owner_id: lead.owner_id,
-      campaign_id: input.campaignId ?? null,
-      call_id: input.callId ?? null,
-      direction: "sent",
-      subject,
-      body,
-      to_address: toAddress,
-      from_address: fromAddress,
-      close_message_id: closeMessageId,
-      status: "sent",
-      template_id: template.id,
-    })
-    .select("id")
-    .single();
-  if (emailErr || !email) return { error: "Could not send email." };
-
-  await admin
-    .from("email_templates")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", template.id);
-
-  revalidatePath(`/leads`);
-  return { error: null, emailId: email.id };
 }
 
 const EL_HISTORY_BASE = "https://elevenlabs.io/app/agents/agents";

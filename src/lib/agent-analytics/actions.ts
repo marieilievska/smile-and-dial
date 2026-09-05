@@ -56,27 +56,6 @@ export async function upsertDashboardNote(input: {
   return { error: null };
 }
 
-/** Permanently hide a call from Hot Leads. Admin-only; idempotent (upsert on the
- *  call_id primary key). */
-export async function dismissHotLead(input: {
-  callId: string;
-}): Promise<{ error: string | null }> {
-  if (!(await isCallerAdmin())) return { error: "Admins only." };
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const { error } = await adminClient()
-    .from("hot_lead_dismissals")
-    .upsert(
-      { call_id: input.callId, dismissed_by: user?.id ?? null },
-      { onConflict: "call_id" },
-    );
-  if (error) return { error: "Could not remove from Hot Leads." };
-  revalidatePath(AGENT_ANALYTICS_PATH);
-  return { error: null };
-}
-
 // ---------------------------------------------------------------------------
 // App Changelog (manual log: add / edit-inline / delete)
 // ---------------------------------------------------------------------------
