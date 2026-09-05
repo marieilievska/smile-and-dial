@@ -13,11 +13,13 @@ import { GOAL_STATUS_LABELS } from "./status-variant";
 
 /** Per-stage fill colors. Kept aligned with the badge semantics in
  *  status-variant.ts: goal_met = coral/primary, attended = emerald,
- *  no_show = amber, sale = deep emerald (the win), closed = muted. */
+ *  no_show = amber, rescheduled = sky (still in play, unlike no_show),
+ *  sale = deep emerald (the win), closed = muted. */
 const STAGE_COLOR: Record<GoalStatus, string> = {
   goal_met: "var(--primary)",
   attended: "#34d399", // emerald-400
   no_show: "#f59e0b", // amber-500
+  rescheduled: "#38bdf8", // sky-400 — moved, not lost
   sale: "#059669", // emerald-600 — the win, a deeper green than attended
   closed: "var(--muted-foreground)",
 };

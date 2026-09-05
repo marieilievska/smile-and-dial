@@ -11,8 +11,11 @@ import { formatPhone } from "@/lib/format-phone";
 import { GOAL_STATUSES, type GoalStatus } from "@/lib/goals/goal-statuses";
 import { transitionLeadGoalStatus } from "@/lib/goals/pipeline-actions";
 
+import { upcomingSessions } from "@/lib/goals/webinar-sessions";
+
 import { formatSince } from "./format-since";
 import type { PipelineLead } from "./pipeline-types";
+import { RescheduleDialog } from "./reschedule-dialog";
 import { GOAL_STATUS_LABELS, goalStatusVariant } from "./status-variant";
 
 /** Kanban board view of the goal pipeline. Five columns matching the
@@ -41,6 +44,14 @@ export function PipelineBoard({
   // sparkle pulse on the card as a small win celebration. Cleared after
   // ~1.6s so it doesn't linger.
   const [celebrateId, setCelebrateId] = useState<string | null>(null);
+  // A drop on "Rescheduled" has to ask WHICH session before it can be
+  // recorded, so it opens a picker rather than writing straight through.
+  // `reschedulingFrom` remembers the column to snap the card back to if the
+  // operator cancels.
+  const [reschedulingId, setReschedulingId] = useState<string | null>(null);
+  const [reschedulingFrom, setReschedulingFrom] = useState<GoalStatus | null>(
+    null,
+  );
 
   // Re-sync local state when the server-rendered list changes (after a
   // router.refresh / filter change).
@@ -62,6 +73,15 @@ export function PipelineBoard({
     setLeads((prev) =>
       prev.map((l) => (l.id === id ? { ...l, status: target } : l)),
     );
+
+    // Rescheduling needs a destination session before anything can be written
+    // — a "Rescheduled" with no new date would leave the person outside both
+    // the attended and no-show counts with nothing to watch for.
+    if (target === "rescheduled") {
+      setReschedulingId(id);
+      setReschedulingFrom(prevStatus as GoalStatus);
+      return;
+    }
 
     startTransition(async () => {
       const result = await transitionLeadGoalStatus({
@@ -95,7 +115,7 @@ export function PipelineBoard({
   return (
     <div
       data-testid="pipeline-board"
-      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5"
+      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6"
     >
       {GOAL_STATUSES.map((status, index) => {
         const columnLeads = leads.filter((l) => l.status === status);
@@ -153,6 +173,35 @@ export function PipelineBoard({
           </div>
         );
       })}
+
+      <RescheduleDialog
+        open={reschedulingId !== null}
+        onOpenChange={(next) => {
+          if (!next) setReschedulingId(null);
+        }}
+        leadId={reschedulingId}
+        leadName={
+          leads.find((l) => l.id === reschedulingId)?.company ?? "This lead"
+        }
+        sessions={upcomingSessions()}
+        onDone={() => {
+          setReschedulingId(null);
+          setReschedulingFrom(null);
+          router.refresh();
+        }}
+        onCancel={() => {
+          // Snap the card back — nothing was written.
+          const id = reschedulingId;
+          const from = reschedulingFrom;
+          if (id && from) {
+            setLeads((prev) =>
+              prev.map((l) => (l.id === id ? { ...l, status: from } : l)),
+            );
+          }
+          setReschedulingId(null);
+          setReschedulingFrom(null);
+        }}
+      />
     </div>
   );
 }

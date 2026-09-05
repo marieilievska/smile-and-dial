@@ -29,6 +29,7 @@ export const GOAL_STATUS_LABELS: Record<GoalStatus, string> = {
   goal_met: "Goal met",
   attended: "Attended",
   no_show: "No show",
+  rescheduled: "Rescheduled",
   sale: "Sale",
   // "Closed lost" is unambiguous (vs. plain "Closed", which an SDR
   // could read as "successfully closed out"). Renamed in round 11.
@@ -51,6 +52,10 @@ export function nextGoalStatus(status: GoalStatus): {
       // No-show needs rebooking, not a direct status flip — the row
       // surfaces a "Reschedule" link instead. Skip the smart-primary.
       return null;
+    case "rescheduled":
+      // A rescheduled lead is waiting on their NEW session, so the forward
+      // move is the same as goal_met: mark them attended once it happens.
+      return { next: "attended", label: "Mark attended" };
     case "sale":
       return { next: "closed", label: "Close out" };
     case "closed":
