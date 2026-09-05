@@ -51,6 +51,10 @@ export function ManualCallPanel({
   const [muted, setMuted] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // The Twilio CallSid of the call that just ended. Twilio stamps the same SID
+  // on the row voice-browser-dial creates, so the disposition can be pinned to
+  // THIS call rather than "the latest human call to the lead".
+  const [callSid, setCallSid] = useState<string | null>(null);
   const deviceRef = useRef<DeviceType | null>(null);
   const callRef = useRef<Call | null>(null);
 
@@ -77,6 +81,7 @@ export function ManualCallPanel({
     setError(null);
     setMuted(false);
     setSeconds(0);
+    setCallSid(null);
     setPhase("connecting");
     try {
       // ── Step 1: fetch token ──────────────────────────────────────────────
@@ -111,7 +116,11 @@ export function ManualCallPanel({
           setSeconds(0);
           setPhase("in_call");
         });
-        call.on("disconnect", () => setPhase("ended"));
+        call.on("disconnect", () => {
+          // Populated by the SDK once Twilio answers/rings the parent leg.
+          setCallSid(call.parameters?.CallSid ?? null);
+          setPhase("ended");
+        });
         call.on("error", () => setPhase("error"));
       } catch (err) {
         // Inspect the error to distinguish mic-permission from everything else.
@@ -162,7 +171,13 @@ export function ManualCallPanel({
   const mmss = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 
   if (phase === "ended") {
-    return <DispositionForm leadId={leadId} onDone={() => setPhase("idle")} />;
+    return (
+      <DispositionForm
+        leadId={leadId}
+        callSid={callSid}
+        onDone={() => setPhase("idle")}
+      />
+    );
   }
 
   if (phase === "idle" || phase === "error") {
@@ -212,9 +227,12 @@ export function ManualCallPanel({
 
 function DispositionForm({
   leadId,
+  callSid,
   onDone,
 }: {
   leadId: string;
+  /** Pins the outcome to the call that just ended (null if never known). */
+  callSid: string | null;
   onDone: () => void;
 }) {
   const [outcome, setOutcome] = useState("goal_met");
@@ -225,7 +243,12 @@ function DispositionForm({
   async function save() {
     setSaving(true);
     setError(null);
-    const result = await dispositionHumanCall({ leadId, outcome, note });
+    const result = await dispositionHumanCall({
+      leadId,
+      outcome,
+      note,
+      callSid,
+    });
     setSaving(false);
     // If the action returned an error, stay open and surface it.
     if (result?.error) {

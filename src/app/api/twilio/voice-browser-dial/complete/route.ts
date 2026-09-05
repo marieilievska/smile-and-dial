@@ -52,36 +52,21 @@ export async function POST(request: NextRequest) {
 
   const callSid = String(params.CallSid ?? "");
   const dialCallDuration = Number(params.DialCallDuration ?? "0");
+  if (!callSid) return emptyTwiml();
 
   const supabase = createAdminClient();
 
-  // Correlate by the parent CallSid stamped at creation. Fall back to the
-  // most-recent human call still in a non-terminal status if the SID didn't
-  // round-trip (e.g. a row created before this column was wired).
-  let call: { id: string; duration_seconds: number | null } | null = null;
-  if (callSid) {
-    const { data } = await supabase
-      .from("calls")
-      .select("id, duration_seconds")
-      .eq("twilio_call_sid", callSid)
-      .eq("call_mode", "human")
-      .maybeSingle();
-    call = data ?? null;
-  }
-  if (!call) {
-    // Non-terminal = still in one of the in-flight statuses (the same set the
-    // stale reaper treats as "active"). completed/failed are the only terminal
-    // statuses this app writes.
-    const { data } = await supabase
-      .from("calls")
-      .select("id, duration_seconds")
-      .eq("call_mode", "human")
-      .in("status", ["queued", "dialing", "ringing", "in_progress"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    call = data ?? null;
-  }
+  // Correlate ONLY by the parent CallSid stamped at creation — every human
+  // call row is created with it. There is deliberately no "most recent
+  // in-flight human call" fallback: with several teammates dialing at once
+  // that could terminalize someone else's live call. An unmatched SID is left
+  // to the stale reaper.
+  const { data: call } = await supabase
+    .from("calls")
+    .select("id, duration_seconds")
+    .eq("twilio_call_sid", callSid)
+    .eq("call_mode", "human")
+    .maybeSingle();
   if (!call) return emptyTwiml();
 
   const update: {
