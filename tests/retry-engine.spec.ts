@@ -318,11 +318,12 @@ test.describe("Retry engine", () => {
   test("expire_resting_leads() flips overdue resting leads back to ready", async () => {
     const leadId = await seedLead("06");
     // Put the lead into resting with a resting_until in the past.
+    const restingUntil = new Date(Date.now() - 60 * 1000).toISOString();
     await admin
       .from("leads")
       .update({
         status: "resting",
-        resting_until: new Date(Date.now() - 60 * 1000).toISOString(),
+        resting_until: restingUntil,
         next_call_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       })
       .eq("id", leadId);
@@ -338,8 +339,12 @@ test.describe("Retry engine", () => {
       .single();
     expect(lead?.status).toBe("ready_to_call");
     expect(lead?.resting_until).toBeNull();
-    // next_call_at was reset to ~now, not the far future we'd set.
-    const next = new Date(lead!.next_call_at!).getTime();
-    expect(Math.abs(next - Date.now())).toBeLessThan(60_000);
+    // next_call_at moved to the moment the rest ENDED (the old resting_until),
+    // not to now() and not the far future we'd set — so the lead is due, but
+    // the dialer's ordering and calling-hours gates still decide when it
+    // actually dials.
+    expect(new Date(lead!.next_call_at!).getTime()).toBe(
+      new Date(restingUntil).getTime(),
+    );
   });
 });
