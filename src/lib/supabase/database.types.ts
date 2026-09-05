@@ -203,6 +203,66 @@ export type Database = {
         };
         Relationships: [];
       };
+      ai_charges: {
+        Row: {
+          cost: number;
+          created_at: string;
+          detail: Json;
+          id: string;
+          input_tokens: number;
+          kind: string;
+          model: string | null;
+          output_tokens: number;
+          owner_id: string;
+          ref_id: string | null;
+          ref_table: string | null;
+        };
+        Insert: {
+          cost: number;
+          created_at?: string;
+          detail?: Json;
+          id?: string;
+          input_tokens?: number;
+          kind: string;
+          model?: string | null;
+          output_tokens?: number;
+          owner_id: string;
+          ref_id?: string | null;
+          ref_table?: string | null;
+        };
+        Update: {
+          cost?: number;
+          created_at?: string;
+          detail?: Json;
+          id?: string;
+          input_tokens?: number;
+          kind?: string;
+          model?: string | null;
+          output_tokens?: number;
+          owner_id?: string;
+          ref_id?: string | null;
+          ref_table?: string | null;
+        };
+        Relationships: [];
+      };
+      alert_state: {
+        Row: {
+          last_fired_at: string;
+          ref_id: string;
+          rule: string;
+        };
+        Insert: {
+          last_fired_at?: string;
+          ref_id: string;
+          rule: string;
+        };
+        Update: {
+          last_fired_at?: string;
+          ref_id?: string;
+          rule?: string;
+        };
+        Relationships: [];
+      };
       api_idempotency_keys: {
         Row: {
           api_key_id: string;
@@ -369,7 +429,6 @@ export type Database = {
           elevenlabs_post_call_webhook_id: string | null;
           elevenlabs_post_call_webhook_secret: string | null;
           elevenlabs_tool_webhook_secret: string | null;
-          elevenlabs_voice_ids: string | null;
           id: number;
           meta_sync_secret: string | null;
           number_pool_settings: Json;
@@ -385,7 +444,6 @@ export type Database = {
           elevenlabs_post_call_webhook_id?: string | null;
           elevenlabs_post_call_webhook_secret?: string | null;
           elevenlabs_tool_webhook_secret?: string | null;
-          elevenlabs_voice_ids?: string | null;
           id?: number;
           meta_sync_secret?: string | null;
           number_pool_settings?: Json;
@@ -401,7 +459,6 @@ export type Database = {
           elevenlabs_post_call_webhook_id?: string | null;
           elevenlabs_post_call_webhook_secret?: string | null;
           elevenlabs_tool_webhook_secret?: string | null;
-          elevenlabs_voice_ids?: string | null;
           id?: number;
           meta_sync_secret?: string | null;
           number_pool_settings?: Json;
@@ -657,10 +714,8 @@ export type Database = {
           retry_applied_at: string | null;
           started_at: string | null;
           status: string;
-          suggested_action: string | null;
           summary: string | null;
           talk_time_seconds: number | null;
-          theme: string | null;
           transcript_json: Json | null;
           twilio_call_sid: string | null;
           twilio_number_id: string | null;
@@ -698,10 +753,8 @@ export type Database = {
           retry_applied_at?: string | null;
           started_at?: string | null;
           status?: string;
-          suggested_action?: string | null;
           summary?: string | null;
           talk_time_seconds?: number | null;
-          theme?: string | null;
           transcript_json?: Json | null;
           twilio_call_sid?: string | null;
           twilio_number_id?: string | null;
@@ -739,10 +792,8 @@ export type Database = {
           retry_applied_at?: string | null;
           started_at?: string | null;
           status?: string;
-          suggested_action?: string | null;
           summary?: string | null;
           talk_time_seconds?: number | null;
-          theme?: string | null;
           transcript_json?: Json | null;
           twilio_call_sid?: string | null;
           twilio_number_id?: string | null;
@@ -940,10 +991,37 @@ export type Database = {
           },
         ];
       };
+      cost_rates: {
+        Row: {
+          detail: Json;
+          key: string;
+          observed_at: string;
+          rate: number;
+          source: string;
+          updated_at: string;
+        };
+        Insert: {
+          detail?: Json;
+          key: string;
+          observed_at?: string;
+          rate: number;
+          source: string;
+          updated_at?: string;
+        };
+        Update: {
+          detail?: Json;
+          key?: string;
+          observed_at?: string;
+          rate?: number;
+          source?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       cost_rollup_daily: {
         Row: {
           calls: number;
-          campaign_id: string;
+          campaign_id: string | null;
           elevenlabs: number;
           elevenlabs_credits: number;
           elevenlabs_llm: number;
@@ -951,6 +1029,7 @@ export type Database = {
           elevenlabs_voice: number;
           elevenlabs_voice_credits: number;
           et_day: string;
+          goal_leads: number;
           goal_met: number;
           list_id: string;
           lookup: number;
@@ -962,7 +1041,7 @@ export type Database = {
         };
         Insert: {
           calls?: number;
-          campaign_id: string;
+          campaign_id?: string | null;
           elevenlabs?: number;
           elevenlabs_credits?: number;
           elevenlabs_llm?: number;
@@ -970,6 +1049,7 @@ export type Database = {
           elevenlabs_voice?: number;
           elevenlabs_voice_credits?: number;
           et_day: string;
+          goal_leads?: number;
           goal_met?: number;
           list_id: string;
           lookup?: number;
@@ -981,7 +1061,7 @@ export type Database = {
         };
         Update: {
           calls?: number;
-          campaign_id?: string;
+          campaign_id?: string | null;
           elevenlabs?: number;
           elevenlabs_credits?: number;
           elevenlabs_llm?: number;
@@ -989,6 +1069,7 @@ export type Database = {
           elevenlabs_voice?: number;
           elevenlabs_voice_credits?: number;
           et_day?: string;
+          goal_leads?: number;
           goal_met?: number;
           list_id?: string;
           lookup?: number;
@@ -1054,6 +1135,45 @@ export type Database = {
           note?: string;
           updated_at?: string;
           updated_by?: string | null;
+        };
+        Relationships: [];
+      };
+      dialer_heartbeats: {
+        Row: {
+          blocked_reasons: Json;
+          candidates: number;
+          dialed: number;
+          duration_ms: number | null;
+          errors: number;
+          id: string;
+          pool_exhausted_campaigns: string[];
+          queue_read_failed: boolean;
+          ran_at: string;
+          summary: Json | null;
+        };
+        Insert: {
+          blocked_reasons?: Json;
+          candidates?: number;
+          dialed?: number;
+          duration_ms?: number | null;
+          errors?: number;
+          id?: string;
+          pool_exhausted_campaigns?: string[];
+          queue_read_failed?: boolean;
+          ran_at?: string;
+          summary?: Json | null;
+        };
+        Update: {
+          blocked_reasons?: Json;
+          candidates?: number;
+          dialed?: number;
+          duration_ms?: number | null;
+          errors?: number;
+          id?: string;
+          pool_exhausted_campaigns?: string[];
+          queue_read_failed?: boolean;
+          ran_at?: string;
+          summary?: Json | null;
         };
         Relationships: [];
       };
@@ -1348,56 +1468,36 @@ export type Database = {
         };
         Relationships: [];
       };
-      hot_lead_dismissals: {
-        Row: {
-          call_id: string;
-          dismissed_at: string;
-          dismissed_by: string | null;
-        };
-        Insert: {
-          call_id: string;
-          dismissed_at?: string;
-          dismissed_by?: string | null;
-        };
-        Update: {
-          call_id?: string;
-          dismissed_at?: string;
-          dismissed_by?: string | null;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "hot_lead_dismissals_call_id_fkey";
-            columns: ["call_id"];
-            isOneToOne: true;
-            referencedRelation: "calls";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
       knowledge_base_sources: {
         Row: {
           created_at: string;
+          elevenlabs_document_id: string | null;
           file_path: string | null;
           id: string;
           kb_id: string;
+          sync_error: string | null;
           synced_at: string | null;
           type: string;
           url: string | null;
         };
         Insert: {
           created_at?: string;
+          elevenlabs_document_id?: string | null;
           file_path?: string | null;
           id?: string;
           kb_id: string;
+          sync_error?: string | null;
           synced_at?: string | null;
           type: string;
           url?: string | null;
         };
         Update: {
           created_at?: string;
+          elevenlabs_document_id?: string | null;
           file_path?: string | null;
           id?: string;
           kb_id?: string;
+          sync_error?: string | null;
           synced_at?: string | null;
           type?: string;
           url?: string | null;
@@ -1571,7 +1671,6 @@ export type Database = {
           status: string;
           timezone: string | null;
           updated_at: string;
-          utm_campaign: string | null;
           website: string | null;
         };
         Insert: {
@@ -1612,7 +1711,6 @@ export type Database = {
           status?: string;
           timezone?: string | null;
           updated_at?: string;
-          utm_campaign?: string | null;
           website?: string | null;
         };
         Update: {
@@ -1653,7 +1751,6 @@ export type Database = {
           status?: string;
           timezone?: string | null;
           updated_at?: string;
-          utm_campaign?: string | null;
           website?: string | null;
         };
         Relationships: [
@@ -1860,14 +1957,10 @@ export type Database = {
         Row: {
           active: boolean;
           active_campaign_id: string | null;
-          avatar_url: string | null;
           created_at: string;
           email: string | null;
           full_name: string | null;
           id: string;
-          last_login_at: string | null;
-          notify_on_email_reply: boolean;
-          notify_on_goal_met: boolean;
           onboarding_dismissed_at: string | null;
           role: string;
           welcome_seen_at: string | null;
@@ -1875,14 +1968,10 @@ export type Database = {
         Insert: {
           active?: boolean;
           active_campaign_id?: string | null;
-          avatar_url?: string | null;
           created_at?: string;
           email?: string | null;
           full_name?: string | null;
           id: string;
-          last_login_at?: string | null;
-          notify_on_email_reply?: boolean;
-          notify_on_goal_met?: boolean;
           onboarding_dismissed_at?: string | null;
           role?: string;
           welcome_seen_at?: string | null;
@@ -1890,14 +1979,10 @@ export type Database = {
         Update: {
           active?: boolean;
           active_campaign_id?: string | null;
-          avatar_url?: string | null;
           created_at?: string;
           email?: string | null;
           full_name?: string | null;
           id?: string;
-          last_login_at?: string | null;
-          notify_on_email_reply?: boolean;
-          notify_on_goal_met?: boolean;
           onboarding_dismissed_at?: string | null;
           role?: string;
           welcome_seen_at?: string | null;
@@ -2575,10 +2660,16 @@ export type Database = {
         Args: { col: string; op: string; val: Json };
         Returns: string;
       };
+      alert_fire: {
+        Args: { in_period: string; in_ref: string; in_rule: string };
+        Returns: boolean;
+      };
       bump_api_rate_limit: {
         Args: { in_api_key_id: string; in_window_seconds: number };
         Returns: number;
       };
+      call_cost_components: { Args: { j: Json }; Returns: number };
+      call_cost_total: { Args: { j: Json }; Returns: number };
       claim_lead_for_dial: {
         Args: { in_campaign_id: string; in_lead_id: string };
         Returns: boolean;
@@ -2600,32 +2691,27 @@ export type Database = {
           spend: number;
         }[];
       };
-      elevenlabs_voice_ids: { Args: never; Returns: string };
       expire_resting_leads: { Args: never; Returns: number };
+      cron_schedule_minutes: {
+        Args: { in_schedule: string };
+        Returns: number;
+      };
+      evaluate_alerts: { Args: never; Returns: Json };
       get_or_create_inbound_list: {
         Args: { in_owner: string };
         Returns: string;
       };
       is_admin: { Args: { uid: string }; Returns: boolean };
       is_phone_on_dnc: { Args: { phone_to_check: string }; Returns: boolean };
-      is_within_calling_hours:
-        | {
-            Args: {
-              hours_end: string;
-              hours_start: string;
-              lead_timezone: string;
-            };
-            Returns: boolean;
-          }
-        | {
-            Args: {
-              allow_weekends: boolean;
-              hours_end: string;
-              hours_start: string;
-              lead_timezone: string;
-            };
-            Returns: boolean;
-          };
+      is_within_calling_hours: {
+        Args: {
+          allow_weekends: boolean;
+          hours_end: string;
+          hours_start: string;
+          lead_timezone: string;
+        };
+        Returns: boolean;
+      };
       j_num: { Args: { j: Json; k: string }; Returns: number };
       leads_matching_filter: { Args: { in_recipe: Json }; Returns: string[] };
       leads_matching_filter_rows: {
@@ -2668,7 +2754,6 @@ export type Database = {
           status: string;
           timezone: string | null;
           updated_at: string;
-          utm_campaign: string | null;
           website: string | null;
         }[];
         SetofOptions: {

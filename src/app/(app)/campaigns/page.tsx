@@ -17,6 +17,8 @@ import { CampaignBoard, type CampaignCardItem } from "./campaign-board";
 import { AutopilotToggle } from "./autopilot-toggle";
 import {
   attentionRail,
+  CAMPAIGN_ALERT_KINDS,
+  CampaignAlertChip,
   CampaignStatusBadge,
   DialingNowChip,
   HoursLabel,
@@ -24,6 +26,7 @@ import {
   ManualOnlyChip,
   OutsideHoursChip,
   SpendCapBar,
+  type CampaignAlert,
 } from "./campaign-cells";
 import { CampaignNameTrigger } from "./campaign-name-trigger";
 import { CampaignRowActions } from "./campaign-row-actions";
@@ -85,6 +88,7 @@ export default async function CampaignsPage({
     { data: rawSmartLists },
     stats,
     perCampaignSpend,
+    { data: rawAlerts },
   ] = await Promise.all([
     // Note: phone numbers are looked up via the separate `rawNumbers`
     // query below, then folded into the row via twilio_number_id.
@@ -137,6 +141,18 @@ export default async function CampaignsPage({
     supabase.from("smart_lists").select("id, name").order("name"),
     fetchCampaignStats(supabase),
     fetchPerCampaignSpend(supabase),
+    // The signed-in user's UNREAD silent-stop alerts (cap hit / dialer
+    // stalled / pool exhausted), newest first — one chip per campaign below.
+    // RLS already scopes notifications to the user; the .eq is belt-and-braces.
+    supabase
+      .from("notifications")
+      .select("kind, message, ref_id")
+      .eq("user_id", user.id)
+      .is("read_at", null)
+      .eq("ref_table", "campaigns")
+      .in("kind", [...CAMPAIGN_ALERT_KINDS])
+      .order("created_at", { ascending: false })
+      .limit(100),
   ]);
 
   const agentOptions: Option[] = (agentsRaw ?? []).map((a) => ({
@@ -338,6 +354,14 @@ export default async function CampaignsPage({
     statusFilter === "all" ? true : c.status === statusFilter,
   );
 
+  // Newest unread alert per campaign (rows arrive newest first, so the
+  // first one seen for a campaign wins).
+  const alertByCampaign = new Map<string, CampaignAlert>();
+  for (const a of rawAlerts ?? []) {
+    if (!a.ref_id || alertByCampaign.has(a.ref_id)) continue;
+    alertByCampaign.set(a.ref_id, { kind: a.kind, message: a.message });
+  }
+
   // Build the view model once — the table and the board both render
   // from this, so the live signals stay identical across views.
   const viewModels: CampaignCardItem[] = campaigns.map((campaign) => {
@@ -396,6 +420,7 @@ export default async function CampaignsPage({
       eligibleLists: eligibleListsFor(),
       listSharedWith: sharedWithFor(campaign.id),
       currentListIds: campaignToListIds.get(campaign.id) ?? [],
+      alert: alertByCampaign.get(campaign.id) ?? null,
     };
   });
 
@@ -520,10 +545,16 @@ export default async function CampaignsPage({
                       <TableCell className="w-[120px]">
                         <div className="flex flex-col items-start gap-1">
                           <CampaignStatusBadge status={c.status} />
-                          {c.isActive && c.autopilotEnabled && c.insideHours ? (
+                          {/* A live alert outranks "Dialing now" — see the
+                              board for why. */}
+                          <CampaignAlertChip alert={c.alert} />
+                          {c.isActive &&
+                          !c.alert &&
+                          c.autopilotEnabled &&
+                          c.insideHours ? (
                             <DialingNowChip />
                           ) : null}
-                          {c.isActive && !c.autopilotEnabled ? (
+                          {c.isActive && !c.alert && !c.autopilotEnabled ? (
                             <ManualOnlyChip />
                           ) : null}
                         </div>

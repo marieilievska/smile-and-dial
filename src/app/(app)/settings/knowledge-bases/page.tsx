@@ -28,7 +28,7 @@ export default async function KnowledgeBasesPage() {
   const { data } = await supabase
     .from("knowledge_bases")
     .select(
-      "id, name, description, created_at, knowledge_base_sources(id, type, file_path, url, synced_at, created_at)",
+      "id, name, description, created_at, knowledge_base_sources(id, type, file_path, url, synced_at, elevenlabs_document_id, sync_error, created_at)",
     )
     .order("created_at", { ascending: true });
 
@@ -46,6 +46,8 @@ export default async function KnowledgeBasesPage() {
           file_path: s.file_path,
           url: s.url,
           synced_at: s.synced_at,
+          elevenlabs_document_id: s.elevenlabs_document_id,
+          sync_error: s.sync_error,
         }),
       ),
   }));

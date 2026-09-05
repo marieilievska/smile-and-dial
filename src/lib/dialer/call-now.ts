@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import { ACTIVE_CALL_STATUSES } from "@/lib/calls/live-calls";
+import { withRecomputedTotal } from "@/lib/costs/breakdown";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
 import { selectPoolNumber } from "@/lib/dialer/number-pool";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
@@ -34,10 +35,6 @@ const PRE_CALL_REASON_LABELS: Record<string, string> = {
     "This is a mobile number — Smile & Dial doesn't auto-dial cell phones.",
   call_in_flight: "This lead already has a call in progress.",
   campaign_not_active: "Campaign is paused or ended.",
-  campaign_has_no_twilio_number: "Campaign has no Twilio number attached.",
-  twilio_number_missing: "The campaign's Twilio number isn't available.",
-  twilio_number_reassigned:
-    "The Twilio number was reassigned to another campaign.",
   outside_calling_hours:
     "The lead's local time is outside calling hours for this campaign.",
   pacing_wait:
@@ -374,13 +371,12 @@ export async function callNow(input: {
       ).toISOString(),
       duration_seconds: durationSeconds,
       talk_time_seconds: 0,
-      cost_breakdown: {
+      cost_breakdown: withRecomputedTotal({
         twilio: 0.02,
         elevenlabs: 0,
         openai: 0,
         lookup: 0,
-        total: 0.02,
-      },
+      }),
     })
     .select("id")
     .single();

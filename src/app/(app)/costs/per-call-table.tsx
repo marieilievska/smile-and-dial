@@ -101,7 +101,10 @@ export function PerCallTable({
                 key={r.id}
                 row={r}
                 breakdown={b}
-                campaignName={campaignName.get(r.campaign_id) ?? "—"}
+                campaignName={
+                  (r.campaign_id ? campaignName.get(r.campaign_id) : null) ??
+                  "—"
+                }
                 startedLabel={formatStartedAt(startedIso, nowDate)}
                 startedTitle={etDateTimeExact(startedIso)}
                 duration={fmtDuration(r.duration_seconds)}

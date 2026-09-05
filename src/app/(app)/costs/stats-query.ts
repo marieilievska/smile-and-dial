@@ -55,7 +55,7 @@ export async function fetchCostsHeadlineStats(
   const monthStartEt = `${cy}-${String(cm).padStart(2, "0")}-01`;
   const startOfMonthIso = etMidnightUtcIso(monthStartEt);
 
-  const [rollup, lookupRows] = await Promise.all([
+  const [rollup, lookupRows, aiRows] = await Promise.all([
     // Pre-aggregated call spend for this ET month, by ET day (fast path — reads
     // the cost_rollup_daily table instead of scanning every call).
     fetchAllRows<{ et_day: string; total: number }>((from, to) =>
@@ -75,6 +75,16 @@ export async function fetchCostsHeadlineStats(
         .order("created_at", { ascending: false })
         .range(from, to),
     ),
+    // AI spend recorded outside a call's breakdown (Ask Smile, agent drafting,
+    // live research, ElevenLabs test calls …) this month.
+    fetchAllRows<{ cost: number; created_at: string }>((from, to) =>
+      supabase
+        .from("ai_charges")
+        .select("cost, created_at")
+        .gte("created_at", startOfMonthIso)
+        .order("created_at", { ascending: false })
+        .range(from, to),
+    ),
   ]);
 
   let todaySpend = 0;
@@ -85,7 +95,7 @@ export async function fetchCostsHeadlineStats(
     if (row.et_day === todayEt) todaySpend += total;
   }
   const todayIso = startOfTodayEtIso(now);
-  for (const row of lookupRows) {
+  for (const row of [...lookupRows, ...aiRows]) {
     const cost = Number(row.cost) || 0;
     mtdSpend += cost;
     if (row.created_at >= todayIso) todaySpend += cost;
@@ -129,20 +139,25 @@ export async function fetchCampaignCaps(
       .select("id, name, status, daily_spend_cap, monthly_spend_cap"),
     // Pre-aggregated per-campaign spend for this ET month (fast path — reads
     // cost_rollup_daily instead of scanning every call).
-    fetchAllRows<{ campaign_id: string; et_day: string; total: number }>(
-      (from, to) =>
-        supabase
-          .from("cost_rollup_daily")
-          .select("campaign_id, et_day, total")
-          .gte("et_day", monthStartEt)
-          .order("et_day", { ascending: false })
-          .range(from, to),
+    fetchAllRows<{
+      campaign_id: string | null;
+      et_day: string;
+      total: number;
+    }>((from, to) =>
+      supabase
+        .from("cost_rollup_daily")
+        .select("campaign_id, et_day, total")
+        .gte("et_day", monthStartEt)
+        .order("et_day", { ascending: false })
+        .range(from, to),
     ),
   ]);
 
   const spendDay = new Map<string, number>();
   const spendMonth = new Map<string, number>();
   for (const r of rollup) {
+    // Calls whose campaign was deleted have no cap to measure against.
+    if (!r.campaign_id) continue;
     const total = Number(r.total) || 0;
     spendMonth.set(r.campaign_id, (spendMonth.get(r.campaign_id) ?? 0) + total);
     if (r.et_day === todayEt) {

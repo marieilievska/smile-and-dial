@@ -2,6 +2,7 @@ import { Phone } from "lucide-react";
 
 import {
   attentionRail,
+  CampaignAlertChip,
   CampaignStatusBadge,
   DialingNowChip,
   HoursLabel,
@@ -9,6 +10,7 @@ import {
   ManualOnlyChip,
   OutsideHoursChip,
   SpendCapBar,
+  type CampaignAlert,
 } from "./campaign-cells";
 import { CampaignNameTrigger } from "./campaign-name-trigger";
 import { CampaignRowActions } from "./campaign-row-actions";
@@ -39,6 +41,9 @@ export type CampaignCardItem = {
   poolCount: number;
   eligibleLists: Option[];
   currentListIds: string[];
+  /** Newest UNREAD silent-stop alert for this campaign (cap hit, dialer
+   *  stalled, pool exhausted), or null. */
+  alert: CampaignAlert | null;
 };
 
 /** Board (card) view of campaigns — the "live operations" lens. Each
@@ -87,15 +92,20 @@ export function CampaignBoard({
             {/* Top: status + live signal */}
             <div className="flex items-center justify-between gap-2">
               <CampaignStatusBadge status={c.status} />
-              {c.isActive ? (
-                !c.autopilotEnabled ? (
-                  <ManualOnlyChip />
-                ) : c.insideHours ? (
-                  <DialingNowChip />
-                ) : (
-                  <OutsideHoursChip />
-                )
-              ) : null}
+              <div className="flex items-center gap-1.5">
+                {/* A live alert outranks the routine live signal: a card that
+                    says "Dialing now" next to "Dialer stalled" would lie. */}
+                <CampaignAlertChip alert={c.alert} />
+                {c.isActive && !c.alert ? (
+                  !c.autopilotEnabled ? (
+                    <ManualOnlyChip />
+                  ) : c.insideHours ? (
+                    <DialingNowChip />
+                  ) : (
+                    <OutsideHoursChip />
+                  )
+                ) : null}
+              </div>
             </div>
 
             {/* Name (settings trigger) + phone/description */}

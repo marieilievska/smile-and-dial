@@ -23,6 +23,7 @@ import {
   normalizeEvaluation,
 } from "./data-collection";
 import type { ToolsEnabled } from "./prompt";
+import { AGENT_SYNC_ROW_COLUMNS, syncAgentRowToElevenLabs } from "./sync-row";
 
 export type AgentResult = {
   error: string | null;
@@ -97,6 +98,7 @@ export async function createAgent(input: {
       extraDataCollection,
       extraEvaluation,
       toolsEnabled: input.toolsEnabled,
+      knowledgeBaseIds: input.knowledgeBaseIds,
     },
     null,
   );
@@ -240,15 +242,17 @@ export async function updateAgent(
   if (error) return { error: "Could not update the agent." };
 
   // Connected agents: never push prompt/voice (the user built those in
-  // ElevenLabs), but DO re-apply our integration layer so tool changes here
-  // take effect — webhooks + call_id var + enabled server tool_ids, merged
-  // in without touching the prompt.
+  // ElevenLabs), but DO re-apply our integration layer so tool and
+  // knowledge-base changes here take effect — webhooks + call_id var +
+  // enabled server tool_ids + knowledge documents, merged in without touching
+  // the prompt.
   if (existing.externally_managed) {
     if (existing.elevenlabs_agent_id) {
       await applyConnectedAgentIntegration(
         existing.elevenlabs_agent_id,
         input.toolsEnabled,
         extraDataCollection,
+        input.knowledgeBaseIds,
       );
     }
     revalidatePath("/settings/agents");
@@ -266,6 +270,7 @@ export async function updateAgent(
       extraDataCollection,
       extraEvaluation,
       toolsEnabled: input.toolsEnabled,
+      knowledgeBaseIds: input.knowledgeBaseIds,
     },
     existing.elevenlabs_agent_id,
   );
@@ -329,64 +334,9 @@ export type ResyncResult = {
   failed?: number;
 };
 
-type AgentSyncRow = {
-  id: string;
-  name: string;
-  voice_id: string | null;
-  ai_model: string | null;
-  system_prompt: string | null;
-  prompt_goal: string | null;
-  elevenlabs_agent_id: string | null;
-  extra_data_collection: unknown;
-  extra_evaluation: unknown;
-  tools_enabled: unknown;
-  externally_managed: boolean | null;
-};
-
-/** Push ONE agent's current config to ElevenLabs. Connected (externally-managed)
- *  agents get only our integration overlay — webhooks + call_id var + tool_ids,
- *  never their prompt/voice. App-managed agents get the FULL sync, including
- *  their custom data-collection + evaluation fields. Shared by resyncAllAgents
- *  and the per-agent Sync button so both behave identically. */
-async function syncAgentRow(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  a: AgentSyncRow,
-): Promise<{ error: string | null }> {
-  if (a.externally_managed) {
-    if (!a.elevenlabs_agent_id) return { error: null };
-    return applyConnectedAgentIntegration(
-      a.elevenlabs_agent_id,
-      (a.tools_enabled ?? undefined) as unknown as ToolsEnabled | undefined,
-      normalizeDataCollection(a.extra_data_collection),
-    );
-  }
-  const sync = await syncAgentToElevenLabs(
-    {
-      name: a.name,
-      systemPrompt: a.system_prompt ?? "",
-      voiceId: a.voice_id?.trim() || null,
-      aiModel: a.ai_model?.trim() || null,
-      goal: a.prompt_goal?.trim() || null,
-      extraDataCollection: normalizeDataCollection(a.extra_data_collection),
-      extraEvaluation: normalizeEvaluation(a.extra_evaluation),
-      toolsEnabled: (a.tools_enabled ?? undefined) as unknown as
-        | ToolsEnabled
-        | undefined,
-    },
-    a.elevenlabs_agent_id,
-  );
-  if (sync.error) return { error: sync.error };
-  if (
-    sync.elevenlabsAgentId &&
-    sync.elevenlabsAgentId !== a.elevenlabs_agent_id
-  ) {
-    await supabase
-      .from("agents")
-      .update({ elevenlabs_agent_id: sync.elevenlabsAgentId })
-      .eq("id", a.id);
-  }
-  return { error: null };
-}
+// The per-row push (syncAgentRowToElevenLabs) lives in ./sync-row so the
+// knowledge-base actions can re-push agents without importing this "use
+// server" module.
 
 /** Push one agent's config to ElevenLabs on demand (full sync incl. custom data
  *  collection for app-managed agents; overlay for connected ones). Admin-only.
@@ -409,14 +359,12 @@ export async function syncAgent(id: string): Promise<AgentResult> {
 
   const { data: agent } = await supabase
     .from("agents")
-    .select(
-      "id, name, voice_id, ai_model, system_prompt, prompt_goal, elevenlabs_agent_id, extra_data_collection, extra_evaluation, tools_enabled, externally_managed",
-    )
+    .select(AGENT_SYNC_ROW_COLUMNS)
     .eq("id", id)
     .maybeSingle();
   if (!agent) return { error: "That agent no longer exists." };
 
-  const r = await syncAgentRow(supabase, agent);
+  const r = await syncAgentRowToElevenLabs(supabase, agent);
   if (r.error) return { error: r.error };
 
   revalidatePath("/settings/agents");
@@ -446,9 +394,7 @@ export async function resyncAllAgents(): Promise<ResyncResult> {
 
   const { data: agents, error } = await supabase
     .from("agents")
-    .select(
-      "id, name, voice_id, ai_model, system_prompt, prompt_goal, elevenlabs_agent_id, extra_data_collection, extra_evaluation, tools_enabled, externally_managed",
-    )
+    .select(AGENT_SYNC_ROW_COLUMNS)
     .order("created_at", { ascending: true });
   if (error) return { error: "Could not load agents." };
   if (!agents || agents.length === 0) {
@@ -458,7 +404,7 @@ export async function resyncAllAgents(): Promise<ResyncResult> {
   let synced = 0;
   let failed = 0;
   for (const a of agents) {
-    const r = await syncAgentRow(supabase, a);
+    const r = await syncAgentRowToElevenLabs(supabase, a);
     if (r.error) failed += 1;
     else synced += 1;
   }
@@ -488,7 +434,7 @@ export async function draftAgentFromDescription(
   }
 
   try {
-    const draft = await draftAgent(trimmed);
+    const draft = await draftAgent(trimmed, { ownerId: user.id });
     return { draft };
   } catch {
     return { error: "Couldn't draft the agent. Please try again." };
@@ -568,6 +514,7 @@ export async function createAgentFromTemplate(
       extraDataCollection: script.dataCollection,
       extraEvaluation: [],
       toolsEnabled: input.toolsEnabled,
+      knowledgeBaseIds: input.knowledgeBaseIds,
     },
     null,
   );
@@ -649,6 +596,7 @@ export async function updateAgentScript(
       extraDataCollection: script.dataCollection,
       extraEvaluation: [],
       toolsEnabled: input.toolsEnabled,
+      knowledgeBaseIds: input.knowledgeBaseIds,
     },
     existing.elevenlabs_agent_id,
   );

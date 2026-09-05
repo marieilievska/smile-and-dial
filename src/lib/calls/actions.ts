@@ -12,6 +12,7 @@ import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { applyOutcomeSideEffects } from "@/lib/elevenlabs/post-call-webhook";
 import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
 import { recomputeLeadCallState } from "@/lib/leads/recompute-call-state";
+import { etDayString } from "@/lib/time/eastern";
 import { createAdminClient as createServiceClient } from "@/lib/supabase/admin";
 
 /** Outcomes the retry engine intentionally ignores because they're owned by
@@ -488,19 +489,25 @@ export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
   }
 
   // Which leads are affected, so we can reset them from their REMAINING calls
-  // after deletion. Chunk the `.in()` so a large "select all matching" sweep
-  // (thousands of ids) never overflows the request URL.
+  // after deletion — and which ET days, so the cost rollup for those days can
+  // be rebuilt (the 10-minute cron only re-aggregates the last 4 days, so a
+  // deleted older call otherwise kept counting on the Costs page forever).
+  // Chunk the `.in()` so a large "select all matching" sweep (thousands of
+  // ids) never overflows the request URL.
   const leadIdSet = new Set<string>();
+  const etDaySet = new Set<string>();
   for (const idsChunk of chunk(clean, ID_CHUNK)) {
     const { data: affected } = await admin
       .from("calls")
-      .select("lead_id")
+      .select("lead_id, created_at")
       .in("id", idsChunk);
     for (const c of affected ?? []) {
       if (c.lead_id) leadIdSet.add(c.lead_id);
+      if (c.created_at) etDaySet.add(etDayString(new Date(c.created_at)));
     }
   }
   const leadIds = [...leadIdSet];
+  const etDays = [...etDaySet];
 
   // Remove callbacks these calls scheduled (artifacts of the deleted calls).
   // Keep dnc_entries — a do-not-call block survives a call deletion.
@@ -514,6 +521,13 @@ export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
   // Reset each affected lead to reflect only the calls that remain.
   for (const leadId of leadIds) {
     await recomputeLeadCallState(admin, leadId);
+  }
+
+  // Rebuild the pre-aggregated cost rollup for every ET day that lost a call,
+  // so the Costs page drops the spend immediately — even for days older than
+  // the cron's 4-day window. Best-effort: the rollup is a cache.
+  if (etDays.length > 0) {
+    await admin.rpc("refresh_cost_rollup", { p_days: etDays });
   }
 
   // The call list, plus everything that aggregates over calls + the leads.
