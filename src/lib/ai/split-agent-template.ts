@@ -4,6 +4,11 @@ import {
   normalizeKeyDetails,
   type KeyDetail,
 } from "@/lib/agents/templates/types";
+import {
+  chatCompletionUsage,
+  recordAiChargeAsService,
+} from "@/lib/costs/ai-charges";
+import { priceOpenAiTokens } from "@/lib/costs/rates";
 import { openAiKey } from "@/lib/openai/live";
 
 export interface TemplateSplit {
@@ -59,6 +64,8 @@ function fallbackSplit(agentName: string, text: string): TemplateSplit {
   };
 }
 
+const SPLIT_MODEL = "gpt-5.4";
+
 const SYSTEM_PROMPT = `You convert an existing outbound phone-agent prompt into a reusable template by separating two layers.
 Reply ONLY with a JSON object with these string keys (plus keyDetails):
 - "name": a short template name (3-5 words)
@@ -70,12 +77,21 @@ Reply ONLY with a JSON object with these string keys (plus keyDetails):
 - "keyDetails": an array of the concrete facts you removed, each {"label","type","value","required"} where type is "text" | "date" | "time". ANY calendar date MUST be type "date" with value as YYYY-MM-DD. Include rep name, company, event/offer name, dates, times.
 Keep instructions faithful to the original behavior. Do not invent facts.`;
 
+export type SplitAgentOptions = {
+  /** Who to book the OpenAI spend to in `ai_charges` (the signed-in admin).
+   *  Omit to skip the ledger (tests, offline). */
+  ownerId?: string | null;
+  /** The agent being split, for the ledger's ref (`agents`). */
+  agentId?: string | null;
+};
+
 /** Split an agent's prompt into a template proposal. Live OpenAI when a key is
  *  set; otherwise (or on any failure/empty input) a graceful fallback that drops
  *  the raw prompt into the script for the admin to split by hand. Never throws. */
 export async function splitAgentIntoTemplate(
   promptText: string,
   agentName: string,
+  opts: SplitAgentOptions = {},
 ): Promise<TemplateSplit> {
   const text = promptText.trim();
   const apiKey = openAiKey();
@@ -89,7 +105,7 @@ export async function splitAgentIntoTemplate(
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-5.4",
+        model: SPLIT_MODEL,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: text },
@@ -101,6 +117,23 @@ export async function splitAgentIntoTemplate(
     const data = (await res.json()) as {
       choices?: { message?: { content?: string } }[];
     };
+    const usage = chatCompletionUsage(data);
+    if (opts.ownerId && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
+      await recordAiChargeAsService({
+        ownerId: opts.ownerId,
+        kind: "split_agent_template",
+        model: SPLIT_MODEL,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cost: priceOpenAiTokens(
+          usage.inputTokens,
+          usage.outputTokens,
+          SPLIT_MODEL,
+        ),
+        refTable: opts.agentId ? "agents" : null,
+        refId: opts.agentId ?? null,
+      });
+    }
     const content = data.choices?.[0]?.message?.content ?? "";
     return (
       parseSplitResponse(content, agentName) ?? fallbackSplit(agentName, text)

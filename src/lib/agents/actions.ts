@@ -488,7 +488,7 @@ export async function draftAgentFromDescription(
   }
 
   try {
-    const draft = await draftAgent(trimmed);
+    const draft = await draftAgent(trimmed, { ownerId: user.id });
     return { draft };
   } catch {
     return { error: "Couldn't draft the agent. Please try again." };

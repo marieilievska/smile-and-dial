@@ -16,6 +16,7 @@ import { isCampaignLevelBlock } from "@/lib/dialer/block-scope";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 import { enforceElevenLabsCreditGate } from "@/lib/dialer/credit-gate";
 import { sweepStuckCallbacks } from "@/lib/callbacks/sweep";
+import { withRecomputedTotal } from "@/lib/costs/breakdown";
 import {
   backfillMissingRecordings,
   type RecordingBackfillSummary,
@@ -194,13 +195,12 @@ async function placeMockCall(
       duration_seconds: mock.durationSeconds,
       talk_time_seconds: mock.talkTimeSeconds,
       // Mocked cost — pennies, mirrors what real Twilio + ElevenLabs would log.
-      cost_breakdown: {
+      cost_breakdown: withRecomputedTotal({
         twilio: 0.02,
         elevenlabs: 0.05,
         openai: 0,
         lookup: 0,
-        total: 0.07,
-      },
+      }),
     })
     .select("id")
     .single();

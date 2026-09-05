@@ -3,6 +3,8 @@ import { type NextRequest } from "next/server";
 import { appBaseUrl } from "@/lib/app-url";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isValidTwilioSignature } from "@/lib/twilio/status-webhook";
+import { numField, withRecomputedTotal } from "@/lib/costs/breakdown";
+import { primeEffectiveRates } from "@/lib/costs/effective-rates";
 import {
   priceTwilioCall,
   priceWhisper,
@@ -45,6 +47,8 @@ export async function POST(request: NextRequest) {
   const recordingSid = String(params.RecordingSid ?? "");
 
   const supabase = createAdminClient();
+  // Price at the providers' effective rates (cost_rates), never throws.
+  await primeEffectiveRates(supabase);
 
   // Idempotency guard: Twilio delivers recording callbacks at-least-once and
   // retries on any non-2xx. Claim the recording_sid FIRST so a duplicate
@@ -68,17 +72,22 @@ export async function POST(request: NextRequest) {
   // fall back to "the most recent human call" — that could attach this
   // recording's transcript + cost to a DIFFERENT lead's call. Read the existing
   // summary/status/duration so we MERGE rather than clobber a human's saved
-  // disposition note.
+  // disposition note, and the direction + prior cost so the call is priced at
+  // the right Twilio rate without dropping a lookup already on the row.
   let call: {
     id: string;
     summary: string | null;
     status: string;
     duration_seconds: number | null;
+    direction: string | null;
+    cost_breakdown: unknown;
   } | null = null;
   if (callSid) {
     const { data } = await supabase
       .from("calls")
-      .select("id, summary, status, duration_seconds")
+      .select(
+        "id, summary, status, duration_seconds, direction, cost_breakdown",
+      )
       .eq("twilio_call_sid", callSid)
       .eq("call_mode", "human")
       .maybeSingle();
@@ -103,12 +112,15 @@ export async function POST(request: NextRequest) {
       : null;
     const aiSummary = summaryResult?.text ?? null;
 
-    // Twilio bills the recorded human call leg; OpenAI bills Whisper per minute
-    // of audio plus the gpt-4o-mini summary by its actual tokens. Rates central.
-    const twilioCost = priceTwilioCall(recordingDuration);
+    // Twilio bills the recorded human call leg at the inbound or outbound
+    // rate (a browser call is a plain voice leg — no media stream). OpenAI
+    // bills Whisper per minute of audio ONLY when a transcript actually came
+    // back (a null transcription was never billed), plus the gpt-4o-mini
+    // summary by its actual tokens. Rates central.
+    const twilioCost = priceTwilioCall(recordingDuration, call.direction);
     const openaiCost = Number(
       (
-        priceWhisper(recordingDuration) +
+        (transcript ? priceWhisper(recordingDuration) : 0) +
         (summaryResult
           ? priceOpenAiTokens(
               summaryResult.promptTokens,
@@ -117,13 +129,16 @@ export async function POST(request: NextRequest) {
           : 0)
       ).toFixed(4),
     );
-    const costBreakdown = {
+    const prev = (call.cost_breakdown ?? {}) as Record<string, unknown>;
+    const costBreakdown = withRecomputedTotal({
+      ...prev,
       twilio: twilioCost,
-      elevenlabs: 0,
+      twilio_call: twilioCost,
+      twilio_media_stream: 0,
+      elevenlabs: numField(prev, "elevenlabs"),
       openai: openaiCost,
-      lookup: 0,
-      total: Number((twilioCost + openaiCost).toFixed(4)),
-    };
+      lookup: numField(prev, "lookup"),
+    });
 
     // Merge the summary: never clobber a human's disposition note. If the user
     // already saved a note, append the AI summary below it; if there's no note

@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
+import {
+  addBreakdownInto,
+  zeroBreakdown,
+  type Breakdown,
+} from "@/lib/costs/breakdown";
 import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import {
   endOfEtDayUtcIso,
@@ -10,12 +15,16 @@ import {
 } from "@/lib/time/eastern";
 
 /** Cost rollups derived from the same `calls.cost_breakdown` JSON Phase 5
- *  populated. Six views, all backed by one fetch. */
+ *  populated. Six views, all backed by one fetch. The breakdown parsing itself
+ *  lives in lib/costs/breakdown (pure, client-safe) — re-exported here so the
+ *  older import path keeps working. */
+
+export { pickBreakdown, type Breakdown } from "@/lib/costs/breakdown";
 
 export type CostsRow = {
   id: string;
   lead_id: string;
-  campaign_id: string;
+  campaign_id: string | null;
   goal_met: boolean;
   duration_seconds: number | null;
   cost_breakdown: unknown;
@@ -31,84 +40,14 @@ export type Slicers = {
   to: string;
 };
 
-export type Breakdown = {
-  twilio: number;
-  elevenlabs: number;
-  // ElevenLabs LLM vs voice/telephony split (USD) — sub-components of
-  // `elevenlabs`, NOT counted again in `total`. Plus the raw credits for each.
-  elevenlabsLlm: number;
-  elevenlabsVoice: number;
-  elevenlabsCredits: number;
-  elevenlabsLlmCredits: number;
-  elevenlabsVoiceCredits: number;
-  openai: number;
-  lookup: number;
-  total: number;
-};
+/** Rollup rows for calls whose campaign was deleted carry a NULL campaign_id
+ *  (deleteCampaign detaches calls via `on delete set null`). They are keyed
+ *  under this sentinel in the per-campaign views so the spend still shows. */
+export const NO_CAMPAIGN_KEY = "__no_campaign__";
+export const NO_CAMPAIGN_LABEL = "Deleted campaign";
 
-const ZERO: Breakdown = {
-  twilio: 0,
-  elevenlabs: 0,
-  elevenlabsLlm: 0,
-  elevenlabsVoice: 0,
-  elevenlabsCredits: 0,
-  elevenlabsLlmCredits: 0,
-  elevenlabsVoiceCredits: 0,
-  openai: 0,
-  lookup: 0,
-  total: 0,
-};
-
-export function pickBreakdown(value: unknown): Breakdown {
-  if (!value || typeof value !== "object") return { ...ZERO };
-  const v = value as Record<string, unknown>;
-  const n = (k: string) =>
-    typeof v[k] === "number" && Number.isFinite(v[k] as number)
-      ? (v[k] as number)
-      : 0;
-  const twilio = n("twilio");
-  const elevenlabs = n("elevenlabs");
-  // The "OpenAI" line is the sum of two sources: call-time work (summaries +
-  // transcription, under `openai`) and the async Call Reviewer (under
-  // `openai_review`, written when the review finishes). Both roll into one
-  // OpenAI figure — the reviewer's spend would otherwise be invisible here.
-  const openai = n("openai") + n("openai_review");
-  const lookup = n("lookup");
-  // Derive total from the itemized vendor components rather than trusting
-  // the stored `total`, which can be missing or stale relative to the parts
-  // (e.g. a row where vendor costs were written but total wasn't recomputed).
-  // Only fall back to the stored total for legacy rows that carry a total
-  // with no itemization, so we never lose a real-but-unitemized cost.
-  // NOTE: the elevenlabs_* split keys are sub-parts of `elevenlabs` — they are
-  // deliberately NOT in componentSum, or EL would be double-counted.
-  const componentSum = twilio + elevenlabs + openai + lookup;
-  const storedTotal = n("total");
-  const total = componentSum > 0 ? componentSum : storedTotal;
-  return {
-    twilio,
-    elevenlabs,
-    elevenlabsLlm: n("elevenlabs_llm"),
-    elevenlabsVoice: n("elevenlabs_voice"),
-    elevenlabsCredits: n("elevenlabs_credits"),
-    elevenlabsLlmCredits: n("elevenlabs_llm_credits"),
-    elevenlabsVoiceCredits: n("elevenlabs_voice_credits"),
-    openai,
-    lookup,
-    total,
-  };
-}
-
-function addInto(acc: Breakdown, b: Breakdown) {
-  acc.twilio += b.twilio;
-  acc.elevenlabs += b.elevenlabs;
-  acc.elevenlabsLlm += b.elevenlabsLlm;
-  acc.elevenlabsVoice += b.elevenlabsVoice;
-  acc.elevenlabsCredits += b.elevenlabsCredits;
-  acc.elevenlabsLlmCredits += b.elevenlabsLlmCredits;
-  acc.elevenlabsVoiceCredits += b.elevenlabsVoiceCredits;
-  acc.openai += b.openai;
-  acc.lookup += b.lookup;
-  acc.total += b.total;
+function campaignKey(id: string | null): string {
+  return id ?? NO_CAMPAIGN_KEY;
 }
 
 // Day bounds in Eastern time so evening calls land on the right ET day.
@@ -176,11 +115,16 @@ export async function fetchCostRows(
  *  every call (see migration 20260714150000_cost_rollup_daily). */
 export type RollupRow = {
   et_day: string;
-  campaign_id: string;
+  /** NULL for calls whose campaign was deleted. */
+  campaign_id: string | null;
   list_id: string;
   owner_id: string;
   calls: number;
+  /** goal_met CALLS — kept for compatibility; the page shows goal_leads. */
   goal_met: number;
+  /** Distinct businesses (lead_id) that hit the goal — what every other
+   *  surface calls "Goals met". */
+  goal_leads: number;
   twilio: number;
   elevenlabs: number;
   elevenlabs_llm: number;
@@ -191,10 +135,11 @@ export type RollupRow = {
   openai: number;
   lookup: number;
   total: number;
+  refreshed_at: string;
 };
 
 const ROLLUP_SELECT =
-  "et_day, campaign_id, list_id, owner_id, calls, goal_met, twilio, elevenlabs, elevenlabs_llm, elevenlabs_voice, elevenlabs_credits, elevenlabs_llm_credits, elevenlabs_voice_credits, openai, lookup, total";
+  "et_day, campaign_id, list_id, owner_id, calls, goal_met, goal_leads, twilio, elevenlabs, elevenlabs_llm, elevenlabs_voice, elevenlabs_credits, elevenlabs_llm_credits, elevenlabs_voice_credits, openai, lookup, total, refreshed_at";
 
 /** Turn a rollup row's numeric spend columns into a Breakdown. */
 function rowBreakdown(r: RollupRow): Breakdown {
@@ -242,6 +187,16 @@ export async function fetchRollupRows(
   return rows;
 }
 
+/** The most recent `refreshed_at` across the rows (the cron rewrites recent
+ *  days every 10 minutes), for an "Updated …" stamp. Null when empty. */
+export function latestRefreshedAt(rows: RollupRow[]): string | null {
+  let max: string | null = null;
+  for (const r of rows) {
+    if (r.refreshed_at && (!max || r.refreshed_at > max)) max = r.refreshed_at;
+  }
+  return max;
+}
+
 /** Total Twilio Lookup spend recorded outside calls (lead-import lookups)
  *  within the window. Optionally scoped to one owner; campaign/list slicers
  *  don't apply since these charges aren't tied to a call. */
@@ -266,7 +221,55 @@ export async function fetchLookupChargeTotal(
   return rows.reduce((sum, r) => sum + (Number(r.cost) || 0), 0);
 }
 
+export type AiChargeKindTotal = { kind: string; count: number; cost: number };
+
+export type AiChargeTotals = {
+  total: number;
+  byKind: AiChargeKindTotal[];
+};
+
+/** AI spend recorded outside a call's cost_breakdown (`ai_charges`: Ask
+ *  Smile, agent drafting, template splitting, script tidying, live business
+ *  research, ElevenLabs test calls) within the window, in total and by kind.
+ *  Optionally scoped to one owner; campaign/list slicers don't apply. */
+export async function fetchAiChargeTotals(
+  supabase: SupabaseClient,
+  slicers: Pick<Slicers, "from" | "to" | "ownerId">,
+): Promise<AiChargeTotals> {
+  const rows = await fetchAllRows<{ kind: string; cost: number }>(
+    (from, to) => {
+      let query = supabase
+        .from("ai_charges")
+        .select("kind, cost")
+        .gte("created_at", startOfDay(slicers.from))
+        .lte("created_at", endOfDay(slicers.to));
+      if (slicers.ownerId) query = query.eq("owner_id", slicers.ownerId);
+      return query
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+    },
+  );
+  const acc = new Map<string, { count: number; cost: number }>();
+  let total = 0;
+  for (const r of rows) {
+    const cost = Number(r.cost) || 0;
+    total += cost;
+    const cur = acc.get(r.kind) ?? { count: 0, cost: 0 };
+    cur.count += 1;
+    cur.cost += cost;
+    acc.set(r.kind, cur);
+  }
+  return {
+    total,
+    byKind: [...acc.entries()]
+      .map(([kind, v]) => ({ kind, count: v.count, cost: v.cost }))
+      .sort((a, b) => b.cost - a.cost),
+  };
+}
+
 export type PerCampaign = {
+  /** A campaign id, or NO_CAMPAIGN_KEY for calls whose campaign was deleted. */
   campaignId: string;
   calls: number;
   goalMet: number;
@@ -281,15 +284,16 @@ export function rollupByCampaign(rows: RollupRow[]): PerCampaign[] {
     { calls: number; goalMet: number; spend: Breakdown }
   >();
   for (const r of rows) {
-    const cur = acc.get(r.campaign_id) ?? {
+    const key = campaignKey(r.campaign_id);
+    const cur = acc.get(key) ?? {
       calls: 0,
       goalMet: 0,
-      spend: { ...ZERO },
+      spend: zeroBreakdown(),
     };
     cur.calls += r.calls;
-    cur.goalMet += r.goal_met;
-    addInto(cur.spend, rowBreakdown(r));
-    acc.set(r.campaign_id, cur);
+    cur.goalMet += r.goal_leads;
+    addBreakdownInto(cur.spend, rowBreakdown(r));
+    acc.set(key, cur);
   }
   return [...acc.entries()]
     .map(([campaignId, v]) => ({
@@ -313,10 +317,11 @@ export type PerGoal = {
 export function rollupByGoalMet(rows: RollupRow[]): PerGoal[] {
   const acc = new Map<string, { goalMet: number; spend: number }>();
   for (const r of rows) {
-    const cur = acc.get(r.campaign_id) ?? { goalMet: 0, spend: 0 };
-    cur.goalMet += r.goal_met;
+    const key = campaignKey(r.campaign_id);
+    const cur = acc.get(key) ?? { goalMet: 0, spend: 0 };
+    cur.goalMet += r.goal_leads;
     cur.spend += Number(r.total);
-    acc.set(r.campaign_id, cur);
+    acc.set(key, cur);
   }
   return [...acc.entries()]
     .map(([campaignId, v]) => ({
@@ -371,7 +376,7 @@ export function rollupByList(rows: RollupRow[]): PerList[] {
   for (const r of rows) {
     const cur = acc.get(r.list_id) ?? { calls: 0, goalMet: 0, spend: 0 };
     cur.calls += r.calls;
-    cur.goalMet += r.goal_met;
+    cur.goalMet += r.goal_leads;
     cur.spend += Number(r.total);
     acc.set(r.list_id, cur);
   }
@@ -406,8 +411,8 @@ export function rollupByTime(rows: RollupRow[], slicers: Slicers): PerTime[] {
 }
 
 export function rollupByVendor(rows: RollupRow[]): Breakdown {
-  const acc: Breakdown = { ...ZERO };
-  for (const r of rows) addInto(acc, rowBreakdown(r));
+  const acc = zeroBreakdown();
+  for (const r of rows) addBreakdownInto(acc, rowBreakdown(r));
   return acc;
 }
 

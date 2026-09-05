@@ -111,6 +111,13 @@ const HTTP_JOBS = [
     header: "x-dialer-secret",
     secret: "dialer_tick_secret",
   },
+  {
+    job: "cost-rates-refresh",
+    schedule: "15 4 * * *",
+    path: "/api/maintenance/cost-rates",
+    header: "x-dialer-secret",
+    secret: "dialer_tick_secret",
+  },
 ] as const;
 
 describe.each(HTTP_JOBS)(

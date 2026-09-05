@@ -1,5 +1,10 @@
 import "server-only";
 
+import { responsesUsage } from "@/lib/costs/ai-charges";
+import {
+  openAiWebSearchUsdPerCall,
+  priceOpenAiTokens,
+} from "@/lib/costs/rates";
 import { openAiKey } from "@/lib/openai/live";
 
 /**
@@ -386,19 +391,47 @@ const RESPONSES_API = "https://api.openai.com/v1/responses";
  *  the agent to start speaking while staying inside it. */
 const RESEARCH_TIMEOUT_MS = 18_000;
 
+/** What one research round-trip cost, for the ledger. `cost` is the token
+ *  spend plus an ESTIMATED per-call web_search fee (see
+ *  openAiWebSearchUsdPerCall). Null when no request reached OpenAI. */
+export type ResearchUsage = {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  webSearchCalls: number;
+  cost: number;
+};
+
+/** Price a Responses API body: tokens at the model's rate + web-search calls
+ *  at the flat estimate. Pure — exported for the unit tests. */
+export function priceResearchBody(body: unknown): ResearchUsage {
+  const u = responsesUsage(body);
+  const tokens = priceOpenAiTokens(u.inputTokens, u.outputTokens, MODEL);
+  const search = u.webSearchCalls * openAiWebSearchUsdPerCall();
+  return {
+    model: MODEL,
+    inputTokens: u.inputTokens,
+    outputTokens: u.outputTokens,
+    webSearchCalls: u.webSearchCalls,
+    cost: Number((tokens + search).toFixed(4)),
+  };
+}
+
 /**
- * Research a business and return a brief the agent can role-play from.
+ * Research a business and return a brief the agent can role-play from, plus
+ * what the round-trip cost (null when OpenAI was never reached — no key,
+ * timeout, network failure).
  *
  * Live whenever OPENAI_API_KEY is set (same "live when the credential is
  * present" rule the rest of our OpenAI features use — see lib/openai/live).
  * NEVER throws and never rejects: every failure path returns `fallbackBrief`,
  * because the alternative is dead air on a live sales call.
  */
-export async function researchBusiness(
+export async function researchBusinessWithUsage(
   inputs: ResearchInputs,
-): Promise<FrontDeskBrief> {
+): Promise<{ brief: FrontDeskBrief; usage: ResearchUsage | null }> {
   const apiKey = openAiKey();
-  if (!apiKey) return fallbackBrief(inputs);
+  if (!apiKey) return { brief: fallbackBrief(inputs), usage: null };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), RESEARCH_TIMEOUT_MS);
@@ -412,20 +445,30 @@ export async function researchBusiness(
       body: JSON.stringify(buildResearchRequest(inputs)),
       signal: controller.signal,
     });
-    if (!res.ok) return fallbackBrief(inputs);
+    if (!res.ok) return { brief: fallbackBrief(inputs), usage: null };
 
-    const text = extractOutputText((await res.json()) as unknown);
-    if (!text) return fallbackBrief(inputs);
+    const body = (await res.json()) as unknown;
+    // A 2xx was billed whether or not the brief parses, so price it first.
+    const usage = priceResearchBody(body);
+    const text = extractOutputText(body);
+    if (!text) return { brief: fallbackBrief(inputs), usage };
 
     try {
-      return buildFrontDeskBrief(inputs, JSON.parse(text));
+      return { brief: buildFrontDeskBrief(inputs, JSON.parse(text)), usage };
     } catch {
-      return fallbackBrief(inputs);
+      return { brief: fallbackBrief(inputs), usage };
     }
   } catch {
     // Aborted (timeout) or network failure.
-    return fallbackBrief(inputs);
+    return { brief: fallbackBrief(inputs), usage: null };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Brief only (the live smoke test's entry point). */
+export async function researchBusiness(
+  inputs: ResearchInputs,
+): Promise<FrontDeskBrief> {
+  return (await researchBusinessWithUsage(inputs)).brief;
 }

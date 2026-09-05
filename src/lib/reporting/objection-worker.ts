@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { numField, withRecomputedTotal } from "@/lib/costs/breakdown";
 import {
   extractObjection,
   transcriptToText,
@@ -53,9 +54,15 @@ export async function runObjectionExtraction(
     cost += c;
     if (objection) withObjection += 1;
 
-    const prev = ((row as { cost_breakdown: Record<string, number> | null })
-      .cost_breakdown ?? {}) as Record<string, number>;
-    const cost_breakdown = { ...prev, openai: (prev.openai ?? 0) + c };
+    // Bump `openai` AND recompute the stored total — bumping the component
+    // alone left `total` stale on ~1,200 calls, and the stored total is what
+    // the Calls list, the call modal and pre_call_check read.
+    const prev = ((row as { cost_breakdown: unknown }).cost_breakdown ??
+      {}) as Record<string, unknown>;
+    const cost_breakdown = withRecomputedTotal({
+      ...prev,
+      openai: Number((numField(prev, "openai") + c).toFixed(4)),
+    });
 
     await admin
       .from("calls")

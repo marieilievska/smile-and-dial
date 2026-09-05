@@ -169,7 +169,7 @@ Attach a number to a campaign so the dialer has something to call from.`,
     test: (q) =>
       has(q, /cost|budget|spend|cap/) &&
       has(q, /set|how|limit|cap|control|configure/),
-    body: `The Costs page breaks spend down by vendor (Twilio, ElevenLabs, OpenAI), shows cost per appointment, and tracks budget pace. To control spend, set a daily spend cap on a campaign — the dialer stops dialing that campaign for the day once the cap is reached, then resumes the next day.`,
+    body: `The Costs page breaks spend down by vendor (Twilio, ElevenLabs, OpenAI), shows cost per goal met, and tracks budget pace. To control spend, set a daily or monthly spend cap on a campaign — once the cap is reached the campaign is auto-paused (and you're notified), then it resumes automatically at the next Eastern midnight for a daily cap, or at the start of the next month for a monthly cap.`,
   },
   {
     key: "users",

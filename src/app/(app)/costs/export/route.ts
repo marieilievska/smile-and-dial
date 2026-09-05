@@ -59,8 +59,15 @@ export async function GET(request: Request) {
   const slicers: Slicers = { from, to, campaignId, ownerId, listId };
   const rows = await fetchCostRows(supabase, slicers);
 
-  // Resolve campaign names so the CSV is human-readable.
-  const campaignIds = Array.from(new Set(rows.map((r) => r.campaign_id)));
+  // Resolve campaign names so the CSV is human-readable. A NULL campaign_id
+  // (the campaign was deleted) exports as an empty campaign cell.
+  const campaignIds = Array.from(
+    new Set(
+      rows
+        .map((r) => r.campaign_id)
+        .filter((id): id is string => typeof id === "string" && id !== ""),
+    ),
+  );
   const campaignName = new Map<string, string>();
   if (campaignIds.length > 0) {
     const { data: campaigns } = await supabase
@@ -91,7 +98,7 @@ export async function GET(request: Request) {
       [
         r.id,
         r.started_at ?? r.created_at,
-        campaignName.get(r.campaign_id) ?? "",
+        (r.campaign_id ? campaignName.get(r.campaign_id) : null) ?? "",
         r.duration_seconds ?? "",
         r.goal_met ? "true" : "false",
         b.twilio.toFixed(4),

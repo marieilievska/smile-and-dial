@@ -13,9 +13,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  fetchAiChargeTotals,
   fetchCostRows,
   fetchLookupChargeTotal,
   fetchRollupRows,
+  latestRefreshedAt,
+  NO_CAMPAIGN_KEY,
+  NO_CAMPAIGN_LABEL,
   resolveDatePreset,
   rollupByCampaign,
   rollupByGoalMet,
@@ -28,11 +32,13 @@ import {
 } from "@/lib/analytics/costs";
 import { formatUsd as usd } from "@/lib/format-usd";
 import { createClient } from "@/lib/supabase/server";
+import { etDateTime } from "@/lib/time/eastern";
 
 import { BudgetProgress } from "./budget-progress";
 import { CostsDatePills } from "./costs-date-pills";
 import { CostsHero } from "./costs-hero";
 import { CostsKpiStrip } from "./costs-kpi-strip";
+import { CostsOtherAi } from "./costs-other-ai";
 import { CostsTopCampaigns } from "./costs-top-campaigns";
 import { CostsVendorBreakdown } from "./costs-vendor-breakdown";
 import { CostsViewTabs } from "./costs-view-tabs";
@@ -131,6 +137,8 @@ export default async function CostsPage({
     { data: activeNumbers },
     importLookupCost,
     prevImportLookupCost,
+    aiCharges,
+    prevAiCharges,
   ] = await Promise.all([
     fetchRollupRows(supabase, slicers),
     supabase.from("campaigns").select("id, name").order("name"),
@@ -151,6 +159,9 @@ export default async function CostsPage({
       to: prevTo,
       ownerId,
     }),
+    // AI spend outside a call's breakdown (the ai_charges ledger).
+    fetchAiChargeTotals(supabase, { from, to, ownerId }),
+    fetchAiChargeTotals(supabase, { from: prevFrom, to: prevTo, ownerId }),
   ]);
 
   const numberCount = activeNumbers?.length ?? 0;
@@ -189,6 +200,9 @@ export default async function CostsPage({
   const campaignName = new Map(
     (campaigns ?? []).map((c) => [c.id, c.name] as const),
   );
+  // Spend from calls whose campaign was since deleted (campaign_id NULL) is
+  // keyed under a sentinel by the rollups; give it a readable name.
+  campaignName.set(NO_CAMPAIGN_KEY, NO_CAMPAIGN_LABEL);
   const listName = new Map((lists ?? []).map((l) => [l.id, l.name] as const));
 
   const summary = rollupByVendor(rows);
@@ -203,19 +217,27 @@ export default async function CostsPage({
   const mockMode = isMockMode();
   const rangeLabel = fmtRangeLabel(from, to);
 
-  // Period total INCLUDING the number rental and import-lookup spend for this
-  // window — what the headline and "Total spend" tile report. Per-call rollups
-  // (per-campaign, per-list, …) stay call-only since neither is attributable
-  // per call.
-  const periodTotal = summary.total + numberRentalInPeriod + importLookupCost;
+  // Period total INCLUDING the number rental, import-lookup spend and the
+  // ai_charges ledger for this window — what the headline and "Total spend"
+  // tile report. Per-call rollups (per-campaign, per-list, …) stay call-only
+  // since none of those is attributable per call.
+  const periodTotal =
+    summary.total + numberRentalInPeriod + importLookupCost + aiCharges.total;
 
   // vs-previous-period delta on total spend. null when there was no
   // spend in the prior window to compare against (avoids a fake ▲). The
-  // rental is constant across equal-length windows; import-lookup spend is
-  // compared window-to-window.
+  // rental is constant across equal-length windows; import-lookup and AI
+  // ledger spend are compared window-to-window.
   const prevTotal = rollupByVendor(prevRows).total;
   const prevPeriodTotal =
-    prevTotal + numberRentalInPeriod + prevImportLookupCost;
+    prevTotal +
+    numberRentalInPeriod +
+    prevImportLookupCost +
+    prevAiCharges.total;
+
+  // When the pre-aggregated rollup was last rebuilt (the cron rewrites the
+  // last 4 ET days every 10 minutes) — so a reader knows how fresh it is.
+  const refreshedAt = latestRefreshedAt(rows);
   const spendDelta =
     prevPeriodTotal > 0
       ? (periodTotal - prevPeriodTotal) / prevPeriodTotal
@@ -306,6 +328,16 @@ export default async function CostsPage({
                 {usd(periodTotal)}
               </span>{" "}
               total
+              {refreshedAt ? (
+                <span
+                  className="text-muted-foreground/80"
+                  data-testid="costs-refreshed-at"
+                  title="When the pre-aggregated cost rollup was last rebuilt (every 10 minutes for recent days)"
+                >
+                  {" "}
+                  · Updated {etDateTime(refreshedAt, "—", true)}
+                </span>
+              ) : null}
             </p>
           </div>
           <Button asChild variant="outline">
@@ -389,11 +421,14 @@ export default async function CostsPage({
         <CostsVendorBreakdown
           summary={summary}
           extraLookupCost={importLookupCost}
+          extraOpenAiCost={aiCharges.total}
           monthlyNumberCost={monthlyNumberCost}
           numberCount={numberCount}
         />
         <CostsTopCampaigns items={topCampaigns} />
       </div>
+
+      <CostsOtherAi items={aiCharges.byKind} />
 
       <CostsViewTabs current={view} buildHref={buildViewHref} />
 
@@ -490,12 +525,18 @@ function PerCampaignView({
             return (
               <TableRow key={d.campaignId} className="group">
                 <TableCell>
-                  <Link
-                    href={`/calls?campaign=${d.campaignId}`}
-                    className="text-foreground hover:text-foreground/80 font-medium underline-offset-4 hover:underline"
-                  >
-                    {name}
-                  </Link>
+                  {d.campaignId === NO_CAMPAIGN_KEY ? (
+                    <span className="text-muted-foreground font-medium">
+                      {name}
+                    </span>
+                  ) : (
+                    <Link
+                      href={`/calls?campaign=${d.campaignId}`}
+                      className="text-foreground hover:text-foreground/80 font-medium underline-offset-4 hover:underline"
+                    >
+                      {name}
+                    </Link>
+                  )}
                 </TableCell>
                 <TableCell className="text-muted-foreground text-right tabular-nums">
                   {d.calls.toLocaleString()}
@@ -601,12 +642,18 @@ function PerGoalView({
             return (
               <TableRow key={d.campaignId}>
                 <TableCell>
-                  <Link
-                    href={`/calls?campaign=${d.campaignId}&goal=met`}
-                    className="text-foreground hover:text-foreground/80 font-medium underline-offset-4 hover:underline"
-                  >
-                    {campaignName.get(d.campaignId) ?? "—"}
-                  </Link>
+                  {d.campaignId === NO_CAMPAIGN_KEY ? (
+                    <span className="text-muted-foreground font-medium">
+                      {campaignName.get(d.campaignId) ?? "—"}
+                    </span>
+                  ) : (
+                    <Link
+                      href={`/calls?campaign=${d.campaignId}&goal=met`}
+                      className="text-foreground hover:text-foreground/80 font-medium underline-offset-4 hover:underline"
+                    >
+                      {campaignName.get(d.campaignId) ?? "—"}
+                    </Link>
+                  )}
                 </TableCell>
                 <TableCell className="text-foreground text-right tabular-nums">
                   {d.goalMet}

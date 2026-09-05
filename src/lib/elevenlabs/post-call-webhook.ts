@@ -22,7 +22,14 @@ import {
   applyRetryForCall,
   finalizeFailedCall,
 } from "@/lib/dialer/retry-engine";
-import { priceTwilioCall, elevenLabsUsdPerCredit } from "@/lib/costs/rates";
+import { recordAiCharge } from "@/lib/costs/ai-charges";
+import { numField, withRecomputedTotal } from "@/lib/costs/breakdown";
+import { primeEffectiveRates } from "@/lib/costs/effective-rates";
+import {
+  elevenLabsUsdPerCredit,
+  priceElevenLabsCredits,
+  priceElevenLabsNativeTwilio,
+} from "@/lib/costs/rates";
 import { syncLeadCallCounters } from "@/lib/leads/call-counters";
 import { mergeLeadSummary } from "@/lib/openai/summary-merger";
 import type { Database, Json } from "@/lib/supabase/database.types";
@@ -40,7 +47,7 @@ function elevenLabsCostUsd(
   cost: number | { elevenlabs?: number; openai?: number } | undefined,
 ): number {
   if (typeof cost === "number") {
-    return Number((cost * elevenLabsUsdPerCredit()).toFixed(4));
+    return priceElevenLabsCredits(cost);
   }
   if (cost && typeof cost === "object") {
     return (cost.elevenlabs ?? 0) + (cost.openai ?? 0);
@@ -385,6 +392,10 @@ export type ElevenLabsFailureData = {
 /** The transcription event's `data` payload (also the legacy flat shape). */
 export type ElevenLabsPostCallPayload = {
   conversation_id?: string;
+  /** The ElevenLabs agent that ran the conversation. Only read when the
+   *  conversation matches no call row (a browser Test Call), to attribute
+   *  its cost to the agent's owner. */
+  agent_id?: string;
   /** Custom params we attached to the Twilio <Stream> (our internal
    *  call_id). ElevenLabs echoes stream/SDK custom parameters back here.
    *  We read several documented shapes defensively since the exact nesting
@@ -706,6 +717,70 @@ async function createInboundCallFromPayload(
 }
 
 /**
+ * A transcription we cannot match to any call row is almost always a Test
+ * Call: the campaign's Test Call tab opens a browser conversation with the
+ * real agent (lib/campaigns/test-call.ts), and ElevenLabs bills those credits
+ * like any other. Book them to `ai_charges` (kind elevenlabs_test_call) —
+ * owner = the agent's owner when `agent_id` resolves to one of ours, else the
+ * first active admin — instead of dropping the cost. Best-effort; a replayed
+ * webhook is already deduped by the idempotency row, so this never
+ * double-books.
+ */
+async function recordTestCallCharge(
+  supabase: SupabaseAdmin,
+  payload: ElevenLabsPostCallPayload,
+  conversationId: string,
+): Promise<void> {
+  const credits =
+    typeof payload.metadata?.cost === "number" &&
+    Number.isFinite(payload.metadata.cost)
+      ? payload.metadata.cost
+      : 0;
+  if (credits <= 0) return;
+
+  let ownerId: string | null = null;
+  const elAgentId = payload.agent_id?.trim();
+  if (elAgentId) {
+    const { data: agent } = await supabase
+      .from("agents")
+      .select("owner_id")
+      .eq("elevenlabs_agent_id", elAgentId)
+      .maybeSingle();
+    ownerId = agent?.owner_id ?? null;
+  }
+  if (!ownerId) {
+    const { data: admin } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("role", "admin")
+      .eq("active", true)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    ownerId = admin?.id ?? null;
+  }
+  if (!ownerId) return;
+
+  await recordAiCharge(supabase, {
+    ownerId,
+    kind: "elevenlabs_test_call",
+    model: null,
+    cost: priceElevenLabsCredits(credits),
+    detail: {
+      conversation_id: conversationId,
+      agent_id: elAgentId ?? null,
+      credits,
+      llm_credits: payload.metadata?.charging?.llm_charge ?? null,
+      call_charge_credits: payload.metadata?.charging?.call_charge ?? null,
+      duration_secs:
+        payload.metadata?.call_duration_secs ??
+        payload.metadata?.duration_seconds ??
+        null,
+    },
+  });
+}
+
+/**
  * Top-level dispatcher. Unwraps the ElevenLabs envelope ({ type, data }),
  * falls back to the legacy flat shape, and routes to the right handler:
  *   post_call_transcription (or flat) → processTranscription
@@ -764,6 +839,9 @@ async function processTranscription(
   if (!conversationId) return { ok: false, reason: "missing_conversation_id" };
 
   const supabase = makeServiceClient();
+  // Price this call at what the providers actually charge (cost_rates, cached
+  // 10 min), not at the hard-coded defaults. Never throws.
+  await primeEffectiveRates(supabase);
 
   // Idempotency guard, keyed on (conversation_id, event_type) so a replayed
   // transcription collapses to one but the separate audio/failure events for
@@ -797,7 +875,13 @@ async function processTranscription(
       conversationId,
     );
   }
-  if (!call) return { ok: true, status: "unknown_conversation" };
+  if (!call) {
+    // No call row: a browser Test Call from the campaign's Test Call tab (or a
+    // conversation started outside the app). ElevenLabs billed it all the
+    // same, so book the credits to the ledger instead of dropping them.
+    await recordTestCallCharge(supabase, payload, conversationId);
+    return { ok: true, status: "unknown_conversation" };
+  }
 
   // Decide the call's outcome from the transcript + the agent's disposition
   // guess + ElevenLabs' termination reason. The full priority ladder (AI
@@ -830,9 +914,10 @@ async function processTranscription(
   );
 
   // Merge ElevenLabs's cost slice into whatever's already in cost_breakdown
-  // (Twilio/lookup may have written there). ElevenLabs bundles LLM+TTS+telephony
-  // into one credit figure, so it all lands under `elevenlabs`.
-  const prevCost = (call.cost_breakdown ?? {}) as Record<string, number>;
+  // (Twilio/lookup/in-call research may have written there). ElevenLabs
+  // bundles LLM+TTS+telephony into one credit figure, so it all lands under
+  // `elevenlabs`, priced at the EFFECTIVE $/credit (see lib/costs/rates).
+  const prevCost = (call.cost_breakdown ?? {}) as Record<string, unknown>;
   const elevenLabsCost = elevenLabsCostUsd(payload.metadata?.cost);
   // ElevenLabs splits its bundled credit total into LLM (the agent's model) vs
   // call_charge (TTS + ASR + telephony). Capture both the credits and the USD
@@ -850,16 +935,30 @@ async function processTranscription(
   const elVoiceCredits = elNum(charging?.call_charge);
   const elLlmUsd = Number((elLlmCredits * elRate).toFixed(4));
   const elVoiceUsd = Number((elVoiceCredits * elRate).toFixed(4));
-  // Twilio bills the call leg even though ElevenLabs places the call. If a prior
-  // path (e.g. a human-call recording webhook) already wrote a Twilio cost, keep
-  // it; otherwise price this call's duration. ElevenLabs's credit figure bundles
-  // LLM+TTS+telephony and lands under `elevenlabs`.
-  const twilioCost =
-    prevCost.twilio && prevCost.twilio > 0
-      ? prevCost.twilio
-      : priceTwilioCall(callDurationSecs);
-  const mergedCost = {
-    twilio: twilioCost,
+  // Twilio bills the call leg even though ElevenLabs places the call — the
+  // voice minutes at the INBOUND or OUTBOUND rate (they differ ~2x), PLUS a
+  // media-stream minute for every call minute (ElevenLabs-native telephony
+  // streams the audio through Twilio's <Stream>; verified on the usage
+  // records). If a prior path (e.g. a human-call recording webhook) already
+  // wrote a Twilio cost, keep it; otherwise price this call's duration.
+  const prevTwilio = numField(prevCost, "twilio");
+  const twilioParts =
+    prevTwilio > 0
+      ? {
+          call: numField(prevCost, "twilio_call") || prevTwilio,
+          mediaStream: numField(prevCost, "twilio_media_stream"),
+          total: prevTwilio,
+        }
+      : priceElevenLabsNativeTwilio(callDurationSecs, call.direction);
+  const mergedCost = withRecomputedTotal({
+    // Carry every prior key (an in-call research charge under `openai`, a
+    // lookup, a reviewer's `openai_review`) — this webhook owns the vendor
+    // figures it computes, not the whole object.
+    ...prevCost,
+    twilio: twilioParts.total,
+    // Sub-parts of `twilio` (NOT added into total again).
+    twilio_call: twilioParts.call,
+    twilio_media_stream: twilioParts.mediaStream,
     elevenlabs: elevenLabsCost,
     // ElevenLabs LLM vs voice/telephony split (sub-components of `elevenlabs`;
     // NOT added into total again). Both USD and the raw credits.
@@ -868,12 +967,9 @@ async function processTranscription(
     elevenlabs_credits: elTotalCredits,
     elevenlabs_llm_credits: elLlmCredits,
     elevenlabs_voice_credits: elVoiceCredits,
-    openai: 0,
-    lookup: prevCost.lookup ?? 0,
-    total: Number(
-      (twilioCost + elevenLabsCost + (prevCost.lookup ?? 0)).toFixed(4),
-    ),
-  };
+    openai: numField(prevCost, "openai"),
+    lookup: numField(prevCost, "lookup"),
+  });
 
   // The real per-call summary ElevenLabs sends is `transcript_summary`;
   // `summary` is only the legacy test shape. This single value is written to
@@ -1060,13 +1156,11 @@ async function processTranscription(
       latestSummary,
     });
     if (cost > 0) {
-      // Bump cost_breakdown.openai on this call and update total.
-      const cb = (mergedCost ?? {}) as Record<string, number>;
-      const next = {
-        ...cb,
-        openai: (cb.openai ?? 0) + cost,
-        total: (cb.total ?? 0) + cost,
-      };
+      // Bump cost_breakdown.openai on this call and recompute the total.
+      const next = withRecomputedTotal({
+        ...mergedCost,
+        openai: Number((mergedCost.openai + cost).toFixed(4)),
+      });
       await supabase
         .from("calls")
         .update({

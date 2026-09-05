@@ -2,6 +2,7 @@ import { Mic, Phone, PhoneIncoming } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
+import { breakdownTotal } from "@/lib/costs/breakdown";
 import { formatPhone } from "@/lib/format-phone";
 import { outcomeLabel } from "@/lib/labels";
 import {
@@ -82,10 +83,16 @@ function fmtDuration(seconds: number | null | undefined): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
+/** The call's cost as the Costs page counts it (component sum, never the
+ *  possibly-stale stored total). "—" for a row with no cost data at all. */
 function fmtCost(breakdown: unknown): string {
   if (!breakdown || typeof breakdown !== "object") return "—";
-  const total = (breakdown as { total?: unknown }).total;
-  if (typeof total !== "number") return "—";
+  const total = breakdownTotal(breakdown);
+  if (
+    total === 0 &&
+    typeof (breakdown as { total?: unknown }).total !== "number"
+  )
+    return "—";
   return `$${total.toFixed(2)}`;
 }
 

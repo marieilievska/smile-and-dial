@@ -5,6 +5,11 @@
  * everything else falls back to a deterministic mock so the feature works in
  * local dev and CI without spend or an SDK dependency.
  */
+import {
+  chatCompletionUsage,
+  recordAiChargeAsService,
+} from "@/lib/costs/ai-charges";
+import { priceOpenAiTokens } from "@/lib/costs/rates";
 import { openAiKey } from "@/lib/openai/live";
 
 export interface AgentDraft {
@@ -26,7 +31,18 @@ const DRAFT_KEYS = [
   "guardrails",
 ] as const;
 
-export async function draftAgent(description: string): Promise<AgentDraft> {
+const DRAFT_MODEL = "gpt-5.4";
+
+export type DraftAgentOptions = {
+  /** Who to book the OpenAI spend to in `ai_charges` (the signed-in user).
+   *  Omit to skip the ledger (tests, offline). */
+  ownerId?: string | null;
+};
+
+export async function draftAgent(
+  description: string,
+  opts: DraftAgentOptions = {},
+): Promise<AgentDraft> {
   const trimmed = description.replace(/\s+/g, " ").trim();
   if (!trimmed) return { ...emptyDraft(), source: "mock" };
 
@@ -34,7 +50,7 @@ export async function draftAgent(description: string): Promise<AgentDraft> {
   if (!apiKey) return mockDraft(trimmed);
 
   try {
-    return await callOpenAi(apiKey, trimmed);
+    return await callOpenAi(apiKey, trimmed, opts.ownerId ?? null);
   } catch {
     return mockDraft(trimmed);
   }
@@ -55,6 +71,7 @@ function emptyDraft(): Omit<AgentDraft, "source"> {
 async function callOpenAi(
   apiKey: string,
   description: string,
+  ownerId: string | null,
 ): Promise<AgentDraft> {
   const systemPrompt = `You design system prompts for outbound AI phone agents that call sales leads.
 Given a short plain-English description of what an agent should do, write the blocks below.
@@ -74,7 +91,7 @@ Keep every block tight and specific to the description. Do not add markdown head
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-5.4",
+      model: DRAFT_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: description },
@@ -89,6 +106,22 @@ Keep every block tight and specific to the description. Do not add markdown head
   const data = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
   };
+  // Billed on any 2xx — record before parsing, which can still throw.
+  const usage = chatCompletionUsage(data);
+  if (ownerId && (usage.inputTokens > 0 || usage.outputTokens > 0)) {
+    await recordAiChargeAsService({
+      ownerId,
+      kind: "draft_agent",
+      model: DRAFT_MODEL,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cost: priceOpenAiTokens(
+        usage.inputTokens,
+        usage.outputTokens,
+        DRAFT_MODEL,
+      ),
+    });
+  }
   const text = data.choices?.[0]?.message?.content ?? "";
   const parsed = JSON.parse(text) as Record<string, unknown>;
   const draft = emptyDraft();
