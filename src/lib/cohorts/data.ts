@@ -3,6 +3,17 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { etDateDaysAgo, etDayString } from "@/lib/time/eastern";
 
+/**
+ * One cohort row.
+ *
+ * `last_session` is deliberately `string | null`, which is STRICTER than the
+ * generated `Database` type says. Supabase's type generator cannot infer
+ * nullability for a function's `RETURNS TABLE` columns, so it types every one
+ * of them non-null — but `last_session` is `max(scheduled_at)` reached through
+ * a LEFT JOIN, and a dial day that produced no registrations really does come
+ * back NULL. Do not "correct" this to match the generated type; `isRipe()`
+ * depends on the null case.
+ */
 export type CohortRow = {
   dial_day: string;
   calls: number;
