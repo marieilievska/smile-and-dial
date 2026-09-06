@@ -2667,6 +2667,16 @@ export type Database = {
         Args: { in_period: string; in_ref: string; in_rule: string };
         Returns: boolean;
       };
+      analytics_summary: {
+        Args: {
+          p_campaign?: string;
+          p_end: string;
+          p_list?: string;
+          p_owner?: string;
+          p_start: string;
+        };
+        Returns: Json;
+      };
       bump_api_rate_limit: {
         Args: { in_api_key_id: string; in_window_seconds: number };
         Returns: number;

@@ -2,17 +2,17 @@ import { Info } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import {
-  bookingsByDay,
+  bookingsByDayFromSummary,
   buildInsights,
-  buildLeadFunnel,
-  callsByDay,
-  computeKpis,
-  fetchCallsForRange,
-  outcomeDistribution,
+  callsByDayFromSummary,
+  fetchAnalyticsSummary,
+  funnelFromSummary,
+  kpisFromSummary,
   pctDelta,
   previousPeriod,
-  rankCampaigns,
+  rankCampaignsFromSummary,
   resolveDatePreset,
+  type AnalyticsSummary,
   type FunnelStep,
   type Slicers,
 } from "@/lib/analytics/stats";
@@ -122,20 +122,23 @@ export default async function AnalyticsPage({
   const slicers: Slicers = { from, to, campaignId, ownerId, listId };
 
   const [
-    rows,
-    priorRows,
+    summary,
+    priorSummary,
     listRows,
     { data: campaigns },
     { data: lists },
     { data: me },
   ] = await Promise.all([
-    fetchCallsForRange(supabase, slicers),
+    // One aggregate per window instead of paging every call out of the
+    // database and counting it here. This used to be ~9 sequential 1,000-row
+    // requests per window, twice over — most of the page's render.
+    fetchAnalyticsSummary(supabase, slicers),
     compare
-      ? fetchCallsForRange(supabase, {
+      ? fetchAnalyticsSummary(supabase, {
           ...slicers,
           ...previousPeriod(slicers),
         })
-      : Promise.resolve([]),
+      : Promise.resolve(null as AnalyticsSummary | null),
     // Counted in SQL, not here: one row per list rather than per call, so
     // PostgREST's 1,000-row cap is nowhere near — which is the point, since
     // grouping 84k leads in JavaScript would silently undercount.
@@ -165,16 +168,16 @@ export default async function AnalyticsPage({
     }));
   }
 
-  const kpis = computeKpis(rows);
-  const prior = compare ? computeKpis(priorRows) : null;
-  const dailyBookings = bookingsByDay(rows, slicers);
+  const kpis = kpisFromSummary(summary);
+  const prior = priorSummary ? kpisFromSummary(priorSummary) : null;
+  const dailyBookings = bookingsByDayFromSummary(summary, slicers);
   // Daily call volume + spend — same pre-seeded day grid, so the trend
   // toggle (Appointments / Calls / Spend) shares one x-axis.
-  const dailyActivity = callsByDay(rows, slicers);
+  const dailyActivity = callsByDayFromSummary(summary, slicers);
   const dailyCalls = dailyActivity.map((b) => b.count);
   const dailySpend = dailyActivity.map((b) => b.spend);
-  const leadFunnel = buildLeadFunnel(rows);
-  const priorLeadFunnel = compare ? buildLeadFunnel(priorRows) : null;
+  const leadFunnel = funnelFromSummary(summary);
+  const priorLeadFunnel = priorSummary ? funnelFromSummary(priorSummary) : null;
   // Step-over-step conversion rates derived from the per-business funnel.
   const stepRate = (f: FunnelStep[], i: number): number => {
     const denom = f[i - 1]?.count ?? 0;
@@ -200,11 +203,11 @@ export default async function AnalyticsPage({
   const convStage = leadFunnel[2]?.count ?? 0;
   const goalRateOfConversations =
     convStage === 0 ? 0 : kpis.goalMet / convStage;
-  const outcomeBuckets = outcomeDistribution(rows);
+  const outcomeBuckets = summary.outcomes;
   const campaignNames = new Map(
     (campaigns ?? []).map((c) => [c.id, c.name] as const),
   );
-  const ranking = rankCampaigns(rows, campaignNames);
+  const ranking = rankCampaignsFromSummary(summary, campaignNames);
   // Deterministic "AI read" of the period — one plain-English sentence
   // on the appointments trend + biggest funnel leak. No LLM call.
   const insight = buildInsights({ kpis, prior, funnel: leadFunnel, ranking });

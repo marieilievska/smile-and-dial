@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:unit": "vitest run",
     "seed": "node --env-file=.env.local scripts/seed.mjs",
+    "verify:analytics": "node --env-file=.env.local scripts/verify-analytics-parity.mjs",
     "seed:presell-fields": "node --experimental-strip-types --env-file=.env.local scripts/seed-presell-research-fields.mjs",
     "prepare": "husky"
   },
