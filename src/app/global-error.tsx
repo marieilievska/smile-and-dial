@@ -18,12 +18,16 @@ const THEME_INIT_SCRIPT = `
   } catch (_) {}
 `;
 
+/** `unstable_retry`, not `reset`: Next passes both, but `reset()` only clears
+ *  the error state and re-renders without re-fetching, so on a server-side
+ *  failure the button lands straight back on the same error. `unstable_retry`
+ *  actually re-fetches. Same reasoning as components/app-shell/route-error. */
 export default function GlobalError({
   error,
-  reset,
+  unstable_retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  unstable_retry: () => void;
 }) {
   useEffect(() => {
     console.error(error);
@@ -52,7 +56,7 @@ export default function GlobalError({
           </div>
           <button
             type="button"
-            onClick={reset}
+            onClick={() => unstable_retry()}
             className="bg-primary hover:bg-primary/90 inline-flex h-9 items-center rounded-lg px-4 text-sm font-medium text-white transition-colors"
           >
             Reload
