@@ -180,3 +180,65 @@ describe("merge_inbound_lead authorises by auth.uid()", () => {
     expect(def).toMatch(/'lead_merged',\s*v_actor,/);
   });
 });
+
+describe("new functions start closed (20260906050000)", () => {
+  const CLOSED = "20260906050000_new_functions_start_closed.sql";
+  const sql = stripComments(read(`${MIGRATIONS}/${CLOSED}`));
+
+  // The lock-down's "future functions start closed" clause never worked. A
+  // throwaway function created as postgres in a rolled-back transaction came
+  // out with EXECUTE granted to PUBLIC, so every function created after
+  // 20260905170000 was reachable by anon -- including two SECURITY DEFINER
+  // write paths, evaluate_alerts and alert_fire, callable over the internet
+  // with the key that ships in the browser bundle.
+
+  it("closes the five functions that were still open to anon", () => {
+    for (const target of [
+      "public.evaluate_alerts()",
+      "public.alert_fire(text, uuid, interval)",
+      "public.call_cost_total(jsonb)",
+      "public.call_cost_components(jsonb)",
+      "public.cron_schedule_minutes(text)",
+    ]) {
+      expect(sql, target).toContain(`revoke execute on function ${target}`);
+    }
+    // Five revokes for those, plus the trigger function's own.
+    expect(sql.match(/revoke execute on function/g)).toHaveLength(6);
+  });
+
+  it("installs an event trigger so creation-time is where it is fixed", () => {
+    expect(sql).toContain("returns event_trigger");
+    expect(sql).toContain("on ddl_command_end");
+    expect(sql).toContain("when tag in ('CREATE FUNCTION')");
+    expect(sql).toContain("revoke execute on routine %s from public, anon");
+  });
+
+  it("scopes the trigger to schema public only", () => {
+    // Extension schemas are none of its business.
+    expect(sql).toContain("where schema_name = 'public'");
+    expect(sql).toContain("and object_type in ('function', 'procedure')");
+  });
+
+  it("can never block a migration", () => {
+    // A lock-down that lets a function through is bad; one that makes every
+    // future migration fail is worse. Each revoke warns instead of raising.
+    expect(sql).toContain("exception when others then");
+    expect(sql).toContain("raise warning 'lock_down_new_functions:");
+  });
+
+  it("closes the trigger function itself", () => {
+    // It does not exist while it is being created, so the trigger cannot
+    // catch it.
+    expect(sql).toContain(
+      "revoke execute on function public.lock_down_new_functions() from public, anon;",
+    );
+  });
+
+  it("grants nothing to anon or PUBLIC", () => {
+    expect(
+      executeGrants(sql).filter(
+        (g) => g.roles.includes("anon") || g.roles.includes("public"),
+      ),
+    ).toEqual([]);
+  });
+});
