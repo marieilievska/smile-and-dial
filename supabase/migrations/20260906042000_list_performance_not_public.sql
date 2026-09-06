@@ -1,0 +1,21 @@
+-- Close list_performance to PUBLIC / anon.
+--
+-- 20260906040000 granted it to `authenticated` and expected that to be the
+-- only grant, because 20260905170000 set the schema's default privileges so
+-- that "future functions start closed". Checking the live ACL afterwards
+-- showed otherwise: the new function came out with an EXECUTE grant to PUBLIC
+-- as well, so `has_function_privilege('anon', ...)` was true.
+--
+-- The exposure here is nil -- the function is SECURITY INVOKER, so an
+-- anonymous caller reaching it through PostgREST gets their own row-level
+-- security, which returns nothing. Revoked anyway: a report is not a thing
+-- unauthenticated callers should be able to run, and cohort_rows next door
+-- carries exactly three grants, so this one should not be the odd function
+-- out.
+--
+-- The same check found five other functions anon can execute, two of them
+-- SECURITY DEFINER (evaluate_alerts, alert_fire). Those are NOT this feature's
+-- to fix and are handled separately, along with the default-privileges clause
+-- that let them through.
+revoke execute on function public.list_performance(date, date, uuid, uuid)
+  from public, anon;
