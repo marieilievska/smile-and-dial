@@ -2777,6 +2777,7 @@ export type Database = {
         };
         Returns: {
           attended: number;
+          bad_number: number;
           calls: number;
           connected: number;
           dms: number;
@@ -2785,11 +2786,18 @@ export type Database = {
           is_inbound: boolean;
           last_call: string;
           leads: number;
+          line_typed: number;
           list_id: string;
           list_name: string;
+          mobiles: number;
+          reached: number;
           regs: number;
+          remaining: number;
+          resting: number;
           sales: number;
           spend: number;
+          suppressed: number;
+          voicemail: number;
           worked: number;
         }[];
       };

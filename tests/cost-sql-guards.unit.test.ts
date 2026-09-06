@@ -52,6 +52,14 @@ describe("call_cost_total mirrors breakdownTotal()", () => {
     "create or replace function public.call_cost_total",
   );
 
+  // 20260906055000 rewrote the BODY and nothing else. It used to delegate to
+  // call_cost_components and j_num; both carry a SET search_path clause, and a
+  // SQL function with a SET clause cannot be inlined, so every row paid for
+  // eighteen real function calls. That was 3.2s per 8k rows -- 91% of the
+  // Analytics per-list query, and on course to cross the 8s statement timeout
+  // for `authenticated` at around 19k calls. Same signature, same IMMUTABLE,
+  // and proven identical on all 8,156 live rows before shipping.
+
   it("sums exactly the five component keys", () => {
     const comps = latestDefining(
       "create or replace function public.call_cost_components",
@@ -71,10 +79,39 @@ describe("call_cost_total mirrors breakdownTotal()", () => {
     }
   });
 
+  it("reads the same five keys directly, now that it inlines", () => {
+    for (const k of [
+      "twilio",
+      "elevenlabs",
+      "openai",
+      "openai_review",
+      "lookup",
+    ]) {
+      expect(sql, k).toContain(`j -> '${k}'`);
+    }
+    // Sub-parts and credits are never summed.
+    for (const k of ["twilio_call", "twilio_media_stream", "elevenlabs_llm"]) {
+      expect(sql, k).not.toContain(`j -> '${k}'`);
+    }
+  });
+
   it("falls back to the stored total only when there are no components", () => {
-    expect(sql).toMatch(
-      /when public\.call_cost_components\(j\) > 0 then public\.call_cost_components\(j\)\s*else public\.j_num\(j, 'total'\)/,
-    );
+    // coalesce(nullif(greatest(sum, 0), 0), total) is the old
+    // "components > 0 ? components : total", negative branch included, with
+    // the sum written once instead of twice.
+    expect(sql).toContain("coalesce(");
+    expect(sql).toContain("nullif(");
+    expect(sql).toContain("greatest(");
+    expect(sql).toContain("j -> 'total'");
+  });
+
+  it("stays inlinable", () => {
+    // The entire point of the rewrite. A SET clause or a nested helper call
+    // would silently put the 3.2s back.
+    expect(sql).not.toContain("set search_path");
+    expect(sql).not.toContain("public.call_cost_components(");
+    expect(sql).not.toContain("public.j_num(");
+    expect(sql).toContain("immutable");
   });
 });
 
