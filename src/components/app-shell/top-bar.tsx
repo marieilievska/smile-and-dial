@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "@/lib/auth/actions";
+import { asAppRole, ROLE_LABELS } from "@/lib/auth/roles";
 
 import {
   ActiveCampaignChip,
@@ -23,7 +24,6 @@ import { AskSmile } from "./ask-smile";
 import { GlobalSearch } from "./global-search";
 import { NotificationBell, type NotificationItem } from "./notification-bell";
 import { ThemeToggle } from "./theme-toggle";
-import { canManageUsers } from "@/lib/auth/roles";
 
 function initialsOf(name: string) {
   const letters = name
@@ -58,14 +58,14 @@ export function TopBar({
   setup?: { done: number; total: number } | null;
   /** Round 35 (R1) — hamburger trigger for the sidebar drawer below
    *  `md`. Slotted from the layout so the trigger has the same
-   *  isAdmin / saved-views payload as the persistent sidebar. */
+   *  saved-views payload as the persistent sidebar. */
   mobileNav?: React.ReactNode;
 }) {
   return (
     <header className="border-border/60 bg-card flex h-16 shrink-0 items-center gap-3 border-b px-4 shadow-sm sm:px-6">
       {mobileNav}
       <div className="flex-1">
-        <GlobalSearch isAdmin={canManageUsers(role)} userEmail={email} />
+        <GlobalSearch userEmail={email} />
       </div>
       {/* First-run setup nudge — links to the Today checklist. Only present
        *  while a teammate is still onboarding + setup is incomplete; vanishes
@@ -114,8 +114,11 @@ export function TopBar({
             <span className="text-muted-foreground text-xs font-normal">
               {email}
             </span>
-            <span className="text-muted-foreground text-xs font-normal capitalize">
-              {role}
+            {/* ROLE_LABELS, not the raw column: `profiles.role` is stored
+             *  snake_case, so `capitalize` rendered a super admin as
+             *  "Super_admin". roles.ts says never render it raw. */}
+            <span className="text-muted-foreground text-xs font-normal">
+              {ROLE_LABELS[asAppRole(role)]}
             </span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />

@@ -21,9 +21,6 @@ export type NavItem = {
   href: string;
   icon: LucideIcon;
   section: NavSection;
-  /** When true, the item is hidden from members and shown only to the admin
-   *  tier (admin or super admin). Nothing sets it today. */
-  adminOnly?: boolean;
   /** When set, the item is shown ONLY to the user whose email matches this
    *  value (everyone else never sees it). Used for the access-gated
    *  Archived storage entry. */
@@ -42,7 +39,26 @@ export const NAV_SECTION_LABELS: Record<NavSection, string> = {
 
 /** Primary sidebar navigation. Grouped for scanability — daily-use items
  *  (Workflow) sit above campaign-level reporting (Operations) above
- *  rarely-touched admin surfaces. */
+ *  rarely-touched admin surfaces.
+ *
+ *  EVERY TIER SEES EVERY ITEM, deliberately. There used to be an `adminOnly`
+ *  flag here that nothing set; it was removed rather than wired up, for two
+ *  reasons.
+ *
+ *  First, hiding a nav item is not access control. The URL still works. What
+ *  actually protects a row is RLS plus the per-page guards, and a flag that
+ *  LOOKS like a permission invites someone to reach for it instead of the
+ *  thing that works.
+ *
+ *  Second, nothing here should be hidden. A member is a builder — they run
+ *  calls on their own leads, agents, numbers and campaigns — so their own
+ *  Costs, Analytics, Reporting and Do-not-call are all genuinely theirs to
+ *  read, scoped by RLS to their own rows. The one place the admin tier really
+ *  does get more is the Administration group inside Settings (Users, API
+ *  keys), and settings-nav.tsx gates that on canManageUsers().
+ *
+ *  Per-item restriction still exists where it is genuinely needed —
+ *  `restrictToEmail`, used by Archived. */
 export const navItems: NavItem[] = [
   {
     label: "Today",
