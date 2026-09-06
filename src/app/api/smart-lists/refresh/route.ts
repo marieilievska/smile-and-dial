@@ -5,6 +5,7 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { refreshSmartListMembers } from "@/lib/smart-lists/cache";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 // Every attached list is rebuilt in one pass (delete + re-select over all of
 // the owner's leads, per list). Give the pass a full minute so a large
@@ -16,7 +17,7 @@ export const maxDuration = 60;
  * pg_cron job hits this every few minutes (via pg_net); an attach also kicks an
  * immediate refresh inline (see campaigns/actions). Secret-gated EXACTLY like
  * /api/dialer/tick and /api/best-time/refresh — the `x-dialer-secret` header
- * compared to DIALER_TICK_SECRET, with a signed-in admin fallback.
+ * compared to DIALER_TICK_SECRET, with a signed-in super-admin fallback.
  *
  * Responds with `{ ok, refreshed, failed, totalMembers, failures }`. A list
  * that fails to rebuild is counted in `failed` (and recorded on the list +
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
         .select("role")
         .eq("id", user.id)
         .single();
-      if (me?.role === "admin") authorized = true;
+      if (isSuperAdmin(me?.role)) authorized = true;
     }
   }
 

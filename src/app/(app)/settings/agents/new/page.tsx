@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 import { TemplateGallery } from "../template-gallery";
+import { canManageUsers } from "@/lib/auth/roles";
 
 export default async function NewAgentPage() {
   const supabase = await createClient();
@@ -26,6 +27,9 @@ export default async function NewAgentPage() {
   }));
 
   return (
-    <TemplateGallery dbTemplates={dbTemplates} isAdmin={me?.role === "admin"} />
+    <TemplateGallery
+      dbTemplates={dbTemplates}
+      isAdmin={canManageUsers(me?.role)}
+    />
   );
 }

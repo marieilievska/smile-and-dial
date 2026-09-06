@@ -28,6 +28,7 @@ import {
 import { parseCloseSmsNumbers } from "./sms-from-number";
 import { syncCloseSmsNumbers } from "./sms-numbers";
 import { CLOSE_WEBHOOK_EVENTS } from "./webhook";
+import { canManageUsers } from "@/lib/auth/roles";
 
 function makeServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -384,7 +385,10 @@ export async function handoffLeadToClose(
     .select("role, full_name")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") return { error: "Admins only." };
+  // Admin tier: handing a lead to a closer is an elevated power, not extra
+  // visibility. NOTE: the lead is then loaded with the service client, so this
+  // gate is currently the only ownership check on the path — see the PR.
+  if (!canManageUsers(me?.role)) return { error: "Admins only." };
 
   const admin = makeServiceClient();
 

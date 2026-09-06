@@ -42,6 +42,7 @@ import { SmartPagination } from "../leads/smart-pagination";
 import { SortableHeader } from "./sortable-header";
 import { fetchCallStats } from "./stats-query";
 import { type SearchParams } from "./calls-url";
+import { canManageUsers, isSuperAdmin } from "@/lib/auth/roles";
 
 const ALLOWED_PAGE_SIZES = new Set([25, 50, 100]);
 const DEFAULT_PAGE_SIZE = 25;
@@ -63,13 +64,17 @@ export default async function CallsPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Admins see the Owner filter; members only see their own calls anyway.
+  // Two different questions. The Owner filter and Owner column are about
+  // SEEING other people's calls (super admin only, matching RLS). Bulk
+  // selection and delete are an elevated POWER that still refuses calls the
+  // caller doesn't own, so the admin tier keeps it.
   const { data: me } = await supabase
     .from("profiles")
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = me?.role === "admin";
+  const seesEveryone = isSuperAdmin(me?.role);
+  const canBulkManage = canManageUsers(me?.role);
 
   const [
     { data: campaigns },
@@ -80,7 +85,7 @@ export default async function CallsPage({
   ] = await Promise.all([
     supabase.from("campaigns").select("id, name").order("name"),
     supabase.from("agents").select("id, name").order("name"),
-    isAdmin
+    seesEveryone
       ? supabase.from("profiles").select("id, full_name, email").order("email")
       : Promise.resolve({
           data: [] as { id: string; full_name: string | null; email: string }[],
@@ -268,7 +273,7 @@ export default async function CallsPage({
             campaigns={campaignOptions}
             agents={agentOptions}
             owners={ownerOptions}
-            showOwner={isAdmin}
+            showOwner={seesEveryone}
           />
           <ColumnPicker />
           <SavedViews views={viewsRaw ?? []} />
@@ -283,12 +288,12 @@ export default async function CallsPage({
       {calls.length > 0 ? (
         <CallsSelectionProvider allIds={calls.map((c) => c.id)}>
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-5 delay-200 duration-500">
-            {isAdmin ? <CallsSelectAllBanner total={total} /> : null}
+            {canBulkManage ? <CallsSelectAllBanner total={total} /> : null}
             <div className="border-border overflow-x-auto rounded-2xl border shadow-sm">
               <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
-                    {isAdmin ? (
+                    {canBulkManage ? (
                       <TableHead className="w-10">
                         <CallSelectAllCheckbox />
                       </TableHead>
@@ -327,7 +332,7 @@ export default async function CallsPage({
                 <TableBody>
                   {calls.map((c) => (
                     <CallRow key={c.id} callId={c.id}>
-                      {isAdmin ? (
+                      {canBulkManage ? (
                         <TableCell className="w-10">
                           <CallRowCheckbox callId={c.id} />
                         </TableCell>
@@ -349,7 +354,7 @@ export default async function CallsPage({
                           callId={c.id}
                           leadId={c.leadId}
                           hasRecording={Boolean(c.recording_path)}
-                          isAdmin={isAdmin}
+                          isAdmin={canBulkManage}
                         />
                       </TableCell>
                     </CallRow>
@@ -358,7 +363,7 @@ export default async function CallsPage({
               </Table>
             </div>
 
-            {isAdmin ? <CallsBulkBar /> : null}
+            {canBulkManage ? <CallsBulkBar /> : null}
 
             <SmartPagination
               page={page}
@@ -374,7 +379,7 @@ export default async function CallsPage({
         <NoCallsEmptyState />
       )}
 
-      <CallDetailModal isAdmin={isAdmin} />
+      <CallDetailModal isAdmin={canBulkManage} />
     </div>
   );
 }

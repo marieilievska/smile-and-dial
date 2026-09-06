@@ -5,6 +5,7 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { refreshBestTimeHeatmap } from "@/lib/dialer/best-time-cache";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 /**
  * Recompute the "best time to call" connect heatmap and cache it in
@@ -13,7 +14,8 @@ import { createClient } from "@/lib/supabase/server";
  * READS the cached result.
  *
  * Secret-gated EXACTLY like /api/dialer/tick — the same `x-dialer-secret`
- * header compared to `DIALER_TICK_SECRET`, with a signed-in admin fallback so a
+ * header compared to `DIALER_TICK_SECRET`, with a signed-in super-admin
+ * fallback (this is a workspace-wide job, not one person's work) so a
  * (future) "Refresh now" debug button works too. Either is sufficient; nothing
  * else can fire it.
  */
@@ -35,7 +37,7 @@ export async function POST(request: NextRequest) {
         .select("role")
         .eq("id", user.id)
         .single();
-      if (me?.role === "admin") authorized = true;
+      if (isSuperAdmin(me?.role)) authorized = true;
     }
   }
 

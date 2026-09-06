@@ -26,6 +26,7 @@ import { parseScopeParam, serializeScope } from "@/lib/agent-analytics/scope";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 // Public, read-only, all-agents combined reporting view, gated by an
 // unguessable token in the URL (validated against app_settings, so it's
@@ -120,7 +121,8 @@ export default async function PublicReporting({
           .select("role")
           .eq("id", user.id)
           .single();
-        viewerIsAdmin = me?.role === "admin";
+        // dashboard_notes is is_admin()-only in RLS, i.e. super admin.
+        viewerIsAdmin = isSuperAdmin(me?.role);
       }
     } catch {
       // Anonymous viewer — notes stay read-only.

@@ -6,6 +6,7 @@ import { FIXED_VOICES } from "@/lib/elevenlabs/voices";
 import { createClient } from "@/lib/supabase/server";
 
 import { AgentBuilder } from "../../../agent-builder";
+import { canManageUsers } from "@/lib/auth/roles";
 
 export default async function EditTemplatePage({
   params,
@@ -26,7 +27,7 @@ export default async function EditTemplatePage({
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") redirect("/settings/agents");
+  if (!canManageUsers(me?.role)) redirect("/settings/agents");
 
   const template = await resolveTemplate(id, supabase);
   if (!template) notFound();

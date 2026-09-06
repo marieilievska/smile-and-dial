@@ -10,6 +10,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  asAppRole,
+  canManageUsers,
+  ROLE_LABELS,
+  type AppRole,
+} from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
 
 import { formatCreatedAt } from "../format-created";
@@ -18,6 +24,13 @@ import { UserRowActions } from "./user-row-actions";
 import { UsersSearchInput } from "./users-search";
 import { UsersStatusTabs } from "./users-status-tabs";
 import { etDateTimeExact } from "@/lib/time/eastern";
+
+/** Super admin reads as the strongest pill, member as the quietest. */
+const ROLE_BADGE: Record<AppRole, "default" | "coral" | "secondary"> = {
+  super_admin: "default",
+  admin: "coral",
+  member: "secondary",
+};
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
@@ -39,7 +52,10 @@ export default async function UsersPage({
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") redirect("/leads");
+  // Managing teammates is an admin-tier power (admin or super admin), not a
+  // "sees everything" one — see src/lib/auth/roles.ts.
+  const actorRole = asAppRole(me?.role);
+  if (!canManageUsers(actorRole)) redirect("/leads");
 
   const params = await searchParams;
   const status = ["active", "inactive", "all"].includes(str(params.status))
@@ -82,7 +98,9 @@ export default async function UsersPage({
   }
 
   const now = new Date();
-  const adminCount = allUsers.filter((u) => u.role === "admin").length;
+  // Both top tiers count as "admins" on the stat strip: the number that
+  // matters is how many people can manage the workspace.
+  const adminCount = allUsers.filter((u) => canManageUsers(u.role)).length;
 
   return (
     <div className="flex flex-col gap-5 p-6">
@@ -95,7 +113,7 @@ export default async function UsersPage({
             Manage who can access the workspace.
           </p>
         </div>
-        <InviteUserDialog />
+        <InviteUserDialog actorRole={actorRole} />
       </div>
 
       <section
@@ -151,8 +169,8 @@ export default async function UsersPage({
                   </TableCell>
                   <TableCell className="font-mono text-xs">{u.email}</TableCell>
                   <TableCell>
-                    <Badge variant={u.role === "admin" ? "coral" : "secondary"}>
-                      {u.role}
+                    <Badge variant={ROLE_BADGE[asAppRole(u.role)]}>
+                      {ROLE_LABELS[asAppRole(u.role)]}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -172,7 +190,8 @@ export default async function UsersPage({
                         userId={u.id}
                         email={u.email ?? ""}
                         name={u.full_name || u.email || "this user"}
-                        role={u.role === "admin" ? "admin" : "member"}
+                        role={asAppRole(u.role)}
+                        actorRole={actorRole}
                         active={u.active}
                         isSelf={u.id === user.id}
                       />

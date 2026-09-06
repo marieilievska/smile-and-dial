@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 export type ListActionResult = { error: string | null };
 
@@ -117,13 +118,14 @@ export async function deleteList(id: string): Promise<ListActionResult> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
 
-  // Only the list's owner (or an admin) may delete it + its leads.
+  // Only the list's owner (or a super admin, the tier that sees every list)
+  // may delete it + its leads. The cascade below runs as service role.
   const [{ data: list }, { data: me }] = await Promise.all([
     supabase.from("lists").select("id, owner_id").eq("id", id).maybeSingle(),
     supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
   ]);
   if (!list) return { error: "List not found." };
-  if (list.owner_id !== user.id && me?.role !== "admin") {
+  if (list.owner_id !== user.id && !isSuperAdmin(me?.role)) {
     return { error: "You don't have permission to delete this list." };
   }
 

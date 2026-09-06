@@ -23,6 +23,7 @@ import { ApiDocsTabs } from "./api-docs-tabs";
 import { ApiKeyCreateForm } from "./api-key-create-form";
 import { ApiKeyRevokeButton } from "./api-key-revoke-button";
 import { etDateTimeExact } from "@/lib/time/eastern";
+import { canManageUsers } from "@/lib/auth/roles";
 
 export default async function ApiPage() {
   const supabase = await createClient();
@@ -35,7 +36,7 @@ export default async function ApiPage() {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") redirect("/settings");
+  if (!canManageUsers(me?.role)) redirect("/settings");
 
   const { data: keys } = await supabase
     .from("api_keys")

@@ -5,6 +5,7 @@ import { FIXED_VOICES } from "@/lib/elevenlabs/voices";
 import { createClient } from "@/lib/supabase/server";
 
 import { AgentBuilder } from "../../agent-builder";
+import { canManageUsers } from "@/lib/auth/roles";
 
 export default async function NewTemplatePage({
   searchParams,
@@ -24,7 +25,7 @@ export default async function NewTemplatePage({
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") redirect("/settings/agents");
+  if (!canManageUsers(me?.role)) redirect("/settings/agents");
 
   const result = await buildTemplateDraftFromAgent(from);
   // Narrow on `draft` (not `error`): `error` is a plain `string`, which TS

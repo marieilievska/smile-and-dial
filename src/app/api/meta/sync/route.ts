@@ -6,12 +6,14 @@ import {
 } from "@/lib/meta/settings";
 import { runMetaSync } from "@/lib/meta/sync";
 import { createClient } from "@/lib/supabase/server";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 /**
  * Nightly Meta sync endpoint. Meta is per-user, so one run iterates EVERY user
  * who has connected Meta and syncs each into their own Custom Audience.
  *
- * Auth: the workspace sync secret (used by the pg_cron job) OR an admin session
+ * Auth: the workspace sync secret (used by the pg_cron job) OR a super-admin
+ * session
  * (for a manual "run the whole workspace" trigger). The per-user "Sync now"
  * button does NOT come through here — it calls the syncMetaNow server action,
  * which syncs just that user.
@@ -34,7 +36,7 @@ export async function POST(request: NextRequest) {
         .select("role")
         .eq("id", user.id)
         .single();
-      if (me?.role === "admin") authorized = true;
+      if (isSuperAdmin(me?.role)) authorized = true;
     }
   }
   if (!authorized) {

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { SettingsNav } from "@/components/app-shell/settings-nav";
 import { createClient } from "@/lib/supabase/server";
+import { canManageUsers } from "@/lib/auth/roles";
 
 /** Settings layout. Round 28 — renders a vertical left rail on
  *  `lg+` screens (Referrizer "Detached Sidebar Workspace" pattern)
@@ -28,7 +29,9 @@ export default async function SettingsLayout({
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = profile?.role === "admin";
+  // The "Administration" group is Users + API keys — an admin-tier power,
+  // not a "sees everything" one.
+  const isAdmin = canManageUsers(profile?.role);
 
   return (
     <div className="flex flex-col lg:flex-row">

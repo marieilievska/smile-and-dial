@@ -46,6 +46,7 @@ import { fmtRangeLabel } from "./format-time";
 import { PerCallTable } from "./per-call-table";
 import { PerTimeChart } from "./per-time-chart";
 import { fetchCampaignCaps, fetchCostsHeadlineStats } from "./stats-query";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -185,7 +186,8 @@ export default async function CostsPage({
       .select("role")
       .eq("id", user.id)
       .single();
-    if (me?.role === "admin") {
+    // Only the tier that sees everyone's spend gets the per-user breakdown.
+    if (isSuperAdmin(me?.role)) {
       const { data: people } = await supabase
         .from("profiles")
         .select("id, full_name, email")

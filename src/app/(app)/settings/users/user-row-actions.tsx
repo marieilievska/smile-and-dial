@@ -19,9 +19,16 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  assignableRoles,
+  canActOnUser,
+  ROLE_LABELS,
+  type AppRole,
+} from "@/lib/auth/roles";
 import {
   deleteUser,
   sendPasswordReset,
@@ -35,19 +42,27 @@ export function UserRowActions({
   email,
   name,
   role,
+  actorRole,
   active,
   isSelf,
 }: {
   userId: string;
   email: string;
   name: string;
-  role: "admin" | "member";
+  /** The row's tier. */
+  role: AppRole;
+  /** The signed-in user's tier — decides which roles this row may be moved to,
+   *  and whether it may be touched at all. Mirrors the profiles RLS guards:
+   *  never yourself, and only a super admin may change a super admin. */
+  actorRole: AppRole;
   active: boolean;
   isSelf: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const nextRole = role === "admin" ? "member" : "admin";
+
+  const mayAct = canActOnUser(actorRole, role, isSelf);
+  const roleChoices = assignableRoles(actorRole).filter((r) => r !== role);
 
   function run(action: () => Promise<ActionResult>, success: string) {
     startTransition(async () => {
@@ -75,17 +90,26 @@ export function UserRowActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            disabled={isSelf || pending}
-            onSelect={() =>
-              run(
-                () => updateUserRole(userId, nextRole),
-                `${name} is now ${nextRole === "admin" ? "an admin" : "a member"}.`,
-              )
-            }
-          >
-            Make {nextRole}
-          </DropdownMenuItem>
+          {mayAct && roleChoices.length > 0 ? (
+            <>
+              <DropdownMenuLabel>Change role</DropdownMenuLabel>
+              {roleChoices.map((next) => (
+                <DropdownMenuItem
+                  key={next}
+                  disabled={pending}
+                  onSelect={() =>
+                    run(
+                      () => updateUserRole(userId, next),
+                      `${name} is now ${ROLE_LABELS[next].toLowerCase()}.`,
+                    )
+                  }
+                >
+                  Make {ROLE_LABELS[next].toLowerCase()}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DropdownMenuItem
             disabled={pending}
             onSelect={() =>
@@ -99,7 +123,7 @@ export function UserRowActions({
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            disabled={isSelf || pending}
+            disabled={!mayAct || pending}
             onSelect={() =>
               run(
                 () => setUserActive(userId, !active),
@@ -113,7 +137,7 @@ export function UserRowActions({
           </DropdownMenuItem>
           {/* Delete is only offered for already-deactivated accounts, so the
               flow is always deactivate → delete. */}
-          {!active && !isSelf ? (
+          {!active && mayAct ? (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem

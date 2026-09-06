@@ -16,6 +16,7 @@ import { openAiKey } from "@/lib/openai/live";
 import { createClient } from "@/lib/supabase/server";
 
 import { PRODUCT_GUIDE, matchHowTo } from "./product-guide";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 /** "Ask Smile" co-pilot. Answers two kinds of question:
  *   1. HOW-TO / product questions ("how do I create an agent?") — grounded in
@@ -218,7 +219,9 @@ export async function askSmile(question: string): Promise<AskSmileResult> {
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = me?.role === "admin";
+  // The hero counts and action queue are RLS-scoped, so the flag has to agree
+  // with RLS: only a super admin sees everyone's numbers.
+  const isAdmin = isSuperAdmin(me?.role);
 
   const [hero, actions] = await Promise.all([
     fetchHeroCounts(supabase, { isAdmin, ownerId: user.id }),

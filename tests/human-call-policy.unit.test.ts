@@ -40,7 +40,10 @@ describe("parseClientIdentity", () => {
 
 describe("authorizeHumanDial", () => {
   const member = { role: "member", active: true };
+  // "Sees every lead" is the super-admin tier since 20260906010000; a plain
+  // admin is owner-scoped for DATA, exactly like a member.
   const admin = { role: "admin", active: true };
+  const superAdmin = { role: "super_admin", active: true };
 
   it("lets a member dial their own lead", () => {
     expect(
@@ -64,7 +67,18 @@ describe("authorizeHumanDial", () => {
     ).toEqual({ ok: false, reason: "not_lead_owner" });
   });
 
-  it("lets an admin dial any lead", () => {
+  it("lets a super admin dial any lead", () => {
+    expect(
+      authorizeHumanDial({
+        callerUserId: ALICE,
+        claimedUserId: ALICE,
+        caller: superAdmin,
+        leadOwnerId: BOB,
+      }),
+    ).toEqual({ ok: true, isAdmin: true });
+  });
+
+  it("refuses a plain admin dialing someone else's lead", () => {
     expect(
       authorizeHumanDial({
         callerUserId: ALICE,
@@ -72,7 +86,18 @@ describe("authorizeHumanDial", () => {
         caller: admin,
         leadOwnerId: BOB,
       }),
-    ).toEqual({ ok: true, isAdmin: true });
+    ).toEqual({ ok: false, reason: "not_lead_owner" });
+  });
+
+  it("lets a plain admin dial their own lead", () => {
+    expect(
+      authorizeHumanDial({
+        callerUserId: ALICE,
+        claimedUserId: ALICE,
+        caller: admin,
+        leadOwnerId: ALICE,
+      }),
+    ).toEqual({ ok: true, isAdmin: false });
   });
 
   it("refuses when the browser's userId disagrees with Twilio's identity", () => {
@@ -81,18 +106,18 @@ describe("authorizeHumanDial", () => {
       authorizeHumanDial({
         callerUserId: ALICE,
         claimedUserId: BOB,
-        caller: admin,
+        caller: superAdmin,
         leadOwnerId: ALICE,
       }),
     ).toEqual({ ok: false, reason: "identity_mismatch" });
   });
 
-  it("refuses a deactivated account, admin or not", () => {
+  it("refuses a deactivated account, super admin or not", () => {
     expect(
       authorizeHumanDial({
         callerUserId: ALICE,
         claimedUserId: ALICE,
-        caller: { role: "admin", active: false },
+        caller: { role: "super_admin", active: false },
         leadOwnerId: ALICE,
       }),
     ).toEqual({ ok: false, reason: "inactive_user" });

@@ -8,6 +8,7 @@ import {
 } from "@/lib/callbacks/sync-next-call";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 export type ActionResult = { error: string | null };
 
@@ -205,7 +206,9 @@ export async function deleteCallbacks(
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = me?.role === "admin";
+  // Skipping the per-row ownership check below means deleting other people's
+  // callbacks — a super-admin power. Everyone else is scoped to their own.
+  const isAdmin = isSuperAdmin(me?.role);
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";

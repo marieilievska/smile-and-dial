@@ -5,6 +5,8 @@
  * resolveHumanCallTarget apply it.
  */
 
+import { isSuperAdmin } from "@/lib/auth/roles";
+
 const CLIENT_IDENTITY_RE =
   /^client:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
@@ -39,10 +41,14 @@ export type HumanDialDecision =
   | { ok: false; reason: HumanDialRefusal };
 
 /**
- * May the proven caller dial this lead? Members may only dial leads they own;
- * active admins may dial any lead. `claimedUserId` is the userId the browser
+ * May the proven caller dial this lead? Everyone may dial leads they own; only
+ * an active SUPER ADMIN — the tier that sees every lead, matching the leads
+ * RLS — may dial someone else's. `claimedUserId` is the userId the browser
  * sent alongside the dial — it must match the proven identity so a call row is
  * never attributed to someone else.
+ *
+ * `isAdmin` on the decision means "sees every lead", and is passed straight
+ * into rankHumanCallCampaigns as the same kind of flag.
  */
 export function authorizeHumanDial(input: {
   /** From Twilio's `From` (parseClientIdentity) — the identity we trust. */
@@ -57,7 +63,7 @@ export function authorizeHumanDial(input: {
   }
   if (!input.caller) return { ok: false, reason: "unknown_user" };
   if (!input.caller.active) return { ok: false, reason: "inactive_user" };
-  const isAdmin = input.caller.role === "admin";
+  const isAdmin = isSuperAdmin(input.caller.role);
   if (!isAdmin && input.leadOwnerId !== input.callerUserId) {
     return { ok: false, reason: "not_lead_owner" };
   }
@@ -67,7 +73,7 @@ export function authorizeHumanDial(input: {
 /**
  * Which of a lead's attached campaigns this caller may borrow a caller ID
  * from, best first: the lead's owning campaign (when visible), then the rest in
- * the order given. Members only see their own campaigns; admins see them all.
+ * the order given. Everyone sees their own campaigns; a super admin sees all.
  */
 export function rankHumanCallCampaigns<
   T extends { id: string; owner_id: string },

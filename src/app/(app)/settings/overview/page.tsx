@@ -18,6 +18,7 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
+import { canManageUsers } from "@/lib/auth/roles";
 
 /** Settings overview page. Round 30 — turned the passive card index
  *  into a "is my workspace ready to make calls?" surface. Each card
@@ -53,7 +54,7 @@ export default async function SettingsOverviewPage() {
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = canManageUsers(profile?.role);
 
   // Pull a count per section so the cards can report configured vs
   // missing. Everything runs in one fan-out; RLS does the per-user
@@ -284,7 +285,7 @@ export default async function SettingsOverviewPage() {
       {isAdmin ? (
         <Section
           title="Administration"
-          description="Admin-only configuration. Members can't see these pages."
+          description="Managing the team. Members can't see these pages."
           cards={adminCards}
           nextHref={nextStep?.href}
         />

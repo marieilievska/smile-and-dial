@@ -23,6 +23,7 @@ import { AskSmile } from "./ask-smile";
 import { GlobalSearch } from "./global-search";
 import { NotificationBell, type NotificationItem } from "./notification-bell";
 import { ThemeToggle } from "./theme-toggle";
+import { canManageUsers } from "@/lib/auth/roles";
 
 function initialsOf(name: string) {
   const letters = name
@@ -64,7 +65,7 @@ export function TopBar({
     <header className="border-border/60 bg-card flex h-16 shrink-0 items-center gap-3 border-b px-4 shadow-sm sm:px-6">
       {mobileNav}
       <div className="flex-1">
-        <GlobalSearch isAdmin={role === "admin"} userEmail={email} />
+        <GlobalSearch isAdmin={canManageUsers(role)} userEmail={email} />
       </div>
       {/* First-run setup nudge — links to the Today checklist. Only present
        *  while a teammate is still onboarding + setup is incomplete; vanishes

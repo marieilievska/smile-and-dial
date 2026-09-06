@@ -40,6 +40,7 @@ import { RepointWebhooksButton } from "./repoint-button";
 import { TwilioNumbersStatusTabs } from "./status-tabs";
 import { TwilioSyncButton } from "./sync-button";
 import { etDateTimeExact } from "@/lib/time/eastern";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
@@ -61,9 +62,11 @@ export default async function TwilioNumbersPage({
     .select("role")
     .eq("id", user.id)
     .single();
-  // Members (builders) manage the number pool; only permanent delete of a
-  // released number is admin-only (gated on the Delete control below).
-  const isAdmin = me?.role === "admin";
+  // Members (builders) manage the number pool. The two controls behind this
+  // flag both reconcile the SHARED Twilio account rather than one person's
+  // numbers — "Sync from Twilio", and permanently deleting a released number
+  // — so they belong to the tier that sees everything.
+  const isAdmin = isSuperAdmin(me?.role);
 
   const params = await searchParams;
   const status = ["all", "in_pool", "released"].includes(str(params.status))

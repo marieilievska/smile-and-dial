@@ -25,18 +25,18 @@ const admin = createClient(url, serviceKey, {
 
 const users = [
   {
-    label: "first admin",
+    label: "first super admin",
     email: "marie@referrizer.com",
     password: process.env.SEED_ADMIN_PASSWORD,
     fullName: "Marija Ilievska",
-    role: "admin",
+    role: "super_admin",
   },
   {
     label: "E2E test user",
     email: process.env.E2E_TEST_EMAIL,
     password: process.env.E2E_TEST_PASSWORD,
     fullName: "E2E Test User",
-    role: "admin",
+    role: "super_admin",
   },
   {
     label: "E2E member user",
@@ -55,14 +55,29 @@ for (const user of users) {
     continue;
   }
 
-  const { error } = await admin.auth.admin.createUser({
+  const { data, error } = await admin.auth.admin.createUser({
     email: user.email,
     password: user.password,
     email_confirm: true,
-    user_metadata: { full_name: user.fullName, role: user.role },
+    user_metadata: { full_name: user.fullName },
   });
 
   if (!error) {
+    // handle_new_user() always creates the profile as 'member' and never reads
+    // a role from user_metadata (20260906010000 — a signup must not be able to
+    // pick its own role), so the seeded role is applied here instead.
+    if (data?.user?.id && user.role !== "member") {
+      const { error: roleError } = await admin
+        .from("profiles")
+        .update({ role: user.role })
+        .eq("id", data.user.id);
+      if (roleError) {
+        console.error(
+          `x Failed to set role for ${user.label}: ${roleError.message}`,
+        );
+        hadError = true;
+      }
+    }
     console.log(`+ Created ${user.label}: ${user.email} (${user.role}).`);
   } else if (/already|exists|registered/i.test(error.message)) {
     console.log(`= ${user.label} already exists: ${user.email}.`);

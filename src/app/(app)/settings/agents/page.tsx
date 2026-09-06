@@ -21,6 +21,7 @@ import { DeleteAgentDialog } from "./delete-agent-dialog";
 import { ResyncAgentsButton } from "./resync-agents-button";
 import { SyncAgentButton } from "./sync-agent-button";
 import { etDateTimeExact } from "@/lib/time/eastern";
+import { canManageUsers } from "@/lib/auth/roles";
 
 export default async function AgentsPage() {
   const supabase = await createClient();
@@ -34,7 +35,8 @@ export default async function AgentsPage() {
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = me?.role === "admin";
+  // "Save as template" writes to the shared shelf — an admin-tier power.
+  const isAdmin = canManageUsers(me?.role);
 
   // Pull agents + their campaign attachments in parallel so we can
   // surface "Used by N active campaigns" inline. RLS scopes both.

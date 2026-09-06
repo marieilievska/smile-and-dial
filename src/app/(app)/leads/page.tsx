@@ -46,6 +46,7 @@ import { fetchLeadStats } from "./stats-query";
 import { LeadsJKNavigation } from "./jk-navigation";
 import { RowCheckbox, SelectAllCheckbox, SelectionProvider } from "./selection";
 import { SortableHeader } from "./sortable-header";
+import { canManageUsers } from "@/lib/auth/roles";
 
 const ALLOWED_PAGE_SIZES = new Set([25, 50, 100]);
 const DEFAULT_PAGE_SIZE = 25;
@@ -187,9 +188,11 @@ export default async function LeadsPage({
   ctx.set("page", String(page));
   const contextQuery = ctx.toString();
 
-  const isAdmin = me?.role === "admin";
+  // Handing a lead over is an admin-tier power (the leads_update WITH CHECK
+  // lets the admin tier set a new owner on a row it already owns), so both
+  // top tiers get the reassign dialog.
+  const isAdmin = canManageUsers(me?.role);
 
-  // Admins get the owner list for the bulk reassign dialog.
   let bulkOwners: { id: string; name: string }[] = [];
   if (isAdmin) {
     const { data: people } = await supabase

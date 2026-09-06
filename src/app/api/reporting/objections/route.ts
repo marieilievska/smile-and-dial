@@ -5,10 +5,11 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { runObjectionExtraction } from "@/lib/reporting/objection-worker";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 /** Drain a batch of the objection-extraction queue. Secret-gated EXACTLY like
  *  /api/smart-lists/refresh: x-dialer-secret == DIALER_TICK_SECRET, or a
- *  signed-in admin. pg_cron hits this every few minutes via pg_net. */
+ *  signed-in super admin. pg_cron hits this every few minutes via pg_net. */
 export async function POST(request: NextRequest) {
   const secret = request.headers.get("x-dialer-secret");
   const expected = process.env.DIALER_TICK_SECRET ?? "";
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
         .select("role")
         .eq("id", user.id)
         .single();
-      if (me?.role === "admin") authorized = true;
+      if (isSuperAdmin(me?.role)) authorized = true;
     }
   }
   if (!authorized) {

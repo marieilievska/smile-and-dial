@@ -29,6 +29,7 @@ import { PromptLogTable } from "./prompt-log-table";
 import { NumbersPanel } from "./numbers-panel";
 import { ReportingTabs, reportingTabsFor } from "./reporting-tabs";
 import { ScopePicker } from "./scope-picker";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
@@ -67,7 +68,7 @@ export default async function AgentAnalyticsPage({
   // `calendly_events` and `cost_rollup_daily`, and the Cohorts RPC is
   // SECURITY INVOKER so the same policies apply to it. There is deliberately no
   // second check here: a UI filter that disagreed with RLS is how data leaks.
-  const isAdmin = me?.role === "admin";
+  const isAdmin = isSuperAdmin(me?.role);
 
   const [{ data: campaignRows }, { data: agentRows }] = await Promise.all([
     supabase.from("campaigns").select("id, name").order("name"),
