@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 
-import { chunk } from "@/lib/leads/chunk";
+import { mapChunks } from "@/lib/leads/chunk";
 import {
   fetchAllMatchingLeadIds,
   fetchLeadRowsByIds,
@@ -84,33 +84,36 @@ async function buildCsv(
   const customDefs = (defs ?? []) as { id: string; name: string }[];
   const valueByLead = new Map<string, Map<string, string>>();
   if (customDefs.length > 0) {
-    for (const idChunk of chunk(
+    // Bounded concurrency — independent reads, and a full export is many chunks.
+    const valueChunks = await mapChunks(
       rawLeads.map((l) => l.id),
       500,
-    )) {
-      const { data } = await supabase
-        .from("lead_custom_values")
-        .select("lead_id, custom_field_id, value")
-        .in("lead_id", idChunk);
-      for (const r of (data ?? []) as {
-        lead_id: string;
-        custom_field_id: string;
-        value: unknown;
-      }[]) {
-        let m = valueByLead.get(r.lead_id);
-        if (!m) {
-          m = new Map<string, string>();
-          valueByLead.set(r.lead_id, m);
-        }
-        m.set(
-          r.custom_field_id,
-          typeof r.value === "string"
-            ? r.value
-            : r.value == null
-              ? ""
-              : JSON.stringify(r.value),
-        );
+      async (idChunk) => {
+        const { data } = await supabase
+          .from("lead_custom_values")
+          .select("lead_id, custom_field_id, value")
+          .in("lead_id", idChunk);
+        return (data ?? []) as {
+          lead_id: string;
+          custom_field_id: string;
+          value: unknown;
+        }[];
+      },
+    );
+    for (const r of valueChunks.flat()) {
+      let m = valueByLead.get(r.lead_id);
+      if (!m) {
+        m = new Map<string, string>();
+        valueByLead.set(r.lead_id, m);
       }
+      m.set(
+        r.custom_field_id,
+        typeof r.value === "string"
+          ? r.value
+          : r.value == null
+            ? ""
+            : JSON.stringify(r.value),
+      );
     }
   }
 

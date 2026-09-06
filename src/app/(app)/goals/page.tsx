@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { GOAL_STATUSES, type GoalStatus } from "@/lib/goals/goal-statuses";
-import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
+import { ID_CHUNK, mapChunks } from "@/lib/leads/chunk";
 import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import { createClient } from "@/lib/supabase/server";
 
@@ -90,9 +90,13 @@ export default async function GoalsPage({
   };
   //    Chunk the id list (a giant `.in()` overflows the URL) and page each
   //    chunk past the 1,000-row cap.
-  const goalMetCalls: GoalMetCall[] = [];
-  for (const ids of chunk(leadIds, ID_CHUNK)) {
-    const rows = await fetchAllRows<GoalMetCall>((from, to) =>
+  //    The chunks run with bounded concurrency rather than end to end — this
+  //    was doubly serial before (a paged fetch inside a sequential chunk loop).
+  //    mapChunks returns results in CHUNK order, so flattening reproduces
+  //    exactly the order the serial version produced, which the
+  //    newest-hit-per-lead pass below depends on.
+  const goalMetChunks = await mapChunks(leadIds, ID_CHUNK, (ids) =>
+    fetchAllRows<GoalMetCall>((from, to) =>
       supabase
         .from("calls")
         .select(
@@ -104,9 +108,9 @@ export default async function GoalsPage({
         .order("id", { ascending: true })
         .range(from, to)
         .then((r) => ({ data: r.data as unknown as GoalMetCall[] | null })),
-    );
-    goalMetCalls.push(...rows);
-  }
+    ),
+  );
+  const goalMetCalls: GoalMetCall[] = goalMetChunks.flat();
   // Keep the newest hit per lead — each chunk is desc by created_at.
   const sourceByLead = new Map<
     string,

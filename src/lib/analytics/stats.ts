@@ -8,7 +8,7 @@ import {
   CONNECTED_OUTCOMES,
   CONVERSATION_OUTCOMES,
 } from "@/lib/calls/outcomes";
-import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
+import { ID_CHUNK, mapChunks } from "@/lib/leads/chunk";
 import {
   endOfEtDayUtcIso,
   etDateDaysAgo,
@@ -149,7 +149,9 @@ export async function fetchCallsForRange(
   // wrong numbers.
   const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
   const dmByLead = new Map<string, boolean>();
-  for (const idChunk of chunk(leadIds, ID_CHUNK)) {
+  // Chunks run with bounded concurrency rather than end to end: they are
+  // independent reads, and serialising them was most of this page's render.
+  const leadChunks = await mapChunks(leadIds, ID_CHUNK, async (idChunk) => {
     let leadQuery = supabase
       .from("leads")
       .select("id, decision_maker_reached")
@@ -160,9 +162,10 @@ export async function fetchCallsForRange(
     if (error) {
       throw new Error(`Analytics lead lookup failed: ${error.message}`);
     }
-    for (const l of leads ?? []) {
-      dmByLead.set(l.id, l.decision_maker_reached === true);
-    }
+    return leads ?? [];
+  });
+  for (const l of leadChunks.flat()) {
+    dmByLead.set(l.id, l.decision_maker_reached === true);
   }
 
   // When an owner/list filter is set, drop calls whose lead fell outside it.

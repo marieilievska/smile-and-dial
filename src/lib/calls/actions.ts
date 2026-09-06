@@ -10,7 +10,7 @@ import { anyCallReachedDm } from "@/lib/calls/decision-maker";
 import { hardDeleteCalls } from "@/lib/calls/delete-calls-core";
 import { applyRetryForCall } from "@/lib/dialer/retry-engine";
 import { applyOutcomeSideEffects } from "@/lib/elevenlabs/post-call-webhook";
-import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
+import { ID_CHUNK, chunk, mapChunks } from "@/lib/leads/chunk";
 import { recomputeLeadCallState } from "@/lib/leads/recompute-call-state";
 import { etDayString } from "@/lib/time/eastern";
 import { createAdminClient as createServiceClient } from "@/lib/supabase/admin";
@@ -477,15 +477,16 @@ export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
   // it for us.
   if (!isAdmin) {
     const ownedIds = new Set<string>();
-    for (const idsChunk of chunk(clean, ID_CHUNK)) {
+    const ownerChunks = await mapChunks(clean, ID_CHUNK, async (idsChunk) => {
       const { data: rows } = await admin
         .from("calls")
         .select("id, lead:leads(owner_id)")
         .in("id", idsChunk);
-      for (const r of rows ?? []) {
-        const owner = (r.lead as { owner_id?: string | null } | null)?.owner_id;
-        if (owner === user.id) ownedIds.add(r.id);
-      }
+      return rows ?? [];
+    });
+    for (const r of ownerChunks.flat()) {
+      const owner = (r.lead as { owner_id?: string | null } | null)?.owner_id;
+      if (owner === user.id) ownedIds.add(r.id);
     }
     if (ownedIds.size !== clean.length) {
       return { error: "You can only delete your own calls." };
@@ -500,15 +501,16 @@ export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
   // ids) never overflows the request URL.
   const leadIdSet = new Set<string>();
   const etDaySet = new Set<string>();
-  for (const idsChunk of chunk(clean, ID_CHUNK)) {
+  const affectedChunks = await mapChunks(clean, ID_CHUNK, async (idsChunk) => {
     const { data: affected } = await admin
       .from("calls")
       .select("lead_id, created_at")
       .in("id", idsChunk);
-    for (const c of affected ?? []) {
-      if (c.lead_id) leadIdSet.add(c.lead_id);
-      if (c.created_at) etDaySet.add(etDayString(new Date(c.created_at)));
-    }
+    return affected ?? [];
+  });
+  for (const c of affectedChunks.flat()) {
+    if (c.lead_id) leadIdSet.add(c.lead_id);
+    if (c.created_at) etDaySet.add(etDayString(new Date(c.created_at)));
   }
   const leadIds = [...leadIdSet];
   const etDays = [...etDaySet];

@@ -8,7 +8,7 @@ import {
 } from "@/app/(app)/leads/leads-query";
 import type { SearchParams } from "@/app/(app)/leads/leads-url";
 
-import { chunk } from "./chunk";
+import { mapChunks } from "./chunk";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -98,14 +98,23 @@ export async function fetchLeadRowsByIds(
   supabase: SupabaseServerClient,
   ids: string[],
 ): Promise<{ rows: Record<string, unknown>[]; error: string | null }> {
-  const rows: Record<string, unknown>[] = [];
-  for (const idChunk of chunk(ids, ROW_FETCH_CHUNK)) {
+  // Bounded concurrency, not one chunk after another: independent reads, and a
+  // "select all matching" export can be dozens of chunks.
+  let failure: string | null = null;
+  const chunks = await mapChunks(ids, ROW_FETCH_CHUNK, async (idChunk) => {
     const { data, error } = await supabase
       .from("leads")
       .select(LEADS_SELECT)
       .in("id", idChunk);
-    if (error) return { rows: [], error: error.message };
-    rows.push(...((data ?? []) as Record<string, unknown>[]));
-  }
-  return { rows, error: null };
+    // Record the first failure rather than throwing: this function's contract
+    // is to RETURN the error, and a throw here would escape mapChunks and
+    // change how every caller handles it.
+    if (error) {
+      failure ??= error.message;
+      return [];
+    }
+    return (data ?? []) as Record<string, unknown>[];
+  });
+  if (failure) return { rows: [], error: failure };
+  return { rows: chunks.flat(), error: null };
 }

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
+import { ID_CHUNK, mapChunks } from "@/lib/leads/chunk";
 import {
   addBreakdownInto,
   zeroBreakdown,
@@ -94,7 +94,9 @@ export async function fetchCostRows(
     // dropped every row and made an owner/list-filtered Costs page read empty.
     // Fail loud on a query error rather than returning a wrong (empty) total.
     const ok = new Set<string>();
-    for (const idChunk of chunk(leadIds, ID_CHUNK)) {
+    // Bounded-concurrency rather than one chunk after another: independent
+    // reads, and the serial version was a large share of this page's render.
+    const leadChunks = await mapChunks(leadIds, ID_CHUNK, async (idChunk) => {
       let leadQuery = supabase.from("leads").select("id").in("id", idChunk);
       if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
       if (slicers.ownerId)
@@ -103,8 +105,9 @@ export async function fetchCostRows(
       if (error) {
         throw new Error(`Costs lead lookup failed: ${error.message}`);
       }
-      for (const l of leads ?? []) ok.add((l as { id: string }).id);
-    }
+      return leads ?? [];
+    });
+    for (const l of leadChunks.flat()) ok.add((l as { id: string }).id);
     rows = rows.filter((r) => ok.has(r.lead_id));
   }
   return rows;
