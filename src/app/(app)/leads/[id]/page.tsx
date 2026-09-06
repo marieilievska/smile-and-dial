@@ -9,6 +9,7 @@ import { LeadActivityFeed, type FeedItem } from "./activity-feed";
 import { LeadPageClient } from "./lead-page-client";
 import { fetchLeadSiblings, str } from "../leads-query";
 import { leadDetailHref, leadsHref, type SearchParams } from "../leads-url";
+import { canManageUsers } from "@/lib/auth/roles";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const ALLOWED_PER = new Set([25, 50, 100]);
@@ -169,7 +170,10 @@ export default async function LeadDetailPage({
     .select("active_campaign_id, role")
     .eq("id", user.id)
     .single();
-  const isAdmin = profileWithActive?.role === "admin";
+  // Power controls on the detail page (edit/clear a campaign summary, delete
+  // a callback, send to closer). The page itself is only reachable for a lead
+  // the caller can already see, so this is a power gate, not a visibility one.
+  const isAdmin = canManageUsers(profileWithActive?.role);
   const activeCampaignId =
     profileWithActive?.active_campaign_id &&
     dialCampaigns.some((c) => c.id === profileWithActive.active_campaign_id)

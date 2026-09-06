@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { syncLeadCallCounters } from "./call-counters";
 import { IMPORTABLE_FIELDS } from "./import-fields";
 import { toE164UsCa } from "./twilio-lookup";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
 
@@ -21,7 +22,8 @@ function makeServiceClient() {
   });
 }
 
-/** Owner/admin gate for a lead. Returns an error object when denied, else null. */
+/** Owner-or-super-admin gate for a lead: the same rule the leads RLS applies.
+ *  Returns an error object when denied, else null. */
 async function assertLeadAccess(
   supabase: Awaited<ReturnType<typeof createClient>>,
   leadId: string,
@@ -35,7 +37,7 @@ async function assertLeadAccess(
     supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
   ]);
   if (!lead) return { error: "Lead not found." };
-  if (lead.owner_id !== user.id && me?.role !== "admin") {
+  if (lead.owner_id !== user.id && !isSuperAdmin(me?.role)) {
     return { error: "You don't have access to this lead." };
   }
   return null;

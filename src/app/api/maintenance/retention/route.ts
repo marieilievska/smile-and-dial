@@ -5,6 +5,7 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { runRetentionSweep } from "@/lib/maintenance/retention";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 /** The sweep loops in batches for up to ~20s of its own budget; give the
  *  function headroom past pg_net's 30s timeout so a slow storage delete on
@@ -16,7 +17,7 @@ export const maxDuration = 60;
  * from OUR storage/database and prune the raw ElevenLabs webhook log. The
  * call rows themselves (outcome, summary, extracted data, objections, cost)
  * are never touched. Secret-gated EXACTLY like /api/reporting/objections:
- * x-dialer-secret == DIALER_TICK_SECRET, or a signed-in admin (so it can be
+ * x-dialer-secret == DIALER_TICK_SECRET, or a signed-in super admin (so it can be
  * triggered by hand from a browser session). pg_cron hits this at 03:30 UTC.
  */
 export async function POST(request: NextRequest) {
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
         .select("role")
         .eq("id", user.id)
         .single();
-      if (me?.role === "admin") authorized = true;
+      if (isSuperAdmin(me?.role)) authorized = true;
     }
   }
   if (!authorized) {

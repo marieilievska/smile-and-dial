@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase/server";
 
 import { CustomFieldDialog } from "./custom-field-dialog";
 import { CustomFieldRowActions } from "./custom-field-row-actions";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 const TYPE_LABELS: Record<CustomFieldType, string> = {
   text: "Text",
@@ -36,7 +37,9 @@ export default async function CustomFieldsPage() {
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = me?.role === "admin";
+  // Mirrors the RLS in 20260905193000, whose is_admin() now means super
+  // admin: an orphan field is only editable by the tier that sees everything.
+  const isAdmin = isSuperAdmin(me?.role);
 
   // Everyone sees every field. Who may change one follows the RLS policies
   // (20260905193000): edit / reorder = the creator, or an admin when the

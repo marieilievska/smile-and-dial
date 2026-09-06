@@ -32,6 +32,7 @@ const WORKSPACE_TABS: Tab[] = [
   { label: "Integrations", href: "/settings/integrations" },
 ];
 
+/** Shown to the admin tier (admin or super admin) — see src/lib/auth/roles.ts. */
 const ADMIN_TABS: Tab[] = [
   { label: "Users", href: "/settings/users" },
   { label: "API keys", href: "/settings/api" },

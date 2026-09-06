@@ -23,6 +23,7 @@ import {
   searchAvailableNumbers,
   setNumberFriendlyName,
 } from "./numbers";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 /** Longest friendly name we'll store — keeps the table tidy and matches
  *  Twilio's own FriendlyName limit. */
@@ -32,7 +33,9 @@ const NUMBERS_PATH = "/settings/twilio-numbers";
 
 type ActionResult = { error: string | null };
 
-/** Confirm the caller is an admin — Twilio numbers are admin-managed. */
+/** Confirm the caller is a super admin. The two actions behind this gate
+ *  ("Sync from Twilio", permanently deleting a released number) reconcile the
+ *  SHARED Twilio account, not one person's numbers. */
 async function requireAdmin(): Promise<{
   supabase: Awaited<ReturnType<typeof createClient>>;
   error: string | null;
@@ -48,15 +51,16 @@ async function requireAdmin(): Promise<{
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") {
-    return { supabase, error: "Only admins can manage Twilio numbers." };
+  if (!isSuperAdmin(me?.role)) {
+    return { supabase, error: "Only a super admin can do that." };
   }
   return { supabase, error: null };
 }
 
-/** Confirm the caller is signed in, and report whether they're an admin.
- *  Members (builders) may manage numbers; a few actions still gate on admin,
- *  and releasing a number checks the attached campaign's owner. */
+/** Confirm the caller is signed in, and report whether they see every
+ *  campaign (super admin). Members and admins alike may manage numbers;
+ *  releasing one attached to a campaign checks that campaign's owner unless
+ *  the caller sees them all. */
 async function requireSignedIn(): Promise<{
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string | null;
@@ -83,7 +87,7 @@ async function requireSignedIn(): Promise<{
   return {
     supabase,
     userId: user.id,
-    isAdmin: me?.role === "admin",
+    isAdmin: isSuperAdmin(me?.role),
     error: null,
   };
 }
@@ -273,8 +277,8 @@ export async function releaseNumber(id: string): Promise<ActionResult> {
   if (!number) return { error: "That number no longer exists." };
   if (number.released_at) return { error: "That number is already released." };
 
-  // Guardrail: a member can release an unattached number or one on their own
-  // campaign, but not one attached to a teammate's campaign.
+  // Guardrail: anyone below super admin can release an unattached number or
+  // one on their own campaign, but not one attached to a teammate's campaign.
   if (!isAdmin && number.attached_campaign_id) {
     const { data: campaign } = await supabase
       .from("campaigns")

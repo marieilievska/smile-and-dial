@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Mail,
   ShieldCheck,
+  ShieldPlus,
   User,
   UserPlus,
 } from "lucide-react";
@@ -23,42 +24,45 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  assignableRoles,
+  ROLE_DESCRIPTIONS,
+  ROLE_LABELS,
+  type AppRole,
+} from "@/lib/auth/roles";
 import { inviteUser } from "@/lib/users/actions";
 
 import { DialogSection } from "../dialog-section";
 
-type Role = "admin" | "member";
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const ROLE_META: Record<
-  Role,
-  { label: string; helper: string; icon: React.ReactNode }
-> = {
-  member: {
-    label: "Member",
-    helper:
-      "Builds and runs calls: agents, leads, numbers, custom fields, campaigns, and reporting.",
-    icon: <User className="size-3.5" />,
-  },
-  admin: {
-    label: "Admin",
-    helper:
-      "Everything a member can do, plus teammates, API keys, and system settings.",
-    icon: <ShieldCheck className="size-3.5" />,
-  },
+const ROLE_ICON: Record<AppRole, React.ReactNode> = {
+  member: <User className="size-3.5" />,
+  admin: <ShieldCheck className="size-3.5" />,
+  super_admin: <ShieldPlus className="size-3.5" />,
 };
 
 /** Invite-user dialog. Round 24 — segmented role control with
  *  per-option helper, live email validation, and a Sentence-case
  *  description that mentions the one-shot nature of the invite. The
  *  "Send invitation" button still has its exact label so the
- *  Playwright test continues to find it. */
-export function InviteUserDialog() {
+ *  Playwright test continues to find it.
+ *
+ *  Which roles are offered follows `actorRole`: a super admin may create
+ *  another super admin, a plain admin may not (the same guard lives in the
+ *  server action and in the profiles RLS policy). */
+export function InviteUserDialog({ actorRole }: { actorRole: AppRole }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Role>("member");
+  const [role, setRole] = useState<AppRole>("member");
   const [pending, startTransition] = useTransition();
+
+  // Least-privileged first, so the segmented control reads member → admin →
+  // super admin and the safe option is the one nearest the cursor.
+  const choices = useMemo(
+    () => assignableRoles(actorRole).slice().reverse(),
+    [actorRole],
+  );
 
   const validity = useMemo<"idle" | "valid" | "invalid">(() => {
     const trimmed = email.trim();
@@ -152,16 +156,16 @@ export function InviteUserDialog() {
           </DialogSection>
 
           <DialogSection
-            icon={ROLE_META[role].icon}
+            icon={ROLE_ICON[role]}
             title="Role"
-            description={ROLE_META[role].helper}
+            description={ROLE_DESCRIPTIONS[role]}
           >
             <div
               role="radiogroup"
               aria-label="Role"
               className="border-border bg-background inline-flex w-full items-center gap-0.5 self-start rounded-lg border p-1"
             >
-              {(Object.keys(ROLE_META) as Role[]).map((r) => {
+              {choices.map((r) => {
                 const active = r === role;
                 return (
                   <button
@@ -170,14 +174,14 @@ export function InviteUserDialog() {
                     role="radio"
                     aria-checked={active}
                     onClick={() => setRole(r)}
-                    className={`inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${
+                    className={`inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-medium whitespace-nowrap transition-colors ${
                       active
                         ? "bg-foreground text-background"
                         : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                     }`}
                   >
-                    {ROLE_META[r].icon}
-                    {ROLE_META[r].label}
+                    {ROLE_ICON[r]}
+                    {ROLE_LABELS[r]}
                   </button>
                 );
               })}

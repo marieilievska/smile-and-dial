@@ -21,7 +21,8 @@ export type NavItem = {
   href: string;
   icon: LucideIcon;
   section: NavSection;
-  /** When true, the item is hidden from members and shown only to admins. */
+  /** When true, the item is hidden from members and shown only to the admin
+   *  tier (admin or super admin). Nothing sets it today. */
   adminOnly?: boolean;
   /** When set, the item is shown ONLY to the user whose email matches this
    *  value (everyone else never sees it). Used for the access-gated

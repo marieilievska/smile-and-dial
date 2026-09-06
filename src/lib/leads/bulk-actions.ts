@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
 
 import { ID_CHUNK, chunk } from "./chunk";
+import { canManageUsers, isSuperAdmin } from "@/lib/auth/roles";
 
 type BulkResult = { error: string | null };
 
@@ -63,7 +64,10 @@ export async function bulkReassignOwner(input: {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") {
+  // Handing over rows you own is an admin-tier power. The update runs through
+  // the cookie client, so RLS still limits a plain admin to leads they own
+  // (leads_update USING) while letting them set a new owner (WITH CHECK).
+  if (!canManageUsers(me?.role)) {
     return { error: "Only admins can reassign leads." };
   }
 
@@ -111,7 +115,9 @@ export async function bulkDeleteLeads(input: {
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = me?.role === "admin";
+  // Deleting leads runs as service role below, so this flag is what allows
+  // reaching someone else's rows: super admin only.
+  const isAdmin = isSuperAdmin(me?.role);
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";

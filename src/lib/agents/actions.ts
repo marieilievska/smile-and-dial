@@ -24,6 +24,7 @@ import {
 } from "./data-collection";
 import type { ToolsEnabled } from "./prompt";
 import { AGENT_SYNC_ROW_COLUMNS, syncAgentRowToElevenLabs } from "./sync-row";
+import { canManageUsers } from "@/lib/auth/roles";
 
 export type AgentResult = {
   error: string | null;
@@ -353,7 +354,7 @@ export async function syncAgent(id: string): Promise<AgentResult> {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") {
+  if (!canManageUsers(me?.role)) {
     return { error: "Only an admin can sync agents." };
   }
 
@@ -388,7 +389,7 @@ export async function resyncAllAgents(): Promise<ResyncResult> {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (me?.role !== "admin") {
+  if (!canManageUsers(me?.role)) {
     return { error: "Only an admin can re-sync agents." };
   }
 

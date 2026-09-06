@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { splitAgentIntoTemplate } from "@/lib/ai/split-agent-template";
+import { isDenied, requireUserManager } from "@/lib/auth/guards";
 import { fetchElevenLabsAgentPrompt } from "@/lib/elevenlabs/agents";
 import { createClient } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/database.types";
@@ -17,21 +18,16 @@ import {
 
 export type TemplateResult = { error: string | null; templateId?: string };
 
-async function requireAdmin(
+/** Curating the shared template shelf is an admin-tier power (admin or super
+ *  admin), matching the agent_templates_write policy. */
+async function requireTemplateCurator(
   supabase: Awaited<ReturnType<typeof createClient>>,
 ): Promise<{ userId: string } | { error: string }> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "You are not signed in." };
-  const { data: me } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (me?.role !== "admin")
+  const auth = await requireUserManager(supabase);
+  if (isDenied(auth)) {
     return { error: "Only an admin can manage templates." };
-  return { userId: user.id };
+  }
+  return { userId: auth.userId };
 }
 
 function normalizeScript(raw: AgentScript): AgentScript {
@@ -58,7 +54,7 @@ export async function saveTemplate(
   input: TemplateInput,
 ): Promise<TemplateResult> {
   const supabase = await createClient();
-  const auth = await requireAdmin(supabase);
+  const auth = await requireTemplateCurator(supabase);
   if ("error" in auth) return { error: auth.error };
   if (!input.name.trim()) return { error: "Give the template a name." };
   if (!input.instructions.trim())
@@ -89,7 +85,7 @@ export async function updateTemplate(
   input: TemplateInput,
 ): Promise<TemplateResult> {
   const supabase = await createClient();
-  const auth = await requireAdmin(supabase);
+  const auth = await requireTemplateCurator(supabase);
   if ("error" in auth) return { error: auth.error };
   if (!input.name.trim()) return { error: "Give the template a name." };
 
@@ -114,7 +110,7 @@ export async function updateTemplate(
  *  unaffected (they snapshot instructions/script at creation). */
 export async function deleteTemplate(id: string): Promise<TemplateResult> {
   const supabase = await createClient();
-  const auth = await requireAdmin(supabase);
+  const auth = await requireTemplateCurator(supabase);
   if ("error" in auth) return { error: auth.error };
 
   const { error } = await supabase
@@ -138,7 +134,7 @@ export async function buildTemplateDraftFromAgent(
   | { error: string; draft?: undefined }
 > {
   const supabase = await createClient();
-  const auth = await requireAdmin(supabase);
+  const auth = await requireTemplateCurator(supabase);
   if ("error" in auth) return { error: auth.error };
 
   const { data: agent } = await supabase

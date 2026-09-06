@@ -14,6 +14,7 @@ import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
 import { recomputeLeadCallState } from "@/lib/leads/recompute-call-state";
 import { etDayString } from "@/lib/time/eastern";
 import { createAdminClient as createServiceClient } from "@/lib/supabase/admin";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 /** Outcomes the retry engine intentionally ignores because they're owned by
  *  `applyOutcomeSideEffects` (DNC block + terminal lead state). A manual
@@ -458,7 +459,9 @@ export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = me?.role === "admin";
+  // These deletes run as service role, so this flag is the only thing between
+  // the caller and someone else's calls: super admin only.
+  const isAdmin = isSuperAdmin(me?.role);
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -469,8 +472,9 @@ export async function deleteCalls(ids: string[]): Promise<DeleteCallsResult> {
 
   // A member may delete only their OWN calls (own = the call's lead belongs to
   // them). Verify every id up front and refuse the whole batch if any isn't
-  // theirs — a hard delete must never partially run across owners. Admins skip
-  // this. These deletes run as service role, so RLS won't enforce it for us.
+  // theirs — a hard delete must never partially run across owners. Super
+  // admins skip this. These deletes run as service role, so RLS won't enforce
+  // it for us.
   if (!isAdmin) {
     const ownedIds = new Set<string>();
     for (const idsChunk of chunk(clean, ID_CHUNK)) {

@@ -32,6 +32,7 @@ import { ActionCard } from "./action-card";
 import { LiveCallsBand } from "./live-calls-band";
 import { PaceStrip, type PaceItem } from "./pace-strip";
 import { TodayHero } from "./today-hero";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 function fmtPct(value: number): string {
   if (!Number.isFinite(value)) return "—";
@@ -119,7 +120,9 @@ export default async function TodayPage() {
     .select("full_name, role, welcome_seen_at, onboarding_dismissed_at")
     .eq("id", user.id)
     .single();
-  const isAdmin = profile?.role === "admin";
+  // Hero counts and the action queue are scoped by RLS, so this must agree
+  // with it: only a super admin sees everyone's numbers.
+  const isAdmin = isSuperAdmin(profile?.role);
 
   const [counts, queue, activeCalls, pace, autopilot, onboarding] =
     await Promise.all([

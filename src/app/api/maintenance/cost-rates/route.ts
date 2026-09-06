@@ -5,6 +5,7 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { runCostRatesRefresh } from "@/lib/costs/refresh-rates";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 /** One ElevenLabs read plus up to eight Twilio usage reads; pg_net gives up
  *  at 30s, so give the function the same budget. */
@@ -16,7 +17,7 @@ export const maxDuration = 30;
  * usage) from the providers' own billing, and store them in `cost_rates`.
  * Every pricing helper reads that table first (lib/costs/effective-rates).
  * Secret-gated EXACTLY like /api/maintenance/retention: x-dialer-secret ==
- * DIALER_TICK_SECRET, or a signed-in admin (so it can be triggered by hand
+ * DIALER_TICK_SECRET, or a signed-in super admin (so it can be triggered by hand
  * from a browser session). pg_cron hits this at 04:15 UTC.
  */
 export async function POST(request: NextRequest) {
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
         .select("role")
         .eq("id", user.id)
         .single();
-      if (me?.role === "admin") authorized = true;
+      if (isSuperAdmin(me?.role)) authorized = true;
     }
   }
   if (!authorized) {

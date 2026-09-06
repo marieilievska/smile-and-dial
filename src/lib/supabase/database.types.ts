@@ -2673,6 +2673,7 @@ export type Database = {
       };
       call_cost_components: { Args: { j: Json }; Returns: number };
       call_cost_total: { Args: { j: Json }; Returns: number };
+      can_manage_users: { Args: { uid: string }; Returns: boolean };
       claim_lead_for_dial: {
         Args: { in_campaign_id: string; in_lead_id: string };
         Returns: boolean;
@@ -2703,6 +2704,7 @@ export type Database = {
       };
       is_admin: { Args: { uid: string }; Returns: boolean };
       is_phone_on_dnc: { Args: { phone_to_check: string }; Returns: boolean };
+      is_super_admin: { Args: { uid: string }; Returns: boolean };
       is_within_calling_hours: {
         Args: {
           allow_weekends: boolean;

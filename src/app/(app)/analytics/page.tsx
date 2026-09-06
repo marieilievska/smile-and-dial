@@ -29,6 +29,7 @@ import { BestTimeHeatmap } from "./best-time-heatmap";
 import { CampaignLeaderboard, OutcomeBreakdown } from "./charts";
 import { KpiTile } from "./kpi-tile";
 import { dateRangeLabel } from "@/lib/time/eastern";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -116,10 +117,12 @@ export default async function AnalyticsPage({
       supabase.from("lists").select("id, name").order("name"),
       supabase.from("profiles").select("role").eq("id", user.id).single(),
     ]);
-  const isAdmin = me?.role === "admin";
+  // The Owner filter and the Owner column only make sense for the tier that
+  // actually sees other people's calls — super admin (RLS `is_admin()`).
+  const seesEveryone = isSuperAdmin(me?.role);
 
   let owners: { id: string; name: string }[] = [];
-  if (isAdmin) {
+  if (seesEveryone) {
     const { data: people } = await supabase
       .from("profiles")
       .select("id, full_name, email")
@@ -205,7 +208,7 @@ export default async function AnalyticsPage({
             campaigns={campaigns ?? []}
             lists={lists ?? []}
             owners={owners}
-            showOwner={isAdmin}
+            showOwner={seesEveryone}
           />
         </div>
 

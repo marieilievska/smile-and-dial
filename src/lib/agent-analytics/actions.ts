@@ -6,6 +6,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 const AGENT_ANALYTICS_PATH = "/reporting";
 
@@ -19,8 +20,10 @@ function adminClient(): SupabaseAdmin {
   });
 }
 
-/** True when the caller is a signed-in admin. All Agent Analytics writes are
- *  admin-only (the page is admin-gated too — this is the server-side backstop). */
+/** True when the caller is a signed-in super admin. Everything this file
+ *  writes — dashboard notes, the app changelog, the agent prompt log — sits
+ *  behind an is_admin()-only RLS policy, which means super admin since
+ *  20260906010000. This is the server-side backstop for the page gate. */
 async function isCallerAdmin(): Promise<boolean> {
   const supabase = await createClient();
   const {
@@ -32,7 +35,7 @@ async function isCallerAdmin(): Promise<boolean> {
     .select("role")
     .eq("id", user.id)
     .single();
-  return me?.role === "admin";
+  return isSuperAdmin(me?.role);
 }
 
 /** Upsert the per-day dashboard note (an operator's explanation of why a KPI

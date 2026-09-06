@@ -6,6 +6,7 @@ import { TopBar } from "@/components/app-shell/top-bar";
 import { Toaster } from "@/components/ui/sonner";
 import { fetchOnboardingProgress } from "@/lib/onboarding/queries";
 import { createClient } from "@/lib/supabase/server";
+import { canManageUsers } from "@/lib/auth/roles";
 
 /** Inline script that runs before React hydrates so the page renders
  *  with the user's chosen theme on first paint (no flash). Reads the
@@ -149,7 +150,7 @@ export default async function AppLayout({
          *  where MobileNavTrigger surfaces it as a Sheet drawer. */}
         <div className="hidden md:flex">
           <AppSidebar
-            isAdmin={role === "admin"}
+            isAdmin={canManageUsers(role)}
             userEmail={email}
             savedViews={savedViews}
             statusCounts={statusCounts}
@@ -167,7 +168,7 @@ export default async function AppLayout({
             setup={setupProgress}
             mobileNav={
               <MobileNavTrigger
-                isAdmin={role === "admin"}
+                isAdmin={canManageUsers(role)}
                 userEmail={email}
                 savedViews={savedViews}
                 statusCounts={statusCounts}

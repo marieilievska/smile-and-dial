@@ -2,13 +2,14 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { runDialerTick } from "@/lib/dialer/tick";
 import { createClient } from "@/lib/supabase/server";
+import { isSuperAdmin } from "@/lib/auth/roles";
 
 /**
  * Manually fire one dialer tick. This is the endpoint pg_cron will hit
  * (via pg_net) when the cron schedule lands in 21c. For now it's protected
  * two ways:
  *
- *  1. A signed-in admin (the dashboard's "Run dialer once" debug button —
+ *  1. A signed-in super admin (the dashboard's "Run dialer once" debug button —
  *     not built yet, but the auth path is here so it works the day we add
  *     one).
  *  2. An HTTP header `x-dialer-secret` equal to `DIALER_TICK_SECRET`. Used
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
         .select("role")
         .eq("id", user.id)
         .single();
-      if (me?.role === "admin") authorized = true;
+      if (isSuperAdmin(me?.role)) authorized = true;
     }
   }
 

@@ -49,6 +49,7 @@ import { formatScheduledWhen } from "./format-when";
 import { SmartPagination } from "../leads/smart-pagination";
 import { SortableHeader } from "./sortable-header";
 import { fetchCallbackStats } from "./stats-query";
+import { canManageUsers } from "@/lib/auth/roles";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -104,7 +105,9 @@ export default async function CallbacksPage({
     .select("role")
     .eq("id", user.id)
     .single();
-  const isAdmin = me?.role === "admin";
+  // Bulk selection + delete. Elevated power, not extra visibility: the action
+  // still refuses callbacks whose lead the caller does not own.
+  const isAdmin = canManageUsers(me?.role);
 
   // Campaign list for the filter popover — RLS scopes for members.
   const { data: campaigns } = await supabase
