@@ -41,15 +41,21 @@ import { TwilioNumbersStatusTabs } from "./status-tabs";
 import { TwilioSyncButton } from "./sync-button";
 import { etDateTimeExact } from "@/lib/time/eastern";
 import { isSuperAdmin } from "@/lib/auth/roles";
+import { SmartPagination } from "@/app/(app)/leads/smart-pagination";
 
 function str(v: string | string[] | undefined): string {
   return typeof v === "string" ? v : "";
 }
 
+const ALLOWED_PAGE_SIZES = new Set([25, 50, 100]);
+/** Higher than the 25 Leads and Calls use: a number pool is scanned more than
+ *  it is read row by row. */
+const DEFAULT_PAGE_SIZE = 50;
+
 export default async function TwilioNumbersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; page?: string; per?: string }>;
 }) {
   const supabase = await createClient();
   const {
@@ -135,18 +141,47 @@ export default async function TwilioNumbersPage({
     in_pool: numbers.filter((n) => !n.released_at).length,
     released: numbers.filter((n) => n.released_at).length,
   };
-  const visible = numbers.filter((n) => {
+  const matching = numbers.filter((n) => {
     if (status === "in_pool") return !n.released_at;
     if (status === "released") return Boolean(n.released_at);
     return true;
   });
+
+  /* Paginated, like every other table in the app.
+   *
+   * This page rendered all 97 numbers at once and shipped 1,836 KB of HTML —
+   * about twenty times any other settings page. Measured, the cost is not the
+   * markup (the rendered tbody is only 542 KB) but the RSC payload: 2,313
+   * client-component references, roughly 24 per row, because each row carries
+   * six interactive components (pool menu, rename, release/delete, connect,
+   * repoint, checkbox) and every Radix primitive inside them is itself a
+   * client component. Radix does NOT render closed dialog content, so the
+   * dialogs are not the problem — the row COUNT is.
+   *
+   * 50 rather than the 25 Leads and Calls use: a number pool is scanned more
+   * than it is read row by row. 100 is one click away, and the pool-scale plan
+   * targets far more numbers than fit on any page. */
+  const total = matching.length;
+  const pageSize = ALLOWED_PAGE_SIZES.has(Number(str(params.per)))
+    ? Number(str(params.per))
+    : DEFAULT_PAGE_SIZE;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(Math.max(1, Number(str(params.page)) || 1), pageCount);
+  const visible = matching.slice((page - 1) * pageSize, page * pageSize);
+
   // Only in-pool numbers can be reassigned, so only they get a checkbox and feed
-  // the "select all" / bulk-move bar.
+  // the "select all" / bulk-move bar. Scoped to the CURRENT PAGE: a "select
+  // all" that silently picks up numbers you cannot see is a bad thing to hand
+  // a bulk move.
   const movableIds = visible.filter((n) => !n.released_at).map((n) => n.id);
 
   function buildStatusHref(next: string): string {
     const url = new URLSearchParams();
     if (next && next !== "all") url.set("status", next);
+    // Carry the rows-per-page choice across tabs, but never the page number —
+    // a different tab has a different number of pages, and landing on page 4
+    // of a two-page tab is a dead end.
+    if (pageSize !== DEFAULT_PAGE_SIZE) url.set("per", String(pageSize));
     const qs = url.toString();
     return qs ? `/settings/twilio-numbers?${qs}` : "/settings/twilio-numbers";
   }
@@ -385,6 +420,14 @@ export default async function TwilioNumbersPage({
               </p>
             </div>
           )}
+          {visible.length > 0 ? (
+            <SmartPagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              basePath="/settings/twilio-numbers"
+            />
+          ) : null}
         </>
       ) : (
         <div className="border-border flex flex-col items-center gap-2 rounded-2xl border border-dashed py-16 text-center">
