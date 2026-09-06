@@ -8,7 +8,6 @@ import {
   CONNECTED_OUTCOMES,
   CONVERSATION_OUTCOMES,
 } from "@/lib/calls/outcomes";
-import { ID_CHUNK, mapChunks } from "@/lib/leads/chunk";
 import {
   endOfEtDayUtcIso,
   etDateDaysAgo,
@@ -27,18 +26,17 @@ export type CallRow = {
   talk_time_seconds: number | null;
   cost_breakdown: unknown;
   extracted_data: unknown;
-  /** The LEAD's sticky decision_maker_reached flag (operator-correctable),
-   *  joined in by fetchCallsForRange. DM-reached metrics count THIS, not the
-   *  call's frozen AI extraction, so a manual Yes/No correction on the lead is
-   *  reflected in analytics. */
+  /** The LEAD's sticky decision_maker_reached flag (operator-correctable).
+   *  DM-reached metrics count THIS, not the call's frozen AI extraction, so a
+   *  manual Yes/No correction on the lead is reflected in analytics. The SQL
+   *  path reads the same column; see `dm` in analytics_summary. */
   lead_decision_maker_reached: boolean;
   started_at: string | null;
   created_at: string;
 };
 
 /** Does this call's LEAD count as "decision maker reached"? Reads the lead's
- *  sticky decision_maker_reached flag (joined in by fetchCallsForRange), NOT
- *  the call's frozen AI extraction. The flag is what the post-call webhook sets
+ *  sticky decision_maker_reached flag, NOT the call's frozen AI extraction. The flag is what the post-call webhook sets
  *  automatically AND what an operator can correct with the lead's Yes/No
  *  toggle — so a manual correction is reflected in these metrics instead of the
  *  metric showing a stale "yes" the operator already overrode. */
@@ -101,83 +99,28 @@ function endOfDay(day: string): string {
   return endOfEtDayUtcIso(day);
 }
 
-const PAGE = 1000;
-
-/** Pull every call row that matches the slicers, then filter/aggregate in JS so
- *  we compute KPIs + charts + funnel + compare-period deltas from one dataset.
+/* ---------------------------------------------------------------------------
+ * The row-based aggregators below are the EXECUTABLE SPECIFICATION.
  *
- *  Paginated: PostgREST caps a single response at 1,000 rows, and an analytics
- *  window can hold far more calls than that — a capped fetch silently
- *  undercounts EVERY metric (calls made, funnel, time chart, …). We page through
- *  in 1,000-row batches until exhausted. */
-export async function fetchCallsForRange(
-  supabase: SupabaseClient,
-  slicers: Slicers,
-): Promise<CallRow[]> {
-  let rows: CallRow[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    let query = supabase
-      .from("calls")
-      .select(
-        "id, campaign_id, lead_id, direction, outcome, goal_met, duration_seconds, " +
-          "talk_time_seconds, cost_breakdown, extracted_data, started_at, created_at",
-      )
-      .gte("created_at", startOfDay(slicers.from))
-      .lte("created_at", endOfDay(slicers.to))
-      .order("created_at", { ascending: true })
-      .range(offset, offset + PAGE - 1);
-    if (slicers.campaignId) query = query.eq("campaign_id", slicers.campaignId);
-    const { data } = await query;
-    const batch = (data ?? []) as unknown as CallRow[];
-    rows.push(...batch);
-    if (batch.length < PAGE) break;
-    if (offset > 500_000) break; // safety backstop
-  }
-  if (rows.length === 0) return [];
-
-  // Join each call's LEAD-level decision_maker_reached flag (the operator-
-  // correctable source of truth) so DM-reached metrics reflect manual Yes/No
-  // corrections, not the call's frozen AI extraction. The same query also
-  // applies the owner / list filters, which live on `leads`, not `calls`.
-  //
-  // Chunk the id filter at ID_CHUNK (200), NOT the 1,000-row page size: an
-  // `.in("id", …)` list of ~1,000 UUIDs makes a ~38 KB request URL, which
-  // PostgREST rejects with a 400. The old code chunked at 1,000 and swallowed
-  // the error, so on any window with >~250 leads EVERY DM flag silently read
-  // false — which zeroed "Decision-makers reached" and pinned Goal rate at a
-  // fake 100%. Fail LOUD on a query error instead of returning confident-but-
-  // wrong numbers.
-  const leadIds = Array.from(new Set(rows.map((r) => r.lead_id)));
-  const dmByLead = new Map<string, boolean>();
-  // Chunks run with bounded concurrency rather than end to end: they are
-  // independent reads, and serialising them was most of this page's render.
-  const leadChunks = await mapChunks(leadIds, ID_CHUNK, async (idChunk) => {
-    let leadQuery = supabase
-      .from("leads")
-      .select("id, decision_maker_reached")
-      .in("id", idChunk);
-    if (slicers.listId) leadQuery = leadQuery.eq("list_id", slicers.listId);
-    if (slicers.ownerId) leadQuery = leadQuery.eq("owner_id", slicers.ownerId);
-    const { data: leads, error } = await leadQuery;
-    if (error) {
-      throw new Error(`Analytics lead lookup failed: ${error.message}`);
-    }
-    return leads ?? [];
-  });
-  for (const l of leadChunks.flat()) {
-    dmByLead.set(l.id, l.decision_maker_reached === true);
-  }
-
-  // When an owner/list filter is set, drop calls whose lead fell outside it.
-  if (slicers.ownerId || slicers.listId) {
-    rows = rows.filter((r) => dmByLead.has(r.lead_id));
-  }
-  for (const r of rows) {
-    r.lead_decision_maker_reached = dmByLead.get(r.lead_id) ?? false;
-  }
-
-  return rows;
-}
+ * They no longer run in production — `analytics_summary` does the counting in
+ * SQL now (see the bottom of this file). They are kept, and kept tested,
+ * because the counting rules they encode are ones this app has got wrong
+ * before and cannot afford to get wrong again:
+ *
+ *   * goals are distinct BUSINESSES, never goal-met calls (#279)
+ *   * goalMetWithDm is a subset of goalMet, not the same number
+ *   * the funnel folds so it narrows monotonically
+ *   * a lead that hits its goal under two campaigns is credited to each, once
+ *   * a lead with two goal-met calls on one day is one booking that day
+ *
+ * Written here in a language you can unit-test, they are what the SQL was
+ * translated from and what it is checked against. The check is not a claim in
+ * a commit message: `node scripts/verify-analytics-parity.mjs` runs both paths
+ * over the same production windows and diffs every number.
+ *
+ * The paged FETCH that used to feed them is gone. It pulled ~8k call rows per
+ * window, twice per page load, and nothing should reach for it again.
+ * ------------------------------------------------------------------------ */
 
 export function computeKpis(rows: CallRow[]): Kpis {
   const totalCalls = rows.length;
@@ -211,24 +154,66 @@ export function computeKpis(rows: CallRow[]): Kpis {
     }
     spend += pickCostTotal(r.cost_breakdown);
   }
-  const goalMet = goalLeadIds.size;
-  const goalMetWithDm = goalDmLeadIds.size;
-  return {
+  return deriveKpis({
     totalCalls,
+    connected,
+    aiError,
     conversations,
     dmsReached,
-    connected,
-    connectRate:
-      totalCalls - aiError <= 0 ? 0 : connected / (totalCalls - aiError),
-    goalMet,
-    goalMetWithDm,
-    goalMetRate: conversations === 0 ? 0 : goalMet / conversations,
-    avgDurationSeconds: durationCount === 0 ? 0 : durationSum / durationCount,
-    avgCostPerCall: totalCalls === 0 ? 0 : spend / totalCalls,
-    costPerGoalMet: goalMet === 0 ? 0 : spend / goalMet,
+    goalMet: goalLeadIds.size,
+    goalMetWithDm: goalDmLeadIds.size,
+    durationSum,
+    durationCount,
+    spend,
     callbacksScheduled: rows.filter((r) => r.outcome === "callback").length,
     dncAdditions: rows.filter((r) => r.outcome === "dnc").length,
-    totalSpend: spend,
+  });
+}
+
+/** The raw counts a KPI block is built from — no ratios, no averages.
+ *
+ *  Produced two ways that must never disagree: by counting rows in JS
+ *  (computeKpis) and by `analytics_summary` in SQL. Both hand the components
+ *  to deriveKpis below, so the division rules exist ONCE. */
+export type KpiComponents = {
+  totalCalls: number;
+  connected: number;
+  /** OUR platform failures. Out of the connect-rate denominator entirely. */
+  aiError: number;
+  conversations: number;
+  dmsReached: number;
+  /** Distinct BUSINESSES, never goal-met calls (#279). */
+  goalMet: number;
+  goalMetWithDm: number;
+  durationSum: number;
+  durationCount: number;
+  spend: number;
+  callbacksScheduled: number;
+  dncAdditions: number;
+};
+
+/** Turn raw counts into the displayed KPIs. The only place these ratios are
+ *  computed, and the only place their divide-by-zero rules live. */
+export function deriveKpis(c: KpiComponents): Kpis {
+  return {
+    totalCalls: c.totalCalls,
+    conversations: c.conversations,
+    dmsReached: c.dmsReached,
+    connected: c.connected,
+    connectRate:
+      c.totalCalls - c.aiError <= 0
+        ? 0
+        : c.connected / (c.totalCalls - c.aiError),
+    goalMet: c.goalMet,
+    goalMetWithDm: c.goalMetWithDm,
+    goalMetRate: c.conversations === 0 ? 0 : c.goalMet / c.conversations,
+    avgDurationSeconds:
+      c.durationCount === 0 ? 0 : c.durationSum / c.durationCount,
+    avgCostPerCall: c.totalCalls === 0 ? 0 : c.spend / c.totalCalls,
+    costPerGoalMet: c.goalMet === 0 ? 0 : c.spend / c.goalMet,
+    callbacksScheduled: c.callbacksScheduled,
+    dncAdditions: c.dncAdditions,
+    totalSpend: c.spend,
   };
 }
 
@@ -287,12 +272,21 @@ export function buildLeadFunnel(rows: CallRow[]): FunnelStep[] {
   const conversations = new Set([...conversationRaw, ...goalRaw, ...dms]);
   const connected = new Set([...connectedRaw, ...conversations]);
   return [
-    { label: "Called", count: called.size },
-    { label: "Connected", count: connected.size },
-    { label: "Conversations", count: conversations.size },
-    { label: "Decision-makers reached", count: dms.size },
+    { label: FUNNEL_LABELS[0], count: called.size },
+    { label: FUNNEL_LABELS[1], count: connected.size },
+    { label: FUNNEL_LABELS[2], count: conversations.size },
+    { label: FUNNEL_LABELS[3], count: dms.size },
   ];
 }
+
+/** Stage names, in order. Shared by the row-based funnel and the SQL-backed
+ *  one so the two can never label the same chain differently. */
+export const FUNNEL_LABELS = [
+  "Called",
+  "Connected",
+  "Conversations",
+  "Decision-makers reached",
+] as const;
 
 /** Daily count of businesses that met the goal — the trend series for the
  *  Appointments Booked hero chart and sparkline. Counts DISTINCT leads per day
@@ -527,4 +521,177 @@ export function buildInsights(opts: {
   }
 
   return { headline, detail: parts.length > 0 ? parts.join(" ") : null, tone };
+}
+
+// ---------------------------------------------------------------------------
+// The SQL-backed path
+//
+// Everything above aggregates CallRow[] in JavaScript. That is still the
+// reference implementation and still what the unit tests exercise, but it is
+// no longer how the page gets its numbers: /analytics used to page ~8k calls
+// out of the database twice per load (window + comparison period) to count
+// them in a for-loop. `analytics_summary` does the counting where the rows
+// already are, in one round trip (20260906080000/081000).
+//
+// Parity between the two paths was verified against production over three
+// windows -- the default 30 days, a single busy day, and an empty range --
+// every counter, the outcome distribution, the per-day series, the
+// per-campaign ranking and the folded funnel, all identical.
+// ---------------------------------------------------------------------------
+
+/** One row per Eastern calendar day that actually had calls. Days with none
+ *  are absent; the page pre-seeds the full grid so charts have no gaps. */
+export type SummaryDay = {
+  day: string;
+  calls: number;
+  spend: number;
+  goalLeads: number;
+};
+
+export type SummaryCampaign = {
+  campaignId: string;
+  goalMet: number;
+  spend: number;
+};
+
+/** The shape `analytics_summary` returns. Mirrors the SQL exactly. */
+export type AnalyticsSummary = {
+  totals: {
+    total_calls: number;
+    connected: number;
+    ai_error: number;
+    conversations: number;
+    dms_reached: number;
+    callbacks: number;
+    dnc_additions: number;
+    duration_sum: number | string;
+    duration_count: number;
+    spend: number | string;
+    lead_goal: number;
+    lead_goal_dm: number;
+    /** ALREADY FOLDED in SQL — see 20260906081000. |A ∪ B| cannot be
+     *  recovered from |A| and |B|, so the fold cannot happen out here. */
+    funnel_called: number;
+    funnel_connected: number;
+    funnel_conversation: number;
+    funnel_dm: number;
+  };
+  outcomes: OutcomeBucket[];
+  byDay: SummaryDay[];
+  byCampaign: SummaryCampaign[];
+};
+
+/** Postgres `numeric` arrives over PostgREST as a STRING, not a number —
+ *  it is arbitrary-precision and JSON has no such type. Summing or formatting
+ *  it without this coercion silently concatenates instead of adding. */
+function num(value: number | string | null | undefined): number {
+  const n = typeof value === "string" ? Number(value) : (value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Fetch the whole page's aggregate in one round trip.
+ *
+ *  The window arrives as Eastern day strings and is converted here with the
+ *  same helpers the old paged read used, so "the start of an Eastern day" has
+ *  one definition rather than one per language. */
+export async function fetchAnalyticsSummary(
+  supabase: SupabaseClient,
+  slicers: Slicers,
+): Promise<AnalyticsSummary> {
+  const { data, error } = await supabase.rpc("analytics_summary", {
+    p_start: startOfDay(slicers.from),
+    p_end: endOfDay(slicers.to),
+    p_campaign: slicers.campaignId ?? null,
+    p_owner: slicers.ownerId ?? null,
+    p_list: slicers.listId ?? null,
+  });
+  // Fail loud. The old code returned [] on a failed page, which rendered a
+  // confident, fully-populated Analytics page reading zero everywhere.
+  if (error) {
+    throw new Error(`Analytics summary failed: ${error.message}`);
+  }
+  return data as unknown as AnalyticsSummary;
+}
+
+/** KPIs from the SQL aggregate. Shares deriveKpis with the row-based path, so
+ *  the ratios and their divide-by-zero rules are computed in one place. */
+export function kpisFromSummary(summary: AnalyticsSummary): Kpis {
+  const t = summary.totals;
+  return deriveKpis({
+    totalCalls: t.total_calls,
+    connected: t.connected,
+    aiError: t.ai_error,
+    conversations: t.conversations,
+    dmsReached: t.dms_reached,
+    goalMet: t.lead_goal,
+    goalMetWithDm: t.lead_goal_dm,
+    durationSum: num(t.duration_sum),
+    durationCount: t.duration_count,
+    spend: num(t.spend),
+    callbacksScheduled: t.callbacks,
+    dncAdditions: t.dnc_additions,
+  });
+}
+
+/** The funnel from the SQL aggregate. Already folded there, so this only
+ *  attaches the labels — no second fold, which would be a second chance to
+ *  disagree with the first. */
+export function funnelFromSummary(summary: AnalyticsSummary): FunnelStep[] {
+  const t = summary.totals;
+  return [
+    { label: FUNNEL_LABELS[0], count: t.funnel_called },
+    { label: FUNNEL_LABELS[1], count: t.funnel_connected },
+    { label: FUNNEL_LABELS[2], count: t.funnel_conversation },
+    { label: FUNNEL_LABELS[3], count: t.funnel_dm },
+  ];
+}
+
+/** Every Eastern day in the range, in order, with days that had no calls
+ *  filled in as zeroes — the chart must not have gaps, and SQL only returns
+ *  days that exist. Same pre-seeding the row-based callsByDay did. */
+function seedDays(slicers: Slicers): string[] {
+  const days: string[] = [];
+  const start = new Date(`${slicers.from}T00:00:00Z`);
+  const end = new Date(`${slicers.to}T00:00:00Z`);
+  for (const d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    days.push(d.toISOString().slice(0, 10));
+  }
+  return days;
+}
+
+export function callsByDayFromSummary(
+  summary: AnalyticsSummary,
+  slicers: Slicers,
+): TimeBucket[] {
+  const found = new Map(summary.byDay.map((d) => [d.day, d]));
+  return seedDays(slicers).map((day) => {
+    const hit = found.get(day);
+    return { day, count: hit?.calls ?? 0, spend: num(hit?.spend) };
+  });
+}
+
+export function bookingsByDayFromSummary(
+  summary: AnalyticsSummary,
+  slicers: Slicers,
+): number[] {
+  const found = new Map(summary.byDay.map((d) => [d.day, d]));
+  return seedDays(slicers).map((day) => found.get(day)?.goalLeads ?? 0);
+}
+
+/** Campaign ranking from the SQL aggregate. Names are resolved out here
+ *  because the page already loads them for the filter dropdown. */
+export function rankCampaignsFromSummary(
+  summary: AnalyticsSummary,
+  names: Map<string, string>,
+): CampaignRank[] {
+  return summary.byCampaign.map((c) => {
+    const spend = num(c.spend);
+    return {
+      campaignId: c.campaignId,
+      campaignName: names.get(c.campaignId) ?? "—",
+      goalMet: c.goalMet,
+      spend,
+      costPerGoalMet: c.goalMet === 0 ? 0 : spend / c.goalMet,
+    };
+  });
 }
