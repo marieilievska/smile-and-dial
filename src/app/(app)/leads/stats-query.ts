@@ -12,6 +12,13 @@ export type LeadStats = {
   readyToCall: number;
   callbacksScheduled: number;
   goalsMetThisWeek: number;
+  /** People who rang us back before we knew who they were. Created by
+   *  lib/elevenlabs/inbound-call.ts with the caller's number as their company,
+   *  so they show as a phone number twice over in the identity column — and,
+   *  being the newest rows, they sit at the TOP of the default view. Counted
+   *  so the page can offer them as a reviewable queue instead of leaving them
+   *  scattered through the list. */
+  unidentifiedInbound: number;
   /** Monday 00:00 of the current week as a YYYY-MM-DD date string. The
    *  "Goals met this week" tile links to the Calls list scoped from this
    *  date, so the destination shows the same window the count came from. */
@@ -40,33 +47,44 @@ export async function fetchLeadStats(
   const weekStartDate = etDateDaysAgo(dow, now); // Monday's ET date (YYYY-MM-DD)
   const startOfWeekIso = etMidnightUtcIso(weekStartDate);
 
-  const [readyResult, callbackResult, goalsMetResult] = await Promise.all([
-    supabase
-      .from("leads")
-      .select("*", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .eq("status", "ready_to_call"),
-    // Every lead in callback status — i.e. every callback BOOKED, whenever it
-    // is booked for, which is exactly what the tile's destination
-    // (/leads?status=callback) shows. NOT "due now": the tile used to say
-    // "Callbacks due" over this number, which on 2026-09-06 read 191 when one
-    // was overdue and 190 were scheduled for the next day or later.
-    supabase
-      .from("leads")
-      .select("*", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .eq("status", "callback"),
-    // Goals met this week = distinct BUSINESSES with a goal-met call created
-    // this week — the app-wide goal rule (a lead booked twice is one goal),
-    // on the same `created_at` column every other "this week/today" number
-    // uses. Paginated: PostgREST caps a response at 1,000 rows.
-    fetchGoalLeadsSince(supabase, startOfWeekIso),
-  ]);
+  const [readyResult, callbackResult, goalsMetResult, inboundResult] =
+    await Promise.all([
+      supabase
+        .from("leads")
+        .select("*", { count: "exact", head: true })
+        .is("deleted_at", null)
+        .eq("status", "ready_to_call"),
+      // Every lead in callback status — i.e. every callback BOOKED, whenever it
+      // is booked for, which is exactly what the tile's destination
+      // (/leads?status=callback) shows. NOT "due now": the tile used to say
+      // "Callbacks due" over this number, which on 2026-09-06 read 191 when one
+      // was overdue and 190 were scheduled for the next day or later.
+      supabase
+        .from("leads")
+        .select("*", { count: "exact", head: true })
+        .is("deleted_at", null)
+        .eq("status", "callback"),
+      // Goals met this week = distinct BUSINESSES with a goal-met call created
+      // this week — the app-wide goal rule (a lead booked twice is one goal),
+      // on the same `created_at` column every other "this week/today" number
+      // uses. Paginated: PostgREST caps a response at 1,000 rows.
+      fetchGoalLeadsSince(supabase, startOfWeekIso),
+      // Unidentified inbound callers. Matches the two shapes inbound-call.ts
+      // writes and nothing else: the caller's E.164 number, or the literal
+      // "Inbound caller" when the number was withheld. The bare `+` is correct —
+      // supabase-js encodes it; see the matching note in leads-query.ts.
+      supabase
+        .from("leads")
+        .select("*", { count: "exact", head: true })
+        .is("deleted_at", null)
+        .or(`company.like.+*,company.eq.Inbound caller`),
+    ]);
 
   return {
     readyToCall: readyResult.count ?? 0,
     callbacksScheduled: callbackResult.count ?? 0,
     goalsMetThisWeek: goalsMetResult,
+    unidentifiedInbound: inboundResult.count ?? 0,
     weekStartDate,
   };
 }

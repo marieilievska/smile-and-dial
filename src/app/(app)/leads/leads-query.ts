@@ -123,6 +123,26 @@ export function applyLeadFilters<
     }
   }
 
+  // Unidentified inbound callers — people who rang us back before we knew who
+  // they were. lib/elevenlabs/inbound-call.ts creates these with
+  // `company: callerNumber || "Inbound caller"`, so those are the only two
+  // shapes to look for, and matching the writer exactly is why this is a
+  // narrow filter rather than a general "looks like a phone number" guess.
+  //
+  // They matter because they sort to the TOP of the default newest-first view,
+  // where the identity column shows the same number twice and tells you
+  // nothing. Once merged into the real business (see MergeInboundDialog) the
+  // company becomes a name and the lead drops out of this filter on its own.
+  //
+  // The bare `+` here is correct and must stay bare. A raw `+` in a PostgREST
+  // query string is read as a SPACE, and hand-building this URL with an
+  // unencoded plus returns zero rows — verified against production. supabase-js
+  // encodes the `.or()` argument for us, so writing `%2B` here would search for
+  // a literal percent-two-B instead.
+  if (str(params.unidentified) === "1") {
+    query = query.or(`company.like.+*,company.eq.Inbound caller`);
+  }
+
   // Filters.
   const listId = str(params.list);
   if (/^[0-9a-f-]{36}$/i.test(listId)) query = query.eq("list_id", listId);

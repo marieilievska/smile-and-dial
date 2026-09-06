@@ -42,6 +42,9 @@ export function ActiveFilterChips({
   if (searchParams.get("called") === "yes")
     chips.push({ key: "called", label: "Called" });
 
+  if (searchParams.get("unidentified") === "1")
+    chips.push({ key: "unidentified", label: "Unidentified inbound" });
+
   const pairs: [string, string, string][] = [
     ["created_from", "created_to", "Created"],
     ["lastcall_from", "lastcall_to", "Last call"],
@@ -88,6 +91,7 @@ export function ActiveFilterChips({
       "lastcall_to",
       "nextcall_from",
       "nextcall_to",
+      "unidentified",
       "page",
     ]) {
       params.delete(key);
