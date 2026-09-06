@@ -18,11 +18,12 @@ export type DncResult = { error: string | null };
 const DNC_PATH = "/dnc";
 
 /**
- * DNC lists are PER USER (20260905192000): every read and delete below is
- * scoped by RLS to the caller's own entries, and `owner_id` is stamped by a
- * BEFORE INSERT trigger (auth.uid() for these cookie-client writes), so no
- * insert here needs to pass it. Enforcement is still workspace-wide: the
- * dialer refuses a number on ANY user's list.
+ * DNC lists are PER USER (20260905192000; unique per (owner_id, phone) since
+ * 20260905241000): every read and delete below is scoped by RLS to the
+ * caller's own entries, and every insert stamps `owner_id` explicitly (the
+ * BEFORE INSERT trigger would fill it from auth.uid() anyway) and conflicts
+ * on (owner_id, phone). Enforcement is still workspace-wide: the dialer
+ * refuses a number on ANY user's list.
  */
 
 /** Add one phone number to the caller's DNC list. */
@@ -47,6 +48,7 @@ export async function addToDnc(input: {
 
   const { error } = await supabase.from("dnc_entries").insert({
     phone,
+    owner_id: user.id,
     reason: input.reason,
     company_snapshot: input.company.trim() || null,
     added_by_user_id: user.id,
@@ -54,11 +56,11 @@ export async function addToDnc(input: {
   if (error) {
     return {
       error:
-        // 23505: the number is already listed -- by the caller, or by a
-        // teammate (phone is still unique workspace-wide, see the
-        // migration). Either way the dialer already blocks it.
+        // 23505: the number is already on the CALLER's list (unique per
+        // owner + phone). A teammate's entry doesn't conflict -- each user
+        // keeps their own -- though the dialer blocks it either way.
         error.code === "23505"
-          ? "That number is already on the DNC list."
+          ? "That number is already on your DNC list."
           : "Could not add the number.",
     };
   }
@@ -223,6 +225,7 @@ export async function bulkAddLeadsToDnc(input: {
     )
     .map((l) => ({
       phone: l.business_phone,
+      owner_id: user.id,
       company_snapshot: l.company,
       reason: "manual" as const,
       added_by_user_id: user.id,
@@ -231,10 +234,10 @@ export async function bulkAddLeadsToDnc(input: {
     return { error: "None of the selected leads have a phone number." };
   }
 
-  // Use upsert with ignoreDuplicates so already-DNC numbers don't fail
-  // the whole batch.
+  // Use upsert with ignoreDuplicates so numbers already on the caller's list
+  // don't fail the whole batch.
   const { error, count } = await supabase.from("dnc_entries").upsert(rows, {
-    onConflict: "phone",
+    onConflict: "owner_id,phone",
     ignoreDuplicates: true,
     count: "exact",
   });

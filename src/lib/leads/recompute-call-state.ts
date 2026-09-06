@@ -91,12 +91,15 @@ export async function recomputeLeadCallState(
         .eq("id", leadId)
         .maybeSingle();
       if (lead?.business_phone) {
+        // limit(1), not maybeSingle(): DNC lists are per user, so two owners
+        // can hold the same phone and maybeSingle() would error on two rows
+        // (reading as "not on DNC").
         const { data: dnc } = await admin
           .from("dnc_entries")
           .select("phone")
           .eq("phone", lead.business_phone)
-          .maybeSingle();
-        if (dnc) status = "dnc";
+          .limit(1);
+        if (dnc && dnc.length > 0) status = "dnc";
       }
     }
 

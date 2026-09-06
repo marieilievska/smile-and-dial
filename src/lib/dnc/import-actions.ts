@@ -38,9 +38,9 @@ function normalizePhone(raw: string): string {
  * Import phone numbers onto the caller's DNC list from a parsed CSV. The
  * caller picks which CSV header holds the phone (required) and optionally
  * which holds the company. Every inserted row is stamped `reason="imported"`
- * (per BUILD_PLAN Section 5.7). Already-on-DNC numbers are silently skipped
- * (the caller's own, or a teammate's -- phone is unique workspace-wide and
- * the dialer already blocks it). `owner_id` is stamped by the DB trigger.
+ * (per BUILD_PLAN Section 5.7) onto the caller's own list (`owner_id`;
+ * unique per owner + phone). Numbers already on the caller's list are
+ * silently skipped; a teammate's entry for the same number doesn't conflict.
  */
 export async function importDnc(input: {
   phoneHeader: string;
@@ -104,13 +104,14 @@ export async function importDnc(input: {
     const batch = candidates.slice(i, i + INSERT_BATCH);
     const rows = batch.map((c) => ({
       phone: c.phone,
+      owner_id: user.id,
       company_snapshot: c.company,
       reason: "imported" as const,
       added_by_user_id: user.id,
     }));
     const { data, error } = await supabase
       .from("dnc_entries")
-      .upsert(rows, { onConflict: "phone", ignoreDuplicates: true })
+      .upsert(rows, { onConflict: "owner_id,phone", ignoreDuplicates: true })
       .select("id");
     if (error) {
       return {

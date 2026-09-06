@@ -30,3 +30,19 @@ export function planTextSend(input: {
     reason: input.delivered?.error ?? "close_send_failed",
   };
 }
+
+/** What the agent is told when the text did NOT go out. Honest and specific —
+ *  "no texting number is set up in Close" rather than "I've noted to text
+ *  that", which the lead hears as a yes. Returned with success:false. */
+export function textNotSentMessage(reason: string): string {
+  switch (reason) {
+    case "no_template_on_campaign":
+      return "I can't send texts from this campaign yet — no text is set up for it. I've made a note for the team to follow up.";
+    case "owner_close_not_connected":
+      return "I couldn't send the text: texting isn't connected for this campaign yet. I've made a note for the team to follow up.";
+    case "no_sms_from_number":
+      return "I couldn't send the text: no texting number is set up in Close. I've made a note for the team to follow up.";
+    default:
+      return "I couldn't send the text just now. I've made a note for the team to follow up.";
+  }
+}

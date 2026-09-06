@@ -8,6 +8,12 @@ import "server-only";
  * of writing a false "sent" record.
  */
 
+import {
+  smsCapableNumbers,
+  type ClosePhoneNumberRecord,
+  type CloseSmsNumber,
+} from "./sms-from-number";
+
 const BASE = "https://api.close.com/api/v1";
 
 function authHeader(apiKey: string): string {
@@ -329,6 +335,36 @@ export async function findCloseUserByEmail(
   const lower = email.trim().toLowerCase();
   const user = (json.data ?? []).find((u) => u.email?.toLowerCase() === lower);
   return user ? { id: user.id } : null;
+}
+
+/** The organisation's phone numbers that Close can send SMS FROM, via
+ *  `GET /api/v1/phone_number/` (developer.close.com/api/resources/phone-numbers/list):
+ *  each record carries `number`, `sms_enabled`, `type` (internal | external |
+ *  virtual), `user_id` (null for a group number), `is_group_number`, `label`
+ *  and `number_formatted`; the list pages with `has_more` + `_skip`. Only
+ *  `sms_enabled` numbers of type "internal" are kept (see smsCapableNumbers).
+ *  Returns null when Close can't be read, so the caller keeps whatever it had
+ *  instead of wiping a working number. */
+export async function listCloseSmsNumbers(
+  apiKey: string,
+): Promise<CloseSmsNumber[] | null> {
+  const PAGE = 100; // Close's default and maximum page size for this list.
+  const records: ClosePhoneNumberRecord[] = [];
+  for (let skip = 0; skip < PAGE * 10; skip += PAGE) {
+    const res = await fetch(
+      `${BASE}/phone_number/?_limit=${PAGE}&_skip=${skip}` +
+        "&_fields=number,number_formatted,label,user_id,is_group_number,sms_enabled,type",
+      { headers: { Authorization: authHeader(apiKey) } },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      data?: ClosePhoneNumberRecord[];
+      has_more?: boolean;
+    };
+    records.push(...(json.data ?? []));
+    if (!json.has_more) break;
+  }
+  return smsCapableNumbers(records);
 }
 
 /** The Close user that owns this API key (GET /me/) — the fallback task assignee.

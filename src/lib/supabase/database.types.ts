@@ -2555,6 +2555,7 @@ export type Database = {
           close_api_key: string | null;
           close_connected_at: string | null;
           close_sms_from_number: string | null;
+          close_sms_numbers: Json | null;
           close_webhook_created_at: string | null;
           close_webhook_id: string | null;
           close_webhook_signature_key: string | null;
@@ -2578,6 +2579,7 @@ export type Database = {
           close_api_key?: string | null;
           close_connected_at?: string | null;
           close_sms_from_number?: string | null;
+          close_sms_numbers?: Json | null;
           close_webhook_created_at?: string | null;
           close_webhook_id?: string | null;
           close_webhook_signature_key?: string | null;
@@ -2601,6 +2603,7 @@ export type Database = {
           close_api_key?: string | null;
           close_connected_at?: string | null;
           close_sms_from_number?: string | null;
+          close_sms_numbers?: Json | null;
           close_webhook_created_at?: string | null;
           close_webhook_id?: string | null;
           close_webhook_signature_key?: string | null;

@@ -1342,8 +1342,9 @@ function dncReasonForOutcome(
  * Apply the post-call side effects driven by the call outcome:
  *
  *   * `dnc` / `invalid_number` / `language_barrier` →
- *     - insert the lead's phone into `dnc_entries` (silently skip if it's
- *       already there — phone is unique workspace-wide)
+ *     - insert the lead's phone into `dnc_entries` on the lead owner's list
+ *       (silently skip if it's already there — unique per (owner_id, phone);
+ *       the dialer blocks a number on ANY user's list)
  *     - set lead.status = 'dnc' so the queue drops it on the next tick
  *
  *   * `callback` →
@@ -1498,16 +1499,18 @@ export async function applyOutcomeSideEffects(
     ? (input.dncReasonOverride ?? baseDncReason)
     : null;
   if (dncReason && lead.business_phone) {
-    // upsert with ignoreDuplicates so the unique-on-phone constraint
-    // doesn't error if the number is already on the list.
+    // Onto the lead owner's list; upsert with ignoreDuplicates so the
+    // (owner_id, phone) constraint doesn't error if the number is already
+    // on it.
     await supabase.from("dnc_entries").upsert(
       {
         phone: lead.business_phone,
+        owner_id: lead.owner_id,
         company_snapshot: lead.company,
         reason: dncReason,
         source_call_id: input.callId,
       },
-      { onConflict: "phone", ignoreDuplicates: true },
+      { onConflict: "owner_id,phone", ignoreDuplicates: true },
     );
     await supabase
       .from("leads")

@@ -100,18 +100,23 @@ export async function setLeadStatus(input: {
   // leads.status alone is a split-brain: the dialer's pre-call check tests
   // the phone against dnc_entries, so without this insert it would keep
   // calling a lead the operator just marked Do Not Call. Mirror the
-  // dnc_entries insert shape used by addToDnc / bulkAddLeadsToDnc. Skip the
-  // insert (but keep the status change) when there's no phone, and swallow
-  // the unique-violation (23505) that means the number is already listed.
+  // dnc_entries write shape used by addToDnc / bulkAddLeadsToDnc: onto the
+  // operator's own list (owner_id), conflict on (owner_id, phone) = already
+  // there, which is fine. Skip the write (but keep the status change) when
+  // there's no phone.
   if (input.status === "dnc") {
     const phone = before.business_phone?.trim();
     if (phone) {
-      const { error: dncErr } = await supabase.from("dnc_entries").insert({
-        phone,
-        reason: "manual",
-        company_snapshot: before.company ?? null,
-        added_by_user_id: user.id,
-      });
+      const { error: dncErr } = await supabase.from("dnc_entries").upsert(
+        {
+          phone,
+          owner_id: user.id,
+          reason: "manual",
+          company_snapshot: before.company ?? null,
+          added_by_user_id: user.id,
+        },
+        { onConflict: "owner_id,phone", ignoreDuplicates: true },
+      );
       if (dncErr && dncErr.code !== "23505") {
         return { error: "Stage saved, but could not add to the DNC list." };
       }

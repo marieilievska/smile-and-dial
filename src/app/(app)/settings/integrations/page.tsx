@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { parseCloseSmsNumbers } from "@/lib/close/sms-from-number";
 import { createClient } from "@/lib/supabase/server";
 
 import { formatCreatedAt } from "../format-created";
@@ -30,7 +31,7 @@ export default async function IntegrationsPage() {
     supabase
       .from("user_integrations")
       .select(
-        "calendly_connected_at, calendly_last_sync_at, close_connected_at, close_webhook_id, close_webhook_created_at, meta_connected_at, meta_access_token, meta_last_sync_at, meta_last_sync_count, meta_last_sync_error",
+        "calendly_connected_at, calendly_last_sync_at, close_connected_at, close_webhook_id, close_webhook_created_at, close_sms_from_number, close_sms_numbers, meta_connected_at, meta_access_token, meta_last_sync_at, meta_last_sync_count, meta_last_sync_error",
       )
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -45,6 +46,14 @@ export default async function IntegrationsPage() {
   // Reply tracking = a Close webhook subscription exists for this user. Only
   // the id + timestamp are read; the signature key never reaches the client.
   const closeReplyTracking = closeConnected && Boolean(integ?.close_webhook_id);
+  // The Close numbers the agent can text from, as last read from Close. Only
+  // the numbers' display fields reach the client, never the API key.
+  const closeSmsNumbers = closeConnected
+    ? parseCloseSmsNumbers(integ?.close_sms_numbers)
+    : [];
+  const closeSmsFromNumber = closeConnected
+    ? (integ?.close_sms_from_number ?? null)
+    : null;
   const calendlyConnected = Boolean(integ?.calendly_connected_at);
   // meta_access_token is only read to compute `connected`; never sent to the
   // client form.
@@ -110,6 +119,8 @@ export default async function IntegrationsPage() {
                 ? (integ?.close_webhook_created_at ?? null)
                 : null
             }
+            smsFromNumber={closeSmsFromNumber}
+            smsNumbers={closeSmsNumbers}
           />
         </IntegrationCard>
 

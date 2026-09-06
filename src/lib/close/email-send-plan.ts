@@ -24,3 +24,46 @@ export function planEmailSend(input: {
     reason: input.delivered?.error ?? "close_send_failed",
   };
 }
+
+/** Can the send_email tool send ANYTHING on this call — decided before any
+ *  rendering or delivery, and pure so it's unit-tested.
+ *  - no template on the campaign: nothing to send, in any mode;
+ *  - live + owner never connected Close: nowhere to send it from;
+ *  - otherwise ready (non-live without Close records a mock row). */
+export type EmailToolReadiness =
+  | { ready: true }
+  | {
+      ready: false;
+      reason: "no_template_on_campaign" | "owner_close_not_connected";
+    };
+
+export function emailToolReadiness(input: {
+  live: boolean;
+  hasTemplate: boolean;
+  hasCloseKey: boolean;
+}): EmailToolReadiness {
+  if (!input.hasTemplate) {
+    return { ready: false, reason: "no_template_on_campaign" };
+  }
+  if (input.live && !input.hasCloseKey) {
+    return { ready: false, reason: "owner_close_not_connected" };
+  }
+  return { ready: true };
+}
+
+/** What the agent is told when the email did NOT go out. Spoken-friendly and
+ *  honest: it says the email isn't coming and why, never "I've noted to send
+ *  that" (which the lead hears as a yes). Fed back to the model as the tool
+ *  result with success:false. */
+export function emailNotSentMessage(reason: string): string {
+  switch (reason) {
+    case "no_template_on_campaign":
+      return "I can't send emails from this campaign yet — no email is set up for it. I've made a note for the team to follow up by email.";
+    case "owner_close_not_connected":
+      return "I can't send emails from this campaign yet — the sending account isn't connected. I've made a note for the team to follow up by email.";
+    case "no_connected_sending_email":
+      return "I couldn't send the email: the connected account has no email it can send from. I've made a note for the team to follow up by email.";
+    default:
+      return "I couldn't send the email just now. I've made a note for the team to follow up by email.";
+  }
+}
