@@ -2768,6 +2768,13 @@ export type Database = {
           isSetofReturn: true;
         };
       };
+      list_lead_timezones: {
+        Args: { p_list_ids: string[] };
+        Returns: {
+          list_id: string;
+          timezone: string;
+        }[];
+      };
       list_performance: {
         Args: {
           p_campaign?: string;

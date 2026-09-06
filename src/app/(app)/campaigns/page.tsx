@@ -10,7 +10,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import { createClient } from "@/lib/supabase/server";
 
 import { CampaignBoard, type CampaignCardItem } from "./campaign-board";
@@ -195,22 +194,22 @@ export default async function CampaignsPage({
   // per lead the same way) instead of the server's UTC clock.
   const listTimezones = new Map<string, Set<string>>();
   if (attachedListIds.size > 0) {
-    // Paged: `.limit(50000)` was silently clamped to 1,000 by PostgREST, so
-    // a big list's later timezones never reached the "calling now?" chip.
-    const tzRows = await fetchAllRows(
-      (from, to) =>
-        supabase
-          .from("leads")
-          .select("list_id, timezone")
-          .is("deleted_at", null)
-          .not("timezone", "is", null)
-          .in("list_id", [...attachedListIds])
-          .order("id", { ascending: true })
-          .range(from, to),
-      { max: 200_000 },
+    // One DISTINCT, server-side. This used to page the whole `leads` table
+    // through fetchAllRows -- ~84 sequential round trips and 83,980 rows to
+    // produce 7 pairs, which was most of this page's 7-second render
+    // (20260906070000). The RPC is SECURITY INVOKER, so RLS scopes a member to
+    // their own leads' timezones exactly as the paged read did.
+    const { data: tzRows, error: tzError } = await supabase.rpc(
+      "list_lead_timezones",
+      { p_list_ids: [...attachedListIds] },
     );
-    for (const r of tzRows) {
-      const row = r as { list_id: string | null; timezone: string | null };
+    // Fail loud rather than silently drop every timezone: an empty map makes
+    // the "calling now?" chip fall back to UTC, which is wrong in a way nobody
+    // would notice.
+    if (tzError) {
+      throw new Error(`Campaign timezone lookup failed: ${tzError.message}`);
+    }
+    for (const row of tzRows ?? []) {
       if (!row.list_id || !row.timezone) continue;
       const set = listTimezones.get(row.list_id) ?? new Set<string>();
       set.add(row.timezone);
