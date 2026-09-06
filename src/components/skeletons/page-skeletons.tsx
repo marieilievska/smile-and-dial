@@ -80,7 +80,9 @@ export function TablePageSkeleton({
     <div className="flex flex-col gap-5 p-6">
       <LoadingStatus />
       <PageHeaderSkeleton action={action} />
-      <StatStripSkeleton tiles={tiles} />
+      {/* tiles={0} means the page has no stat strip (e.g. /archived) — render
+       *  nothing rather than an empty bordered card. */}
+      {tiles > 0 ? <StatStripSkeleton tiles={tiles} /> : null}
       <div className="flex flex-wrap items-center gap-3">
         <Skeleton className="h-8 w-64 rounded-lg" />
         <Skeleton className="ml-auto h-8 w-28 rounded-lg" />
@@ -91,12 +93,25 @@ export function TablePageSkeleton({
 }
 
 /** Header + hero + KPI grid + chart — the shape of Analytics, Costs,
- *  Today. */
-export function DashboardSkeleton({ tiles = 5 }: { tiles?: number }) {
+ *  Today. `tabs` adds the pill row Reporting carries above its content. */
+export function DashboardSkeleton({
+  tiles = 5,
+  tabs = 0,
+}: {
+  tiles?: number;
+  tabs?: number;
+}) {
   return (
     <div className="flex flex-col gap-5 p-6">
       <LoadingStatus />
       <PageHeaderSkeleton />
+      {tabs > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {Array.from({ length: tabs }).map((_, i) => (
+            <Skeleton key={i} className="h-8 w-28 rounded-xl" />
+          ))}
+        </div>
+      ) : null}
       <Skeleton className="h-28 w-full rounded-2xl" />
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         {Array.from({ length: tiles }).map((_, i) => (
@@ -111,6 +126,101 @@ export function DashboardSkeleton({ tiles = 5 }: { tiles?: number }) {
         ))}
       </div>
       <Skeleton className="h-64 w-full rounded-2xl" />
+    </div>
+  );
+}
+
+/** Header + a stack of section cards — the shape every /settings/* page
+ *  shares (a title, a line of explanation, then one or more cards). Sits at
+ *  the settings segment root so it covers all thirteen sub-pages, INSIDE the
+ *  settings layout, which means the left rail stays put and only the content
+ *  column swaps. */
+export function SettingsPageSkeleton({
+  cards = 2,
+  rows = 5,
+}: {
+  cards?: number;
+  rows?: number;
+}) {
+  return (
+    <div className="flex flex-col gap-5 p-6">
+      <LoadingStatus />
+      <PageHeaderSkeleton />
+      {Array.from({ length: cards }).map((_, i) => (
+        <div
+          key={i}
+          className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-5 shadow-sm"
+        >
+          <Skeleton className="h-4 w-40" />
+          {Array.from({ length: rows }).map((__, j) => (
+            <div key={j} className="flex items-center gap-4">
+              <Skeleton className="h-4 w-48" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="ml-auto h-6 w-16 rounded-full" />
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Hero command card + stacked detail sections — the shape of a lead's
+ *  detail page. Without this, opening a lead from the table fell back to the
+ *  Leads TABLE skeleton (the nearest ancestor's), which is the wrong
+ *  silhouette and made the layout jump when the real page landed. */
+export function DetailPageSkeleton({ sections = 4 }: { sections?: number }) {
+  return (
+    <div className="flex flex-col gap-5 p-6">
+      <LoadingStatus />
+      {/* Hero command card: title, status chips, quick-stats row. */}
+      <div className="border-border bg-card flex flex-col gap-4 rounded-2xl border p-6 shadow-sm">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-7 w-64" />
+            <Skeleton className="h-4 w-44" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-28 rounded-lg" />
+            <Skeleton className="h-9 w-24 rounded-lg" />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-6 pt-1">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex flex-col gap-1.5">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-5 w-20" />
+            </div>
+          ))}
+        </div>
+      </div>
+      {Array.from({ length: sections }).map((_, i) => (
+        <div
+          key={i}
+          className="border-border bg-card flex flex-col gap-3 rounded-2xl border p-5 shadow-sm"
+        >
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Header + dropzone + preview card — the shape of the leads and DNC import
+ *  wizards at step one. */
+export function WizardPageSkeleton() {
+  return (
+    <div className="flex flex-col gap-5 p-6">
+      <LoadingStatus />
+      <PageHeaderSkeleton action={false} />
+      <Skeleton className="h-44 w-full rounded-2xl" />
+      <div className="border-border bg-card flex flex-col gap-3 rounded-xl border p-5 shadow-sm">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-2/3" />
+      </div>
     </div>
   );
 }
