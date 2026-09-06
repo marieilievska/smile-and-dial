@@ -2,7 +2,7 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
+import { ID_CHUNK, chunk, mapChunks } from "@/lib/leads/chunk";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Admin = ReturnType<typeof createClient<Database>>;
@@ -13,7 +13,10 @@ export async function removeCallRecordings(
   admin: Admin,
   callIds: string[],
 ): Promise<void> {
-  for (const ids of chunk(callIds, ID_CHUNK)) {
+  // Each chunk reads its own paths and removes its own objects — independent
+  // work, so the chunks overlap instead of running end to end. Still
+  // best-effort: a storage hiccup must not block the row deletion that follows.
+  await mapChunks(callIds, ID_CHUNK, async (ids) => {
     const { data: rows } = await admin
       .from("calls")
       .select("recording_path")
@@ -26,7 +29,8 @@ export async function removeCallRecordings(
     if (objects.length > 0) {
       await admin.storage.from("call-recordings").remove(objects);
     }
-  }
+    return null;
+  });
 }
 
 /** Permanently delete calls: remove their recordings, then delete the rows

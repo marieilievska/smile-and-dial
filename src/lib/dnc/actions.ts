@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { ID_CHUNK, chunk } from "@/lib/leads/chunk";
+import { ID_CHUNK, chunk, mapChunks } from "@/lib/leads/chunk";
 import { toE164UsCa } from "@/lib/leads/twilio-lookup";
 import { createClient } from "@/lib/supabase/server";
 
@@ -224,16 +224,23 @@ export async function bulkAddLeadsToDnc(input: {
   // overflows the request URL. Aggregate the rows across chunks and surface
   // any real error instead of swallowing it.
   type LeadRow = { business_phone: string | null; company: string | null };
-  const leads: LeadRow[] = [];
-  for (const ids of chunk(input.leadIds, ID_CHUNK)) {
+  let lookupFailed = false;
+  const leadChunks = await mapChunks(input.leadIds, ID_CHUNK, async (ids) => {
     const { data, error } = await supabase
       .from("leads")
       .select("business_phone, company")
       .in("id", ids)
       .not("business_phone", "is", null);
-    if (error) return { error: "Could not look up the selected leads." };
-    leads.push(...((data ?? []) as LeadRow[]));
-  }
+    // Flag rather than throw: this action RETURNS its errors, and a throw would
+    // escape mapChunks and change the shape callers already handle.
+    if (error) {
+      lookupFailed = true;
+      return [];
+    }
+    return (data ?? []) as LeadRow[];
+  });
+  if (lookupFailed) return { error: "Could not look up the selected leads." };
+  const leads: LeadRow[] = leadChunks.flat();
 
   const rows = leads
     .filter(

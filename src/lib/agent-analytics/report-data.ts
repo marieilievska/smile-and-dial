@@ -14,7 +14,7 @@ import {
 } from "@/lib/agent-analytics/cause-of-death";
 import type { ObjectionRow } from "@/lib/agent-analytics/objections";
 import type { ObjectionCategory } from "@/lib/openai/objection-extractor";
-import { chunk } from "@/lib/leads/chunk";
+import { mapChunks } from "@/lib/leads/chunk";
 import type { Database } from "@/lib/supabase/database.types";
 import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 
@@ -199,23 +199,25 @@ export async function fetchCauseOfDeath(
     string,
     { status: string; dm: boolean; company: string }
   >();
-  for (const ids of chunk(leadIds, 200)) {
+  // Independent reads, run with bounded concurrency instead of end to end.
+  const metaChunks = await mapChunks(leadIds, 200, async (ids) => {
     const { data } = await supabase
       .from("leads")
       .select("id, status, decision_maker_reached, company")
       .in("id", ids);
-    for (const l of (data ?? []) as {
+    return (data ?? []) as {
       id: string;
       status: string | null;
       decision_maker_reached: boolean | null;
       company: string | null;
-    }[]) {
-      leadMeta.set(l.id, {
-        status: l.status ?? "",
-        dm: l.decision_maker_reached === true,
-        company: l.company ?? "",
-      });
-    }
+    }[];
+  });
+  for (const l of metaChunks.flat()) {
+    leadMeta.set(l.id, {
+      status: l.status ?? "",
+      dm: l.decision_maker_reached === true,
+      company: l.company ?? "",
+    });
   }
 
   // (c) Build LeadForCause[] and aggregate.

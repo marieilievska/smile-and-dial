@@ -9,7 +9,7 @@ import { removeLeadsFromOwnerAudiences } from "@/lib/meta/remove-leads";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
 
-import { ID_CHUNK, chunk } from "./chunk";
+import { ID_CHUNK, chunk, mapChunks } from "./chunk";
 import { canManageUsers, isSuperAdmin } from "@/lib/auth/roles";
 
 type BulkResult = { error: string | null };
@@ -136,15 +136,16 @@ export async function bulkDeleteLeads(input: {
     state: string | null;
     meta_synced_at: string | null;
   }[] = [];
-  for (const idsChunk of chunk(ids, ID_CHUNK)) {
+  const targetChunks = await mapChunks(ids, ID_CHUNK, async (idsChunk) => {
     const { data } = await admin
       .from("leads")
       .select(
         "id, owner_id, business_email, business_phone, city, state, meta_synced_at",
       )
       .in("id", idsChunk);
-    targets.push(...(data ?? []));
-  }
+    return data ?? [];
+  });
+  targets.push(...targetChunks.flat());
   if (targets.length === 0) return { error: null };
 
   // Non-admins may only delete leads they own.
@@ -156,14 +157,14 @@ export async function bulkDeleteLeads(input: {
   await removeLeadsFromOwnerAudiences(admin, targets);
 
   // 2) Delete their calls first — calls.lead_id is ON DELETE RESTRICT.
-  const callIds: string[] = [];
-  for (const idsChunk of chunk(ids, ID_CHUNK)) {
+  const callIdChunks = await mapChunks(ids, ID_CHUNK, async (idsChunk) => {
     const { data: cs } = await admin
       .from("calls")
       .select("id")
       .in("lead_id", idsChunk);
-    for (const c of cs ?? []) callIds.push(c.id);
-  }
+    return cs ?? [];
+  });
+  const callIds: string[] = callIdChunks.flat().map((c) => c.id);
   const del = await hardDeleteCalls(admin, callIds);
   if (del.error) return { error: "Could not delete the leads' calls." };
 
