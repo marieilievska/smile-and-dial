@@ -32,6 +32,30 @@ export type ListPerformanceRow = {
   spend: number;
   first_call: string | null;
   last_call: string | null;
+
+  // --- reachability (phase 2) ---------------------------------------------
+  // These two are activity, so they follow the date window and the campaign
+  // filter exactly like calls / connected / spend.
+  /** Distinct live businesses where a person picked up at least once. */
+  reached: number;
+  /** CALLS that reached a machine — deliberately call-level, not lead-level. */
+  voicemail: number;
+
+  // The rest is inventory: as-of-now, never date-filtered, like `leads`.
+  /** Leads whose phone line type has actually been looked up. Zero means
+   *  "never checked", which must not be shown as "0% mobile". */
+  line_typed: number;
+  /** Leads locked out of auto-dialling by the mobile rule. */
+  mobiles: number;
+  /** Leads that have ever come back invalid_number. */
+  bad_number: number;
+  /** Leads that asked us to stop: status 'dnc', or on their owner's list. */
+  suppressed: number;
+  /** Leads sleeping off a rest — temporarily out, not lost. */
+  resting: number;
+  /** Still-workable inventory. NOT the dial queue, which is clock-gated and
+   *  reads zero overnight — see the migration header. */
+  remaining: number;
 };
 
 export type ListPerformanceFilters = {
@@ -101,6 +125,42 @@ export function conversionRate(row: ListPerformanceRow): number | null {
   return row.goals / row.worked;
 }
 
+/**
+ * Share of the businesses we dialled where somebody actually picked up.
+ *
+ * Against `worked` rather than `leads`: this measures whether the numbers in
+ * the list are answerable, which is only knowable for the ones we have tried.
+ */
+export function reachedShare(row: ListPerformanceRow): number | null {
+  if (row.worked <= 0) return null;
+  return row.reached / row.worked;
+}
+
+/**
+ * Share of this list's calls that reached an answerphone.
+ *
+ * A CALL-level rate sitting among lead-level ones, on purpose: "how much of the
+ * dialling this list absorbs is spent talking to machines" is a property of the
+ * calls. The header says so.
+ */
+export function voicemailShare(row: ListPerformanceRow): number | null {
+  if (row.calls <= 0) return null;
+  return row.voicemail / row.calls;
+}
+
+/**
+ * Share of the list locked out by the never-auto-dial-mobiles rule.
+ *
+ * Null when no lead in the list has had its line type looked up — which is
+ * every list today, because no lookup has ever run. "We checked and found no
+ * mobiles" and "we never checked" would otherwise both render as 0.0%, and the
+ * second one is a reason to go and check.
+ */
+export function mobileShare(row: ListPerformanceRow): number | null {
+  if (row.line_typed <= 0 || row.leads <= 0) return null;
+  return row.mobiles / row.leads;
+}
+
 /** True for the single synthetic row carrying registrations with no lead. */
 export function isUnattributed(row: ListPerformanceRow): boolean {
   return row.list_id === null;
@@ -124,6 +184,14 @@ export function totalsFor(rows: readonly ListPerformanceRow[]): {
   attended: number;
   sales: number;
   spend: number;
+  reached: number;
+  voicemail: number;
+  line_typed: number;
+  mobiles: number;
+  bad_number: number;
+  suppressed: number;
+  resting: number;
+  remaining: number;
 } {
   const acc = {
     leads: 0,
@@ -136,6 +204,14 @@ export function totalsFor(rows: readonly ListPerformanceRow[]): {
     attended: 0,
     sales: 0,
     spend: 0,
+    reached: 0,
+    voicemail: 0,
+    line_typed: 0,
+    mobiles: 0,
+    bad_number: 0,
+    suppressed: 0,
+    resting: 0,
+    remaining: 0,
   };
   for (const r of rows) {
     acc.leads += r.leads;
@@ -148,6 +224,14 @@ export function totalsFor(rows: readonly ListPerformanceRow[]): {
     acc.attended += r.attended;
     acc.sales += r.sales;
     acc.spend += r.spend;
+    acc.reached += r.reached;
+    acc.voicemail += r.voicemail;
+    acc.line_typed += r.line_typed;
+    acc.mobiles += r.mobiles;
+    acc.bad_number += r.bad_number;
+    acc.suppressed += r.suppressed;
+    acc.resting += r.resting;
+    acc.remaining += r.remaining;
   }
   return acc;
 }

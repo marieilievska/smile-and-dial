@@ -30,6 +30,7 @@ import { BestTimeHeatmap } from "./best-time-heatmap";
 import { CampaignLeaderboard, OutcomeBreakdown } from "./charts";
 import { KpiTile } from "./kpi-tile";
 import { ListPerformanceSection } from "./list-performance-section";
+import { ListReachabilitySection } from "./list-reachability-section";
 import { dateRangeLabel } from "@/lib/time/eastern";
 import { isSuperAdmin } from "@/lib/auth/roles";
 
@@ -388,6 +389,11 @@ export default async function AnalyticsPage({
             rangeLabel={rangeLabel}
             baseParams={baseParams}
           />
+
+          {/* …and whether it is still worth dialling. Same rows, so the two
+           *  sections can never disagree about how big a list is or how much
+           *  of it has been worked. */}
+          <ListReachabilitySection rows={listRows} baseParams={baseParams} />
 
           {/* Best time to call heatmap — workspace-wide connect-rate signal. */}
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-1 gap-4 delay-250 duration-500 lg:grid-cols-2">

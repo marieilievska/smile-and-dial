@@ -3,10 +3,14 @@ import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
+import { COST_COMPONENT_KEYS } from "@/lib/costs/breakdown";
 import {
   conversionRate,
   isUnattributed,
+  mobileShare,
+  reachedShare,
   totalsFor,
+  voicemailShare,
   workedShare,
   type ListPerformanceRow,
 } from "@/lib/analytics/list-performance";
@@ -27,7 +31,13 @@ import {
  *     other member's lists through a report that looks correctly scoped.
  */
 
-const MIGRATION = "supabase/migrations/20260906040000_list_performance_fn.sql";
+// The LATEST definition, not the first. 20260906060000 dropped and recreated
+// the function to widen it, so pinning the original file would let the live
+// shape drift away from what these tests claim.
+const MIGRATION =
+  "supabase/migrations/20260906060000_list_performance_reachability.sql";
+const COST_FN =
+  "supabase/migrations/20260906055000_call_cost_total_inlinable.sql";
 
 function read(rel: string): string {
   return readFileSync(
@@ -121,7 +131,7 @@ describe("the list SIZE is not date-filtered", () => {
     // wildly as you moved the date pills and the column would be unreadable.
     const block = /lead_stats as \(([\s\S]*?)\n  \),/.exec(sql);
     expect(block, "lead_stats not found").not.toBeNull();
-    expect(block![1]).toMatch(/where deleted_at is null/);
+    expect(block![1]).toContain("deleted_at is null");
     expect(block![1]).not.toMatch(/p_start|p_end|p_campaign/);
   });
 
@@ -170,6 +180,14 @@ const ROW: ListPerformanceRow = {
   spend: 400,
   first_call: "2026-09-02T12:00:00Z",
   last_call: "2026-09-05T12:00:00Z",
+  reached: 80,
+  voicemail: 125,
+  line_typed: 0,
+  mobiles: 0,
+  bad_number: 3,
+  suppressed: 5,
+  resting: 40,
+  remaining: 700,
 };
 
 describe("workedShare", () => {
@@ -284,5 +302,134 @@ describe("only signed-in users can run the report", () => {
       "revoke execute on function public.list_performance(date, date, uuid, uuid)",
     );
     expect(revokes).toContain("from public, anon;");
+  });
+});
+
+describe("remaining is inventory, not the dial queue", () => {
+  // The trap this test exists for: dial_queue looks like the obvious source
+  // for "how many are left", and it is not. It is gated on calling hours and
+  // on per-hour / per-day caps, so counting it returns ZERO every night --
+  // which as a report column reads as "this list is finished".
+  const filter = sql.slice(
+    sql.indexOf("as suppressed"),
+    sql.indexOf("::integer as remaining"),
+  );
+
+  it("mirrors dial_queue's lead-level predicates", () => {
+    expect(filter).toContain("l.business_phone is not null");
+    expect(filter).toContain("l.status in ('ready_to_call', 'callback')");
+    expect(filter).toContain("l.line_type is distinct from 'mobile'");
+    expect(filter).toContain("from dnc_entries d");
+    expect(filter).toContain("d.owner_id = l.owner_id");
+  });
+
+  it("borrows none of dial_queue's clock or capacity gates", () => {
+    expect(sql).not.toContain("is_within_calling_hours");
+    expect(sql).not.toContain("next_call_at");
+    expect(sql).not.toContain("calls_per_hour_cap");
+    expect(sql).not.toContain("autopilot_enabled");
+  });
+
+  it("keeps the do-not-call check per owner, matching enforcement", () => {
+    // Suppression is per person since 20260906020000. A teammate's list must
+    // not make your leads look unworkable.
+    expect(filter).toContain("d.owner_id = l.owner_id");
+  });
+});
+
+describe("the inventory columns ignore the campaign filter too", () => {
+  it("counts bad numbers per list, not per campaign", () => {
+    // A dead number is a property of the lead. Scoping it to the selected
+    // campaign would make the same list look cleaner under one campaign than
+    // another.
+    const bad = sql.slice(
+      sql.indexOf("bad_leads as ("),
+      sql.indexOf("reg_stats as ("),
+    );
+    expect(bad).toContain("c.outcome = 'invalid_number'");
+    expect(bad).not.toContain("p_campaign");
+    expect(bad).not.toContain("p_start");
+  });
+});
+
+describe("reached uses the same connected-outcome list as connected", () => {
+  it("does not define a second, divergent list", () => {
+    const lists = [...sql.matchAll(/outcome in \(([\s\S]*?)\)/g)].map((m) =>
+      [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]).join(","),
+    );
+    expect(lists.length).toBe(2);
+    expect(lists[0]).toBe(lists[1]);
+    expect(lists[0].split(",").sort()).toEqual([...CONNECTED_OUTCOMES].sort());
+  });
+});
+
+describe("call_cost_total was made inlinable (20260906055000)", () => {
+  const cost = stripComments(read(COST_FN));
+
+  it("reads the component keys directly, and only those", () => {
+    for (const key of COST_COMPONENT_KEYS) {
+      expect(cost, key).toContain(`j -> '${key}'`);
+    }
+    // Five components plus the stored-total fallback, and nothing else.
+    expect(cost.match(/pg_catalog\.jsonb_typeof/g)).toHaveLength(
+      COST_COMPONENT_KEYS.length + 1,
+    );
+  });
+
+  it("carries no SET clause and calls no helper", () => {
+    // A SQL function with a SET clause cannot be inlined -- that single rule
+    // is what made this 91% of the query. Schema-qualifying jsonb_typeof
+    // keeps the hardening without paying for it.
+    expect(cost).not.toContain("set search_path");
+    expect(cost).not.toContain("call_cost_components(");
+    expect(cost).not.toContain("j_num(");
+  });
+
+  it("keeps the old semantics exactly, writing the sum once", () => {
+    // coalesce(nullif(greatest(sum, 0), 0), total) reproduces
+    // "components > 0 ? components : total", negative branch included.
+    expect(cost).toContain("coalesce(");
+    expect(cost).toContain("nullif(");
+    expect(cost).toContain("greatest(");
+    expect(cost).toContain("immutable");
+  });
+});
+
+describe("reachedShare", () => {
+  it("measures who answered against who we dialled", () => {
+    expect(reachedShare(ROW)).toBeCloseTo(0.4);
+  });
+
+  it("is null before anything has been dialled", () => {
+    expect(reachedShare({ ...ROW, worked: 0, reached: 0 })).toBeNull();
+  });
+});
+
+describe("voicemailShare", () => {
+  it("is a share of CALLS, not of leads", () => {
+    // 125 of 250 calls. Against leads it would read 12.5% and mean nothing.
+    expect(voicemailShare(ROW)).toBeCloseTo(0.5);
+  });
+
+  it("is null on a list with no calls", () => {
+    expect(voicemailShare({ ...ROW, calls: 0, voicemail: 0 })).toBeNull();
+  });
+});
+
+describe("mobileShare", () => {
+  it("is null when no line type has ever been looked up", () => {
+    // The whole point: "we checked and found none" and "we never checked"
+    // must not both render as 0.0%. Today every list is the second one.
+    expect(mobileShare(ROW)).toBeNull();
+  });
+
+  it("is a real share once lookups have run", () => {
+    expect(mobileShare({ ...ROW, line_typed: 1000, mobiles: 250 })).toBeCloseTo(
+      0.25,
+    );
+  });
+
+  it("stays null for a list with no leads", () => {
+    expect(mobileShare({ ...ROW, leads: 0, line_typed: 5 })).toBeNull();
   });
 });
