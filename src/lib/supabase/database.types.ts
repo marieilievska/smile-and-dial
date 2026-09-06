@@ -2694,12 +2694,9 @@ export type Database = {
           spend: number;
         }[];
       };
-      expire_resting_leads: { Args: never; Returns: number };
-      cron_schedule_minutes: {
-        Args: { in_schedule: string };
-        Returns: number;
-      };
+      cron_schedule_minutes: { Args: { in_schedule: string }; Returns: number };
       evaluate_alerts: { Args: never; Returns: Json };
+      expire_resting_leads: { Args: never; Returns: number };
       get_or_create_inbound_list: {
         Args: { in_owner: string };
         Returns: string;
@@ -2780,11 +2777,11 @@ export type Database = {
         Returns: undefined;
       };
       monitor_campaign_spend_caps: { Args: never; Returns: number };
+      monitor_twilio_connect_rates: { Args: never; Returns: number };
       move_custom_field: {
         Args: { in_direction: string; in_id: string };
         Returns: string;
       };
-      monitor_twilio_connect_rates: { Args: never; Returns: number };
       pool_number_usage_24h: {
         Args: { in_campaign_id: string };
         Returns: {
