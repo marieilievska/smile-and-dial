@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 
@@ -13,16 +13,16 @@ import { describe, it, expect } from "vitest";
  *   - calendly_events writes were admin-only, so a member's attended/sale
  *     marks never landed and Cohorts counted them as no-shows -> owner
  *     UPDATE policy.
- *   - DNC lists are now per user (no admin branch) while the dialer still
- *     blocks a number on ANY user's list -> owner_id + fill trigger.
+ *   - DNC lists are now per user (no admin branch) -> owner_id + fill trigger.
+ *     (Enforcement followed in 20260906020000; that shape is pinned by
+ *     tests/dnc-owner-phone-unique.unit.test.ts, not here.)
  *   - custom fields: everyone uses every field, only the creator changes it
  *     -> created_by + move_custom_field().
  *   - twilio_number_daily_stats was admin-only while the numbers pages are
  *     member-facing -> owner-or-admin SELECT.
  *
  * These pin the migration shapes so a later "cleanup" can't quietly bring an
- * admin gate back, widen the DNC read policy, or add an owner filter to the
- * dial-time DNC check.
+ * admin gate back or widen the DNC read policy.
  */
 
 const MIGRATIONS = "supabase/migrations";
@@ -48,28 +48,10 @@ function migration(file: string): string {
   return stripComments(read(`${MIGRATIONS}/${file}`));
 }
 
-let allMigrations: string[] | null = null;
-
-/** Every migration's contents, newest first. Read once per run: three
- *  `latestDefining` lookups over ~170 files was enough to trip the 5 s test
- *  timeout on a loaded machine. */
-function migrationsNewestFirst(): string[] {
-  if (allMigrations) return allMigrations;
-  const dir = fileURLToPath(new URL(`../${MIGRATIONS}`, import.meta.url));
-  allMigrations = readdirSync(dir)
-    .filter((f) => f.endsWith(".sql"))
-    .sort()
-    .reverse()
-    .map((f) => read(`${MIGRATIONS}/${f}`));
-  return allMigrations;
-}
-
-/** The most recent migration that (re)defines `needle`, comments stripped. */
-function latestDefining(needle: string): string {
-  const hit = migrationsNewestFirst().find((sql) => sql.includes(needle));
-  if (!hit) throw new Error(`no migration defines ${needle}`);
-  return stripComments(hit);
-}
+// A `latestDefining` scan over every migration used to live here, to assert
+// the dial-time DNC check still matched on phone alone. 20260906020000 made
+// enforcement owner-scoped on purpose, so that scan moved to
+// tests/dnc-owner-phone-unique.unit.test.ts, which now pins the opposite.
 
 type Grant = { target: string; roles: string[] };
 
@@ -219,27 +201,20 @@ describe("per-user DNC lists", () => {
     expect(sql).not.toMatch(/unique\s*\(\s*owner_id/i);
   });
 
-  it("leaves dial-time enforcement matching on phone alone", () => {
-    const queue = latestDefining("create or replace view public.dial_queue");
-    expect(queue).toMatch(
-      /not exists \(\s*select 1 from public\.dnc_entries d\s+where d\.phone = l\.business_phone\s*\)/,
+  it("changes visibility only — it does not touch dial-time enforcement", () => {
+    // This migration made the LIST per user and deliberately left the dialer
+    // matching on phone alone. 20260906020000 then made ENFORCEMENT per user
+    // as well (product decision, consequence accepted), so the current
+    // dial_queue / pre_call_check / is_phone_on_dnc shapes are pinned by
+    // tests/dnc-owner-phone-unique.unit.test.ts instead. What stays true here
+    // is that THIS migration is not where that happened.
+    expect(sql).not.toMatch(/create or replace view public\.dial_queue/);
+    expect(sql).not.toMatch(
+      /create or replace function public\.pre_call_check/,
     );
-    const check = latestDefining(
-      "create or replace function public.pre_call_check(",
+    expect(sql).not.toMatch(
+      /create or replace function public\.is_phone_on_dnc/,
     );
-    expect(check).toMatch(
-      /select 1 from public\.dnc_entries where phone = v_lead\.business_phone/,
-    );
-    const helper = latestDefining(
-      "create or replace function public.is_phone_on_dnc(",
-    );
-    expect(helper).toMatch(
-      /select 1 from public\.dnc_entries where phone = phone_to_check/,
-    );
-    for (const def of [queue, check, helper]) {
-      const dnc = /from public\.dnc_entries[^)]*\)/.exec(def)![0];
-      expect(dnc).not.toMatch(/owner_id/);
-    }
   });
 
   it("grants the trigger function to authenticated only", () => {

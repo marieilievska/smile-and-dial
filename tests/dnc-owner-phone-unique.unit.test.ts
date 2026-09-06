@@ -4,20 +4,34 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 /**
- * Guards for 20260905241000: dnc_entries goes from `unique (phone)` to
- * `unique (owner_id, phone)` so two users can each list the same number.
+ * Guards for the two halves of per-person do-not-call.
  *
- * The constraint could only move once EVERY writer conflicted on
+ * 20260905241000 moved dnc_entries from `unique (phone)` to
+ * `unique (owner_id, phone)` so two users can each list the same number. The
+ * constraint could only move once EVERY writer conflicted on
  * (owner_id, phone): Postgres refuses `ON CONFLICT (phone)` the moment no
  * unique index on exactly (phone) exists, and the post-call webhook never
  * checked that error — AI-detected DNC numbers would have silently stopped
  * being written. So this pins both halves: the migration's shape, and that
  * no `onConflict: "phone"` survives anywhere in src.
+ *
+ * 20260906020000 then made ENFORCEMENT per person too. The product owner
+ * asked for it with the consequence spelled out and accepted: a business that
+ * tells one teammate to stop can still be called by a different teammate.
+ * Enforcement is spread across five places (a SQL view, a SQL function, a SQL
+ * helper and two TypeScript reads) and one of them silently reverting to
+ * "match on phone alone" is invisible until someone's lead stops dialing — so
+ * every one of them is pinned below. The 20260905241000 block used to assert
+ * the OPPOSITE ("does not touch dial-time enforcement"); that was right for
+ * that migration and is superseded here, not deleted, so the reversal is
+ * legible in the diff.
  */
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const MIGRATION =
   "supabase/migrations/20260905241000_dnc_unique_owner_phone.sql";
+const ENFORCEMENT =
+  "supabase/migrations/20260906020000_dnc_enforced_per_person.sql";
 
 function read(rel: string): string {
   return readFileSync(join(ROOT, rel), "utf8");
@@ -33,6 +47,38 @@ function walk(dir: string, out: string[] = []): string[] {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) walk(p, out);
     else if (/\.(ts|tsx)$/.test(name)) out.push(p);
+  }
+  return out;
+}
+
+/** The most recent migration that (re)defines `needle`, comments stripped.
+ *  Checking the LATEST definition (not just 20260906020000) is the point:
+ *  `create or replace` rewrites the whole object, so a future migration
+ *  rebuilt from a pre-20260906 copy would silently restore workspace-wide
+ *  enforcement. That is exactly how seven dialer rules were lost in July. */
+function latestDefining(needle: string): string {
+  const dir = join(ROOT, "supabase/migrations");
+  const hit = readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()
+    .reverse()
+    .find((f) => readFileSync(join(dir, f), "utf8").includes(needle));
+  if (!hit) throw new Error(`no migration defines ${needle}`);
+  return stripComments(readFileSync(join(dir, hit), "utf8"));
+}
+
+/** Each `from("dnc_entries") … ;` statement in `src`, with its file path.
+ *  `[^;]*?` keeps every match inside one statement. */
+function dncStatements(): { file: string; stmt: string }[] {
+  const out: { file: string; stmt: string }[] = [];
+  for (const file of walk(join(ROOT, "src"))) {
+    const src = readFileSync(file, "utf8");
+    for (const m of src.matchAll(/from\("dnc_entries"\)[^;]*?;/g)) {
+      out.push({
+        file: file.slice(ROOT.length).replace(/\\/g, "/"),
+        stmt: m[0],
+      });
+    }
   }
   return out;
 }
@@ -59,8 +105,137 @@ describe("20260905241000 — dnc_entries unique per (owner_id, phone)", () => {
     );
   });
 
-  it("does not touch dial-time enforcement (dial_queue / pre_call_check / is_phone_on_dnc)", () => {
+  it("did not itself touch dial-time enforcement — 20260906020000 does that", () => {
     expect(sql).not.toMatch(/dial_queue|pre_call_check|is_phone_on_dnc/);
+  });
+});
+
+describe("20260906020000 — enforcement is owner-scoped everywhere", () => {
+  it("dial_queue's anti-join matches the LEAD OWNER, not the phone alone", () => {
+    const view = latestDefining("create or replace view public.dial_queue");
+    expect(view).toMatch(
+      /not exists \(\s*select 1 from public\.dnc_entries d\s+where d\.phone = l\.business_phone\s+and d\.owner_id = l\.owner_id\s*\)/,
+    );
+  });
+
+  it("pre_call_check checks the lead owner's list", () => {
+    const fn = latestDefining(
+      "create or replace function public.pre_call_check(",
+    );
+    expect(fn).toMatch(
+      /select 1 from public\.dnc_entries\s+where phone = v_lead\.business_phone\s+and owner_id = v_lead\.owner_id/,
+    );
+  });
+
+  it("pre_call_check also refuses a lead already parked in the 'dnc' stage", () => {
+    // RLS lets nobody write a dnc_entries row owned by someone else, so an
+    // admin marking a member's lead DNC lands the row on the ADMIN's list.
+    // The stage is then the only thing that stops the dial.
+    const fn = latestDefining(
+      "create or replace function public.pre_call_check(",
+    );
+    expect(fn).toMatch(
+      /if v_lead\.status = 'dnc' then\s+return 'lead_on_dnc';/,
+    );
+  });
+
+  it("is_phone_on_dnc takes the owner and matches on it", () => {
+    const fn = latestDefining(
+      "create or replace function public.is_phone_on_dnc(",
+    );
+    expect(fn).toMatch(
+      /function public\.is_phone_on_dnc\(\s*phone_to_check text,\s*owner_to_check uuid\s*\)/,
+    );
+    expect(fn).toMatch(
+      /select 1 from public\.dnc_entries\s+where phone = phone_to_check\s+and owner_id = owner_to_check/,
+    );
+  });
+
+  it("drops the workspace-wide 1-arg is_phone_on_dnc rather than leaving it", () => {
+    const sql = stripComments(read(ENFORCEMENT));
+    expect(sql).toMatch(
+      /drop function if exists public\.is_phone_on_dnc\(text\);/,
+    );
+  });
+
+  it("re-grants the new signature to authenticated only", () => {
+    // A changed signature is a NEW function, and since 20260905170000 new
+    // functions carry no grants at all — call-now.ts runs on the cookie
+    // client, so it would 403 without this.
+    const sql = stripComments(read(ENFORCEMENT));
+    expect(sql).toMatch(
+      /grant execute on function public\.is_phone_on_dnc\(text, uuid\) to authenticated;/,
+    );
+    expect(sql).not.toMatch(/grant execute[^;]*to[^;]*\banon\b/);
+  });
+});
+
+/** The one dnc_entries lookup RLS already scopes for us: removeFromDnc runs
+ *  on the cookie client, whose SELECT policy is `owner_id = auth.uid()`, and
+ *  it deliberately relies on that ("not found" == "not on YOUR list"). Every
+ *  other lookup runs as service_role, where the filter must be written out. */
+const RLS_SCOPED = new Set(["src/lib/dnc/actions.ts"]);
+
+describe("every dnc_entries lookup by phone is owner-scoped", () => {
+  // A lookup that decides something — can we dial, can we text, is this lead
+  // DNC, does this lead belong in the ad audience — must name an owner.
+  // Writes name one too (`owner_id:` in the payload), so one rule covers both
+  // and a new call site can't quietly reintroduce the workspace-wide match.
+  const byPhone = dncStatements().filter(
+    (s) => /\.eq\("phone"/.test(s.stmt) && !RLS_SCOPED.has(s.file),
+  );
+
+  it.each(byPhone)("$file", ({ stmt }) => {
+    expect(stmt).toMatch(/owner_id/);
+  });
+
+  it("still relies on RLS only where the cookie client is in use", () => {
+    for (const rel of RLS_SCOPED) {
+      expect(read(rel), rel).toContain('from "@/lib/supabase/server"');
+    }
+  });
+
+  it("covers the lookups we know about", () => {
+    // A regex that stops matching (a refactor, a renamed table) would make
+    // the it.each above vacuously pass with zero cases.
+    expect(byPhone.map((s) => s.file)).toEqual(
+      expect.arrayContaining([
+        "src/lib/elevenlabs/tool-webhook.ts",
+        "src/lib/leads/recompute-call-state.ts",
+      ]),
+    );
+  });
+
+  // The two service-role lookups that read the WHOLE list rather than one
+  // phone: the Meta audience sync and its manual CSV twin. Each user's leads
+  // go into that user's own audience, so a teammate's suppression is not
+  // theirs to apply — and RLS is not filtering, the service key is in use.
+  it.each([
+    "src/lib/meta/sync.ts",
+    "src/app/(app)/settings/integrations/meta/export/route.ts",
+  ])("%s scopes its whole-list read to one owner", (rel) => {
+    const stmts = dncStatements().filter((s) => s.file === rel);
+    expect(stmts, rel).not.toHaveLength(0);
+    for (const { stmt } of stmts) {
+      expect(stmt, rel).toMatch(/\.eq\("owner_id",/);
+    }
+  });
+});
+
+describe("both is_phone_on_dnc callers pass the lead owner and fail closed", () => {
+  it.each([
+    "src/lib/dialer/call-now.ts",
+    "src/app/api/twilio/voice-browser-dial/route.ts",
+  ])("%s", (rel) => {
+    const src = read(rel);
+    const call = /rpc\(\s*"is_phone_on_dnc",[\s\S]*?\);/.exec(src);
+    expect(call, rel).not.toBeNull();
+    // The lead's owner, never the signed-in user: an admin dialling a
+    // member's lead must honour the member's list.
+    expect(call![0]).toMatch(/owner_to_check:\s*lead\.owner_id/);
+    // An RPC error must refuse the dial. It used to be dropped on the floor,
+    // so a missing grant or a moved signature read as "not on DNC".
+    expect(src.slice(call!.index)).toMatch(/(dncError|dnc\.error)/);
   });
 });
 

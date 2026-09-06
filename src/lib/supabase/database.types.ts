@@ -2702,7 +2702,10 @@ export type Database = {
         Returns: string;
       };
       is_admin: { Args: { uid: string }; Returns: boolean };
-      is_phone_on_dnc: { Args: { phone_to_check: string }; Returns: boolean };
+      is_phone_on_dnc: {
+        Args: { owner_to_check: string; phone_to_check: string };
+        Returns: boolean;
+      };
       is_within_calling_hours: {
         Args: {
           allow_weekends: boolean;

@@ -97,13 +97,17 @@ export async function setLeadStatus(input: {
   if (writeErr) return { error: "Could not save that change." };
 
   // The inline Stage picker offers "dnc" as a pickable stage. Flipping
-  // leads.status alone is a split-brain: the dialer's pre-call check tests
-  // the phone against dnc_entries, so without this insert it would keep
-  // calling a lead the operator just marked Do Not Call. Mirror the
+  // leads.status alone leaves the number itself un-suppressed, so it would
+  // come back the next time it is imported or dialled by hand. Mirror the
   // dnc_entries write shape used by addToDnc / bulkAddLeadsToDnc: onto the
   // operator's own list (owner_id), conflict on (owner_id, phone) = already
   // there, which is fine. Skip the write (but keep the status change) when
   // there's no phone.
+  //
+  // The entry lands on the OPERATOR's list — RLS allows no other owner — and
+  // DNC is enforced per person since 20260906020000, so on someone else's
+  // lead it is the `status = 'dnc'` above that stops the dialing, not this
+  // row. Both are written; neither alone is the whole job.
   if (input.status === "dnc") {
     const phone = before.business_phone?.trim();
     if (phone) {
