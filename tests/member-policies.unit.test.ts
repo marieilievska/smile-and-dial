@@ -15,14 +15,19 @@ import { describe, it, expect } from "vitest";
  *     UPDATE policy.
  *   - DNC lists are now per user (no admin branch) -> owner_id + fill trigger.
  *     (Enforcement followed in 20260906020000; that shape is pinned by
- *     tests/dnc-owner-phone-unique.unit.test.ts, not here.)
+ *     tests/dnc-owner-phone-unique.unit.test.ts, not here. The super admin
+ *     was then carved out of the read scope by 20260906030000, pinned in
+ *     its own block below.)
  *   - custom fields: everyone uses every field, only the creator changes it
  *     -> created_by + move_custom_field().
  *   - twilio_number_daily_stats was admin-only while the numbers pages are
  *     member-facing -> owner-or-admin SELECT.
  *
  * These pin the migration shapes so a later "cleanup" can't quietly bring an
- * admin gate back or widen the DNC read policy.
+ * admin gate back. The DNC read scope has since widened once, deliberately
+ * and for one role -- so it is pinned twice: as shipped here, and as amended
+ * in the super-admin block at the end of this file. A third widening should
+ * have to edit a test that says why.
  */
 
 const MIGRATIONS = "supabase/migrations";
@@ -31,6 +36,7 @@ const CALENDLY = "20260905191000_calendly_events_owner_update.sql";
 const DNC = "20260905192000_dnc_per_user.sql";
 const FIELDS = "20260905193000_custom_field_ownership.sql";
 const STATS = "20260905194000_number_daily_stats_members.sql";
+const DNC_SUPER = "20260906030000_super_admin_sees_dnc.sql";
 
 function read(rel: string): string {
   return readFileSync(
@@ -177,7 +183,7 @@ describe("per-user DNC lists", () => {
     );
   });
 
-  it("scopes select / insert / delete to the owner with NO admin branch", () => {
+  it("shipped select / insert / delete owner-only, with NO admin branch", () => {
     expect(policy(sql, "dnc_entries_select")).toMatch(
       /for select to authenticated using \(owner_id = \(select auth\.uid\(\)\)\);/,
     );
@@ -295,5 +301,43 @@ describe("nothing in the bundle is granted to anon or PUBLIC", () => {
       (g) => g.roles.includes("anon") || g.roles.includes("public"),
     );
     expect(open).toEqual([]);
+  });
+});
+
+describe("super admin sees every DNC list (20260906030000)", () => {
+  const sql = migration(DNC_SUPER);
+
+  // Two of the owner's decisions collided: "the DNC list is private per
+  // person" and "the super admin sees literally all". The super admin won,
+  // for compliance oversight. `is_admin()` has meant super_admin alone since
+  // 20260906010000, so this branch grants exactly one role -- a plain admin
+  // still sees only their own list, which is the half of the privacy rule
+  // that mattered.
+  const OWNER_OR_SUPER =
+    /using \( owner_id = \(select auth\.uid\(\)\) or public\.is_admin\(\(select auth\.uid\(\)\)\) \);/;
+
+  it("adds the super-admin branch to reading and removing entries", () => {
+    expect(policy(sql, "dnc_entries_select")).toMatch(OWNER_OR_SUPER);
+    // DELETE moves with SELECT: /dnc renders a remove control on every row it
+    // can see, so sight without removal would be a button that errors.
+    expect(policy(sql, "dnc_entries_delete")).toMatch(OWNER_OR_SUPER);
+  });
+
+  it("opens the removal audit log too -- the point of the oversight", () => {
+    expect(policy(sql, "dnc_removals_select")).toMatch(
+      /using \( removed_by_user_id = \(select auth\.uid\(\)\) or public\.is_admin\(\(select auth\.uid\(\)\)\) \);/,
+    );
+  });
+
+  it("leaves both INSERT policies alone, so nobody writes onto another user's list", () => {
+    expect(sql).not.toMatch(/for insert/i);
+    expect(sql).not.toMatch(/dnc_entries_insert/);
+    expect(sql).not.toMatch(/dnc_removals_insert/);
+  });
+
+  it("changes visibility only -- enforcement stays per owner", () => {
+    expect(sql).not.toMatch(/dial_queue/);
+    expect(sql).not.toMatch(/pre_call_check/);
+    expect(sql).not.toMatch(/is_phone_on_dnc/);
   });
 });
