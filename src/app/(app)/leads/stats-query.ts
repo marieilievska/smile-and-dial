@@ -10,7 +10,7 @@ type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
 export type LeadStats = {
   readyToCall: number;
-  callbacksDue: number;
+  callbacksScheduled: number;
   goalsMetThisWeek: number;
   /** Monday 00:00 of the current week as a YYYY-MM-DD date string. The
    *  "Goals met this week" tile links to the Calls list scoped from this
@@ -46,6 +46,11 @@ export async function fetchLeadStats(
       .select("*", { count: "exact", head: true })
       .is("deleted_at", null)
       .eq("status", "ready_to_call"),
+    // Every lead in callback status — i.e. every callback BOOKED, whenever it
+    // is booked for, which is exactly what the tile's destination
+    // (/leads?status=callback) shows. NOT "due now": the tile used to say
+    // "Callbacks due" over this number, which on 2026-09-06 read 191 when one
+    // was overdue and 190 were scheduled for the next day or later.
     supabase
       .from("leads")
       .select("*", { count: "exact", head: true })
@@ -60,7 +65,7 @@ export async function fetchLeadStats(
 
   return {
     readyToCall: readyResult.count ?? 0,
-    callbacksDue: callbackResult.count ?? 0,
+    callbacksScheduled: callbackResult.count ?? 0,
     goalsMetThisWeek: goalsMetResult,
     weekStartDate,
   };

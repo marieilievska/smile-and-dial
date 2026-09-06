@@ -4,11 +4,21 @@ import Link from "next/link";
 import type { LeadStats } from "./stats-query";
 
 /** 3-stat strip under the Leads page header. Each stat is a one-click
- *  filter shortcut: click "Callbacks due" and you land on the leads
+ *  filter shortcut: click "Callbacks scheduled" and you land on the leads
  *  page already filtered to status=callback.
  *
- *  Coral accents the "needs attention" stats (Ready to call, Callbacks
- *  due). The "good news" Goals-met-this-week sits in emerald.
+ *  Coral accents the "needs attention" stat (Ready to call). The "good news"
+ *  Goals-met-this-week sits in emerald.
+ *
+ *  "Callbacks scheduled" is deliberately NEUTRAL, and deliberately not called
+ *  "due". It counts every lead in callback status — which is every callback
+ *  BOOKED, whenever it is booked for. On 2026-09-06 that was 191, of which
+ *  exactly ONE was actually overdue; the other 190 were set for the next day
+ *  or later. Labelled "due" and painted coral, the tile read as 191 things
+ *  needing attention right now, overstating the real workload ~190x. The count
+ *  matches its destination (all callback-status leads), so the label now
+ *  matches the count. Genuinely overdue callbacks are surfaced where they can
+ *  be acted on: the Today subtitle and the sidebar's Callbacks dot.
  *
  *  Round 30 — dropped the "Added today" tile (D3, 4→3). It was the
  *  only non-actionable stat (just a recency count) and the primary
@@ -29,10 +39,10 @@ export function LeadsStatStrip({ stats }: { stats: LeadStats }) {
       />
       <StatLink
         icon={<PhoneCall className="size-3.5" />}
-        label="Callbacks due"
-        value={stats.callbacksDue}
+        label="Callbacks scheduled"
+        value={stats.callbacksScheduled}
         href="/leads?status=callback"
-        tone="coral"
+        tone="neutral"
         divider
       />
       <StatLink

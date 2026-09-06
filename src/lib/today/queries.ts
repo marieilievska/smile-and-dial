@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { humanizeMinutes } from "@/lib/relative-time";
 
 import { pickBreakdown } from "@/lib/analytics/costs";
 import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
@@ -24,7 +25,6 @@ export type HeroCounts = {
   costPerAppointmentToday: number; // 0 when no appts
   pendingCallbacks: number;
   overdueCallbacks: number;
-  oldestOverdueMinutes: number | null;
 };
 
 export type ActionItem = {
@@ -76,7 +76,6 @@ export async function fetchHeroCounts(
     rowsYest,
     { count: pendingCount },
     { count: overdueCount },
-    { data: oldestOverdue },
   ] = await Promise.all([
     fetchAllCalls<{
       id: string;
@@ -115,13 +114,6 @@ export async function fetchHeroCounts(
       .select("id", { count: "exact", head: true })
       .eq("status", "pending")
       .lt("scheduled_at", nowIso),
-    supabase
-      .from("callbacks")
-      .select("scheduled_at")
-      .eq("status", "pending")
-      .lt("scheduled_at", nowIso)
-      .order("scheduled_at", { ascending: true })
-      .limit(1),
   ]);
 
   // Appointments = DISTINCT businesses that met the goal, not goal-met calls, so
@@ -148,13 +140,6 @@ export async function fetchHeroCounts(
     0,
   );
 
-  // Callback urgency: pending and scheduled_at < now is "overdue"; the oldest
-  // one sets the "N min overdue" age.
-  const oldestAt = oldestOverdue?.[0]?.scheduled_at;
-  const oldestOverdueMs = oldestAt
-    ? Math.max(0, Date.parse(nowIso) - new Date(oldestAt).getTime())
-    : 0;
-
   void opts; // RLS handles member-vs-admin scoping at the row level
 
   return {
@@ -173,8 +158,6 @@ export async function fetchHeroCounts(
     costPerAppointmentToday: apptsToday === 0 ? 0 : spendToday / apptsToday,
     pendingCallbacks: pendingCount ?? 0,
     overdueCallbacks: overdueCount ?? 0,
-    oldestOverdueMinutes:
-      oldestOverdueMs > 0 ? Math.floor(oldestOverdueMs / 60_000) : null,
   };
 }
 
@@ -206,7 +189,10 @@ export async function fetchActionQueue(
     items.push({
       id: `cb-${row.id}`,
       kind: "overdue_callback",
-      message: `Call back ${company} (${ageMin}m overdue)`,
+      // humanizeMinutes, not the raw count: this printed "1759m overdue" and
+      // left the reader to work out that it meant a day and a bit. Same helper
+      // the Callbacks list uses, so one callback reads the same on both pages.
+      message: `Call back ${company} (${humanizeMinutes(ageMin)} overdue)`,
       href: row.lead?.id ? `/leads/${row.lead.id}` : "/callbacks",
       urgency: "high",
       at: row.scheduled_at,
