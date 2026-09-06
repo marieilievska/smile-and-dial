@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -39,7 +39,9 @@ import {
   IMPORTABLE_FIELDS,
   type ImportAnalysis,
   type ImportResult,
+  type LineType,
 } from "@/lib/leads/import-fields";
+import { isDefinitiveLineType, toE164UsCa } from "@/lib/leads/twilio-lookup";
 
 import { CreateCustomFieldInlineDialog } from "./create-custom-field-inline";
 import { CreateListInlineDialog } from "./create-list-inline";
@@ -96,6 +98,23 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
+/** The CSV header the user mapped to the business phone, if any. */
+function phoneHeaderOf(mapping: Record<string, string>): string {
+  for (const [header, target] of Object.entries(mapping)) {
+    if (target === "field:business_phone") return header;
+  }
+  return "";
+}
+
+/** E.164 phone for one CSV row under the current mapping (null = none). */
+function rowPhone(
+  row: Record<string, string>,
+  phoneHeader: string,
+): string | null {
+  if (!phoneHeader) return null;
+  return toE164UsCa((row[phoneHeader] ?? "").trim());
+}
+
 export function ImportWizard({
   lists: initialLists,
   customFields: initialCustomFields,
@@ -134,6 +153,13 @@ export function ImportWizard({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [analysis, setAnalysis] = useState<ImportAnalysis | null>(null);
+  // Every definitive line type learned in this session, keyed by E.164 phone.
+  // Handed back to analyzeImport chunk by chunk so Back → "Review import" (a
+  // full re-analysis) and a number repeated across batches never pay Twilio
+  // twice. A ref, not state: it's read/written inside the async loop and is
+  // never rendered. Survives a new file on purpose — a line type belongs to
+  // the number, not the file.
+  const knownLineTypes = useRef(new Map<string, LineType>());
   const [result, setResult] = useState<ImportResult | null>(null);
   // Progress across batched server-action calls (large imports are chunked so
   // each call stays under the function timeout / payload limit).
@@ -151,6 +177,18 @@ export function ImportWizard({
     () => lists.find((l) => l.id === mobileListId)?.name ?? "",
     [lists, mobileListId],
   );
+  // Distinct parseable numbers in the file under the current mapping — the
+  // most Twilio lookups this import could possibly bill.
+  const uniquePhoneCount = useMemo(() => {
+    if (!parsed) return 0;
+    const header = phoneHeaderOf(mapping);
+    const phones = new Set<string>();
+    for (const row of parsed.rows) {
+      const phone = rowPhone(row, header);
+      if (phone) phones.add(phone);
+    }
+    return phones.size;
+  }, [parsed, mapping]);
 
   function onFile(file: File) {
     setFileName(file.name);
@@ -242,6 +280,8 @@ export function ImportWizard({
   function runAnalyze() {
     if (!parsed) return;
     const rows = parsed.rows;
+    const phoneHeader = phoneHeaderOf(mapping);
+    const known = knownLineTypes.current;
     startTransition(async () => {
       const merged: ImportAnalysis = {
         total: rows.length,
@@ -250,7 +290,8 @@ export function ImportWizard({
         invalid: 0,
         duplicateExisting: 0,
         duplicateInFile: 0,
-        estCost: 0,
+        lookups: 0,
+        lookupCost: 0,
         rowLineTypes: [],
         skipped: [],
         error: null,
@@ -260,10 +301,24 @@ export function ImportWizard({
       // lookups. Batches run in order so rowLineTypes stays aligned to rows.
       for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
         const chunk = rows.slice(i, i + IMPORT_BATCH);
+        // Only the entries for THIS chunk's numbers travel with the call, so
+        // the payload stays small however large the file is.
+        const chunkPhones = chunk.map((row) => rowPhone(row, phoneHeader));
+        const knownForChunk: Record<string, LineType> = {};
+        for (const phone of chunkPhones) {
+          const type = phone ? known.get(phone) : undefined;
+          if (phone && type) knownForChunk[phone] = type;
+        }
         let res;
         try {
           res = await withRetry(() =>
-            analyzeImport({ mapping, rows: chunk, skipLookup, splitMobiles }),
+            analyzeImport({
+              mapping,
+              rows: chunk,
+              skipLookup,
+              splitMobiles,
+              knownLineTypes: knownForChunk,
+            }),
           );
         } catch {
           toast.error(
@@ -288,9 +343,16 @@ export function ImportWizard({
         merged.invalid += res.invalid;
         merged.duplicateExisting += res.duplicateExisting;
         merged.duplicateInFile += res.duplicateInFile;
-        merged.estCost += res.estCost;
+        merged.lookups += res.lookups;
+        merged.lookupCost += res.lookupCost;
         merged.rowLineTypes.push(...res.rowLineTypes);
         merged.skipped.push(...res.skipped);
+        // Remember what this pass established so later chunks (and any
+        // re-analysis) skip Twilio for these numbers.
+        res.rowLineTypes.forEach((type, j) => {
+          const phone = chunkPhones[j];
+          if (phone && isDefinitiveLineType(type)) known.set(phone, type);
+        });
         setProgress({
           done: Math.min(i + IMPORT_BATCH, rows.length),
           total: rows.length,
@@ -483,8 +545,12 @@ export function ImportWizard({
           ? "The mobile list must be different from the main list."
           : "";
 
-  const costEstimate =
-    parsed != null && !skipLookup ? parsed.rows.length * COST_PER_LOOKUP : 0;
+  // Ceiling, not a quote: one lookup per UNIQUE parseable number. Numbers
+  // already in your leads or in the shared line-type cache cost nothing, and
+  // only answers Twilio actually bills are charged — the review step shows
+  // the real figure once the lookups have run.
+  const costCeiling =
+    parsed != null && !skipLookup ? uniquePhoneCount * COST_PER_LOOKUP : 0;
 
   return (
     <div
@@ -528,10 +594,14 @@ export function ImportWizard({
                   {parsed.rows.length.toLocaleString()} rows will import as-is
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1">
+                <span
+                  className="inline-flex items-center gap-1"
+                  title="Numbers already in your leads or verified before cost nothing; only lookups Twilio actually answers are billed. The exact figure shows on the review step."
+                >
                   <Info className="size-3.5" />
-                  Est. Twilio Lookup cost: ${costEstimate.toFixed(2)} for{" "}
-                  {parsed.rows.length.toLocaleString()} rows
+                  Twilio Lookup: up to ${costCeiling.toFixed(2)} for{" "}
+                  {uniquePhoneCount.toLocaleString()} unique{" "}
+                  {uniquePhoneCount === 1 ? "number" : "numbers"}
                 </span>
               )
             ) : null}
@@ -1072,11 +1142,20 @@ function ReviewStep({
       ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+        <p
+          className="text-muted-foreground inline-flex items-center gap-1 text-xs"
+          title={
+            skippedLookup
+              ? undefined
+              : "Only lookups Twilio actually answered are billed — numbers already on file, verified earlier, or rejected by Twilio cost nothing. This is what was written to the cost ledger."
+          }
+        >
           <Info className="size-3.5" />
           {skippedLookup
             ? "Twilio Lookup cost for this batch: $0 (skipped)"
-            : `Twilio Lookup cost for this batch: ~$${analysis.estCost.toFixed(2)}`}
+            : analysis.lookups > 0
+              ? `Twilio Lookup cost for this batch: $${analysis.lookupCost.toFixed(2)} (${plural(analysis.lookups, "lookup")} billed)`
+              : "Twilio Lookup cost for this batch: $0.00 — no lookups billed"}
         </p>
         {analysis.skipped.length > 0 ? (
           <Button variant="ghost" size="sm" onClick={onDownloadErrors}>

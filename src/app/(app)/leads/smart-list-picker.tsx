@@ -12,13 +12,58 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { etClock, exactDateTime } from "@/lib/relative-time";
 import { deleteSmartList } from "@/lib/smart-lists/actions";
+
+export type SmartListPickerItem = {
+  id: string;
+  name: string;
+  filter: unknown;
+  /** When smart_list_members was last rebuilt successfully (null = never). */
+  last_refreshed_at: string | null;
+  /** Message from the most recent failed refresh; null once it succeeds. */
+  last_refresh_error: string | null;
+};
+
+/**
+ * One-line freshness note for the active list. Absolute Eastern time rather
+ * than "2m ago" so the server and client render the same string — this is a
+ * client component that still server-renders, and a Date.now()-based label
+ * would drift between the two and trip hydration.
+ */
+export function smartListFreshness(list: {
+  last_refreshed_at: string | null;
+  last_refresh_error: string | null;
+}): { text: string; tone: "muted" | "error"; title: string } {
+  if (list.last_refresh_error) {
+    return {
+      text: `Refresh failed: ${list.last_refresh_error}`,
+      tone: "error",
+      title: list.last_refreshed_at
+        ? `Members are stale. Last good rebuild: ${exactDateTime(list.last_refreshed_at)}`
+        : "Members are stale. This list has never rebuilt successfully.",
+    };
+  }
+  if (list.last_refreshed_at) {
+    return {
+      text: `Updated ${etClock(list.last_refreshed_at)}`,
+      tone: "muted",
+      title: `Members last rebuilt ${exactDateTime(list.last_refreshed_at)}`,
+    };
+  }
+  return {
+    text: "Not refreshed yet",
+    tone: "muted",
+    title:
+      "Members are rebuilt every 3 minutes while the list is attached to a campaign.",
+  };
+}
 
 export function SmartListPicker({
   lists,
   activeRecipeJson,
 }: {
-  lists: { id: string; name: string; filter: unknown }[];
+  lists: SmartListPickerItem[];
   activeRecipeJson: string;
 }) {
   const router = useRouter();
@@ -28,6 +73,7 @@ export function SmartListPicker({
   const active = lists.find(
     (l) => JSON.stringify(l.filter) === activeRecipeJson,
   );
+  const freshness = active ? smartListFreshness(active) : null;
 
   function load(id: string) {
     const l = lists.find((x) => x.id === id);
@@ -52,7 +98,7 @@ export function SmartListPicker({
 
   if (lists.length === 0) return null;
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <Select value={active?.id ?? ""} onValueChange={load}>
         <SelectTrigger className="h-8 w-[15rem]">
           <SelectValue placeholder="Load a smart list…" />
@@ -75,6 +121,19 @@ export function SmartListPicker({
         >
           Delete
         </Button>
+      ) : null}
+      {freshness ? (
+        <p
+          className={`max-w-[24rem] truncate text-xs ${
+            freshness.tone === "error"
+              ? "text-destructive"
+              : "text-muted-foreground"
+          }`}
+          title={freshness.title}
+          role={freshness.tone === "error" ? "alert" : undefined}
+        >
+          {freshness.text}
+        </p>
       ) : null}
     </div>
   );

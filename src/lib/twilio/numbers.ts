@@ -70,13 +70,14 @@ function twilioAuth(): { account: string; header: string } | null {
  *
  *  Inbound is ElevenLabs-NATIVE: ElevenLabs answers the call directly with the
  *  agent assigned to the number, so the Twilio VoiceUrl + StatusCallback must
- *  point at ElevenLabs — NOT at this app. Pointing them back at the app's
- *  `/api/twilio/voice-inbound` bridge re-breaks inbound: that bridge is a dead
- *  legacy path (Twilio Media Streams ≠ EL's convai socket), so it answers, logs
- *  an empty `calls` row, and drops the caller. That's the #222 regression that
- *  silently killed every inbound call to a number — see the lesson in
- *  place-call.ts. These are constants (no deployment URL needed), so unlike the
- *  old app-relative URLs this can never be null. */
+ *  point at ElevenLabs — NOT at this app. The app used to expose a
+ *  `/api/twilio/voice-inbound` Media Streams bridge, and pointing a number back
+ *  at it re-broke inbound (Twilio Media Streams ≠ EL's convai socket: it
+ *  answered, logged an empty `calls` row, and dropped the caller — the #222
+ *  regression that silently killed every inbound call to a number; see the
+ *  lesson in place-call.ts). That bridge has since been deleted, so the app no
+ *  longer answers inbound voice at all. These are constants (no deployment URL
+ *  needed), so unlike the old app-relative URLs this can never be null. */
 export function expectedNumberWebhooks(): {
   voiceUrl: string;
   statusCallback: string;

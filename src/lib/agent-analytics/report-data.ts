@@ -16,6 +16,7 @@ import type { ObjectionRow } from "@/lib/agent-analytics/objections";
 import type { ObjectionCategory } from "@/lib/openai/objection-extractor";
 import { chunk } from "@/lib/leads/chunk";
 import type { Database } from "@/lib/supabase/database.types";
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 
 import type { ReportScope } from "./scope";
 import {
@@ -30,30 +31,6 @@ type DB = SupabaseClient<Database>;
 export const DASHBOARD_DAYS = 30;
 
 // --- Row shapes (consumed by the client table components) ------------------
-
-export type VoiceRow = {
-  id: string;
-  day: string;
-  company: string;
-  list: string;
-  leadId: string | null;
-  /** The campaign's sentiment value, lowercased (e.g. "yes", "happy"). */
-  sentiment: string;
-  /** The campaign's free-text notes answer. */
-  notes: string;
-  /** Storage object path or legacy http(s) URL; null when no recording. */
-  recordingPath: string | null;
-};
-
-export type HotLeadRow = {
-  id: string; // call id
-  day: string;
-  company: string;
-  contact: string;
-  whyHot: string;
-  list: string;
-  leadId: string | null;
-};
 
 export type ChangelogRow = {
   id: string;
@@ -281,16 +258,22 @@ export async function fetchCauseOfDeath(
 export async function fetchChangelogRows(
   supabase: DB,
 ): Promise<ChangelogRow[]> {
-  const { data } = await supabase
-    .from("app_changelog")
-    .select(
-      "id, change_date, area, change_type, summary, details, status, ticket_link",
-    )
-    .order("change_date", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(2000);
+  // Paged: PostgREST clamps every response to 1,000 rows, so the old
+  // `.limit(2000)` silently dropped the oldest entries past that. The `id`
+  // tiebreaker keeps the page order deterministic.
+  const data = await fetchAllRows((from, to) =>
+    supabase
+      .from("app_changelog")
+      .select(
+        "id, change_date, area, change_type, summary, details, status, ticket_link",
+      )
+      .order("change_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to),
+  );
 
-  return (data ?? []).map((r) => ({
+  return data.map((r) => ({
     id: r.id,
     changeDate: r.change_date ?? "",
     area: r.area ?? "",
@@ -318,16 +301,21 @@ export async function fetchPromptLogRows(
     if (!agentId) return [];
   }
 
-  let q = supabase
-    .from("agent_prompt_log")
-    .select(
-      "id, log_date, version, changed, what_changed, why, full_prompt, agent_id, agent:agents(name)",
-    )
-    .order("log_date", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(2000);
-  if (agentId) q = q.eq("agent_id", agentId);
-  const { data } = await q;
+  // Paged past PostgREST's 1,000-row cap (see fetchChangelogRows); the diff
+  // baseline below walks the WHOLE history, so a truncated list would silently
+  // diff against the wrong prompt.
+  const data = await fetchAllRows((from, to) => {
+    let q = supabase
+      .from("agent_prompt_log")
+      .select(
+        "id, log_date, version, changed, what_changed, why, full_prompt, agent_id, agent:agents(name)",
+      )
+      .order("log_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+    if (agentId) q = q.eq("agent_id", agentId);
+    return q.range(from, to);
+  });
 
   type Raw = {
     id: string;
@@ -340,7 +328,7 @@ export async function fetchPromptLogRows(
     agent_id: string | null;
     agent: unknown;
   };
-  const raw = (data ?? []) as unknown as Raw[];
+  const raw = data as unknown as Raw[];
   return raw.map((r, i): PromptLogRow => {
     // Diff baseline = the next-older entry FOR THE SAME AGENT that has a prompt.
     let prevPrompt = "";

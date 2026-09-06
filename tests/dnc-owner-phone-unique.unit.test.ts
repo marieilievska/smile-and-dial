@@ -67,9 +67,14 @@ describe("20260905241000 — dnc_entries unique per (owner_id, phone)", () => {
 describe("every dnc_entries writer conflicts on (owner_id, phone)", () => {
   const files = walk(join(ROOT, "src"));
 
-  it('no `onConflict: "phone"` survives in src', () => {
+  it('no dnc_entries write still conflicts on "phone" alone', () => {
+    // Scoped to dnc_entries statements: other tables (phone_line_types, the
+    // Twilio-lookup cache) legitimately key on `phone` by itself, and `[^;]*`
+    // keeps the match inside a single statement.
     const offenders = files.filter((f) =>
-      /onConflict:\s*["']phone["']/.test(readFileSync(f, "utf8")),
+      /from\("dnc_entries"\)[^;]*onConflict:\s*["']phone["']/.test(
+        readFileSync(f, "utf8"),
+      ),
     );
     expect(offenders).toEqual([]);
   });
@@ -96,8 +101,11 @@ describe("every dnc_entries writer conflicts on (owner_id, phone)", () => {
       "src/lib/leads/recompute-call-state.ts",
     ]) {
       const src = read(rel);
+      // `[^;]*?` keeps each match inside one statement — across statements it
+      // would run from the dnc_entries upsert into the next unrelated
+      // maybeSingle() in the file and fail on code that is fine.
       const reads = src.match(
-        /from\("dnc_entries"\)[\s\S]*?\.(maybeSingle|limit)\(/g,
+        /from\("dnc_entries"\)[^;]*?\.(maybeSingle|limit)\(/g,
       );
       expect(reads, rel).not.toBeNull();
       for (const r of reads ?? []) {

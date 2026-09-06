@@ -35,10 +35,6 @@ const PRE_CALL_REASON_LABELS: Record<string, string> = {
     "This is a mobile number — Smile & Dial doesn't auto-dial cell phones.",
   call_in_flight: "This lead already has a call in progress.",
   campaign_not_active: "Campaign is paused or ended.",
-  campaign_has_no_twilio_number: "Campaign has no Twilio number attached.",
-  twilio_number_missing: "The campaign's Twilio number isn't available.",
-  twilio_number_reassigned:
-    "The Twilio number was reassigned to another campaign.",
   outside_calling_hours:
     "The lead's local time is outside calling hours for this campaign.",
   pacing_wait:
