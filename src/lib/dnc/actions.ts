@@ -73,9 +73,20 @@ export async function addToDnc(input: {
   return { error: null };
 }
 
-/** Remove a number from the caller's own DNC list; logs the removal. */
+/**
+ * Remove one DNC entry, by id, and log the removal.
+ *
+ * Addressed by id rather than by phone because neither half of the old
+ * assumption holds any more: phone stopped being unique when the constraint
+ * became (owner_id, phone) (20260905241000), and RLS stopped returning only
+ * your own rows when the super admin gained sight of every list
+ * (20260906030000). Looking up `.eq("phone", …).maybeSingle()` would now
+ * return two rows for a super admin and fail as "not on your list". The id
+ * comes from the row the caller clicked, and RLS still decides whether they
+ * may see and delete it.
+ */
 export async function removeFromDnc(input: {
-  phone: string;
+  id: string;
   reasonText: string;
 }): Promise<DncResult> {
   const reasonText = input.reasonText.trim();
@@ -89,18 +100,19 @@ export async function removeFromDnc(input: {
   } = await supabase.auth.getUser();
   if (!user) return { error: "You are not signed in." };
 
-  // RLS scopes this to the caller's entries, so "not found" also covers a
-  // number that is only on a teammate's list.
+  // Read the phone back off the row rather than trusting the caller for it:
+  // the audit log must record what was actually deleted. RLS decides
+  // visibility, so a miss means "not yours, or already gone".
   const { data: entry } = await supabase
     .from("dnc_entries")
-    .select("id")
-    .eq("phone", input.phone)
+    .select("id, phone")
+    .eq("id", input.id)
     .maybeSingle();
-  if (!entry) return { error: "That number is not on your DNC list." };
+  if (!entry) return { error: "That entry is no longer on the DNC list." };
 
   // Log first so we never delete without a paper trail.
   const { error: logError } = await supabase.from("dnc_removals").insert({
-    phone: input.phone,
+    phone: entry.phone,
     removed_by_user_id: user.id,
     reason_text: reasonText,
   });
@@ -143,7 +155,8 @@ export async function bulkRemoveFromDnc(input: {
   if (!user) return { error: "You are not signed in." };
 
   // Look up the phones being removed so the audit log captures them. RLS
-  // drops any id that isn't the caller's own entry.
+  // drops any id the caller may not see -- their own entries, plus every
+  // user's if they are the super admin (20260906030000).
   const { data: entries } = await supabase
     .from("dnc_entries")
     .select("id, phone")

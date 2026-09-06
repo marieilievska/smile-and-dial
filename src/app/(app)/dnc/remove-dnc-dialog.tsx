@@ -20,14 +20,22 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { removeFromDnc } from "@/lib/dnc/actions";
 
-export function RemoveDncDialog({ phone }: { phone: string }) {
+export function RemoveDncDialog({
+  id,
+  phone,
+}: {
+  /** The entry's row id -- what the removal is addressed by. `phone` is
+   *  display only (the same number can be on two users' lists). */
+  id: string;
+  phone: string;
+}) {
   const [open, setOpen] = useState(false);
   const [reasonText, setReasonText] = useState("");
   const [pending, startTransition] = useTransition();
 
   function confirm() {
     startTransition(async () => {
-      const result = await removeFromDnc({ phone, reasonText });
+      const result = await removeFromDnc({ id, reasonText });
       if (result.error) {
         toast.error(result.error);
       } else {

@@ -170,29 +170,32 @@ describe("20260906020000 — enforcement is owner-scoped everywhere", () => {
   });
 });
 
-/** The one dnc_entries lookup RLS already scopes for us: removeFromDnc runs
- *  on the cookie client, whose SELECT policy is `owner_id = auth.uid()`, and
- *  it deliberately relies on that ("not found" == "not on YOUR list"). Every
- *  other lookup runs as service_role, where the filter must be written out. */
-const RLS_SCOPED = new Set(["src/lib/dnc/actions.ts"]);
+/* There is no carve-out list any more. src/lib/dnc/actions.ts held the one
+ * exemption: removeFromDnc looked a number up by phone on the cookie client
+ * and leaned on the SELECT policy meaning "owner_id = auth.uid()" to make
+ * a miss mean "not on YOUR list". Both halves of that expired -- phone
+ * stopped being unique at 20260905241000, and the super admin started
+ * seeing every list at 20260906030000, which would have made the lookup
+ * match two rows and fail. It addresses the row by id now, so the rule
+ * below applies to every call site, with no exceptions. */
 
 describe("every dnc_entries lookup by phone is owner-scoped", () => {
   // A lookup that decides something — can we dial, can we text, is this lead
   // DNC, does this lead belong in the ad audience — must name an owner.
   // Writes name one too (`owner_id:` in the payload), so one rule covers both
   // and a new call site can't quietly reintroduce the workspace-wide match.
-  const byPhone = dncStatements().filter(
-    (s) => /\.eq\("phone"/.test(s.stmt) && !RLS_SCOPED.has(s.file),
-  );
+  const byPhone = dncStatements().filter((s) => /\.eq\("phone"/.test(s.stmt));
 
   it.each(byPhone)("$file", ({ stmt }) => {
     expect(stmt).toMatch(/owner_id/);
   });
 
-  it("still relies on RLS only where the cookie client is in use", () => {
-    for (const rel of RLS_SCOPED) {
-      expect(read(rel), rel).toContain('from "@/lib/supabase/server"');
-    }
+  it("removes an entry by id, never by a phone that is no longer unique", () => {
+    const actions = read("src/lib/dnc/actions.ts");
+    expect(actions).toMatch(
+      /\.from\("dnc_entries"\)[^;]*\.eq\("id", input\.id\)/,
+    );
+    expect(actions).not.toMatch(/\.from\("dnc_entries"\)[^;]*\.eq\("phone"/);
   });
 
   it("covers the lookups we know about", () => {

@@ -106,9 +106,11 @@ export default async function DncPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // DNC lists are per user (20260905192000): RLS returns only the caller's
-  // own entries, and every row shown is theirs to remove -- so there is no
-  // admin gate on the remove controls any more.
+  // DNC lists are per user (20260905192000), with one exception: the super
+  // admin sees every user's entries (20260906030000). Either way RLS returns
+  // exactly the rows this caller may also delete, so the remove controls need
+  // no gate of their own -- the "Added by" column is what tells a super admin
+  // whose list a row is on.
   let query = supabase
     .from("dnc_entries")
     .select("id, phone, company_snapshot, reason, added_by_user_id, added_at", {
@@ -311,7 +313,7 @@ export default async function DncPage({
                       >
                         <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                           <CopyPhoneButton phone={entry.phone} />
-                          <RemoveDncDialog phone={entry.phone} />
+                          <RemoveDncDialog id={entry.id} phone={entry.phone} />
                         </div>
                       </TableCell>
                     </TableRow>
