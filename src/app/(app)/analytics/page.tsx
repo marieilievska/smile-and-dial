@@ -16,6 +16,7 @@ import {
   type FunnelStep,
   type Slicers,
 } from "@/lib/analytics/stats";
+import { fetchListPerformance } from "@/lib/analytics/list-performance";
 import { formatUsd as fmtUsd } from "@/lib/format-usd";
 import { createClient } from "@/lib/supabase/server";
 
@@ -28,6 +29,7 @@ import { AnalyticsInsight } from "./analytics-insight";
 import { BestTimeHeatmap } from "./best-time-heatmap";
 import { CampaignLeaderboard, OutcomeBreakdown } from "./charts";
 import { KpiTile } from "./kpi-tile";
+import { ListPerformanceSection } from "./list-performance-section";
 import { dateRangeLabel } from "@/lib/time/eastern";
 import { isSuperAdmin } from "@/lib/auth/roles";
 
@@ -72,6 +74,7 @@ export default async function AnalyticsPage({
     campaign?: string;
     user?: string;
     list?: string;
+    listperiod?: string;
     compare?: string;
   }>;
 }) {
@@ -98,25 +101,53 @@ export default async function AnalyticsPage({
     : undefined;
   const ownerId = UUID_RE.test(str(params.user)) ? str(params.user) : undefined;
   const listId = UUID_RE.test(str(params.list)) ? str(params.list) : undefined;
+  // The lead-list section is the one thing on this page that opts out of the
+  // date pills, and it does so BY DEFAULT: lists are imported at different
+  // moments and worked to different depths, so a shared 30-day window would
+  // score a list you finished dialling six weeks ago as a failure. Pass
+  // ?listperiod=range to judge the lists through the selected range instead.
+  const listPeriod = str(params.listperiod) === "range" ? "range" : "all";
+  // The page's own query string, so a drill-down from a list row keeps every
+  // other filter rather than resetting the page.
+  const baseParams = new URLSearchParams(
+    Object.entries(params).flatMap(([k, v]) =>
+      typeof v === "string" && v ? [[k, v] as [string, string]] : [],
+    ),
+  ).toString();
   // Compare-to-prior-period is on by default — the hero metric needs a
   // baseline to feel meaningful. Pass ?compare=0 to turn off.
   const compare = str(params.compare) !== "0";
 
   const slicers: Slicers = { from, to, campaignId, ownerId, listId };
 
-  const [rows, priorRows, { data: campaigns }, { data: lists }, { data: me }] =
-    await Promise.all([
-      fetchCallsForRange(supabase, slicers),
-      compare
-        ? fetchCallsForRange(supabase, {
-            ...slicers,
-            ...previousPeriod(slicers),
-          })
-        : Promise.resolve([]),
-      supabase.from("campaigns").select("id, name").order("name"),
-      supabase.from("lists").select("id, name").order("name"),
-      supabase.from("profiles").select("role").eq("id", user.id).single(),
-    ]);
+  const [
+    rows,
+    priorRows,
+    listRows,
+    { data: campaigns },
+    { data: lists },
+    { data: me },
+  ] = await Promise.all([
+    fetchCallsForRange(supabase, slicers),
+    compare
+      ? fetchCallsForRange(supabase, {
+          ...slicers,
+          ...previousPeriod(slicers),
+        })
+      : Promise.resolve([]),
+    // Counted in SQL, not here: one row per list rather than per call, so
+    // PostgREST's 1,000-row cap is nowhere near — which is the point, since
+    // grouping 84k leads in JavaScript would silently undercount.
+    fetchListPerformance(supabase, {
+      from: listPeriod === "range" ? from : null,
+      to: listPeriod === "range" ? to : null,
+      campaignId,
+      ownerId,
+    }),
+    supabase.from("campaigns").select("id, name").order("name"),
+    supabase.from("lists").select("id, name").order("name"),
+    supabase.from("profiles").select("role").eq("id", user.id).single(),
+  ]);
   // The Owner filter and the Owner column only make sense for the tier that
   // actually sees other people's calls — super admin (RLS `is_admin()`).
   const seesEveryone = isSuperAdmin(me?.role);
@@ -347,6 +378,16 @@ export default async function AnalyticsPage({
               />
             </section>
           </div>
+
+          {/* Which lead list was worth the money. Full width: it carries the
+           *  denominators (list size, how much of it has been worked) that make
+           *  one list comparable to another, and those need the room. */}
+          <ListPerformanceSection
+            rows={listRows}
+            period={listPeriod}
+            rangeLabel={rangeLabel}
+            baseParams={baseParams}
+          />
 
           {/* Best time to call heatmap — workspace-wide connect-rate signal. */}
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-1 gap-4 delay-250 duration-500 lg:grid-cols-2">

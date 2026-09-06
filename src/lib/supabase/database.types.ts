@@ -2768,6 +2768,31 @@ export type Database = {
           isSetofReturn: true;
         };
       };
+      list_performance: {
+        Args: {
+          p_campaign?: string;
+          p_end?: string;
+          p_owner?: string;
+          p_start?: string;
+        };
+        Returns: {
+          attended: number;
+          calls: number;
+          connected: number;
+          dms: number;
+          first_call: string;
+          goals: number;
+          is_inbound: boolean;
+          last_call: string;
+          leads: number;
+          list_id: string;
+          list_name: string;
+          regs: number;
+          sales: number;
+          spend: number;
+          worked: number;
+        }[];
+      };
       merge_campaign: {
         Args: { p_source: string; p_target: string };
         Returns: Json;

@@ -67,9 +67,17 @@ function latestDefining(needle: string): string {
   return stripComments(readFileSync(join(dir, hit), "utf8"));
 }
 
+/** Memoised: this walks and reads every .ts/.tsx file under src, including
+ *  the ~3,000-line generated database.types.ts. It used to be called once per
+ *  test case as well as at collection, so the whole tree was scanned four
+ *  times and the file intermittently blew vitest's 5s per-test timeout. The
+ *  source cannot change mid-run, so compute it once. */
+let dncStatementsCache: { file: string; stmt: string }[] | null = null;
+
 /** Each `from("dnc_entries") … ;` statement in `src`, with its file path.
  *  `[^;]*?` keeps every match inside one statement. */
 function dncStatements(): { file: string; stmt: string }[] {
+  if (dncStatementsCache) return dncStatementsCache;
   const out: { file: string; stmt: string }[] = [];
   for (const file of walk(join(ROOT, "src"))) {
     const src = readFileSync(file, "utf8");
@@ -80,6 +88,7 @@ function dncStatements(): { file: string; stmt: string }[] {
       });
     }
   }
+  dncStatementsCache = out;
   return out;
 }
 
