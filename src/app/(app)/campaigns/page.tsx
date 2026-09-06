@@ -39,6 +39,7 @@ import {
   CampaignsStatusTabs,
   type CampaignCounts,
 } from "./campaigns-status-tabs";
+import { resolveCampaignTab } from "./default-tab";
 import { CampaignsStatStrip } from "./campaigns-stat-strip";
 import { DeleteCampaignDialog } from "./delete-campaign-dialog";
 import { isCampaignInsideHours } from "./format-hours";
@@ -58,9 +59,12 @@ export default async function CampaignsPage({
   searchParams: Promise<{ status?: string; view?: string }>;
 }) {
   const params = await searchParams;
-  const statusFilter = STATUS_VALUES.has(str(params.status))
+  // null when the user has NOT picked a tab. Resolved by resolveCampaignTab
+  // further down, once the tab counts are known. An explicit ?status= is
+  // always honoured exactly as given.
+  const requestedStatus = STATUS_VALUES.has(str(params.status))
     ? str(params.status)
-    : "active";
+    : null;
   // Board is the default lens — it reads like a live operations board.
   // ?view=table opts into the dense sortable columns.
   const view: "table" | "board" =
@@ -348,6 +352,9 @@ export default async function CampaignsPage({
   for (const c of allCampaigns) {
     if (tabCounts[c.status] != null) tabCounts[c.status]++;
   }
+
+  // Land on a tab that actually has something in it — see resolveCampaignTab.
+  const statusFilter = resolveCampaignTab(requestedStatus, tabCounts);
 
   const campaigns = allCampaigns.filter((c) =>
     statusFilter === "all" ? true : c.status === statusFilter,
@@ -642,7 +649,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
           No campaigns match this status
         </p>
         <p className="text-muted-foreground text-sm">
-          Try a different tab — Active is the default.
+          Your campaigns are on another tab.
         </p>
         <Button asChild variant="outline" size="sm">
           <a href="/campaigns?status=all">Show all campaigns</a>
