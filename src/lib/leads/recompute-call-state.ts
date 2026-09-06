@@ -87,17 +87,21 @@ export async function recomputeLeadCallState(
     } else {
       const { data: lead } = await admin
         .from("leads")
-        .select("business_phone")
+        .select("owner_id, business_phone")
         .eq("id", leadId)
         .maybeSingle();
       if (lead?.business_phone) {
-        // limit(1), not maybeSingle(): DNC lists are per user, so two owners
-        // can hold the same phone and maybeSingle() would error on two rows
-        // (reading as "not on DNC").
+        // This lead's OWNER's list, and only theirs: DNC is enforced per
+        // person (20260906020000), so a teammate's entry for the same number
+        // must not park this lead in the dnc stage. limit(1), not
+        // maybeSingle(): the owner filter makes at most one row possible
+        // today, but maybeSingle() errors on two — which would read as "not
+        // on DNC" — so keep the safe shape.
         const { data: dnc } = await admin
           .from("dnc_entries")
           .select("phone")
           .eq("phone", lead.business_phone)
+          .eq("owner_id", lead.owner_id)
           .limit(1);
         if (dnc && dnc.length > 0) status = "dnc";
       }

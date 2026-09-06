@@ -82,7 +82,7 @@ function normalizePhone(raw: string): string {
 
 type Validity = "idle" | "valid" | "invalid";
 
-/** Add a single number to the workspace DNC list. Slim labeled
+/** Add a single number to the signed-in user's own DNC list. Slim labeled
  *  fields with live phone validation, per-reason helper text, and an
  *  "Add another" affordance so an operator cleaning up post-call work
  *  can stay in the modal. */

@@ -125,10 +125,16 @@ export async function POST(request: NextRequest) {
   // Honour the DNC list for whichever number is about to ring — the business
   // line as much as an owner's personal cell. This used to screen only owner
   // calls, so a business number on the list could still be hand-dialed.
-  const { data: onDnc } = await supabase.rpc("is_phone_on_dnc", {
+  //
+  // The list is the LEAD OWNER's: DNC is enforced per person (20260906020000),
+  // so an admin hand-dialling a member's lead is stopped by the member's list,
+  // not their own. An RPC error refuses the dial rather than falling through —
+  // the error used to be dropped, which read as "not on DNC".
+  const dnc = await supabase.rpc("is_phone_on_dnc", {
     phone_to_check: target.leadPhone,
+    owner_to_check: lead.owner_id,
   });
-  if (onDnc) {
+  if (dnc.error || dnc.data) {
     return twimlSay(DNC_MESSAGE);
   }
 

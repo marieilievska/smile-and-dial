@@ -885,14 +885,16 @@ async function sendText(
     });
     return { success: true, message: "Got it — I've made a note." };
   }
-  // A number on ANY user's list is blocked. limit(1), not maybeSingle(): DNC
-  // lists are per user, so two owners can each hold this phone, and
-  // maybeSingle() errors on two rows — which would read as "not on DNC" and
-  // text an opted-out number.
+  // The LEAD OWNER's list, and only theirs: DNC is enforced per person
+  // (20260906020000), so a teammate's entry for this mobile does not stop this
+  // owner's text. limit(1), not maybeSingle(): the owner filter makes at most
+  // one row possible today, but maybeSingle() errors on two — which would read
+  // as "not on DNC" and text an opted-out number, so keep the safe shape.
   const { data: dncHits } = await ctx.supabase
     .from("dnc_entries")
     .select("phone")
     .eq("phone", mobile)
+    .eq("owner_id", ctx.lead.owner_id)
     .limit(1);
   if (dncHits && dncHits.length > 0) {
     await logToolEvent(ctx, "tool_send_text", {
@@ -1642,9 +1644,11 @@ async function markDnc(
     };
   }
 
-  // Onto the lead OWNER's list (DNC lists are per user; the dialer blocks a
-  // number on any list). Conflict on (owner_id, phone) = already on their
-  // list, which is fine — the goal is met either way.
+  // Onto the lead OWNER's list, which is also the only list that stops this
+  // lead being dialled again (DNC is per person, 20260906020000) — so the
+  // owner here is load-bearing, not just attribution. Conflict on
+  // (owner_id, phone) = already on their list, which is fine — the goal is
+  // met either way.
   const { error } = await ctx.supabase.from("dnc_entries").upsert(
     {
       phone,

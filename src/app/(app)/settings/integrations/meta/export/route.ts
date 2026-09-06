@@ -20,8 +20,8 @@ function digits(phone: string | null | undefined): string {
  * Export the signed-in user's eligible audience (one CSV) for manual upload to
  * Meta. Per-user + service-role-backed so it matches exactly what their
  * automated sync would push — every lead THEY own with an email, excluding
- * deleted and DNC (status OR phone on the DNC list). Raw values; Meta hashes on
- * upload.
+ * deleted and DNC (status OR phone on their own DNC list). Raw values; Meta
+ * hashes on upload.
  */
 export async function GET(_request: NextRequest) {
   const supabase = await createClient();
@@ -36,12 +36,16 @@ export async function GET(_request: NextRequest) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // DNC phones (digits) to exclude.
+  // DNC phones (digits) to exclude — THIS user's list only. DNC is per person
+  // (20260906020000) and this CSV is their own leads for their own audience,
+  // so a teammate's suppression is not theirs to apply. `admin` is the service
+  // client, so the owner filter has to be explicit: RLS isn't doing it.
   const dnc = new Set<string>();
   {
     const { data: entries } = await admin
       .from("dnc_entries")
       .select("phone")
+      .eq("owner_id", user.id)
       .limit(100000);
     for (const e of entries ?? []) {
       const d = digits(e.phone);
