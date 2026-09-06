@@ -1,4 +1,4 @@
-import { Download, Upload, Users } from "lucide-react";
+import { Download, PhoneIncoming, Upload, Users } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -38,7 +38,7 @@ import { STATUSES } from "./leads-statuses";
 import { leadStatusLabel } from "@/lib/labels";
 import { parseRecipeParam } from "@/lib/smart-lists/resolve";
 import { EMPTY_RECIPE, type Group } from "@/lib/smart-lists/recipe";
-import { type SearchParams } from "./leads-url";
+import { leadsHref, type SearchParams } from "./leads-url";
 import { SelectAllBanner } from "./select-all-banner";
 import { SmartPagination } from "./smart-pagination";
 import { SaveCurrentViewButton } from "./saved-views";
@@ -177,6 +177,7 @@ export default async function LeadsPage({
     "lastcall_to",
     "nextcall_from",
     "nextcall_to",
+    "unidentified",
     "cols",
   ]) {
     const v = str(params[key]);
@@ -281,6 +282,29 @@ export default async function LeadsPage({
       {/* L1 — stat strip: ready · callbacks · goals met this week.
           Each tile is a clickable filter shortcut. */}
       <LeadsStatStrip stats={stats} />
+
+      {/* Unidentified inbound callers. They are the NEWEST rows, so they sit at
+          the top of the default view showing a phone number where every other
+          row shows a business — 42 of them on 2026-09-06. The merge dialog that
+          resolves them has always existed, but only on a lead's own detail
+          page, so nothing ever said they were waiting. Hidden once the filter
+          is on (you are already looking at them) and when there are none. */}
+      {stats.unidentifiedInbound > 0 && str(params.unidentified) !== "1" ? (
+        <Link
+          href={leadsHref(params, { unidentified: "1", page: undefined })}
+          className="border-border bg-card hover:bg-muted/40 focus-visible:ring-ring/60 animate-in fade-in slide-in-from-bottom-1 fill-mode-both flex items-center gap-3 rounded-2xl border px-5 py-3 shadow-sm transition-colors delay-100 duration-500 focus-visible:ring-2 focus-visible:outline-none"
+        >
+          <PhoneIncoming className="text-primary size-4 shrink-0" />
+          <span className="text-foreground text-sm font-medium">
+            {stats.unidentifiedInbound.toLocaleString()}{" "}
+            {stats.unidentifiedInbound === 1 ? "caller" : "callers"} rang back
+            before we knew who they were
+          </span>
+          <span className="text-muted-foreground ml-auto hidden text-sm sm:inline">
+            Review and match them to a business →
+          </span>
+        </Link>
+      ) : null}
 
       {/* L2 — toolbar. Search lives in the global top bar now, so this
             row holds filter + column + save-view on the left and the
