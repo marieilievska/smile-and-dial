@@ -1,3 +1,4 @@
+import { humanizeMinutes } from "@/lib/relative-time";
 import { ET_TZ, etDayDelta } from "@/lib/time/eastern";
 
 /** Format a scheduled-at timestamp as a human-readable relative
@@ -91,15 +92,6 @@ function formatAbsolute(d: Date): string {
     timeZone: ET_TZ,
   });
   return `${date} at ${formatTime(d)}`;
-}
-
-function humanizeMinutes(min: number): string {
-  if (min < 1) return "<1m";
-  if (min < 60) return `${min}m`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
 }
 
 /** Clock time PLUS the Eastern abbreviation — "3:00 PM EDT". A callback fires

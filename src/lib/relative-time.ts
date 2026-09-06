@@ -58,6 +58,30 @@ export function relativeTimeSigned(
   return etDate(iso, fallback);
 }
 
+/** Compact DURATION from a minute count: "<1m", "45m", "3h", "3h 20m",
+ *  "1d", "1d 5h".
+ *
+ *  Distinct from the helpers above, which format a point in time. This one
+ *  formats a length of time — "how long has this been overdue".
+ *
+ *  Rolls over into days past 24h. Without that tier a callback overdue since
+ *  yesterday read "29h 19m", and before this helper was shared at all the
+ *  Today action queue printed the raw minute count ("1759m overdue") and left
+ *  the reader to divide. Shared by the Callbacks list and Today so the same
+ *  callback reads the same on both. */
+export function humanizeMinutes(min: number): string {
+  if (min < 1) return "<1m";
+  if (min < 60) return `${min}m`;
+  const totalHours = Math.floor(min / 60);
+  if (totalHours < 24) {
+    const m = min % 60;
+    return m === 0 ? `${totalHours}h` : `${totalHours}h ${m}m`;
+  }
+  const d = Math.floor(totalHours / 24);
+  const h = totalHours % 24;
+  return h === 0 ? `${d}d` : `${d}d ${h}h`;
+}
+
 /** Full, exact timestamp for hover tooltips — pairs with the relative
  *  helpers so the precise value (which the dialer actually reads for
  *  "Next call") is always one hover away. Always Eastern, zone-labelled
