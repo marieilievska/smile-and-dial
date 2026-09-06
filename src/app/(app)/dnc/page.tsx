@@ -180,9 +180,10 @@ export default async function DncPage({
               <DncSparkline values={stats.addedDaily} />
             </div>
             <p className="text-muted-foreground mt-1 text-sm">
-              Your do-not-call numbers. The dialer skips every number on any
-              teammate&apos;s list, across every campaign — but each person sees
-              and manages only their own entries.
+              Your do-not-call numbers. The dialer skips these on your leads,
+              across every campaign. Each list is private to one person and
+              applies to that person&apos;s leads only — a number you add here
+              does not stop a teammate calling it.
             </p>
           </div>
           <div className="flex items-center gap-2">

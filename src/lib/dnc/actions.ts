@@ -22,8 +22,12 @@ const DNC_PATH = "/dnc";
  * 20260905241000): every read and delete below is scoped by RLS to the
  * caller's own entries, and every insert stamps `owner_id` explicitly (the
  * BEFORE INSERT trigger would fill it from auth.uid() anyway) and conflicts
- * on (owner_id, phone). Enforcement is still workspace-wide: the dialer
- * refuses a number on ANY user's list.
+ * on (owner_id, phone).
+ *
+ * Since 20260906020000 the list is ENFORCED per user too: an entry blocks its
+ * owner's leads and nobody else's. So `owner_id` here is not just attribution
+ * — it decides whose dialing stops. Adding a number to your list does NOT
+ * stop a teammate calling it; that consequence was stated and accepted.
  */
 
 /** Add one phone number to the caller's DNC list. */
@@ -58,7 +62,7 @@ export async function addToDnc(input: {
       error:
         // 23505: the number is already on the CALLER's list (unique per
         // owner + phone). A teammate's entry doesn't conflict -- each user
-        // keeps their own -- though the dialer blocks it either way.
+        // keeps their own, and each list only blocks its own owner.
         error.code === "23505"
           ? "That number is already on your DNC list."
           : "Could not add the number.",
@@ -245,9 +249,15 @@ export async function bulkAddLeadsToDnc(input: {
 
   // Move the leads out of the calling pipeline so the Ready-to-call count
   // and dialer queue drop them — mirroring the AI tool path. Chunked for the
-  // same URL-length reason as the lookup above. A failure here is non-fatal:
-  // the numbers are already on the DNC list (so the dialer's pre-call check
-  // will block them regardless); we surface it but don't claim success.
+  // same URL-length reason as the lookup above.
+  //
+  // This status flip is now load-bearing, not just tidying. DNC is enforced
+  // per person (20260906020000) and RLS forbids inserting a dnc_entries row
+  // owned by anyone but the caller, so when an ADMIN bulk-DNCs a member's
+  // lead the entry lands on the admin's list and does not block the member's
+  // lead — only `status = 'dnc'` does (dial_queue drops it, and pre_call_check
+  // refuses the stage outright). So a failure here is surfaced rather than
+  // swallowed: the caller must not read it as "handled".
   for (const ids of chunk(input.leadIds, ID_CHUNK)) {
     const { error: statusError } = await supabase
       .from("leads")

@@ -54,16 +54,22 @@ function hasAnyKey(row: string[]): boolean {
   return row.some((cell) => cell !== "");
 }
 
-/** Every phone on the workspace DNC list, reduced to digits. DNC lives in the
+/** Every phone on THIS user's DNC list, reduced to digits. DNC lives in the
  *  `dnc_entries` table (keyed by phone) — NOT `leads.status` — so we must check
- *  it here to keep opt-outs out of the ad audience. */
-async function loadDncDigits(db: Admin): Promise<Set<string>> {
+ *  it here to keep opt-outs out of the ad audience.
+ *
+ *  Scoped to `ownerId` because DNC is per person (20260906020000): this sync
+ *  only ever touches leads this user owns and pushes them into this user's own
+ *  audience, so a teammate's suppression is not theirs to apply. `db` is the
+ *  service client, so the filter has to be explicit — RLS isn't doing it. */
+async function loadDncDigits(db: Admin, ownerId: string): Promise<Set<string>> {
   const out = new Set<string>();
   let cursor = "";
   for (;;) {
     let q = db
       .from("dnc_entries")
       .select("phone")
+      .eq("owner_id", ownerId)
       .order("phone", { ascending: true })
       .limit(PAGE);
     if (cursor) q = q.gt("phone", cursor);
@@ -97,8 +103,8 @@ async function pushBatches(
   return null;
 }
 
-/** A lead should NOT be in the audience: deleted, DNC (status or phone on the
- *  DNC list), or no email to match on. */
+/** A lead should NOT be in the audience: deleted, DNC (status, or phone on its
+ *  owner's DNC list), or no email to match on. */
 function isIneligible(lead: SyncLead, dnc: Set<string>): boolean {
   if (lead.deleted_at != null) return true;
   if (lead.status === "dnc") return true;
@@ -152,7 +158,7 @@ export async function runMetaSync(userId: string): Promise<MetaSyncResult> {
     });
   }
 
-  const dnc = await loadDncDigits(db);
+  const dnc = await loadDncDigits(db, userId);
   let added = 0;
   let removed = 0;
 

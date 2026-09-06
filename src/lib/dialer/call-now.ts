@@ -165,10 +165,23 @@ export async function callNow(input: {
   // owner call dials a different number, so screen THAT number too — calling a
   // decision-maker's personal cell after they asked us not to is exactly what
   // DNC is for.
+  //
+  // Against the LEAD OWNER's list, not the caller's: DNC is enforced per person
+  // (20260906020000), and an admin placing this call must honour the member's
+  // list, not their own. Fail CLOSED like the pre_call_check above — the error
+  // used to be dropped, so any RPC failure (a missing grant, a signature that
+  // moved under an old deployment) read as "not on DNC" and dialled anyway.
   if (dialTarget === "owner") {
-    const { data: ownerOnDnc } = await userClient.rpc("is_phone_on_dnc", {
-      phone_to_check: dialNumber as string,
-    });
+    const { data: ownerOnDnc, error: dncError } = await userClient.rpc(
+      "is_phone_on_dnc",
+      {
+        phone_to_check: dialNumber as string,
+        owner_to_check: lead.owner_id,
+      },
+    );
+    if (dncError) {
+      return { error: "Couldn't check the DNC list. Please try again." };
+    }
     if (ownerOnDnc) {
       return { error: "The owner's number is on the DNC list." };
     }
