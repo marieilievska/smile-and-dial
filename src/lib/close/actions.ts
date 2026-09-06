@@ -25,6 +25,8 @@ import {
   buildHandoffTaskText,
   pickKeyAnswers,
 } from "./handoff";
+import { parseCloseSmsNumbers } from "./sms-from-number";
+import { syncCloseSmsNumbers } from "./sms-numbers";
 import { CLOSE_WEBHOOK_EVENTS } from "./webhook";
 
 function makeServiceClient() {
@@ -39,9 +41,11 @@ type ServiceClient = ReturnType<typeof makeServiceClient>;
 
 /** Connect the signed-in user's own Close account by pasting an API key.
  *  Per-user: the AI sends from the campaign owner's Close. Connecting also
- *  subscribes Close's webhook to us (reply tracking) — see
- *  setupCloseWebhook. A webhook failure is returned as a `warning`, not an
- *  error: the key IS saved and the card offers "Enable reply tracking". */
+ *  reads the SMS-capable numbers from Close and picks the one the agent
+ *  texts from (syncCloseSmsNumbers), and subscribes Close's webhook to us
+ *  (reply tracking) — see setupCloseWebhook. Either failing is returned as a
+ *  `warning`, not an error: the key IS saved and the card offers "Refresh
+ *  numbers" / "Enable reply tracking". */
 export async function saveCloseConnection(
   apiKey: string,
 ): Promise<{ error: string | null; warning?: string }> {
@@ -67,15 +71,118 @@ export async function saveCloseConnection(
   );
   if (error) return { error: "Couldn't save the connection." };
 
+  // A previously chosen number is kept when it is still in the (possibly
+  // different) account's SMS-capable list; otherwise a fresh pick.
+  const { data: prior } = await admin
+    .from("user_integrations")
+    .select("close_sms_from_number")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const numbers = await syncCloseSmsNumbers(admin, {
+    userId: user.id,
+    apiKey: key,
+    current: prior?.close_sms_from_number ?? null,
+  });
+
   const hook = await setupCloseWebhook(admin, user.id, key);
   revalidatePath("/settings/integrations");
+
+  const warnings: string[] = [];
+  if (!numbers.ok) {
+    warnings.push(
+      `texting numbers couldn't be read from Close: ${numbers.error}`,
+    );
+  } else if (!numbers.fromNumber) {
+    warnings.push(
+      "no SMS-capable number was found in Close, so the agent can't text yet",
+    );
+  }
   if (hook.error) {
+    warnings.push(`reply tracking couldn't be enabled: ${hook.error}`);
+  }
+  if (warnings.length > 0) {
+    return { error: null, warning: `Connected, but ${warnings.join("; ")}` };
+  }
+  return { error: null };
+}
+
+/** Re-read the SMS-capable numbers from the signed-in user's Close account
+ *  and (re)pick the one the agent texts from. The current choice is kept when
+ *  Close still lists it. Uses THEIR Close key. */
+export async function refreshCloseSmsNumbers(): Promise<{
+  error: string | null;
+  warning?: string;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const admin = makeServiceClient();
+  const { data: integ } = await admin
+    .from("user_integrations")
+    .select("close_api_key, close_sms_from_number")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const key = integ?.close_api_key?.trim() || null;
+  if (!key) return { error: "Connect Close first." };
+
+  const result = await syncCloseSmsNumbers(admin, {
+    userId: user.id,
+    apiKey: key,
+    current: integ?.close_sms_from_number ?? null,
+  });
+  revalidatePath("/settings/integrations");
+  if (!result.ok) return { error: result.error };
+  if (!result.fromNumber) {
     return {
       error: null,
-      warning: `Connected, but reply tracking couldn't be enabled: ${hook.error}`,
+      warning:
+        "No SMS-capable number found in Close. Add a Close number with texting enabled, then refresh.",
     };
   }
   return { error: null };
+}
+
+/** Pick which of the stored SMS-capable Close numbers the agent texts from.
+ *  Only a number from the last refresh is accepted — the send-from number is
+ *  never typed in by hand (owner decision, 2026-09-05). */
+export async function setCloseSmsFromNumber(
+  number: string,
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+
+  const admin = makeServiceClient();
+  const { data: integ } = await admin
+    .from("user_integrations")
+    .select("close_api_key, close_sms_numbers")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!integ?.close_api_key?.trim()) return { error: "Connect Close first." };
+
+  const chosen = number.trim();
+  const known = parseCloseSmsNumbers(integ.close_sms_numbers);
+  if (!known.some((n) => n.number === chosen)) {
+    return {
+      error:
+        "That number isn't one of the SMS-capable numbers in Close. Refresh numbers and try again.",
+    };
+  }
+
+  const { error } = await admin
+    .from("user_integrations")
+    .update({
+      close_sms_from_number: chosen,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", user.id);
+  revalidatePath("/settings/integrations");
+  return { error: error ? "Couldn't save the texting number." : null };
 }
 
 export async function disconnectClose(): Promise<{ error: string | null }> {
@@ -110,6 +217,9 @@ export async function disconnectClose(): Promise<{ error: string | null }> {
       close_webhook_id: null,
       close_webhook_signature_key: null,
       close_webhook_created_at: null,
+      // The numbers belong to the account being disconnected.
+      close_sms_from_number: null,
+      close_sms_numbers: null,
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", user.id);

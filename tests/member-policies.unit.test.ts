@@ -214,7 +214,7 @@ describe("per-user DNC lists", () => {
     expect(sql).not.toMatch(/is_admin/);
   });
 
-  it("keeps phone unique workspace-wide until the post-call webhook's onConflict changes", () => {
+  it("left phone unique workspace-wide in THIS migration (20260905241000 swaps it for (owner_id, phone) once every writer conflicts on that)", () => {
     expect(sql).not.toMatch(/drop\s+constraint/i);
     expect(sql).not.toMatch(/unique\s*\(\s*owner_id/i);
   });

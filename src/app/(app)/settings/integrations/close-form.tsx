@@ -7,11 +7,21 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   disableCloseInboundWebhook,
   disconnectClose,
   enableCloseInboundWebhook,
+  refreshCloseSmsNumbers,
   saveCloseConnection,
+  setCloseSmsFromNumber,
 } from "@/lib/close/actions";
+import type { CloseSmsNumber } from "@/lib/close/sms-from-number";
 import { etDateTime } from "@/lib/time/eastern";
 
 export function CloseForm({
@@ -19,6 +29,8 @@ export function CloseForm({
   connectedAt,
   replyTracking,
   replyTrackingSince,
+  smsFromNumber,
+  smsNumbers,
 }: {
   connected: boolean;
   connectedAt: string | null;
@@ -26,6 +38,12 @@ export function CloseForm({
    *  STOP texts reach the app). */
   replyTracking: boolean;
   replyTrackingSince: string | null;
+  /** The Close number the agent texts from — chosen from `smsNumbers`, never
+   *  typed in (owner decision, 2026-09-05: "whatever number we choose from
+   *  Close directly"). */
+  smsFromNumber: string | null;
+  /** The SMS-capable numbers read from this user's Close account. */
+  smsNumbers: CloseSmsNumber[];
 }) {
   const [pending, startTransition] = useTransition();
   const [key, setKey] = useState("");
@@ -44,6 +62,10 @@ export function CloseForm({
       }
     });
   }
+
+  const current = smsNumbers.find((n) => n.number === smsFromNumber) ?? null;
+  const describe = (n: CloseSmsNumber) =>
+    n.label ? `${n.formatted} · ${n.label}` : n.formatted;
 
   return (
     <div className="flex flex-col gap-3">
@@ -75,6 +97,65 @@ export function CloseForm({
         </div>
       ) : (
         <>
+          <div
+            className="flex flex-wrap items-center gap-2"
+            data-testid="close-sms-number"
+          >
+            {smsNumbers.length === 0 ? (
+              <span className="text-muted-foreground text-xs">
+                No SMS-capable number found in Close. Add a Close number with
+                texting enabled, then refresh.
+              </span>
+            ) : smsNumbers.length === 1 || !current ? (
+              <span className="text-muted-foreground text-xs">
+                Texts send from{" "}
+                <span className="text-foreground font-medium">
+                  {current ? describe(current) : describe(smsNumbers[0])}
+                </span>
+                .
+              </span>
+            ) : (
+              <>
+                <span className="text-muted-foreground text-xs">
+                  Texts send from
+                </span>
+                <Select
+                  value={current.number}
+                  onValueChange={(value) =>
+                    run(
+                      () => setCloseSmsFromNumber(value),
+                      "Texting number updated.",
+                    )
+                  }
+                  disabled={pending}
+                >
+                  <SelectTrigger
+                    className="h-8 w-[280px] text-xs"
+                    aria-label="Texting number"
+                    data-testid="close-sms-number-select"
+                  >
+                    <SelectValue placeholder="Choose a number" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {smsNumbers.map((n) => (
+                      <SelectItem key={n.number} value={n.number}>
+                        {describe(n)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pending}
+              onClick={() => run(refreshCloseSmsNumbers, "Numbers refreshed.")}
+              data-testid="close-refresh-numbers"
+            >
+              Refresh numbers
+            </Button>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge
               variant={replyTracking ? "success" : "ghost"}

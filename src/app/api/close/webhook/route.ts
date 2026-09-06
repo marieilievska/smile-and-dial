@@ -283,13 +283,18 @@ async function handleInboundSms(
       (n): n is string => Boolean(n),
     );
     for (const phone of numbers) {
-      const { error } = await supabase.from("dnc_entries").insert({
-        phone,
-        company_snapshot: lead.company,
-        reason: "dnc_requested",
-        added_by_user_id: ownerId,
-      });
-      // 23505 = already on the list; the goal is met either way.
+      // Onto THIS owner's list (unique per owner + phone); already there is
+      // fine — the goal is met either way.
+      const { error } = await supabase.from("dnc_entries").upsert(
+        {
+          phone,
+          owner_id: ownerId,
+          company_snapshot: lead.company,
+          reason: "dnc_requested",
+          added_by_user_id: ownerId,
+        },
+        { onConflict: "owner_id,phone", ignoreDuplicates: true },
+      );
       if (error && (error as { code?: string }).code !== "23505") {
         await supabase.from("system_events").insert({
           kind: "sms_stop_dnc_error",

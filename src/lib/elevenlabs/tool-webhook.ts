@@ -35,9 +35,14 @@ import { shortenMessageLink } from "@/lib/shortlinks/shorten-message";
 import { linkUtmParams } from "@/lib/shortlinks/destination";
 import type { LeadLinkParams } from "@/lib/shortlinks/destination";
 import { deliverEmailViaClose } from "@/lib/close/send-email";
-import { planEmailSend } from "@/lib/close/email-send-plan";
+import {
+  emailNotSentMessage,
+  emailToolReadiness,
+  planEmailSend,
+} from "@/lib/close/email-send-plan";
 import { deliverSmsViaClose } from "@/lib/close/send-sms";
-import { planTextSend } from "@/lib/close/text-send-plan";
+import { syncCloseSmsNumbers } from "@/lib/close/sms-numbers";
+import { planTextSend, textNotSentMessage } from "@/lib/close/text-send-plan";
 import {
   ownSiteOrigin,
   researchBusinessWithUsage,
@@ -370,34 +375,41 @@ async function logToolEvent(
   });
 }
 
-/** One `tool_booking_not_configured` row per campaign per hour. A campaign of
- *  300 dials whose owner never connected Calendly would otherwise write 300
- *  identical rows into the Activity feed. */
-const BOOKING_NOT_CONFIGURED_LOG_THROTTLE_MS = 60 * 60 * 1000;
+/** One `tool_*_not_configured` row per campaign per hour. A campaign of 300
+ *  dials whose owner never connected Calendly (or Close, or attached a
+ *  template) would otherwise write 300 identical rows into the Activity feed. */
+const NOT_CONFIGURED_LOG_THROTTLE_MS = 60 * 60 * 1000;
 
-/** Record that a LIVE call reached a booking tool with no Calendly behind it,
- *  so the gap is visible instead of silently eating every booking attempt.
- *  Campaign-scoped (ref_table "campaigns") and throttled to once an hour per
- *  campaign; with no resolvable campaign it's logged against the call id every
- *  time (rare — the tool definition lost its call_id). Best-effort. */
-async function logBookingNotConfigured(
+type ToolNotConfiguredKind =
+  | "tool_booking_not_configured"
+  | "tool_email_not_configured"
+  | "tool_text_not_configured";
+
+/** Record that a LIVE call reached a tool with nothing configured behind it
+ *  (no Calendly, no Close, no template…), so the gap is visible instead of
+ *  silently eating every attempt. Campaign-scoped (ref_table "campaigns") and
+ *  throttled to once an hour per campaign PER KIND; with no resolvable
+ *  campaign it's logged against the call id every time (rare — the tool
+ *  definition lost its call_id). Best-effort. */
+async function logToolNotConfigured(
   supabase: SupabaseAdmin,
   input: {
+    kind: ToolNotConfiguredKind;
     campaignId: string | null;
     callId: string | null;
-    tool: "get_available_times" | "book_appointment";
-    reason: "owner_calendly_not_connected" | "unresolved_call";
+    tool: string;
+    reason: string;
   },
 ): Promise<void> {
   try {
     if (input.campaignId) {
       const since = new Date(
-        Date.now() - BOOKING_NOT_CONFIGURED_LOG_THROTTLE_MS,
+        Date.now() - NOT_CONFIGURED_LOG_THROTTLE_MS,
       ).toISOString();
       const { data: recent } = await supabase
         .from("system_events")
         .select("id")
-        .eq("kind", "tool_booking_not_configured")
+        .eq("kind", input.kind)
         .eq("ref_table", "campaigns")
         .eq("ref_id", input.campaignId)
         .gte("created_at", since)
@@ -405,7 +417,7 @@ async function logBookingNotConfigured(
       if (recent && recent.length > 0) return; // throttled
     }
     await supabase.from("system_events").insert({
-      kind: "tool_booking_not_configured",
+      kind: input.kind,
       actor_user_id: null,
       ref_table: input.campaignId ? "campaigns" : "calls",
       ref_id: input.campaignId ?? input.callId,
@@ -419,6 +431,22 @@ async function logBookingNotConfigured(
   } catch {
     // best-effort — never fail the tool call over an audit row
   }
+}
+
+/** A booking tool reached with no Calendly behind it — see logToolNotConfigured. */
+async function logBookingNotConfigured(
+  supabase: SupabaseAdmin,
+  input: {
+    campaignId: string | null;
+    callId: string | null;
+    tool: "get_available_times" | "book_appointment";
+    reason: "owner_calendly_not_connected" | "unresolved_call";
+  },
+): Promise<void> {
+  await logToolNotConfigured(supabase, {
+    kind: "tool_booking_not_configured",
+    ...input,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -594,22 +622,54 @@ async function sendEmail(
       .eq("id", ctx.lead.id);
   }
 
-  // Send the campaign's FIXED template (chosen in campaign settings). When no
-  // template is attached we can only record the intent — there's nothing to
-  // send — so the call still flows but the intent is recorded in system_events.
+  // Send the campaign's FIXED template (chosen in campaign settings). Live
+  // delivery goes through the lead owner's Close account; non-live keeps a
+  // mock row so dev/test flows + the activity feed still work.
   const tmpl = await resolveCampaignEmailTemplate(ctx.supabase, ctx.campaignId);
-  if (!tmpl) {
+  const live = process.env.ELEVENLABS_LIVE === "live";
+  let closeKey: string | null = null;
+  if (live) {
+    const { data: integ } = await ctx.supabase
+      .from("user_integrations")
+      .select("close_api_key")
+      .eq("user_id", ctx.lead.owner_id)
+      .maybeSingle();
+    closeKey = integ?.close_api_key?.trim() || null;
+  }
+
+  // Can this call send an email AT ALL? No template means there is nothing to
+  // send; live with no Close key means nowhere to send it from. Either way the
+  // agent is told plainly (success:false) so it never promises an email that
+  // isn't coming — the old "Got it — I've noted to send that" read as a yes.
+  // The intent is still recorded per call, and the configuration gap once an
+  // hour per campaign so it shows in the Activity feed (same pattern as
+  // tool_booking_not_configured). No `emails` row is ever written here.
+  const readiness = emailToolReadiness({
+    live,
+    hasTemplate: Boolean(tmpl),
+    hasCloseKey: Boolean(closeKey),
+  });
+  if (!tmpl || !readiness.ready) {
+    const reason = readiness.ready
+      ? "no_template_on_campaign"
+      : readiness.reason;
     await logToolEvent(ctx, "tool_send_email", {
       email,
       note,
-      template_id: null,
+      template_id: tmpl?.id ?? null,
       sent: false,
-      reason: "no_template_on_campaign",
+      reason,
     });
-    return {
-      success: true,
-      message: `Got it — I've noted to send that to ${email}.`,
-    };
+    if (live) {
+      await logToolNotConfigured(ctx.supabase, {
+        kind: "tool_email_not_configured",
+        campaignId: ctx.campaignId,
+        callId: ctx.callId,
+        tool: "send_email",
+        reason,
+      });
+    }
+    return { success: false, message: emailNotSentMessage(reason) };
   }
 
   const renderCtx = await buildEmailContext(ctx);
@@ -635,40 +695,34 @@ async function sendEmail(
     }),
   });
 
-  const live = process.env.ELEVENLABS_LIVE === "live";
   const sentMessage = `Done — I've sent the "${tmpl.name}" email to ${email}. It should arrive shortly.`;
-  const notedMessage = `Got it — I've noted to send that to ${email}.`;
 
-  // In live mode, look up the owner's Close key and attempt real delivery.
-  // Non-live keeps a mock row so dev/test flows + the activity feed still work.
-  let hasCloseKey = false;
+  // Live: attempt real delivery through the owner's Close account.
   let delivered: Awaited<ReturnType<typeof deliverEmailViaClose>> | null = null;
-  if (live) {
-    const { data: integ } = await ctx.supabase
-      .from("user_integrations")
-      .select("close_api_key")
-      .eq("user_id", ctx.lead.owner_id)
-      .maybeSingle();
-    const closeKey = integ?.close_api_key?.trim() || null;
-    hasCloseKey = Boolean(closeKey);
-    if (closeKey) {
-      delivered = await deliverEmailViaClose({
-        closeKey,
-        senderName: renderCtx.owner?.full_name ?? null,
-        toAddress: email,
-        subject,
-        body: renderedBody,
-        contactName: ctx.lead.owner_name || ctx.lead.manager_name || null,
-        company: ctx.lead.company,
-        businessPhone: ctx.lead.business_phone,
-      });
-    }
+  if (live && closeKey) {
+    delivered = await deliverEmailViaClose({
+      closeKey,
+      senderName: renderCtx.owner?.full_name ?? null,
+      toAddress: email,
+      subject,
+      body: renderedBody,
+      contactName: ctx.lead.owner_name || ctx.lead.manager_name || null,
+      company: ctx.lead.company,
+      businessPhone: ctx.lead.business_phone,
+    });
   }
 
-  const plan = planEmailSend({ live, hasCloseKey, delivered });
+  const plan = planEmailSend({
+    live,
+    hasCloseKey: Boolean(closeKey),
+    delivered,
+  });
 
-  // Honesty rule: never tell the lead we sent when we couldn't. When we can't
-  // deliver we record the intent (system_events) but no fake "sent" row.
+  // Honesty rule: never tell the lead we sent when we couldn't. When delivery
+  // fails we record the intent (system_events), write no fake "sent" row, and
+  // tell the agent it did NOT go out (success:false) so it can say so. A Close
+  // account with no email it can send from is a configuration gap — surfaced
+  // once an hour per campaign like the other not-configured events.
   if (plan.action === "note_only") {
     await logToolEvent(ctx, "tool_send_email", {
       email,
@@ -677,7 +731,16 @@ async function sendEmail(
       sent: false,
       reason: plan.reason,
     });
-    return { success: true, message: notedMessage };
+    if (plan.reason === "no_connected_sending_email") {
+      await logToolNotConfigured(ctx.supabase, {
+        kind: "tool_email_not_configured",
+        campaignId: ctx.campaignId,
+        callId: ctx.callId,
+        tool: "send_email",
+        reason: plan.reason,
+      });
+    }
+    return { success: false, message: emailNotSentMessage(plan.reason) };
   }
 
   const isReal = plan.action === "record_real";
@@ -822,12 +885,16 @@ async function sendText(
     });
     return { success: true, message: "Got it — I've made a note." };
   }
-  const { data: dncHit } = await ctx.supabase
+  // A number on ANY user's list is blocked. limit(1), not maybeSingle(): DNC
+  // lists are per user, so two owners can each hold this phone, and
+  // maybeSingle() errors on two rows — which would read as "not on DNC" and
+  // text an opted-out number.
+  const { data: dncHits } = await ctx.supabase
     .from("dnc_entries")
     .select("phone")
     .eq("phone", mobile)
-    .maybeSingle();
-  if (dncHit) {
+    .limit(1);
+  if (dncHits && dncHits.length > 0) {
     await logToolEvent(ctx, "tool_send_text", {
       mobile,
       note,
@@ -837,7 +904,10 @@ async function sendText(
     return { success: true, message: "Got it — I've made a note." };
   }
 
-  // Send the campaign's FIXED SMS template. No template → record the intent only.
+  // Send the campaign's FIXED SMS template. No template → nothing to send:
+  // tell the agent plainly (success:false) and surface the gap once an hour
+  // per campaign, mirroring send_email.
+  const live = process.env.ELEVENLABS_LIVE === "live";
   const tmpl = await resolveCampaignSmsTemplate(ctx.supabase, ctx.campaignId);
   if (!tmpl) {
     await logToolEvent(ctx, "tool_send_text", {
@@ -847,9 +917,18 @@ async function sendText(
       sent: false,
       reason: "no_template_on_campaign",
     });
+    if (live) {
+      await logToolNotConfigured(ctx.supabase, {
+        kind: "tool_text_not_configured",
+        campaignId: ctx.campaignId,
+        callId: ctx.callId,
+        tool: "send_text",
+        reason: "no_template_on_campaign",
+      });
+    }
     return {
-      success: true,
-      message: "Got it — I've noted to text that to you.",
+      success: false,
+      message: textNotSentMessage("no_template_on_campaign"),
     };
   }
 
@@ -875,13 +954,13 @@ async function sendText(
   });
   const text = `${rendered}\n\n${SMS_OPT_OUT_LINE}`;
 
-  const live = process.env.ELEVENLABS_LIVE === "live";
   const sentMessage =
     "Done — I've texted that to you. You should see it shortly.";
-  const notedMessage = "Got it — I've noted to text that to you.";
 
-  // Live: deliver via Close from the owner's configured send-from number. We only
-  // claim "sent" on real success; otherwise we record the intent, no fake row.
+  // Live: deliver via Close from the number read from the owner's Close
+  // account (syncCloseSmsNumbers picks it; the Close card lets them choose).
+  // We only claim "sent" on real success; otherwise we record the intent, no
+  // fake row.
   let hasCloseKey = false;
   let hasFromNumber = false;
   let fromNumber: string | null = null;
@@ -894,6 +973,17 @@ async function sendText(
       .maybeSingle();
     const closeKey = integ?.close_api_key?.trim() || null;
     fromNumber = integ?.close_sms_from_number?.trim() || null;
+    // Nothing stored yet (connected before numbers were read from Close, or
+    // that read failed): ask Close once now and persist the answer, so this
+    // text still goes out and the next call skips the round-trip.
+    if (closeKey && !fromNumber) {
+      const synced = await syncCloseSmsNumbers(ctx.supabase, {
+        userId: ctx.lead.owner_id,
+        apiKey: closeKey,
+        current: null,
+      });
+      if (synced.ok) fromNumber = synced.fromNumber;
+    }
     hasCloseKey = Boolean(closeKey);
     hasFromNumber = Boolean(fromNumber);
     if (closeKey && fromNumber) {
@@ -910,6 +1000,11 @@ async function sendText(
 
   const plan = planTextSend({ live, hasCloseKey, hasFromNumber, delivered });
 
+  // Honesty rule: never tell the lead we texted when we couldn't. The agent is
+  // told it did NOT go out (success:false) with the real reason — "no texting
+  // number is set up in Close", not "I've noted to text that". A missing Close
+  // connection or texting number is a configuration gap, surfaced once an hour
+  // per campaign.
   if (plan.action === "note_only") {
     await logToolEvent(ctx, "tool_send_text", {
       mobile,
@@ -918,7 +1013,19 @@ async function sendText(
       sent: false,
       reason: plan.reason,
     });
-    return { success: true, message: notedMessage };
+    if (
+      plan.reason === "owner_close_not_connected" ||
+      plan.reason === "no_sms_from_number"
+    ) {
+      await logToolNotConfigured(ctx.supabase, {
+        kind: "tool_text_not_configured",
+        campaignId: ctx.campaignId,
+        callId: ctx.callId,
+        tool: "send_text",
+        reason: plan.reason,
+      });
+    }
+    return { success: false, message: textNotSentMessage(plan.reason) };
   }
 
   const isReal = plan.action === "record_real";
@@ -1535,15 +1642,21 @@ async function markDnc(
     };
   }
 
-  const { error } = await ctx.supabase.from("dnc_entries").insert({
-    phone,
-    company_snapshot: ctx.lead.company,
-    reason: "dnc_requested",
-    // No user session in a webhook; attribute to the lead's owner.
-    added_by_user_id: ctx.lead.owner_id,
-    source_call_id: ctx.callId,
-  });
-  // 23505 = already on the DNC list. That's fine — the goal is met either way.
+  // Onto the lead OWNER's list (DNC lists are per user; the dialer blocks a
+  // number on any list). Conflict on (owner_id, phone) = already on their
+  // list, which is fine — the goal is met either way.
+  const { error } = await ctx.supabase.from("dnc_entries").upsert(
+    {
+      phone,
+      owner_id: ctx.lead.owner_id,
+      company_snapshot: ctx.lead.company,
+      reason: "dnc_requested",
+      // No user session in a webhook; attribute to the lead's owner.
+      added_by_user_id: ctx.lead.owner_id,
+      source_call_id: ctx.callId,
+    },
+    { onConflict: "owner_id,phone", ignoreDuplicates: true },
+  );
   if (error && error.code !== "23505") {
     return {
       success: false,
