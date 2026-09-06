@@ -29,12 +29,10 @@ import {
  *  divergence to keep in sync. The Sheet's own overflow + scroll
  *  handling takes care of long sections. */
 export function MobileNavTrigger({
-  isAdmin,
   userEmail,
   savedViews,
   statusCounts,
 }: {
-  isAdmin: boolean;
   userEmail: string;
   savedViews: SidebarSavedView[];
   statusCounts: SidebarStatusCounts;
@@ -76,7 +74,6 @@ export function MobileNavTrigger({
          *  schedule the close on the next frame. */}
         <div onClick={() => requestAnimationFrame(() => setOpen(false))}>
           <AppSidebar
-            isAdmin={isAdmin}
             userEmail={userEmail}
             savedViews={savedViews}
             statusCounts={statusCounts}

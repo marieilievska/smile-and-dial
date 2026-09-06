@@ -49,13 +49,7 @@ const KIND_META: Record<
  *
  *  Works from any page. On /leads and /calls the input value is kept in sync
  *  with the URL `?q=` so saved-view clicks / chip removals mirror it. */
-export function GlobalSearch({
-  isAdmin,
-  userEmail,
-}: {
-  isAdmin: boolean;
-  userEmail: string;
-}) {
+export function GlobalSearch({ userEmail }: { userEmail: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -80,11 +74,9 @@ export function GlobalSearch({
   const accessiblePages = useMemo(
     () =>
       navItems.filter(
-        (item) =>
-          (!item.adminOnly || isAdmin) &&
-          (!item.restrictToEmail || item.restrictToEmail === userEmail),
+        (item) => !item.restrictToEmail || item.restrictToEmail === userEmail,
       ),
-    [isAdmin, userEmail],
+    [userEmail],
   );
 
   const query = value.trim().toLowerCase();
