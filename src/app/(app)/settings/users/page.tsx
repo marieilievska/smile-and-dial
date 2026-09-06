@@ -16,6 +16,7 @@ import {
   ROLE_LABELS,
   type AppRole,
 } from "@/lib/auth/roles";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 import { formatCreatedAt } from "../format-created";
@@ -71,6 +72,19 @@ export default async function UsersPage({
     .select("id, full_name, email, role, active, created_at")
     .order("created_at", { ascending: true });
   const allUsers = rawUsers ?? [];
+
+  // Whether someone ever accepted their invitation is recorded in auth.users,
+  // which `profiles` does not mirror and RLS cannot reach — so read it with
+  // the service role. The page is already gated to user-managers above, and
+  // the workspace user list is small enough to pull in one page.
+  const { data: authList } = await createAdminClient().auth.admin.listUsers({
+    perPage: 1000,
+  });
+  const pendingInvite = new Set(
+    (authList?.users ?? [])
+      .filter((u) => !u.email_confirmed_at)
+      .map((u) => u.id),
+  );
 
   const counts = {
     active: allUsers.filter((u) => u.active).length,
@@ -174,9 +188,18 @@ export default async function UsersPage({
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={u.active ? "success" : "secondary"} dot>
-                      {u.active ? "Active" : "Inactive"}
-                    </Badge>
+                    {/* A pending invite outranks active/inactive: the account
+                        exists and looks fine, but nobody can sign in to it
+                        yet, and that is the thing worth seeing. */}
+                    {pendingInvite.has(u.id) ? (
+                      <Badge variant="warning" dot>
+                        Pending invite
+                      </Badge>
+                    ) : (
+                      <Badge variant={u.active ? "success" : "secondary"} dot>
+                        {u.active ? "Active" : "Inactive"}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell
                     className="text-muted-foreground tabular-nums"
@@ -193,6 +216,7 @@ export default async function UsersPage({
                         role={asAppRole(u.role)}
                         actorRole={actorRole}
                         active={u.active}
+                        pendingInvite={pendingInvite.has(u.id)}
                         isSelf={u.id === user.id}
                       />
                     </div>

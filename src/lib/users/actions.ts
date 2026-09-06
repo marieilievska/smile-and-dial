@@ -161,6 +161,43 @@ export async function deleteUser(targetUserId: string): Promise<ActionResult> {
   return { error: null };
 }
 
+/**
+ * Where an invite or password-reset link has to land: /auth/confirm exchanges
+ * the token for a session and forwards to /auth/set-password.
+ *
+ * Built from the canonical domain rather than the request, and never left to
+ * Supabase's own "Site URL" -- that fallback is how reset links ended up
+ * pointing at localhost once already (see src/lib/app-url.ts). Undefined in
+ * local dev, where there is no public base and the Site URL is right.
+ *
+ * The target must also be in the project's Redirect URLs allow-list.
+ */
+function authLinkRedirect(): string | undefined {
+  const base = appBaseUrl();
+  return base ? `${base}/auth/confirm?next=/auth/set-password` : undefined;
+}
+
+/** Turn a GoTrue invite failure into something the person reading it can act
+ *  on. The rate limit is the one that actually bites: Supabase's built-in
+ *  mailer allows only a handful of emails an hour. */
+function describeInviteError(error: {
+  status?: number;
+  code?: string;
+  message: string;
+}): string {
+  if (
+    error.status === 429 ||
+    /rate.?limit/i.test(error.code ?? "") ||
+    /rate limit/i.test(error.message)
+  ) {
+    return "Email rate limit hit — too many invites in a short window. Wait a few minutes and try again, or set up a custom SMTP provider in Supabase for production volume.";
+  }
+  if (/already|registered|exists/i.test(error.message)) {
+    return "A user with that email already exists.";
+  }
+  return "Could not send the invitation.";
+}
+
 /** Invite a new user by email. They receive a link to set a password. */
 export async function inviteUser(
   email: string,
@@ -177,38 +214,15 @@ export async function inviteUser(
   if (!trimmed) return { error: "Enter an email address." };
 
   const admin = createAdminClient();
-  // Point the invite link at the production confirm route explicitly, so it
-  // never falls back to a stale Supabase "Site URL" (e.g. localhost). The
-  // target must also be in the project's Redirect URLs allow-list. Omitted
-  // locally (appBaseUrl() is null) so dev uses the Site URL.
-  const base = appBaseUrl();
-  const redirectTo = base
-    ? `${base}/auth/confirm?next=/auth/set-password`
-    : undefined;
   // No `role` in the metadata on purpose. handle_new_user() used to copy
   // raw_user_meta_data->>'role' straight into profiles.role, which let a
   // signup pick its own role; since 20260906010000 the trigger always writes
   // 'member' and the invited role is applied below with the service-role
   // client instead — authorised code rather than user input.
   const { data, error } = await admin.auth.admin.inviteUserByEmail(trimmed, {
-    redirectTo,
+    redirectTo: authLinkRedirect(),
   });
-  if (error) {
-    if (
-      error.status === 429 ||
-      /rate.?limit/i.test(error.code ?? "") ||
-      /rate limit/i.test(error.message)
-    ) {
-      return {
-        error:
-          "Email rate limit hit — too many invites in a short window. Wait a few minutes and try again, or set up a custom SMTP provider in Supabase for production volume.",
-      };
-    }
-    if (/already|registered|exists/i.test(error.message)) {
-      return { error: "A user with that email already exists." };
-    }
-    return { error: "Could not send the invitation." };
-  }
+  if (error) return { error: describeInviteError(error) };
 
   // Apply the invited role. The trigger has already created the row as
   // 'member', so a failure here leaves a usable (least-privileged) account
@@ -232,13 +246,54 @@ export async function inviteUser(
   return { error: null };
 }
 
+/**
+ * Re-issue the invitation to someone who never set a password.
+ *
+ * Supabase's invite link is single-use and expires on the project's email-OTP
+ * clock, so one that sat in an inbox for a few hours is simply dead — which
+ * is exactly what happened to the first super-admin invite. Re-inviting
+ * replaces the token; the profile row, and the role on it, are untouched.
+ *
+ * Addressed by id, with the email read back off the auth record, so a stale
+ * page can't send an invitation to an address the row no longer has.
+ */
+export async function resendInvite(userId: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const auth = await requireUserManager(supabase);
+  if (isDenied(auth)) return { error: auth.error };
+
+  const admin = createAdminClient();
+  const { data: target } = await admin.auth.admin.getUserById(userId);
+  const authUser = target?.user;
+  if (!authUser?.email) return { error: "Could not find that user." };
+  if (authUser.email_confirmed_at) {
+    return {
+      error:
+        "They have already set a password — send a password reset instead.",
+    };
+  }
+
+  const { error } = await admin.auth.admin.inviteUserByEmail(authUser.email, {
+    redirectTo: authLinkRedirect(),
+  });
+  if (error) return { error: describeInviteError(error) };
+
+  revalidatePath("/settings/users");
+  return { error: null };
+}
+
 /** Send a user a password-reset email. */
 export async function sendPasswordReset(email: string): Promise<ActionResult> {
   const supabase = await createClient();
   const auth = await requireUserManager(supabase);
   if (isDenied(auth)) return { error: auth.error };
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email);
+  // Same landing page as an invite, and for the same reason: without an
+  // explicit redirect the link follows Supabase's Site URL, which has pointed
+  // at localhost on this project before.
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: authLinkRedirect(),
+  });
   if (error) return { error: "Could not send the reset email." };
 
   return { error: null };

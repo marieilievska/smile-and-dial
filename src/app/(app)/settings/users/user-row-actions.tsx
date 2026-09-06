@@ -31,6 +31,7 @@ import {
 } from "@/lib/auth/roles";
 import {
   deleteUser,
+  resendInvite,
   sendPasswordReset,
   setUserActive,
   updateUserRole,
@@ -44,6 +45,7 @@ export function UserRowActions({
   role,
   actorRole,
   active,
+  pendingInvite,
   isSelf,
 }: {
   userId: string;
@@ -56,6 +58,9 @@ export function UserRowActions({
    *  never yourself, and only a super admin may change a super admin. */
   actorRole: AppRole;
   active: boolean;
+  /** True while they have never accepted the invitation. A password reset is
+   *  the wrong instrument for that state -- they need a fresh invite link. */
+  pendingInvite: boolean;
   isSelf: boolean;
 }) {
   const [pending, startTransition] = useTransition();
@@ -110,17 +115,31 @@ export function UserRowActions({
               <DropdownMenuSeparator />
             </>
           ) : null}
-          <DropdownMenuItem
-            disabled={pending}
-            onSelect={() =>
-              run(
-                () => sendPasswordReset(email),
-                `Password-reset email sent to ${email}.`,
-              )
-            }
-          >
-            Send password reset
-          </DropdownMenuItem>
+          {pendingInvite ? (
+            <DropdownMenuItem
+              disabled={pending}
+              onSelect={() =>
+                run(
+                  () => resendInvite(userId),
+                  `A new invitation is on its way to ${email}.`,
+                )
+              }
+            >
+              Resend invitation
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              disabled={pending}
+              onSelect={() =>
+                run(
+                  () => sendPasswordReset(email),
+                  `Password-reset email sent to ${email}.`,
+                )
+              }
+            >
+              Send password reset
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={!mayAct || pending}
