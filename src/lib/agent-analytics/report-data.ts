@@ -7,14 +7,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
-  computeCauseOfDeath,
+  CAUSE_GROUP,
+  NO_CONTACT_LABEL,
+  type CauseGroup,
   type CauseKey,
-  type CauseResult,
-  type LeadForCause,
+  type NoContactReason,
 } from "@/lib/agent-analytics/cause-of-death";
 import type { ObjectionRow } from "@/lib/agent-analytics/objections";
-import type { ObjectionCategory } from "@/lib/openai/objection-extractor";
-import { mapChunks } from "@/lib/leads/chunk";
 import type { Database } from "@/lib/supabase/database.types";
 import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 
@@ -102,157 +101,129 @@ export async function fetchDashboardKpis(
   }));
 }
 
-/** Cause of death: for every lead with ≥1 call in the dashboard window
- *  (scoped), the single primary reason it isn't won. Pages the calls query
- *  around the 1,000-row cap, then chunk-loads the leads' status/dm flag. */
+/** How many company names each cause list carries. The lists live inside a
+ *  collapsed <details> in a 224px scroll box, so returning every worked lead is
+ *  a megabyte nobody reads; the true count travels alongside so the UI can say
+ *  how many were left out. */
+export const CAUSE_SAMPLE_CAP = 100;
+
+export type CauseSampleList = { count: number; sample: string[] };
+
+export type CauseSummary = {
+  /** Worked leads in the window — leads with at least one call. */
+  total: number;
+  counts: Record<CauseKey, number>;
+  groups: Record<CauseGroup, number>;
+  /** Capped, most-recently-called-first company names per cause. */
+  samples: Partial<Record<CauseKey, CauseSampleList>>;
+  /** The "no real contact" sub-reason breakdown, in precedence order. */
+  noContact: { reason: NoContactReason; list: CauseSampleList }[];
+  objectionsByCause: Partial<Record<CauseKey, ObjectionRow[]>>;
+  sampleCap: number;
+};
+
+const ALL_CAUSES: CauseKey[] = [
+  "won",
+  "opted_out",
+  "dm_said_no",
+  "callback_booked",
+  "mid_follow_up",
+  "gatekeeper",
+  "bad_number",
+  "no_contact",
+];
+
+/** Cause of death: for every lead with >=1 call in the dashboard window, the
+ *  single primary reason it is not won.
+ *
+ *  One aggregate. This used to page every call in the window, chunk-load all
+ *  ~7,500 of those leads, classify each in JavaScript, and then send every
+ *  company name to the browser — ~5,000ms and 1,271 KB, twelve times the
+ *  dashboard's payload, for lists that render inside collapsed <details>
+ *  (20260907100000).
+ *
+ *  assignCause() still exists and is still the specification; the SQL is
+ *  transcribed from it branch for branch, and
+ *  `npm run verify:cause-of-death` runs the REAL classifier against the RPC
+ *  over six production windows. */
 export async function fetchCauseOfDeath(
   supabase: DB,
   scope: DashboardKpiScope,
-): Promise<{
-  result: CauseResult;
-  companyByLead: Record<string, string>;
-  /** Objection rows grouped by the loss cause they belong to. The objection
-   *  engine extracts objections for every reached-a-person outcome, so both
-   *  "Decision-maker said no" AND "Gatekeeper wall" get a why-breakdown. */
-  objectionsByCause: Partial<Record<CauseKey, ObjectionRow[]>>;
-}> {
-  const conds: string[] = [];
-  if (scope.campaignIds && scope.campaignIds.length > 0) {
-    conds.push(`campaign_id.in.(${scope.campaignIds.join(",")})`);
-  }
-  if (!scope.all && conds.length === 0) {
-    return {
-      result: computeCauseOfDeath([]),
-      companyByLead: {},
-      objectionsByCause: {},
-    };
-  }
-
-  // (a) Page every in-window call (any direction) → per-lead outcome set + goalMet +
-  //     the lead's objection (first call, in paged order, that carries one).
-  type LeadObjection = {
-    category: ObjectionCategory;
-    specific: string | null;
-    quote: string | null;
+): Promise<CauseSummary> {
+  const campaignIds =
+    scope.campaignIds && scope.campaignIds.length > 0
+      ? scope.campaignIds
+      : null;
+  const empty: CauseSummary = {
+    total: 0,
+    counts: Object.fromEntries(ALL_CAUSES.map((c) => [c, 0])) as Record<
+      CauseKey,
+      number
+    >,
+    groups: { won: 0, final: 0, in_play: 0 },
+    samples: {},
+    noContact: [],
+    objectionsByCause: {},
+    sampleCap: CAUSE_SAMPLE_CAP,
   };
-  const PAGE = 1000;
-  const since = sinceDaysAgoIso(DASHBOARD_DAYS);
-  const byLead = new Map<
-    string,
-    { outcomes: string[]; goalMet: boolean; objection: LeadObjection | null }
-  >();
-  for (let offset = 0; ; offset += PAGE) {
-    let q = supabase
-      .from("calls")
-      .select(
-        "lead_id, outcome, goal_met, objection_category, objection_specific, objection_quote",
-      )
-      .gte("created_at", since)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + PAGE - 1);
-    if (!scope.all) q = q.or(conds.join(","));
-    const { data } = await q;
-    const batch = (data ?? []) as {
-      lead_id: string | null;
-      outcome: string | null;
-      goal_met: boolean | null;
-      objection_category: string | null;
-      objection_specific: string | null;
-      objection_quote: string | null;
-    }[];
-    for (const row of batch) {
-      if (!row.lead_id) continue;
-      const entry = byLead.get(row.lead_id) ?? {
-        outcomes: [],
-        goalMet: false,
-        objection: null,
-      };
-      if (row.outcome) entry.outcomes.push(row.outcome);
-      if (row.goal_met) entry.goalMet = true;
-      // First non-null objection (in paged order) wins for the lead.
-      if (!entry.objection && row.objection_category) {
-        entry.objection = {
-          category: row.objection_category as ObjectionCategory,
-          specific: row.objection_specific,
-          quote: row.objection_quote,
-        };
-      }
-      byLead.set(row.lead_id, entry);
-    }
-    if (batch.length < PAGE) break;
-    if (offset > 500_000) break; // safety backstop
-  }
+  if (!scope.all && !campaignIds) return empty;
 
-  const leadIds = [...byLead.keys()];
-  if (leadIds.length === 0) {
-    return {
-      result: computeCauseOfDeath([]),
-      companyByLead: {},
-      objectionsByCause: {},
-    };
-  }
-
-  // (b) Chunk-load the leads' status + DM flag + company (200 ids/request).
-  const leadMeta = new Map<
-    string,
-    { status: string; dm: boolean; company: string }
-  >();
-  // Independent reads, run with bounded concurrency instead of end to end.
-  const metaChunks = await mapChunks(leadIds, 200, async (ids) => {
-    const { data } = await supabase
-      .from("leads")
-      .select("id, status, decision_maker_reached, company")
-      .in("id", ids);
-    return (data ?? []) as {
-      id: string;
-      status: string | null;
-      decision_maker_reached: boolean | null;
-      company: string | null;
-    }[];
+  const { data, error } = await supabase.rpc("cause_of_death_summary", {
+    p_since: sinceDaysAgoIso(DASHBOARD_DAYS),
+    ...(scope.all || !campaignIds ? {} : { p_campaign_ids: campaignIds }),
+    p_sample: CAUSE_SAMPLE_CAP,
   });
-  for (const l of metaChunks.flat()) {
-    leadMeta.set(l.id, {
-      status: l.status ?? "",
-      dm: l.decision_maker_reached === true,
-      company: l.company ?? "",
-    });
+  // Fail loud rather than rendering a confident, fully-drawn breakdown of zero.
+  if (error) {
+    throw new Error(`Cause of death failed: ${error.message}`);
   }
 
-  // (c) Build LeadForCause[] and aggregate.
-  const leads: LeadForCause[] = [];
-  const companyByLead: Record<string, string> = {};
-  for (const [leadId, agg] of byLead) {
-    const meta = leadMeta.get(leadId);
-    if (!meta) continue; // lead deleted since the call — skip
-    companyByLead[leadId] = meta.company;
-    leads.push({
-      leadId,
-      status: meta.status,
-      decisionMakerReached: meta.dm,
-      goalMet: agg.goalMet,
-      outcomes: agg.outcomes,
-    });
+  const raw = (data ?? {}) as {
+    total?: number;
+    causes?: Record<string, { count: number; sample: string[] }>;
+    noContact?: Record<string, { count: number; sample: string[] }>;
+    objections?: Record<string, ObjectionRow[]>;
+  };
+  if (!raw.total) return empty;
+
+  const counts = Object.fromEntries(
+    ALL_CAUSES.map((c) => [c, raw.causes?.[c]?.count ?? 0]),
+  ) as Record<CauseKey, number>;
+
+  // Group totals are derived from the counts, exactly as computeCauseOfDeath
+  // did — one definition of which cause belongs to which group (CAUSE_GROUP).
+  const groups: Record<CauseGroup, number> = { won: 0, final: 0, in_play: 0 };
+  for (const c of ALL_CAUSES) groups[CAUSE_GROUP[c]] += counts[c];
+
+  const samples: Partial<Record<CauseKey, CauseSampleList>> = {};
+  for (const c of ALL_CAUSES) {
+    const hit = raw.causes?.[c];
+    if (hit) samples[c] = { count: hit.count, sample: hit.sample ?? [] };
   }
 
-  const result = computeCauseOfDeath(leads);
+  // Precedence order, matching noContactReason(): a person > a machine >
+  // nobody picked up > an error.
+  const noContact = (Object.keys(NO_CONTACT_LABEL) as NoContactReason[])
+    .filter((r) => (raw.noContact?.[r]?.count ?? 0) > 0)
+    .map((r) => ({
+      reason: r,
+      list: {
+        count: raw.noContact![r]!.count,
+        sample: raw.noContact![r]!.sample ?? [],
+      },
+    }));
 
-  // (d) Objection rows grouped by cause — dm_said_no AND gatekeeper both carry
-  //     objections (the engine analyzes every reached-a-person outcome).
-  const objectionsByCause: Partial<Record<CauseKey, ObjectionRow[]>> = {};
-  for (const { leadId, cause } of result.perLead) {
-    if (cause !== "dm_said_no" && cause !== "gatekeeper") continue;
-    const objection = byLead.get(leadId)?.objection;
-    if (!objection) continue;
-    (objectionsByCause[cause] ??= []).push({
-      leadId,
-      company: companyByLead[leadId] ?? "",
-      category: objection.category,
-      specific: objection.specific,
-      quote: objection.quote,
-    });
-  }
-
-  return { result, companyByLead, objectionsByCause };
+  return {
+    total: raw.total,
+    counts,
+    groups,
+    samples,
+    noContact,
+    objectionsByCause: (raw.objections ?? {}) as Partial<
+      Record<CauseKey, ObjectionRow[]>
+    >,
+    sampleCap: CAUSE_SAMPLE_CAP,
+  };
 }
 
 export async function fetchChangelogRows(

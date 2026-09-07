@@ -178,11 +178,7 @@ export default async function PublicReporting({
           />
         ) : tab === "cause-of-death" ? (
           causeOfDeath ? (
-            <CauseOfDeathView
-              result={causeOfDeath.result}
-              companyByLead={causeOfDeath.companyByLead}
-              objectionsByCause={causeOfDeath.objectionsByCause}
-            />
+            <CauseOfDeathView summary={causeOfDeath} />
           ) : null
         ) : tab === "changelog" ? (
           <ChangelogTable rows={await fetchChangelogRows(supabase)} readOnly />
