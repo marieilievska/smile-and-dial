@@ -43,14 +43,17 @@ const MIGRATIONS = fileURLToPath(
  * Pagers whose order comes from somewhere this scan cannot see. Each entry
  * names WHERE the order actually lives; the test below then proves that claim
  * still holds, so an exception cannot quietly rot into a real defect.
+ *
+ * EMPTY, and worth keeping that way. The only entry was `runFilterRpc` in
+ * lib/smart-lists/resolve.ts, which paged `leads_matching_filter` — a
+ * `setof uuid`, whose PostgREST column is not addressable, so the client could
+ * not order it and the `order by l.id` had to live in the function body. That
+ * pager was deleted outright once nothing needed a list of ids in JavaScript:
+ * the Leads page applies the recipe DB-side and the campaign preview counts
+ * with `count=exact`. An exception you can delete beats one you have to
+ * justify.
  */
-const ORDERED_ELSEWHERE: Record<string, string> = {
-  "lib/smart-lists/resolve.ts":
-    "leads_matching_filter returns `setof uuid`, whose PostgREST column is not " +
-    "addressable (`column leads_matching_filter.leads_matching_filter does not " +
-    "exist`), so the client CANNOT order it. The `order by l.id` lives in the " +
-    "function body — migration 20260907150000.",
-};
+const ORDERED_ELSEWHERE: Record<string, string> = {};
 
 /**
  * Tables whose unique key is NOT `id`. Every listed column must appear in the
@@ -288,10 +291,18 @@ describe("paged reads are deterministically ordered", () => {
   // The one exception above claims the order lives in SQL instead. Prove it, so
   // a later migration that recreates the function from the pre-2026-09-07 copy
   // fails here rather than silently resuming the duplicate-and-drop behaviour.
-  it("keeps the promise made by the ORDERED_ELSEWHERE exception", () => {
-    expect(Object.keys(ORDERED_ELSEWHERE)).toEqual([
-      "lib/smart-lists/resolve.ts",
-    ]);
+  it("carries no exceptions at all", () => {
+    // The single entry was deleted with the pager that needed it. Adding one
+    // back means adding a test beside it that proves its claim, the way the
+    // one below still proves the SQL half of the old one.
+    expect(Object.keys(ORDERED_ELSEWHERE)).toEqual([]);
+  });
+
+  // leads_matching_filter is no longer paged by anything, but refresh_smart_list
+  // still reads it and a future caller could page it again. Keep the order by
+  // pinned so recreating the function from a pre-2026-09-07 copy fails here
+  // rather than silently resuming the duplicate-and-drop behaviour.
+  it("keeps the order by inside leads_matching_filter", () => {
     const sql = latestDefining(
       "create or replace function public.leads_matching_filter(in_recipe jsonb)",
     );
