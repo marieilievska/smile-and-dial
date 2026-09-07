@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 
@@ -31,12 +31,7 @@ import {
  *     other member's lists through a report that looks correctly scoped.
  */
 
-// The LATEST definition, not the first. 20260907160000 dropped and recreated
-// the function again (this time to add the economics columns), so pinning an
-// earlier file would let the live shape drift away from what these tests
-// claim.
-const MIGRATION =
-  "supabase/migrations/20260907160000_list_performance_economics.sql";
+const MIGRATIONS = "supabase/migrations";
 const COST_FN =
   "supabase/migrations/20260906055000_call_cost_total_inlinable.sql";
 
@@ -52,7 +47,44 @@ function stripComments(sql: string): string {
   return sql.replace(/--[^\n]*/g, "");
 }
 
-const sql = stripComments(read(MIGRATION));
+/** Newest migration that (re)defines `needle`, comments stripped. */
+function latestDefining(needle: string): string {
+  const dir = fileURLToPath(new URL(`../${MIGRATIONS}`, import.meta.url));
+  const hit = readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()
+    .reverse()
+    .map((f) => read(`${MIGRATIONS}/${f}`))
+    .find((s) => s.includes(needle));
+  if (!hit) throw new Error(`no migration defines ${needle}`);
+  return stripComments(hit);
+}
+
+// The LATEST definition, RESOLVED rather than pinned by hand. This function
+// gets dropped and recreated whole every time a column is added, so a
+// hand-written filename goes stale the moment the next phase lands and these
+// guards would then be pinning a definition that is no longer live.
+//
+// The needle ends at the open paren and a newline because the signature is
+// multi-line: it matches `create function` and `create or replace function`
+// alike, and matches none of the grant / revoke / comment statements, which
+// all put `(date, date, uuid, uuid)` on the same line.
+const sql = latestDefining("function public.list_performance(\n");
+
+/**
+ * One named CTE's body: from `<name> as (` to its OWN closing `\n  ),`.
+ *
+ * Slicing from one CTE name to the next silently widens when something is
+ * inserted in the gap — `worked_recent` landing between `bad_leads` and
+ * `reg_stats` quietly pulled pace inside the bad-number guard. Bounding each
+ * slice by the CTE's own closing paren means an inserted CTE cannot creep into
+ * a test that never meant to cover it.
+ */
+function cte(name: string): string {
+  const body = new RegExp(`${name} as \\(([\\s\\S]*?)\\n  \\),`).exec(sql);
+  if (!body) throw new Error(`CTE ${name} not found`);
+  return body[1];
+}
 
 describe("list_performance runs as the caller", () => {
   it("is SECURITY INVOKER, never DEFINER", () => {
@@ -130,10 +162,9 @@ describe("the list SIZE is not date-filtered", () => {
     // A list's size is a property of the list, not of the window you are
     // looking through. If this ever took p_start/p_end, "worked" would swing
     // wildly as you moved the date pills and the column would be unreadable.
-    const block = /lead_stats as \(([\s\S]*?)\n  \),/.exec(sql);
-    expect(block, "lead_stats not found").not.toBeNull();
-    expect(block![1]).toContain("deleted_at is null");
-    expect(block![1]).not.toMatch(/p_start|p_end|p_campaign/);
+    const block = cte("lead_stats");
+    expect(block).toContain("deleted_at is null");
+    expect(block).not.toMatch(/p_start|p_end|p_campaign/);
   });
 
   it("excludes deleted leads from the size and from worked", () => {
@@ -152,8 +183,7 @@ describe("nothing is silently dropped", () => {
   it("omits that row when a campaign is selected", () => {
     // A registration with no lead has no calls, so it cannot belong to a
     // campaign; showing it under one would be an invented number.
-    const block = /orphan_regs as \(([\s\S]*?)\n  \),/.exec(sql);
-    expect(block![1]).toMatch(/p_campaign is null/);
+    expect(cte("orphan_regs")).toMatch(/p_campaign is null/);
   });
 
   it("keeps a list that has calls but no live leads", () => {
@@ -343,10 +373,7 @@ describe("the inventory columns ignore the campaign filter too", () => {
     // A dead number is a property of the lead. Scoping it to the selected
     // campaign would make the same list look cleaner under one campaign than
     // another.
-    const bad = sql.slice(
-      sql.indexOf("bad_leads as ("),
-      sql.indexOf("reg_stats as ("),
-    );
+    const bad = cte("bad_leads");
     expect(bad).toContain("c.outcome = 'invalid_number'");
     expect(bad).not.toContain("p_campaign");
     expect(bad).not.toContain("p_start");
@@ -436,22 +463,22 @@ describe("mobileShare", () => {
 });
 
 describe("the economics columns", () => {
-  it("reads the LATEST function definition", () => {
-    // Pinning an older migration would let the live shape drift away from
-    // what these tests claim. 20260907160000 dropped and recreated it again.
-    expect(sql).toMatch(/drop function if exists public\.list_performance/);
-  });
-
   it("uses cohort_rows' no-show rule, 24h grace and all", () => {
     // If these two functions disagree about a show rate, nobody can tell
-    // which page is lying. So the predicate is compared, not paraphrased.
+    // which page is lying. So the predicate is compared, not paraphrased —
+    // all THREE conjuncts, including the cancellation guard, which is the one
+    // most likely to drift because dropping it still returns a plausible
+    // number.
     const cohort = stripComments(
       read("supabase/migrations/20260905130000_cohort_rows_fn.sql"),
     );
     const rule =
-      /attended_at is null\s+and ce\.scheduled_at < now\(\) - interval '24 hours'/;
+      /ce\.status <> 'canceled'\s+and ce\.attended_at is null\s+and ce\.scheduled_at < now\(\) - interval '24 hours'/;
     expect(cohort).toMatch(rule);
-    expect(sql).toMatch(rule);
+    // Both copies. Matching the whole file would pass while one of the two
+    // drifted, because the other still carries the full predicate.
+    expect(cte("reg_stats")).toMatch(rule);
+    expect(cte("orphan_regs")).toMatch(rule);
   });
 
   it("uses cohort_rows' pending rule too", () => {
@@ -459,9 +486,10 @@ describe("the economics columns", () => {
       read("supabase/migrations/20260905130000_cohort_rows_fn.sql"),
     );
     const rule =
-      /attended_at is null\s+and ce\.scheduled_at >= now\(\) - interval '24 hours'/;
+      /ce\.status <> 'canceled'\s+and ce\.attended_at is null\s+and ce\.scheduled_at >= now\(\) - interval '24 hours'/;
     expect(cohort).toMatch(rule);
-    expect(sql).toMatch(rule);
+    expect(cte("reg_stats")).toMatch(rule);
+    expect(cte("orphan_regs")).toMatch(rule);
   });
 
   it("gives the unattributed row its own no_show and pending", () => {
@@ -472,21 +500,36 @@ describe("the economics columns", () => {
   it("measures pace over 7 days, ignoring the date and campaign filters", () => {
     // Pace is a property of NOW. A Days-left that moved with the date pills
     // would be worse than no Days-left at all.
-    const cte = sql.slice(
-      sql.indexOf("worked_recent as ("),
-      sql.indexOf("reg_stats as ("),
-    );
-    expect(cte).toMatch(/created_at >= now\(\) - interval '7 days'/);
-    expect(cte).not.toMatch(/p_start|p_end|p_campaign/);
+    const pace = cte("worked_recent");
+    expect(pace).toMatch(/created_at >= now\(\) - interval '7 days'/);
+    expect(pace).not.toMatch(/p_start|p_end|p_campaign/);
   });
 
-  it("still runs as the caller, and is still granted only to authenticated", () => {
-    // A dropped function is a NEW function: it loses its grant, and it would
-    // default to PUBLIC without the event trigger from 20260906050000.
-    expect(sql).toMatch(/security invoker/);
-    expect(sql).not.toMatch(/security definer/);
-    expect(sql).toMatch(
-      /grant execute on function public\.list_performance\(date, date, uuid, uuid\) to authenticated/,
+  it("counts pace on OUTBOUND calls only, because only dialling burns a list", () => {
+    // calls.direction is not null and is either 'inbound' or 'outbound'. An
+    // inbound call is somebody returning a missed call: it consumes no
+    // inventory, so a Days-left that counted it would claim the Inbound list
+    // was being burned through by calls we never made.
+    //
+    // `worked` in call_stats deliberately does NOT filter direction — it
+    // answers "how many businesses did we interact with", not "how fast are we
+    // consuming the list" — so the asymmetry is intended, not a bug.
+    expect(cte("worked_recent")).toContain("c.direction = 'outbound'");
+    expect(cte("call_stats")).not.toContain("direction");
+  });
+
+  it("re-grants execute AFTER the drop, so the new function is reachable", () => {
+    // A dropped function is a NEW function and takes none of the old one's
+    // privileges with it. A GRANT written above the DROP would land on the
+    // function about to be destroyed, and every signed-in user would get
+    // "permission denied for function list_performance" instead of a page.
+    const dropped = sql.indexOf(
+      "drop function if exists public.list_performance",
     );
+    const granted = sql.indexOf(
+      "grant execute on function public.list_performance",
+    );
+    expect(dropped, "no drop found").toBeGreaterThanOrEqual(0);
+    expect(granted).toBeGreaterThan(dropped);
   });
 });
