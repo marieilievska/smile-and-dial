@@ -1,8 +1,7 @@
 "use server";
 
 import { sanitizeAudienceSearch } from "@/lib/campaigns/audience-filter";
-import type { RecipeNode } from "@/lib/smart-lists/recipe";
-import { runFilterRpc } from "@/lib/smart-lists/resolve";
+import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
 export type AudienceCountResult = {
@@ -56,8 +55,25 @@ export async function countAudienceMatches(input: {
 /**
  * Count how many leads a smart list's saved filter currently matches. Powers
  * the live "matches N leads" preview when a smart list is picked in campaign
- * settings. Uses the same R1 evaluator (leads_matching_filter) as the Leads
- * page so the preview equals what the dialer will see once members refresh.
+ * settings. Uses the same evaluator as the Leads page so the preview equals
+ * what the dialer will see once members refresh.
+ *
+ * This used to page every matching id into JavaScript and return `ids.length`
+ * — 84 round trips for a filter matching most of the table, to produce one
+ * integer. Measured on production 2026-09-07:
+ *
+ *   status is ready_to_call  (83,384 matches)   23,121ms  ->  831ms
+ *   created in last 7 days   (84,032 matches)   26,941ms  ->  813ms
+ *   connected ever            (3,194 matches)      744ms  ->  532ms
+ *
+ * A broad filter is the FIRST thing anyone tries, so the preview taking half a
+ * minute is most of why this feature has sat unused since June.
+ *
+ * `leads_matching_filter_rows` returns `setof leads` rather than `setof uuid`,
+ * which is what makes this possible: PostgREST can put a table-valued function
+ * behind `count=exact` with `head`, so Postgres counts and no rows cross the
+ * wire. The scalar `leads_matching_filter` cannot be counted that way. Both are
+ * SECURITY INVOKER, so RLS scopes the count to the caller either way.
  */
 export async function countSmartListMatches(input: {
   smartListId: string;
@@ -75,10 +91,11 @@ export async function countSmartListMatches(input: {
     .maybeSingle();
   if (!sl) return { count: null, error: "Smart list not found." };
 
-  const { ids, error } = await runFilterRpc(
-    supabase,
-    sl.filter as unknown as RecipeNode,
+  const { count, error } = await supabase.rpc(
+    "leads_matching_filter_rows",
+    { in_recipe: sl.filter as unknown as Json },
+    { count: "exact", head: true },
   );
-  if (error) return { count: null, error };
-  return { count: ids.length, error: null };
+  if (error) return { count: null, error: "Could not run the filter." };
+  return { count: count ?? 0, error: null };
 }

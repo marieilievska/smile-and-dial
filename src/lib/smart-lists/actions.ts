@@ -6,7 +6,6 @@ import type { Json } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
 import { validateRecipe, type RecipeNode } from "./recipe";
-import { runFilterRpc } from "./resolve";
 
 /** Max smart lists one user may own — bounds the membership-refresh cron. */
 const SMART_LIST_CAP = 50;
@@ -24,16 +23,12 @@ async function requireAuth() {
   return { supabase, ok: Boolean(user), userId: user?.id ?? "" };
 }
 
-/** Evaluate a recipe to matching lead ids (admin-gated). A broken recipe
- *  matches nothing (not everything). */
-export async function matchingLeadIds(
-  recipe: RecipeNode,
-): Promise<{ ids: string[]; error: string | null }> {
-  const { supabase, ok } = await requireAuth();
-  if (!ok) return { ids: [], error: "You are not signed in." };
-  if (validateRecipe(recipe)) return { ids: [], error: "Invalid filter." };
-  return runFilterRpc(supabase, recipe);
-}
+// matchingLeadIds() lived here: it resolved a recipe to the full array of
+// matching lead ids by paging leads_matching_filter. Deleted 2026-09-07 with
+// nothing calling it — the Leads page applies the recipe DB-side through
+// leads_matching_filter_rows (#372) and the campaign preview now counts
+// through the same function, so neither needs the ids in JavaScript. It was
+// also the last paged reader of that scalar function.
 
 export async function saveSmartList(input: {
   id?: string;
