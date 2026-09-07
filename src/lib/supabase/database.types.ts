@@ -2684,6 +2684,10 @@ export type Database = {
       call_cost_components: { Args: { j: Json }; Returns: number };
       call_cost_total: { Args: { j: Json }; Returns: number };
       can_manage_users: { Args: { uid: string }; Returns: boolean };
+      cause_of_death_summary: {
+        Args: { p_campaign_ids?: string[]; p_sample?: number; p_since: string };
+        Returns: Json;
+      };
       claim_lead_for_dial: {
         Args: { in_campaign_id: string; in_lead_id: string };
         Returns: boolean;

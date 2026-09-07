@@ -1,5 +1,24 @@
 // Pure cause-of-death assignment. No DB, no React — unit-tested in isolation.
 //
+// THE EXECUTABLE SPECIFICATION. Since 20260907100000 the classification runs in
+// SQL (`cause_of_death_summary`), because the OUTPUT was the expensive part
+// here: returning one row per lead so the app could classify them meant either
+// 7,500 rows — past PostgREST's 1,000-row cap — or the same megabyte of company
+// names in a different shape.
+//
+// So this file no longer runs in production. It is kept because assignCause()
+// below is an ORDERED rule chain where the first match wins, which makes it the
+// kind of thing that goes wrong silently: a branch in the wrong place relabels
+// leads rather than erroring. Written here it can be read, reasoned about and
+// unit-tested.
+//
+// It is not only the reference — it is the CHECK. `npm run verify:cause-of-death`
+// imports these very functions and runs them against the SQL over six
+// production windows, comparing every cause count, every group total, every
+// no-contact sub-reason and the sampled company lists. The script deliberately
+// does NOT re-implement the rules: transcribing them twice would risk making
+// the same misreading twice and calling it agreement.
+//
 // Each worked lead gets ONE primary cause = the furthest stage it reached. A
 // lead's `status` already encodes "still being worked" (ready_to_call / callback)
 // vs "finished" (resting / dnc / goal_met), so no retry-counting is needed.
@@ -98,11 +117,7 @@ export type LeadForCause = {
 
 /** Sub-reasons WITHIN "No real contact" — the furthest we got when there was no
  *  real conversation. Drives the why-detail breakdown under that bucket. */
-export type NoContactReason =
-  | "brushed_off"
-  | "machine"
-  | "no_pickup"
-  | "error";
+export type NoContactReason = "brushed_off" | "machine" | "no_pickup" | "error";
 
 export const NO_CONTACT_LABEL: Record<NoContactReason, string> = {
   brushed_off: "Reached a person, but they hung up / brushed us off",
@@ -203,8 +218,11 @@ export function computeCauseOfDeath(leads: LeadForCause[]): CauseResult {
     const cause = assignCause(lead);
     counts[cause] += 1;
     groups[CAUSE_GROUP[cause]] += 1;
-    const entry: { leadId: string; cause: CauseKey; noContact?: NoContactReason } =
-      { leadId: lead.leadId, cause };
+    const entry: {
+      leadId: string;
+      cause: CauseKey;
+      noContact?: NoContactReason;
+    } = { leadId: lead.leadId, cause };
     if (cause === "no_contact") {
       const r = noContactReason(lead.outcomes);
       if (r) entry.noContact = r;

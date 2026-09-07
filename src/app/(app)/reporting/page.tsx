@@ -216,10 +216,7 @@ async function DashboardTab({
 
 async function CauseOfDeathTab({ kpiScope }: { kpiScope: DashboardKpiScope }) {
   const supabase = await createClient();
-  const { result, companyByLead, objectionsByCause } = await fetchCauseOfDeath(
-    supabase,
-    kpiScope,
-  );
+  const summary = await fetchCauseOfDeath(supabase, kpiScope);
   return (
     <section className="space-y-4">
       <div>
@@ -229,11 +226,7 @@ async function CauseOfDeathTab({ kpiScope }: { kpiScope: DashboardKpiScope }) {
           reason it hasn&apos;t been won. Final losses vs still in play.
         </p>
       </div>
-      <CauseOfDeathView
-        result={result}
-        companyByLead={companyByLead}
-        objectionsByCause={objectionsByCause}
-      />
+      <CauseOfDeathView summary={summary} />
     </section>
   );
 }
