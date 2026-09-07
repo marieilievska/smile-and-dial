@@ -2811,6 +2811,8 @@ export type Database = {
           list_id: string;
           list_name: string;
           mobiles: number;
+          no_show: number;
+          pending: number;
           reached: number;
           regs: number;
           remaining: number;
@@ -2820,6 +2822,7 @@ export type Database = {
           suppressed: number;
           voicemail: number;
           worked: number;
+          worked_7d: number;
         }[];
       };
       merge_campaign: {
