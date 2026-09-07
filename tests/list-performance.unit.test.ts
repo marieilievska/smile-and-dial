@@ -222,6 +222,7 @@ const ROW: ListPerformanceRow = {
   no_show: 4,
   pending: 12,
   worked_7d: 7476,
+  first_dial: "2026-09-02T12:00:00Z",
 };
 
 describe("workedShare", () => {
@@ -297,6 +298,34 @@ describe("totalsFor", () => {
     expect(t.no_show).toBe(4);
     expect(t.pending).toBe(12);
     expect(t.worked_7d).toBe(140);
+  });
+
+  it("takes the EARLIEST first dial rather than summing it", () => {
+    // The combined funnel's pace window starts when the first of its lists
+    // started. A later list joining in does not make the campaign younger, and
+    // adding two timestamps together means nothing at all.
+    const t = totalsFor([
+      { ...ROW, first_dial: "2026-09-04T09:00:00Z" },
+      { ...ROW, first_dial: "2026-09-02T12:32:55Z" },
+      { ...ROW, first_dial: "2026-09-06T23:00:00Z" },
+    ]);
+    expect(t.first_dial).toBe("2026-09-02T12:32:55Z");
+  });
+
+  it("ignores a list that has never been dialled outbound", () => {
+    // Inbound is exactly this row: 46 calls, every one of them inbound. A null
+    // must not win the min and blank out the whole set's pace window.
+    const t = totalsFor([
+      { ...ROW, first_dial: null },
+      { ...ROW, first_dial: "2026-09-02T12:32:55Z" },
+      { ...ROW, first_dial: null },
+    ]);
+    expect(t.first_dial).toBe("2026-09-02T12:32:55Z");
+  });
+
+  it("is null when nothing in the set has ever been dialled", () => {
+    expect(totalsFor([{ ...ROW, first_dial: null }]).first_dial).toBeNull();
+    expect(totalsFor([]).first_dial).toBeNull();
   });
 });
 

@@ -2803,6 +2803,7 @@ export type Database = {
           connected: number;
           dms: number;
           first_call: string;
+          first_dial: string;
           goals: number;
           is_inbound: boolean;
           last_call: string;
