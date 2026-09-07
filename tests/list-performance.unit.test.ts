@@ -38,6 +38,9 @@ const MIGRATION =
   "supabase/migrations/20260906060000_list_performance_reachability.sql";
 const COST_FN =
   "supabase/migrations/20260906055000_call_cost_total_inlinable.sql";
+const ECON = stripComments(
+  read("supabase/migrations/20260907160000_list_performance_economics.sql"),
+);
 
 function read(rel: string): string {
   return readFileSync(
@@ -431,5 +434,61 @@ describe("mobileShare", () => {
 
   it("stays null for a list with no leads", () => {
     expect(mobileShare({ ...ROW, leads: 0, line_typed: 5 })).toBeNull();
+  });
+});
+
+describe("the economics columns", () => {
+  it("reads the LATEST function definition", () => {
+    // Pinning an older migration would let the live shape drift away from
+    // what these tests claim. 20260907160000 dropped and recreated it again.
+    expect(ECON).toMatch(/drop function if exists public\.list_performance/);
+  });
+
+  it("uses cohort_rows' no-show rule, 24h grace and all", () => {
+    // If these two functions disagree about a show rate, nobody can tell
+    // which page is lying. So the predicate is compared, not paraphrased.
+    const cohort = stripComments(
+      read("supabase/migrations/20260905130000_cohort_rows_fn.sql"),
+    );
+    const rule =
+      /attended_at is null\s+and ce\.scheduled_at < now\(\) - interval '24 hours'/;
+    expect(cohort).toMatch(rule);
+    expect(ECON).toMatch(rule);
+  });
+
+  it("uses cohort_rows' pending rule too", () => {
+    const cohort = stripComments(
+      read("supabase/migrations/20260905130000_cohort_rows_fn.sql"),
+    );
+    const rule =
+      /attended_at is null\s+and ce\.scheduled_at >= now\(\) - interval '24 hours'/;
+    expect(cohort).toMatch(rule);
+    expect(ECON).toMatch(rule);
+  });
+
+  it("gives the unattributed row its own no_show and pending", () => {
+    // Otherwise settled + pending = regs breaks on that row.
+    expect(ECON).toMatch(/o\.no_show, o\.pending, 0/);
+  });
+
+  it("measures pace over 7 days, ignoring the date and campaign filters", () => {
+    // Pace is a property of NOW. A Days-left that moved with the date pills
+    // would be worse than no Days-left at all.
+    const cte = ECON.slice(
+      ECON.indexOf("worked_recent as ("),
+      ECON.indexOf("reg_stats as ("),
+    );
+    expect(cte).toMatch(/created_at >= now\(\) - interval '7 days'/);
+    expect(cte).not.toMatch(/p_start|p_end|p_campaign/);
+  });
+
+  it("still runs as the caller, and is still granted only to authenticated", () => {
+    // A dropped function is a NEW function: it loses its grant, and it would
+    // default to PUBLIC without the event trigger from 20260906050000.
+    expect(ECON).toMatch(/security invoker/);
+    expect(ECON).not.toMatch(/security definer/);
+    expect(ECON).toMatch(
+      /grant execute on function public\.list_performance\(date, date, uuid, uuid\) to authenticated/,
+    );
   });
 });
