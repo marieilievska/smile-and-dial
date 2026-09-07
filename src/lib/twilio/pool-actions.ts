@@ -14,6 +14,7 @@ import {
   type AreaCodePlan,
   type StatePlan,
 } from "@/lib/dialer/pool-plan";
+import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import { createClient } from "@/lib/supabase/server";
 import {
   assignAgentToNumber,
@@ -503,22 +504,31 @@ export async function suggestPoolPlan(campaignId: string): Promise<{
 
   // Lead area codes (paginate business_phone — an occasional admin action, so
   // scanning the list is fine; PostgREST caps each page at 1,000 rows).
+  //
+  // The `id` order is not decoration. Postgres guarantees no row order across
+  // separate LIMIT/OFFSET queries, so an unordered pager can hand the same lead
+  // to two pages and never return another — which silently skews the area-code
+  // distribution this whole buying plan is computed from. Measured on
+  // production: the equivalent unordered pager on `calls` counted a third of
+  // its window twice. Order by the primary key, not a business column: ties on
+  // a non-unique column are free to reorder between pages, which is the same
+  // bug in a smaller costume.
+  const leadRows = await fetchAllRows<{ business_phone: string | null }>(
+    (from, to) =>
+      supabase
+        .from("leads")
+        .select("business_phone")
+        .in("list_id", listIds)
+        .is("deleted_at", null)
+        .not("business_phone", "is", null)
+        .order("id", { ascending: true })
+        .range(from, to),
+    { max: 200_000 },
+  );
   const leadAreaCodes: string[] = [];
-  const PAGE = 1000;
-  for (let from = 0; from < 200_000; from += PAGE) {
-    const { data } = await supabase
-      .from("leads")
-      .select("business_phone")
-      .in("list_id", listIds)
-      .is("deleted_at", null)
-      .not("business_phone", "is", null)
-      .range(from, from + PAGE - 1);
-    const rows = data ?? [];
-    for (const r of rows) {
-      const ac = areaCodeOf(r.business_phone);
-      if (ac) leadAreaCodes.push(ac);
-    }
-    if (rows.length < PAGE) break;
+  for (const r of leadRows) {
+    const ac = areaCodeOf(r.business_phone);
+    if (ac) leadAreaCodes.push(ac);
   }
 
   // Active pool numbers already owned, per area code.
