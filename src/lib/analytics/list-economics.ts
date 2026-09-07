@@ -164,7 +164,13 @@ export function daysLeft(
   const started = new Date(firstCall).getTime();
   if (Number.isNaN(started)) return null;
   const ageDays = (now.getTime() - started) / 86_400_000;
-  const paceDays = Math.max(1, Math.min(7, ageDays));
+  // Quantised to whole days so the column holds still. Dividing by a
+  // continuously growing age made this creep upward hour by hour on a list
+  // younger than a week — 51 at midnight, 61 by the evening, with nothing
+  // having actually changed. A number that moves while you watch it stops
+  // being believed. Across days it still moves, and should: pausing the
+  // dialler genuinely does lengthen how long the list will take.
+  const paceDays = Math.max(1, Math.min(7, Math.round(ageDays)));
   const pace = t.worked_7d / paceDays;
   if (!Number.isFinite(pace) || pace <= 0) return null;
   return Math.ceil(t.remaining / pace);

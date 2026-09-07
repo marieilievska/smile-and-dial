@@ -232,6 +232,28 @@ describe("daysLeft", () => {
     expect(daysLeft({ ...LIVE, remaining: 0 }, FIRST_DIAL, NOW)).toBe(0);
   });
 
+  it("steps at most once a day rather than creeping hour by hour", () => {
+    // Dividing by a continuously growing age made this drift upward all day
+    // with nothing having changed — 51 at midnight, 61 by the evening. A
+    // number that moves while you watch it stops being believed.
+    //
+    // Quantising the age to whole days cannot remove the step entirely, and
+    // should not: a day passing IS a real change, and a paused dialler really
+    // does lengthen how long a list will take. What it removes is the creep.
+    const hourly = Array.from({ length: 24 }, (_, h) =>
+      daysLeft(
+        LIVE,
+        FIRST_DIAL,
+        new Date(`2026-09-07T${String(h).padStart(2, "0")}:00:00Z`),
+      ),
+    );
+
+    expect(new Set(hourly).size).toBeLessThanOrEqual(2);
+    // And the value the rest of this block asserts is the one it settles on.
+    expect(hourly[12]).toBe(56);
+    expect(hourly[23]).toBe(56);
+  });
+
   it("rounds a nearly-finished list up to 1, never down into that zero", () => {
     // 300 leads at ~1,500 a day is a fifth of a day. Rounding to nearest hands
     // it the same 0 the line above reserves for an EMPTY list, so "a few hours
