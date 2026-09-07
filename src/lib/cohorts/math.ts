@@ -80,14 +80,27 @@ export function rollingRates(rows: readonly RateInput[]): Rates {
  * This is the number that can be steered by TODAY. Cost per registration is
  * knowable the same day; cost per sale is not knowable for a week or more. So
  * the projection carries the daily signal, and ripe cohorts check it.
+ *
+ * Every input is checked for finiteness, not just for sign. `NaN <= 0` is
+ * false, so a bare sign check waves a NaN straight through and returns one --
+ * and a NaN rate poisons every consumer downstream of it, including the
+ * bottleneck callout, which skips a non-finite `kept` and would silently drop
+ * the row instead of flagging it.
  */
 export function projectedCostPerSale(
   costPerRegistration: number | null,
   showRate: number | null,
   closeRate: number | null,
 ): number | null {
-  if (costPerRegistration === null || costPerRegistration <= 0) return null;
-  if (showRate === null || showRate <= 0) return null;
-  if (closeRate === null || closeRate <= 0) return null;
+  if (costPerRegistration === null || !Number.isFinite(costPerRegistration)) {
+    return null;
+  }
+  if (costPerRegistration <= 0) return null;
+  if (showRate === null || !Number.isFinite(showRate) || showRate <= 0) {
+    return null;
+  }
+  if (closeRate === null || !Number.isFinite(closeRate) || closeRate <= 0) {
+    return null;
+  }
   return costPerRegistration / (showRate * closeRate);
 }

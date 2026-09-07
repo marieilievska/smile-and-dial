@@ -15,6 +15,7 @@
     "verify:analytics": "node --env-file=.env.local scripts/verify-analytics-parity.mjs",
     "verify:reporting": "node --env-file=.env.local scripts/verify-reporting-parity.mjs",
     "verify:cause-of-death": "node --experimental-strip-types --env-file=.env.local scripts/verify-cause-of-death-parity.mjs",
+    "verify:list-economics": "node --env-file=.env.local scripts/verify-list-economics.mjs",
     "seed:presell-fields": "node --experimental-strip-types --env-file=.env.local scripts/seed-presell-research-fields.mjs",
     "prepare": "husky",
     "verify:numbers": "node --experimental-strip-types --env-file=.env.local scripts/verify-numbers-parity.mjs",

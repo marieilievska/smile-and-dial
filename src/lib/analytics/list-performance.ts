@@ -8,8 +8,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * nullability for a function's `RETURNS TABLE` columns, so it types every one
  * of them non-null — but `list_performance` returns one extra row with a null
  * id for registrations that could not be traced back to a lead, and the same is
- * true of `first_call` / `last_call` on a list that has never been dialled. Do
- * not "correct" these to match the generated type.
+ * true of `first_call` / `last_call` on a list that has never been dialled, and
+ * of `first_dial` on one never dialled OUTBOUND. Do not "correct" any of these
+ * to match the generated type.
  */
 export type ListPerformanceRow = {
   /** Null on the single "Unattributed" row — registrations with no lead. */
@@ -56,6 +57,24 @@ export type ListPerformanceRow = {
   /** Still-workable inventory. NOT the dial queue, which is clock-gated and
    *  reads zero overnight — see the migration header. */
   remaining: number;
+
+  // --- economics (phase 3) -------------------------------------------------
+  /** Settled registrations that did not attend. Follows the date window like
+   *  `regs`. With `attended` this gives the only honest show-rate denominator. */
+  no_show: number;
+  /** Registrations whose session has not happened, or has not reconciled yet.
+   *  NOT no-shows — counting them as such understates the show rate badly. */
+  pending: number;
+  /** Distinct live leads dialled OUTBOUND in the last 7 days. Inventory, not
+   *  activity: follows neither the date pills nor the campaign filter, because
+   *  pace is a property of now. Inbound calls are excluded deliberately — they
+   *  are people returning a missed call and consume no list. Backs "Days left". */
+  worked_7d: number;
+  /** The first time this list was ever dialled, unfiltered — inventory, like
+   *  `remaining`. Distinct from `first_call`, which follows the date and
+   *  campaign filters; using that one for pace makes a list's remaining life
+   *  swing fivefold when you click a date pill. Null if never dialled. */
+  first_dial: string | null;
 };
 
 export type ListPerformanceFilters = {
@@ -172,6 +191,13 @@ export function isUnattributed(row: ListPerformanceRow): boolean {
  * Counts are summed; the rates are recomputed from the summed parts rather than
  * averaged, because an average of per-list percentages weights a 42-lead list
  * the same as an 84,000-lead one.
+ *
+ * `first_dial` is the one field that is NOT summed — adding two timestamps
+ * together is meaningless. It is the EARLIEST non-null first dial across the
+ * rows, because the combined funnel is dialling that started when the first of
+ * its lists started, and `daysLeft` needs one pace window for the whole set. A
+ * later list joining in does not make the campaign younger. Null only when no
+ * row has ever been dialled outbound.
  */
 export function totalsFor(rows: readonly ListPerformanceRow[]): {
   leads: number;
@@ -192,6 +218,11 @@ export function totalsFor(rows: readonly ListPerformanceRow[]): {
   suppressed: number;
   resting: number;
   remaining: number;
+  no_show: number;
+  pending: number;
+  worked_7d: number;
+  /** Earliest non-null `first_dial`, not a sum — see the doc comment. */
+  first_dial: string | null;
 } {
   const acc = {
     leads: 0,
@@ -212,6 +243,10 @@ export function totalsFor(rows: readonly ListPerformanceRow[]): {
     suppressed: 0,
     resting: 0,
     remaining: 0,
+    no_show: 0,
+    pending: 0,
+    worked_7d: 0,
+    first_dial: null as string | null,
   };
   for (const r of rows) {
     acc.leads += r.leads;
@@ -232,6 +267,22 @@ export function totalsFor(rows: readonly ListPerformanceRow[]): {
     acc.suppressed += r.suppressed;
     acc.resting += r.resting;
     acc.remaining += r.remaining;
+    acc.no_show += r.no_show;
+    acc.pending += r.pending;
+    acc.worked_7d += r.worked_7d;
+    // Min, not sum. Compared as instants rather than as strings: PostgREST
+    // renders these in UTC today, so lexical order would happen to work, but
+    // one row carrying a different offset would silently reverse it.
+    if (r.first_dial !== null) {
+      const t = Date.parse(r.first_dial);
+      if (!Number.isNaN(t)) {
+        const best =
+          acc.first_dial === null ? null : Date.parse(acc.first_dial);
+        if (best === null || Number.isNaN(best) || t < best) {
+          acc.first_dial = r.first_dial;
+        }
+      }
+    }
   }
   return acc;
 }
