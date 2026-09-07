@@ -7,7 +7,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CONNECTED_OUTCOMES } from "@/lib/calls/outcomes";
 import { regionForAreaCode } from "@/lib/dialer/nanp-states";
 import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 import { createClient } from "@/lib/supabase/server";
@@ -32,13 +31,28 @@ import {
 
 /** A call is "connected" when a PERSON picked up — the app-wide
  *  CONNECTED_OUTCOMES list (outcomes.ts), the same one the Today, Calls,
- *  Reporting and Analytics connect rates use. The SQL behind the trend
- *  sparkline / 24h figure (refresh_twilio_number_daily_stats,
- *  monitor_twilio_connect_rates) mirrors that list; keep them in step. The old
- *  local "everything except voicemail/no_answer/busy/failed/invalid_number"
- *  rule counted an AI receptionist bot answering as a connection. */
+ *  Reporting and Analytics connect rates use. Since 20260907110000 the counting
+ *  happens in `number_performance_summary`, which carries that list inline
+ *  under a `-- CONNECTED_OUTCOMES` marker; tests/number-performance-summary
+ *  .unit.test.ts fails if the two drift. The SQL behind the trend sparkline /
+ *  24h figure (refresh_twilio_number_daily_stats, monitor_twilio_connect_rates)
+ *  mirrors it too. The old local "everything except voicemail/no_answer/busy/
+ *  failed/invalid_number" rule counted an AI receptionist bot answering as a
+ *  connection. */
 
 type Row = { calls: number; connected: number };
+
+/** One `{key: {calls, connected}}` section of the RPC's jsonb, as a Map — the
+ *  shape the panel below already reads. Values are coerced because a jsonb
+ *  number arrives typed only by convention. */
+function toRows(raw: Record<string, { calls?: number; connected?: number }>) {
+  return new Map<string, Row>(
+    Object.entries(raw).map(([k, v]) => [
+      k,
+      { calls: Number(v?.calls ?? 0), connected: Number(v?.connected ?? 0) },
+    ]),
+  );
+}
 
 function rate(r: Row): number | null {
   return r.calls > 0 ? r.connected / r.calls : null;
@@ -66,77 +80,66 @@ export async function NumbersPanel({ days = 30 }: { days?: number }) {
   // Whole Eastern days on created_at — the app-wide "calls" window/column.
   const since = etMidnightUtcIso(etDateDaysAgo(days, now));
 
-  // Outbound calls in the window, with the tier recorded at placement.
-  // Paginate: PostgREST hard-caps every response at 1,000 rows, so a plain
-  // select would quietly undercount once volume builds.
-  type CallRow = {
-    outcome: string | null;
-    local_match: string | null;
-    dest_country: string | null;
-    twilio_number_id: string | null;
-  };
-  const calls: CallRow[] = [];
-  for (let from = 0; from < 100_000; from += 1000) {
-    const { data } = await supabase
-      .from("calls")
-      .select("outcome, local_match, dest_country, twilio_number_id")
-      .eq("direction", "outbound")
-      .gte("created_at", since)
-      .range(from, from + 999);
-    const page = (data ?? []) as CallRow[];
-    calls.push(...page);
-    if (page.length < 1000) break;
-  }
-
-  const byMatch = new Map<string, Row>();
-  const byCountry = new Map<string, Row>();
-  const byNumber = new Map<string, Row>();
-  for (const c of calls) {
-    // ai_error = OUR quota/platform failure, not a real call — exclude it from
-    // both the connected count AND the denominator so an EL credit outage
-    // doesn't distort a number's connect rate.
-    if (c.outcome === "ai_error") continue;
-    const connected = c.outcome !== null && CONNECTED_OUTCOMES.has(c.outcome);
-    const bump = (m: Map<string, Row>, k: string) => {
-      const r = m.get(k) ?? { calls: 0, connected: 0 };
-      r.calls++;
-      if (connected) r.connected++;
-      m.set(k, r);
-    };
-    // Only calls placed since local_match started being recorded can answer the
-    // local-presence question; older rows are null and are excluded rather than
-    // lumped in as "not local", which would understate the baseline.
-    if (c.local_match) bump(byMatch, c.local_match);
-    if (c.dest_country) bump(byCountry, c.dest_country);
-    if (c.twilio_number_id) bump(byNumber, c.twilio_number_id);
-  }
-
-  const { data: numberRows } = await supabase
-    .from("twilio_numbers")
-    .select(
-      "id, phone_number, area_code, pool_status, rested_until, flagged_for_rotation, released_at, attached_campaign_id, last_connect_rate_24h, last_calls_count_24h",
-    )
-    .is("released_at", null)
-    .order("area_code");
-  const numbers = numberRows ?? [];
-
-  const { data: campaignRows } = await supabase
-    .from("campaigns")
-    .select("id, name");
-  const campaignName = new Map((campaignRows ?? []).map((c) => [c.id, c.name]));
-
   // 14-day history for the sparkline, oldest first.
   const historySince = etDateDaysAgo(14);
-  // Paged: 14 days × N numbers passes PostgREST's 1,000-row cap at ~72
-  // numbers, and the rows dropped were the newest — exactly the ones shown.
-  const statRows = await fetchAllRows((from, to) =>
+
+  // Four independent reads, in parallel. They used to run one after another
+  // behind an eight-page scan of `calls` — 7,798 rows pulled into a for-loop to
+  // produce about 200 integers, which was 3,970ms of the tab's 3,300-3,700ms.
+  // `number_performance_summary` (20260907110000) does that counting in SQL;
+  // nothing below depends on anything else below.
+  const [summary, numberRes, campaignRes, statRows] = await Promise.all([
+    supabase.rpc("number_performance_summary", { p_since: since }),
     supabase
-      .from("twilio_number_daily_stats")
-      .select("twilio_number_id, day, calls, connected, connect_rate")
-      .gte("day", historySince)
-      .order("day", { ascending: true })
-      .order("twilio_number_id", { ascending: true })
-      .range(from, to),
+      .from("twilio_numbers")
+      .select(
+        "id, phone_number, area_code, pool_status, rested_until, flagged_for_rotation, released_at, attached_campaign_id, last_connect_rate_24h, last_calls_count_24h",
+      )
+      .is("released_at", null)
+      .order("area_code"),
+    supabase.from("campaigns").select("id, name"),
+    // Paged: 14 days × N numbers passes PostgREST's 1,000-row cap at ~72
+    // numbers, and the rows dropped were the newest — exactly the ones shown.
+    fetchAllRows((from, to) =>
+      supabase
+        .from("twilio_number_daily_stats")
+        .select("twilio_number_id, day, calls, connected, connect_rate")
+        .gte("day", historySince)
+        .order("day", { ascending: true })
+        .order("twilio_number_id", { ascending: true })
+        .range(from, to),
+    ),
+  ]);
+
+  // Fail loud on the two reads whose absence would be indistinguishable from a
+  // real answer: an empty summary renders a confident "no calls carry a tier"
+  // and a scoreboard of dashes, and an empty number list renders "No numbers in
+  // the pool yet." Both used to be silent. The campaign names and the sparkline
+  // history degrade honestly on their own — a missing label reads as "Unknown",
+  // a missing history as "no trend yet" — so they stay non-fatal.
+  if (summary.error) {
+    throw new Error(`Number performance failed: ${summary.error.message}`);
+  }
+  if (numberRes.error) {
+    throw new Error(`Number pool failed: ${numberRes.error.message}`);
+  }
+
+  const raw = (summary.data ?? {}) as {
+    byMatch?: Record<string, { calls: number; connected: number }>;
+    byCountry?: Record<string, { calls: number; connected: number }>;
+    byNumber?: Record<string, { calls: number; connected: number }>;
+  };
+  // Only calls placed since local_match started being recorded can answer the
+  // local-presence question; older rows are null and are excluded rather than
+  // lumped in as "not local", which would understate the baseline. The SQL
+  // skips those nulls per group, so they never reach these maps.
+  const byMatch = toRows(raw.byMatch ?? {});
+  const byCountry = toRows(raw.byCountry ?? {});
+  const byNumber = toRows(raw.byNumber ?? {});
+
+  const numbers = numberRes.data ?? [];
+  const campaignName = new Map(
+    (campaignRes.data ?? []).map((c) => [c.id, c.name]),
   );
   const historyByNumber = new Map<string, DailyStat[]>();
   for (const s of statRows) {
@@ -293,7 +296,9 @@ export async function NumbersPanel({ days = 30 }: { days?: number }) {
                 <TableHead>Region</TableHead>
                 <TableHead>Campaign</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Outbound calls ({days}d)</TableHead>
+                <TableHead className="text-right">
+                  Outbound calls ({days}d)
+                </TableHead>
                 <TableHead className="text-right">Connect</TableHead>
                 <TableHead>Trend (14d)</TableHead>
               </TableRow>

@@ -2841,6 +2841,7 @@ export type Database = {
         Args: { in_direction: string; in_id: string };
         Returns: string;
       };
+      number_performance_summary: { Args: { p_since: string }; Returns: Json };
       pool_number_usage_24h: {
         Args: { in_campaign_id: string };
         Returns: {
