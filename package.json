@@ -17,7 +17,8 @@
     "verify:cause-of-death": "node --experimental-strip-types --env-file=.env.local scripts/verify-cause-of-death-parity.mjs",
     "seed:presell-fields": "node --experimental-strip-types --env-file=.env.local scripts/seed-presell-research-fields.mjs",
     "prepare": "husky",
-    "verify:numbers": "node --experimental-strip-types --env-file=.env.local scripts/verify-numbers-parity.mjs"
+    "verify:numbers": "node --experimental-strip-types --env-file=.env.local scripts/verify-numbers-parity.mjs",
+    "smoke:roles": "node --env-file=.env.local scripts/smoke-roles.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [
