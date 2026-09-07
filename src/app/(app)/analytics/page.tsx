@@ -33,8 +33,7 @@ import { BestTimeHeatmap } from "./best-time-heatmap";
 import { CampaignLeaderboard, OutcomeBreakdown } from "./charts";
 import { FunnelEconomicsSection } from "./funnel-economics-section";
 import { KpiTile } from "./kpi-tile";
-import { ListPerformanceSection } from "./list-performance-section";
-import { ListReachabilitySection } from "./list-reachability-section";
+import { ListEconomicsTable } from "./list-economics-table";
 import { dateRangeLabel } from "@/lib/time/eastern";
 import { isSuperAdmin } from "@/lib/auth/roles";
 
@@ -394,8 +393,8 @@ export default async function AnalyticsPage({
            *  below then answers "…and which list", which only makes sense once
            *  you know what you are looking for.
            *
-           *  Fed by totalsFor(listRows) — the SAME rows the two sections below
-           *  render, so the panels cannot disagree about how many
+           *  Fed by totalsFor(listRows) — the SAME rows the table below
+           *  renders, so the two panels cannot disagree about how many
            *  registrations there were or what was spent getting them. */}
           <FunnelEconomicsSection
             totals={totalsFor(listRows)}
@@ -403,20 +402,34 @@ export default async function AnalyticsPage({
             rangeLabel={rangeLabel}
           />
 
-          {/* Which lead list was worth the money. Full width: it carries the
-           *  denominators (list size, how much of it has been worked) that make
-           *  one list comparable to another, and those need the room. */}
-          <ListPerformanceSection
+          {/* Which lead list was worth the money, and whether it is still
+           *  worth dialling — one table, because that was always one question.
+           *
+           *  This was two sections stacked until the funnel panel landed:
+           *  fourteen columns of performance, then ten of reachability,
+           *  repeating List / Leads / Worked and scrolling twenty-four
+           *  columns sideways to show two rows of data. The funnel panel directly above now carries the
+           *  chain — calls, connects, decision-makers, goals, sales — with
+           *  conversion and cost at every step, which is what those count
+           *  columns were reaching for and could not show. Nothing was lost:
+           *  the counts moved UP into the funnel, and Mobiles / Bad no. /
+           *  Suppressed / Resting moved INTO the Remaining hover — on
+           *  production they read —, 0, 36 and 400, four near-zero columns
+           *  charging real page width for numbers nobody sorts by.
+           *
+           *  What is left is the part a funnel cannot answer — how these
+           *  lists differ from one another — plus two things neither old
+           *  table had: $/att, and how many days of dialling a list has left.
+           *
+           *  Still fed by the same listRows the funnel is, so the two
+           *  panels cannot disagree about how many registrations there were
+           *  or what was spent getting them. */}
+          <ListEconomicsTable
             rows={listRows}
             period={listPeriod}
             rangeLabel={rangeLabel}
             baseParams={baseParams}
           />
-
-          {/* …and whether it is still worth dialling. Same rows, so the two
-           *  sections can never disagree about how big a list is or how much
-           *  of it has been worked. */}
-          <ListReachabilitySection rows={listRows} baseParams={baseParams} />
 
           {/* Best time to call heatmap — workspace-wide connect-rate signal. */}
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid grid-cols-1 gap-4 delay-250 duration-500 lg:grid-cols-2">

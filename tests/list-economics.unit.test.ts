@@ -4,6 +4,7 @@ import { MIN_LEAK_SAMPLE } from "@/lib/analytics/stats";
 import { MIN_SHOW_SAMPLE } from "@/lib/cohorts/math";
 import {
   buildEconomicsFunnel,
+  costPerAttended,
   daysLeft,
   projectedCostPerAttended,
   projectionConfidence,
@@ -115,6 +116,50 @@ describe("projectedCostPerAttended", () => {
   });
 });
 
+describe("costPerAttended", () => {
+  it("is the whole composition, spend to attendee", () => {
+    // $747.98 over 20 registrations is $37.40; 4 of 8 settled is a 50% show
+    // rate; so an attendee projects to $74.80. Verified against production
+    // on 2026-09-07.
+    expect(costPerAttended(LIVE)).toBeCloseTo(74.8, 2);
+  });
+
+  it("is exactly what the funnel's Attended step prices", () => {
+    // One definition, three callers. If these two ever diverge, the table and
+    // the panel above it are quoting different prices for the same attendee.
+    const attended = buildEconomicsFunnel(LIVE).find(
+      (s) => s.label === "Attended",
+    );
+    expect(costPerAttended(LIVE)).toBe(attended?.costEach);
+  });
+
+  it("is null for spend nothing has landed against", () => {
+    // costPer refuses a zero SPEND, not just a zero denominator: no cost rows
+    // does not mean the calls were free. The unattributed row is exactly this.
+    expect(costPerAttended({ ...LIVE, spend: 0 })).toBeNull();
+  });
+
+  it("is null while nothing has settled, rather than free or infinite", () => {
+    expect(
+      costPerAttended({ ...LIVE, attended: 0, no_show: 0, pending: 20 }),
+    ).toBeNull();
+  });
+
+  it("is null for a list with no registrations at all", () => {
+    // The Inbound list today: real spend, nothing booked off it.
+    expect(
+      costPerAttended({
+        ...LIVE,
+        regs: 0,
+        attended: 0,
+        no_show: 0,
+        pending: 0,
+        spend: 1.99,
+      }),
+    ).toBeNull();
+  });
+});
+
 describe("projectionConfidence", () => {
   it("hides a projection built on almost nothing", () => {
     expect(projectionConfidence(0)).toBe("hidden");
@@ -185,6 +230,28 @@ describe("daysLeft", () => {
 
   it("is zero when there is nothing left", () => {
     expect(daysLeft({ ...LIVE, remaining: 0 }, FIRST_DIAL, NOW)).toBe(0);
+  });
+
+  it("steps at most once a day rather than creeping hour by hour", () => {
+    // Dividing by a continuously growing age made this drift upward all day
+    // with nothing having changed — 51 at midnight, 61 by the evening. A
+    // number that moves while you watch it stops being believed.
+    //
+    // Quantising the age to whole days cannot remove the step entirely, and
+    // should not: a day passing IS a real change, and a paused dialler really
+    // does lengthen how long a list will take. What it removes is the creep.
+    const hourly = Array.from({ length: 24 }, (_, h) =>
+      daysLeft(
+        LIVE,
+        FIRST_DIAL,
+        new Date(`2026-09-07T${String(h).padStart(2, "0")}:00:00Z`),
+      ),
+    );
+
+    expect(new Set(hourly).size).toBeLessThanOrEqual(2);
+    // And the value the rest of this block asserts is the one it settles on.
+    expect(hourly[12]).toBe(56);
+    expect(hourly[23]).toBe(56);
   });
 
   it("rounds a nearly-finished list up to 1, never down into that zero", () => {

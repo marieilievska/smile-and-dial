@@ -93,6 +93,23 @@ export function projectedCostPerAttended(
 }
 
 /**
+ * What an attendee costs this list, end to end.
+ *
+ * The composition every consumer needs: spend over registrations, then divided
+ * by the SETTLED show rate. It lives here rather than in a view because it is
+ * two guards deep -- `costPer` refuses a zero spend, `showRate` refuses an
+ * unsettled cohort -- and a caller that composed it by hand could get either
+ * one wrong without the number looking wrong.
+ *
+ * One definition, three callers: the funnel's Attended step, a table row, and
+ * that table's footer. They cannot disagree about the same number because
+ * there is only one of it.
+ */
+export function costPerAttended(t: EconomicsTotals): number | null {
+  return projectedCostPerAttended(costPer(t.spend, t.regs), showRate(t));
+}
+
+/**
  * How much to trust a projection built on `settled` cases.
  *
  * `MIN_SHOW_SAMPLE` is imported, never redefined: if ten is ever the wrong
@@ -147,7 +164,13 @@ export function daysLeft(
   const started = new Date(firstCall).getTime();
   if (Number.isNaN(started)) return null;
   const ageDays = (now.getTime() - started) / 86_400_000;
-  const paceDays = Math.max(1, Math.min(7, ageDays));
+  // Quantised to whole days so the column holds still. Dividing by a
+  // continuously growing age made this creep upward hour by hour on a list
+  // younger than a week — 51 at midnight, 61 by the evening, with nothing
+  // having actually changed. A number that moves while you watch it stops
+  // being believed. Across days it still moves, and should: pausing the
+  // dialler genuinely does lengthen how long the list will take.
+  const paceDays = Math.max(1, Math.min(7, Math.round(ageDays)));
   const pace = t.worked_7d / paceDays;
   if (!Number.isFinite(pace) || pace <= 0) return null;
   return Math.ceil(t.remaining / pace);
@@ -240,7 +263,6 @@ export function buildEconomicsFunnel(
 
   const settled = settledCount(t);
   const rateOfShow = showRate(t);
-  const costPerReg = costPer(t.spend, t.regs);
 
   return [
     plain("Businesses dialled", t.worked, null),
@@ -255,7 +277,7 @@ export function buildEconomicsFunnel(
       // is not a miss, and must not drag the rate down.
       kept: rateOfShow,
       sample: settled,
-      costEach: projectedCostPerAttended(costPerReg, rateOfShow),
+      costEach: costPerAttended(t),
       projected: true,
       confidence: projectionConfidence(settled),
       pending: t.pending,
