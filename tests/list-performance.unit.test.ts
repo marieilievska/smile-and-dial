@@ -31,16 +31,14 @@ import {
  *     other member's lists through a report that looks correctly scoped.
  */
 
-// The LATEST definition, not the first. 20260906060000 dropped and recreated
-// the function to widen it, so pinning the original file would let the live
-// shape drift away from what these tests claim.
+// The LATEST definition, not the first. 20260907160000 dropped and recreated
+// the function again (this time to add the economics columns), so pinning an
+// earlier file would let the live shape drift away from what these tests
+// claim.
 const MIGRATION =
-  "supabase/migrations/20260906060000_list_performance_reachability.sql";
+  "supabase/migrations/20260907160000_list_performance_economics.sql";
 const COST_FN =
   "supabase/migrations/20260906055000_call_cost_total_inlinable.sql";
-const ECON = stripComments(
-  read("supabase/migrations/20260907160000_list_performance_economics.sql"),
-);
 
 function read(rel: string): string {
   return readFileSync(
@@ -441,7 +439,7 @@ describe("the economics columns", () => {
   it("reads the LATEST function definition", () => {
     // Pinning an older migration would let the live shape drift away from
     // what these tests claim. 20260907160000 dropped and recreated it again.
-    expect(ECON).toMatch(/drop function if exists public\.list_performance/);
+    expect(sql).toMatch(/drop function if exists public\.list_performance/);
   });
 
   it("uses cohort_rows' no-show rule, 24h grace and all", () => {
@@ -453,7 +451,7 @@ describe("the economics columns", () => {
     const rule =
       /attended_at is null\s+and ce\.scheduled_at < now\(\) - interval '24 hours'/;
     expect(cohort).toMatch(rule);
-    expect(ECON).toMatch(rule);
+    expect(sql).toMatch(rule);
   });
 
   it("uses cohort_rows' pending rule too", () => {
@@ -463,20 +461,20 @@ describe("the economics columns", () => {
     const rule =
       /attended_at is null\s+and ce\.scheduled_at >= now\(\) - interval '24 hours'/;
     expect(cohort).toMatch(rule);
-    expect(ECON).toMatch(rule);
+    expect(sql).toMatch(rule);
   });
 
   it("gives the unattributed row its own no_show and pending", () => {
     // Otherwise settled + pending = regs breaks on that row.
-    expect(ECON).toMatch(/o\.no_show, o\.pending, 0/);
+    expect(sql).toMatch(/o\.no_show, o\.pending, 0/);
   });
 
   it("measures pace over 7 days, ignoring the date and campaign filters", () => {
     // Pace is a property of NOW. A Days-left that moved with the date pills
     // would be worse than no Days-left at all.
-    const cte = ECON.slice(
-      ECON.indexOf("worked_recent as ("),
-      ECON.indexOf("reg_stats as ("),
+    const cte = sql.slice(
+      sql.indexOf("worked_recent as ("),
+      sql.indexOf("reg_stats as ("),
     );
     expect(cte).toMatch(/created_at >= now\(\) - interval '7 days'/);
     expect(cte).not.toMatch(/p_start|p_end|p_campaign/);
@@ -485,9 +483,9 @@ describe("the economics columns", () => {
   it("still runs as the caller, and is still granted only to authenticated", () => {
     // A dropped function is a NEW function: it loses its grant, and it would
     // default to PUBLIC without the event trigger from 20260906050000.
-    expect(ECON).toMatch(/security invoker/);
-    expect(ECON).not.toMatch(/security definer/);
-    expect(ECON).toMatch(
+    expect(sql).toMatch(/security invoker/);
+    expect(sql).not.toMatch(/security definer/);
+    expect(sql).toMatch(
       /grant execute on function public\.list_performance\(date, date, uuid, uuid\) to authenticated/,
     );
   });
