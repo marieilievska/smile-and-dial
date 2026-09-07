@@ -40,14 +40,26 @@ function stripComments(sql: string): string {
   return sql.replace(/--[^\n]*/g, "");
 }
 
-/** Newest-first list of migration file contents. */
+/**
+ * Newest-first list of migration file contents, read once.
+ *
+ * Cached because this is called by nearly every test in the file and there are
+ * 206 migrations totalling ~1.3 MB. Re-reading them per call made this file
+ * take over five seconds — vitest's default per-test timeout — whenever the
+ * suite ran with enough workers to contend for the disk, so it failed maybe one
+ * run in three while passing on its own. A guard that has to be re-run until it
+ * goes green is a guard people learn to ignore.
+ */
+let migrationCache: string[] | null = null;
 function migrationsNewestFirst(): string[] {
+  if (migrationCache) return migrationCache;
   const dir = fileURLToPath(new URL(`../${MIGRATIONS}`, import.meta.url));
-  return readdirSync(dir)
+  migrationCache = readdirSync(dir)
     .filter((f) => f.endsWith(".sql"))
     .sort()
     .reverse()
     .map((f) => read(`${MIGRATIONS}/${f}`));
+  return migrationCache;
 }
 
 /** The most recent migration that (re)defines `needle`, comments stripped. */

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -112,11 +112,38 @@ function stripComments(src: string): string {
 }
 
 function sourceFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((entry) => {
-    const full = `${dir}/${entry}`;
-    if (statSync(full).isDirectory()) return sourceFiles(full);
-    return /\.tsx?$/.test(entry) ? [full] : [];
+  // withFileTypes rather than a statSync per entry: same answer, a third of the
+  // syscalls, and this walks all 531 files under src/.
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) return sourceFiles(full);
+    return /\.tsx?$/.test(entry.name) ? [full] : [];
   });
+}
+
+/**
+ * Every source file, read and comment-stripped ONCE.
+ *
+ * The scan reads ~3.1 MB across 531 files, and reading is most of its cost.
+ * Doing that per test pushed this file past vitest's 5-second per-test timeout
+ * whenever the suite ran with enough workers to contend for the disk — it
+ * passed alone and failed about one full run in three. A guard that has to be
+ * re-run until it goes green is a guard people learn to ignore, so it is read
+ * once and shared.
+ */
+type Source = { rel: string; raw: string; stripped: string };
+let sourceCache: Source[] | null = null;
+function allSources(): Source[] {
+  if (sourceCache) return sourceCache;
+  sourceCache = sourceFiles(SRC).map((file) => {
+    const raw = readFileSync(file, "utf8");
+    return {
+      rel: file.slice(SRC.length + 1).replace(/\\/g, "/"),
+      raw,
+      stripped: stripComments(raw),
+    };
+  });
+  return sourceCache;
 }
 
 /**
@@ -169,10 +196,8 @@ function isPaged(src: string, rangeIdx: number): boolean {
 
 function badPagers(): string[] {
   const offenders: string[] = [];
-  for (const file of sourceFiles(SRC)) {
-    const rel = file.slice(SRC.length + 1).replace(/\\/g, "/");
+  for (const { rel, stripped: src } of allSources()) {
     if (rel in ORDERED_ELSEWHERE) continue;
-    const src = stripComments(readFileSync(file, "utf8"));
     const re = /\.range\(/g;
     for (let m = re.exec(src); m; m = re.exec(src)) {
       const expr = enclosingExpression(src, m.index);
@@ -220,9 +245,9 @@ describe("paged reads are deterministically ordered", () => {
   it("finds the .range() call sites at all (the scan itself works)", () => {
     // A regex that silently matches nothing would make the guard below pass
     // forever. Pin that it is really reading the source.
-    const files = sourceFiles(SRC);
+    const files = allSources();
     const total = files.reduce(
-      (n, f) => n + (readFileSync(f, "utf8").match(/\.range\(/g)?.length ?? 0),
+      (n, f) => n + (f.raw.match(/\.range\(/g)?.length ?? 0),
       0,
     );
     expect(files.length).toBeGreaterThan(100);
