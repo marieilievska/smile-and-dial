@@ -85,7 +85,24 @@ function emptyDay(day: string): DailyKpi {
 
 /** Group calls into per-ET-day KPI rows, newest day first. When `sentimentKey`
  *  is given, also bucket each call's extracted_data[sentimentKey] value and
- *  compute warmPct via the sentiment lexicon. */
+ *  compute warmPct via the sentiment lexicon.
+ *
+ *  THE EXECUTABLE SPECIFICATION. This no longer runs in production —
+ *  `reporting_daily_kpis` does the counting in SQL now (20260907090000), from
+ *  one round trip instead of nine. It is kept, and kept tested, because the
+ *  rules it encodes are ones that are easy to get subtly wrong:
+ *
+ *    * goals are distinct BUSINESSES per day, never goal-met calls (#279)
+ *    * a conversation is a CONNECTED call over a minute — duration alone lets
+ *      a looping phone menu count as a conversation
+ *    * `> 60`, strictly, which is NOT the `>= 60` analytics_summary uses on a
+ *      different column
+ *    * the DM flag is vetoed by outcomes that definitionally reached nobody,
+ *      so a mis-flagged gatekeeper is not counted as a decision-maker
+ *
+ *  It is what the SQL was translated from and what it is checked against:
+ *  `npm run verify:reporting` runs both over seven production windows and
+ *  diffs every counter on every day. The paged FETCH that fed it is gone. */
 export function computeDailyKpis(
   rows: AgentCallRow[],
   sentimentKey?: string | null,
@@ -142,12 +159,23 @@ export function computeDailyKpis(
   }
   for (const k of byDay.values()) {
     k.goals = goalLeadsByDay.get(k.day)?.size ?? 0;
-    const entries = Object.entries(k.sentimentCounts);
-    const total = entries.reduce((s, [, n]) => s + n, 0);
-    const warm = entries.reduce((s, [v, n]) => s + (isWarm(v) ? n : 0), 0);
-    k.warmPct = total === 0 ? 0 : warm / total;
+    k.warmPct = warmPctOf(k.sentimentCounts);
   }
   return [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : -1));
+}
+
+/** Share of answered calls whose sentiment value is warm (positive or neutral).
+ *
+ *  The lexicon lives in field-detect.ts and stays in TypeScript on purpose:
+ *  `reporting_daily_kpis` counts the raw {value: count} buckets in SQL but
+ *  deliberately does NOT decide what "warm" means, so there is one definition
+ *  rather than one per language. Both the row-based path and the SQL-backed one
+ *  call this. */
+export function warmPctOf(counts: Record<string, number>): number {
+  const entries = Object.entries(counts);
+  const total = entries.reduce((s, [, n]) => s + n, 0);
+  const warm = entries.reduce((s, [v, n]) => s + (isWarm(v) ? n : 0), 0);
+  return total === 0 ? 0 : warm / total;
 }
 
 /** ET midnight `days` ago (ISO) — the lower bound for the history window, so
