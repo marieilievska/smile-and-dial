@@ -64,6 +64,14 @@ export async function fetchCostsHeadlineStats(
         .select("et_day, total")
         .gte("et_day", monthStartEt)
         .order("et_day", { ascending: false })
+        // `et_day` alone is FAR from a total order here — this table holds one
+        // row per (day, campaign, list, owner), so a single day is many rows.
+        // The rest of that grain (cost_rollup_daily_grain_idx, migration
+        // 20260905181000) is what makes paging return each row exactly once.
+        // `campaign_id` is nullable, so pin where the NULLs sort too.
+        .order("campaign_id", { ascending: true, nullsFirst: false })
+        .order("list_id", { ascending: true })
+        .order("owner_id", { ascending: true })
         .range(from, to),
     ),
     // Import-lookup charges this month (billed outside calls).
@@ -73,6 +81,7 @@ export async function fetchCostsHeadlineStats(
         .select("cost, created_at")
         .gte("created_at", startOfMonthIso)
         .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
         .range(from, to),
     ),
     // AI spend recorded outside a call's breakdown (Ask Smile, agent drafting,
@@ -83,6 +92,7 @@ export async function fetchCostsHeadlineStats(
         .select("cost, created_at")
         .gte("created_at", startOfMonthIso)
         .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
         .range(from, to),
     ),
   ]);
@@ -149,6 +159,10 @@ export async function fetchCampaignCaps(
         .select("campaign_id, et_day, total")
         .gte("et_day", monthStartEt)
         .order("et_day", { ascending: false })
+        // The rest of the (day, campaign, list, owner) grain — see above.
+        .order("campaign_id", { ascending: true, nullsFirst: false })
+        .order("list_id", { ascending: true })
+        .order("owner_id", { ascending: true })
         .range(from, to),
     ),
   ]);

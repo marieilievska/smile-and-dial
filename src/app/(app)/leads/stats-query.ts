@@ -104,6 +104,10 @@ async function fetchGoalLeadsSince(
       .eq("goal_met", true)
       .gte("created_at", isoStart)
       .order("created_at", { ascending: true })
+      // `created_at` alone is not a total order: rows sharing a timestamp may
+      // land either side of a page boundary and be counted twice or missed.
+      // (`id` need not be selected — PostgREST orders by it regardless.)
+      .order("id", { ascending: true })
       .range(offset, offset + PAGE - 1);
     const batch = (data ?? []) as { lead_id: string | null }[];
     for (const row of batch) leads.add(row.lead_id ?? "");

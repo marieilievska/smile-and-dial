@@ -301,6 +301,62 @@ console.log("\ndemo    calls, 30-day outbound window (the pager #488 deleted)");
   );
 }
 
+// ------------------------------------------------------------- tiebreakers
+// The pagers that DO order, but on a non-unique column, and now carry a
+// tiebreaker: `created_at, id` on calls (Today, the Calls/Campaigns/Leads stat
+// strips, Analytics costs) and the full `(et_day, campaign_id, list_id,
+// owner_id)` grain on cost_rollup_daily, which has no `id` column at all.
+//
+// Two things are being checked that the sections above do not cover: that a
+// MULTI-COLUMN sort still pages completely (it is a different query plan), and
+// that ordering by columns the select omits is accepted rather than silently
+// erroring — most of these call sites destructure `{ data }` and drop the
+// error, so a rejected order column would read as zero rows, not as a failure.
+console.log("\ntiebreakers  non-unique sort keys, now made total");
+{
+  record(
+    await check(
+      "        calls by (created_at, id)",
+      // `id` IS selected here purely so this check can tell the rows apart —
+      // the shipped queries omit it, and that they are still accepted is what
+      // the `_shapes` sweep proves. What is under test here is whether the
+      // two-column sort pages completely.
+      (from, to) =>
+        sb
+          .from("calls")
+          .select("id, outcome, goal_met, lead_id")
+          .gte("created_at", since30)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      { cap: 100_000, concurrent: true },
+    ),
+  );
+
+  const rollup = (from, to) =>
+    sb
+      .from("cost_rollup_daily")
+      .select("et_day, campaign_id, list_id, owner_id, total")
+      .order("et_day", { ascending: false })
+      .order("campaign_id", { ascending: true, nullsFirst: false })
+      .order("list_id", { ascending: true })
+      .order("owner_id", { ascending: true })
+      .range(from, to)
+      .then((r) => ({
+        // No id column: the grain itself is the identity.
+        data: (r.data ?? []).map((x) => ({
+          id: `${x.et_day}|${x.campaign_id}|${x.list_id}|${x.owner_id}`,
+        })),
+        error: r.error,
+      }));
+  record(
+    await check("        cost_rollup_daily by full grain", rollup, {
+      cap: 100_000,
+      concurrent: true,
+    }),
+  );
+}
+
 console.log();
 if (failures === 0) {
   console.log(

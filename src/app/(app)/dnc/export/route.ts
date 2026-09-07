@@ -42,7 +42,11 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("dnc_entries")
     .select("id, phone, company_snapshot, reason, added_by_user_id, added_at")
-    .order("added_at", { ascending: false });
+    .order("added_at", { ascending: false })
+    // One page, so it cannot lose rows the way a resumed pager can — but a bulk
+    // import ties many rows on added_at, and without a tiebreaker WHICH of them
+    // survive the EXPORT_LIMIT cut varies per download. Same order as the list.
+    .order("id", { ascending: true });
   if (idsParam) {
     query = query.in("id", idsParam.split(",").filter(Boolean));
   }

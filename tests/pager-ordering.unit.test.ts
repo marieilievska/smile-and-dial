@@ -27,11 +27,11 @@ import { describe, expect, it } from "vitest";
  * has demanded an order all along. A runtime check inside the helper would have
  * caught none of them, so the check has to look at the source instead.
  *
- * Deliberately narrow: this asserts an `.order()` is PRESENT, not that it is
- * unique. Ordering by a non-unique column (`created_at` alone, `et_day` alone)
- * still lets rows tied on that key reorder across a page boundary — a real but
- * much smaller defect, tracked separately rather than enforced here, so this
- * test stays free of judgement calls about which columns are unique enough.
+ * An `.order()` is necessary but not sufficient: the order must also be TOTAL.
+ * Ordering by a non-unique column (`created_at` alone, `et_day` alone) still
+ * leaves rows tied on that key free to swap across a page boundary — the same
+ * defect in a smaller costume. So each pager must order by something unique for
+ * its table: `id` normally, or every column of the composite key in UNIQUE_KEY.
  */
 
 const SRC = fileURLToPath(new URL("../src", import.meta.url));
@@ -51,6 +51,33 @@ const ORDERED_ELSEWHERE: Record<string, string> = {
     "exist`), so the client CANNOT order it. The `order by l.id` lives in the " +
     "function body — migration 20260907150000.",
 };
+
+/**
+ * Tables whose unique key is NOT `id`. Every listed column must appear in the
+ * pager's `.order()` chain for the sequence to be total. Anything absent here
+ * is assumed to have a plain `id`, which every other paged table does.
+ */
+const UNIQUE_KEY: Record<string, string[]> = {
+  // No `id` column at all — one row per day/campaign/list/owner.
+  // cost_rollup_daily_grain_idx, migration 20260905181000.
+  cost_rollup_daily: ["et_day", "campaign_id", "list_id", "owner_id"],
+  // primary key (twilio_number_id, day), migration 20260727180000.
+  twilio_number_daily_stats: ["twilio_number_id", "day"],
+};
+const DEFAULT_KEY = ["id"];
+
+/** The table a query chain reads, from its `.from("…")`. */
+function tableOf(chain: string): string | null {
+  const hits = [...chain.matchAll(/\.from\(\s*["'`]([^"'`]+)["'`]/g)];
+  return hits.length ? hits[hits.length - 1][1] : null;
+}
+
+/** Column names passed as string literals to `.order()` in this chain. */
+function orderedColumns(chain: string): string[] {
+  return [...chain.matchAll(/\.order\(\s*["'`]([^"'`]+)["'`]/g)].map(
+    (m) => m[1],
+  );
+}
 
 /**
  * Blank out comments so a `.range(` written in prose (fetch-all-rows.ts
@@ -129,7 +156,18 @@ function assignmentsTo(src: string, name: string): string {
   return out.join("\n");
 }
 
-function unorderedPagers(): string[] {
+/**
+ * A `.range(0, …)` fetches ONE page, so it has no page boundary to lose rows
+ * across — it can only truncate. A `.range(offset, …)` / `.range(from, to)`
+ * resumes from somewhere, and that is what needs a total order. Deciding on the
+ * START argument is exact, where "is there a `for` loop nearby" is a guess.
+ */
+function isPaged(src: string, rangeIdx: number): boolean {
+  const args = src.slice(rangeIdx + ".range(".length, rangeIdx + 200);
+  return !/^\s*0\s*,/.test(args);
+}
+
+function badPagers(): string[] {
   const offenders: string[] = [];
   for (const file of sourceFiles(SRC)) {
     const rel = file.slice(SRC.length + 1).replace(/\\/g, "/");
@@ -138,13 +176,29 @@ function unorderedPagers(): string[] {
     const re = /\.range\(/g;
     for (let m = re.exec(src); m; m = re.exec(src)) {
       const expr = enclosingExpression(src, m.index);
-      if (expr.includes(".order(")) continue;
-
       // Builder assembled across statements (`let q = supabase…; q.range(…)`).
       const name = builderVariable(expr);
-      if (name && assignmentsTo(src, name).includes(".order(")) continue;
+      const chain =
+        expr.includes(".order(") || !name
+          ? expr
+          : `${expr}\n${assignmentsTo(src, name)}`;
+      const at = `${rel}:${src.slice(0, m.index).split("\n").length}`;
 
-      offenders.push(`${rel}:${src.slice(0, m.index).split("\n").length}`);
+      if (!chain.includes(".order(")) {
+        offenders.push(`${at}  no .order() at all`);
+        continue;
+      }
+      if (!isPaged(src, m.index)) continue; // single page: cannot overlap
+
+      const cols = orderedColumns(chain);
+      // `.order(sortVariable)` is not a literal and cannot be checked; those
+      // chains pin `id` as the tiebreaker, which is what matters.
+      const key = UNIQUE_KEY[tableOf(chain) ?? ""] ?? DEFAULT_KEY;
+      const missing = key.filter((k) => !cols.includes(k));
+      if (missing.length)
+        offenders.push(
+          `${at}  ordered by [${cols.join(", ")}] — not unique, missing [${missing.join(", ")}]`,
+        );
     }
   }
   return offenders;
@@ -193,8 +247,17 @@ describe("paged reads are deterministically ordered", () => {
     );
   });
 
-  it("every .range() call site carries an .order()", () => {
-    expect(unorderedPagers()).toEqual([]);
+  it("tells a resumed page from a single first page", () => {
+    // Only a pager that RESUMES can lose rows across a boundary.
+    const paged = "q.range(from, to); q.range(offset, offset + PAGE - 1);";
+    expect(isPaged(paged, paged.indexOf(".range("))).toBe(true);
+    expect(isPaged(paged, paged.lastIndexOf(".range("))).toBe(true);
+    const once = "q.range(0, EXPORT_LIMIT - 1);";
+    expect(isPaged(once, once.indexOf(".range("))).toBe(false);
+  });
+
+  it("every .range() carries an .order(), and every pager a UNIQUE one", () => {
+    expect(badPagers()).toEqual([]);
   });
 
   // The one exception above claims the order lives in SQL instead. Prove it, so

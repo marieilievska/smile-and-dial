@@ -116,7 +116,12 @@ export default async function DncPage({
     .select("id, phone, company_snapshot, reason, added_by_user_id, added_at", {
       count: "exact",
     })
-    .order("added_at", { ascending: false });
+    .order("added_at", { ascending: false })
+    // A bulk DNC import stamps many rows with the SAME added_at, and rows tied
+    // on the sort key are free to swap between one page request and the next —
+    // so clicking through the list could show a number twice and hide another.
+    // The `id` tiebreaker makes the page sequence total.
+    .order("id", { ascending: true });
   if (reasonFilter) query = query.eq("reason", reasonFilter);
   if (fromFilter) query = query.gte("added_at", fromFilter);
   if (toFilter) query = query.lte("added_at", `${toFilter}T23:59:59.999Z`);
