@@ -219,6 +219,9 @@ const ROW: ListPerformanceRow = {
   suppressed: 5,
   resting: 40,
   remaining: 700,
+  no_show: 4,
+  pending: 12,
+  worked_7d: 7476,
 };
 
 describe("workedShare", () => {
@@ -284,6 +287,16 @@ describe("totalsFor", () => {
   it("is all zeros for no rows", () => {
     expect(totalsFor([]).calls).toBe(0);
     expect(totalsFor([]).spend).toBe(0);
+  });
+
+  it("sums the economics columns too", () => {
+    const t = totalsFor([
+      { ...ROW, no_show: 3, pending: 5, worked_7d: 100 },
+      { ...ROW, no_show: 1, pending: 7, worked_7d: 40 },
+    ]);
+    expect(t.no_show).toBe(4);
+    expect(t.pending).toBe(12);
+    expect(t.worked_7d).toBe(140);
   });
 });
 

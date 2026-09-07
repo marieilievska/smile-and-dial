@@ -56,6 +56,19 @@ export type ListPerformanceRow = {
   /** Still-workable inventory. NOT the dial queue, which is clock-gated and
    *  reads zero overnight — see the migration header. */
   remaining: number;
+
+  // --- economics (phase 3) -------------------------------------------------
+  /** Settled registrations that did not attend. Follows the date window like
+   *  `regs`. With `attended` this gives the only honest show-rate denominator. */
+  no_show: number;
+  /** Registrations whose session has not happened, or has not reconciled yet.
+   *  NOT no-shows — counting them as such understates the show rate badly. */
+  pending: number;
+  /** Distinct live leads dialled OUTBOUND in the last 7 days. Inventory, not
+   *  activity: follows neither the date pills nor the campaign filter, because
+   *  pace is a property of now. Inbound calls are excluded deliberately — they
+   *  are people returning a missed call and consume no list. Backs "Days left". */
+  worked_7d: number;
 };
 
 export type ListPerformanceFilters = {
@@ -192,6 +205,9 @@ export function totalsFor(rows: readonly ListPerformanceRow[]): {
   suppressed: number;
   resting: number;
   remaining: number;
+  no_show: number;
+  pending: number;
+  worked_7d: number;
 } {
   const acc = {
     leads: 0,
@@ -212,6 +228,9 @@ export function totalsFor(rows: readonly ListPerformanceRow[]): {
     suppressed: 0,
     resting: 0,
     remaining: 0,
+    no_show: 0,
+    pending: 0,
+    worked_7d: 0,
   };
   for (const r of rows) {
     acc.leads += r.leads;
@@ -232,6 +251,9 @@ export function totalsFor(rows: readonly ListPerformanceRow[]): {
     acc.suppressed += r.suppressed;
     acc.resting += r.resting;
     acc.remaining += r.remaining;
+    acc.no_show += r.no_show;
+    acc.pending += r.pending;
+    acc.worked_7d += r.worked_7d;
   }
   return acc;
 }
