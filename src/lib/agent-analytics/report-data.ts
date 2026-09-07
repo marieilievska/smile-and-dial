@@ -19,12 +19,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { fetchAllRows } from "@/lib/supabase/fetch-all-rows";
 
 import type { ReportScope } from "./scope";
-import {
-  computeDailyKpis,
-  sinceDaysAgoIso,
-  type AgentCallRow,
-  type DailyKpi,
-} from "./stats";
+import { sinceDaysAgoIso, warmPctOf, type DailyKpi } from "./stats";
 
 type DB = SupabaseClient<Database>;
 
@@ -68,40 +63,43 @@ export async function fetchDashboardKpis(
   scope: DashboardKpiScope,
   sentimentKey?: string | null,
 ): Promise<DailyKpi[]> {
-  // Count by the agent AND/OR the campaign(s). `calls.agent_id` goes NULL if the
-  // agent is deleted, but `calls.campaign_id` is durable — so matching on either
-  // keeps the dashboard accurate even after an agent is removed.
-  const conds: string[] = [];
-  if (scope.campaignIds && scope.campaignIds.length > 0) {
-    conds.push(`campaign_id.in.(${scope.campaignIds.join(",")})`);
-  }
+  // Scoped by campaign. `calls.campaign_id` is durable where `agent_id` goes
+  // NULL when an agent is deleted, so the dashboard stays accurate after a
+  // removal. All-agents mode counts every call (outbound AND inbound — a
+  // returned missed call is a call, per Marija 2026-09-03).
+  const campaignIds =
+    scope.campaignIds && scope.campaignIds.length > 0
+      ? scope.campaignIds
+      : null;
   // No scope and not the all-agents view → nothing to report.
-  if (!scope.all && conds.length === 0) return [];
+  if (!scope.all && !campaignIds) return [];
 
-  // Paginate: PostgREST hard-caps every response at 1,000 rows on this project
-  // (a bare `.limit(5000)` still returns only 1,000), so a busy window would
-  // silently undercount the daily call totals. Page through in 1,000-row batches.
-  const PAGE = 1000;
-  const since = sinceDaysAgoIso(DASHBOARD_DAYS);
-  const rows: AgentCallRow[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    let q = supabase
-      .from("calls")
-      .select("created_at, outcome, duration_seconds, extracted_data, lead_id")
-      .gte("created_at", since)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + PAGE - 1);
-    // All-agents mode counts every call (outbound AND inbound — a returned
-    // missed call is a call, per Marija 2026-09-03); scoped mode narrows by
-    // agent/campaign.
-    if (!scope.all) q = q.or(conds.join(","));
-    const { data } = await q;
-    const batch = (data ?? []) as AgentCallRow[];
-    rows.push(...batch);
-    if (batch.length < PAGE) break;
-    if (offset > 500_000) break; // safety backstop
+  // One aggregate instead of paging the window into memory. This used to fetch
+  // the last 30 Eastern days of calls 1,000 rows at a time — nine sequential
+  // 233 KB requests, each carrying extracted_data — and group them in a
+  // for-loop, which was almost all of the dashboard's ~4.7s render
+  // (20260907090000).
+  // Omitted rather than passed as null: both arguments have a SQL default of
+  // null, and the generated Args type models an optional argument as
+  // `?: T`, not `T | null`.
+  const { data, error } = await supabase.rpc("reporting_daily_kpis", {
+    p_since: sinceDaysAgoIso(DASHBOARD_DAYS),
+    ...(scope.all || !campaignIds ? {} : { p_campaign_ids: campaignIds }),
+    ...(sentimentKey ? { p_sentiment_key: sentimentKey } : {}),
+  });
+  // Fail loud. Returning [] on error would render a confident, fully-populated
+  // dashboard reading zero everywhere.
+  if (error) {
+    throw new Error(`Reporting daily KPIs failed: ${error.message}`);
   }
-  return computeDailyKpis(rows, sentimentKey);
+
+  // warmPct is derived HERE, not in SQL: the warm/cold lexicon lives in
+  // field-detect.ts and there should be one definition of it.
+  return ((data ?? []) as unknown as Omit<DailyKpi, "warmPct">[]).map((d) => ({
+    ...d,
+    sentimentCounts: d.sentimentCounts ?? {},
+    warmPct: warmPctOf(d.sentimentCounts ?? {}),
+  }));
 }
 
 /** Cause of death: for every lead with ≥1 call in the dashboard window

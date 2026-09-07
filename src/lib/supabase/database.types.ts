@@ -2854,6 +2854,14 @@ export type Database = {
         Args: { in_days_back?: number };
         Returns: number;
       };
+      reporting_daily_kpis: {
+        Args: {
+          p_campaign_ids?: string[];
+          p_sentiment_key?: string;
+          p_since: string;
+        };
+        Returns: Json;
+      };
       update_my_profile: { Args: { patch: Json }; Returns: number };
     };
     Enums: {
