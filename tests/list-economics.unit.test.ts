@@ -4,6 +4,7 @@ import { MIN_LEAK_SAMPLE } from "@/lib/analytics/stats";
 import { MIN_SHOW_SAMPLE } from "@/lib/cohorts/math";
 import {
   buildEconomicsFunnel,
+  costPerAttended,
   daysLeft,
   projectedCostPerAttended,
   projectionConfidence,
@@ -112,6 +113,50 @@ describe("projectedCostPerAttended", () => {
     // chain. Do not hand it one from here.
     expect(projectedCostPerAttended(Number.NaN, 0.5)).toBeNull();
     expect(projectedCostPerAttended(37.4, Number.NaN)).toBeNull();
+  });
+});
+
+describe("costPerAttended", () => {
+  it("is the whole composition, spend to attendee", () => {
+    // $747.98 over 20 registrations is $37.40; 4 of 8 settled is a 50% show
+    // rate; so an attendee projects to $74.80. Verified against production
+    // on 2026-09-07.
+    expect(costPerAttended(LIVE)).toBeCloseTo(74.8, 2);
+  });
+
+  it("is exactly what the funnel's Attended step prices", () => {
+    // One definition, three callers. If these two ever diverge, the table and
+    // the panel above it are quoting different prices for the same attendee.
+    const attended = buildEconomicsFunnel(LIVE).find(
+      (s) => s.label === "Attended",
+    );
+    expect(costPerAttended(LIVE)).toBe(attended?.costEach);
+  });
+
+  it("is null for spend nothing has landed against", () => {
+    // costPer refuses a zero SPEND, not just a zero denominator: no cost rows
+    // does not mean the calls were free. The unattributed row is exactly this.
+    expect(costPerAttended({ ...LIVE, spend: 0 })).toBeNull();
+  });
+
+  it("is null while nothing has settled, rather than free or infinite", () => {
+    expect(
+      costPerAttended({ ...LIVE, attended: 0, no_show: 0, pending: 20 }),
+    ).toBeNull();
+  });
+
+  it("is null for a list with no registrations at all", () => {
+    // The Inbound list today: real spend, nothing booked off it.
+    expect(
+      costPerAttended({
+        ...LIVE,
+        regs: 0,
+        attended: 0,
+        no_show: 0,
+        pending: 0,
+        spend: 1.99,
+      }),
+    ).toBeNull();
   });
 });
 

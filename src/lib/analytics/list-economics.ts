@@ -93,6 +93,23 @@ export function projectedCostPerAttended(
 }
 
 /**
+ * What an attendee costs this list, end to end.
+ *
+ * The composition every consumer needs: spend over registrations, then divided
+ * by the SETTLED show rate. It lives here rather than in a view because it is
+ * two guards deep -- `costPer` refuses a zero spend, `showRate` refuses an
+ * unsettled cohort -- and a caller that composed it by hand could get either
+ * one wrong without the number looking wrong.
+ *
+ * One definition, three callers: the funnel's Attended step, a table row, and
+ * that table's footer. They cannot disagree about the same number because
+ * there is only one of it.
+ */
+export function costPerAttended(t: EconomicsTotals): number | null {
+  return projectedCostPerAttended(costPer(t.spend, t.regs), showRate(t));
+}
+
+/**
  * How much to trust a projection built on `settled` cases.
  *
  * `MIN_SHOW_SAMPLE` is imported, never redefined: if ten is ever the wrong
@@ -240,7 +257,6 @@ export function buildEconomicsFunnel(
 
   const settled = settledCount(t);
   const rateOfShow = showRate(t);
-  const costPerReg = costPer(t.spend, t.regs);
 
   return [
     plain("Businesses dialled", t.worked, null),
@@ -255,7 +271,7 @@ export function buildEconomicsFunnel(
       // is not a miss, and must not drag the rate down.
       kept: rateOfShow,
       sample: settled,
-      costEach: projectedCostPerAttended(costPerReg, rateOfShow),
+      costEach: costPerAttended(t),
       projected: true,
       confidence: projectionConfidence(settled),
       pending: t.pending,
