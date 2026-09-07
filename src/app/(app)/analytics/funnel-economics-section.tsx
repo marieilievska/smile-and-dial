@@ -115,8 +115,11 @@ export function FunnelEconomicsSection({
   return (
     <section className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both border-border bg-card flex flex-col gap-3 rounded-2xl border p-5 shadow-sm delay-200 duration-500">
       <div>
+        {/* Not "Where the money goes" — /costs already uses that heading for
+            its vendor breakdown, and two pages answering different questions
+            under one title is how people stop trusting either. */}
         <h2 className="text-foreground text-sm font-semibold">
-          Where the money goes
+          From dial to sale
         </h2>
         <p className="text-muted-foreground mt-1 text-xs">
           {period === "all"
@@ -222,7 +225,7 @@ function StepRow({
             locale-dependent and has no business inside a pure function. Note
             these two numbers do NOT add up to the step above: a registration
             with no session time on it falls out of both buckets. */}
-        {step.pending !== null ? (
+        {step.pending !== null && (step.sample > 0 || step.pending > 0) ? (
           <span className="text-muted-foreground text-[11px]">
             of {count(step.sample)} settled · {count(step.pending)} pending
           </span>
