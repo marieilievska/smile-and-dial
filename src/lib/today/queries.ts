@@ -89,6 +89,9 @@ export async function fetchHeroCounts(
         .select("id, lead_id, outcome, goal_met, cost_breakdown")
         .gte("created_at", start.toISOString())
         .order("created_at", { ascending: true })
+        // `created_at` alone is not a total order: rows sharing a timestamp may
+        // land either side of a page boundary and be counted twice or missed.
+        .order("id", { ascending: true })
         .range(from, to),
     ),
     fetchAllCalls<{
@@ -103,6 +106,7 @@ export async function fetchHeroCounts(
         .gte("created_at", yWindow.from)
         .lte("created_at", yWindow.to)
         .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
         .range(from, to),
     ),
     supabase
@@ -323,6 +327,7 @@ export async function fetchAppointmentPace(
         .eq("goal_met", true)
         .gte("created_at", todayStartIso)
         .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
         .range(from, to),
     ),
     fetchAllRows<GoalRow>((from, to) =>
@@ -333,6 +338,7 @@ export async function fetchAppointmentPace(
         .gte("created_at", yStartIso)
         .lte("created_at", yEndIso)
         .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
         .range(from, to),
     ),
   ]);

@@ -48,6 +48,9 @@ async function fetchTodayStatRows(
       .select("outcome, goal_met, lead_id")
       .gte("created_at", isoStart)
       .order("created_at", { ascending: true })
+      // `created_at` alone is not a total order: rows sharing a timestamp may
+      // land either side of a page boundary and be counted twice or missed.
+      .order("id", { ascending: true })
       .range(offset, offset + PAGE - 1);
     const batch = (data ?? []) as TodayStatRow[];
     rows.push(...batch);

@@ -77,6 +77,9 @@ export async function fetchCostRows(
       .gte("created_at", startOfDay(slicers.from))
       .lte("created_at", endOfDay(slicers.to))
       .order("created_at", { ascending: false })
+      // `created_at` alone is not a total order: rows sharing a timestamp may
+      // land either side of a page boundary and be counted twice or missed.
+      .order("id", { ascending: true })
       .range(offset, offset + COSTS_PAGE - 1);
     if (slicers.campaignId) query = query.eq("campaign_id", slicers.campaignId);
     const { data } = await query;
@@ -177,6 +180,12 @@ export async function fetchRollupRows(
       .gte("et_day", slicers.from)
       .lte("et_day", slicers.to)
       .order("et_day", { ascending: true })
+      // One row per (day, campaign, list, owner), so `et_day` alone leaves many
+      // ties free to reorder across a page boundary. The rest of the grain
+      // (cost_rollup_daily_grain_idx) makes the sequence total.
+      .order("campaign_id", { ascending: true, nullsFirst: false })
+      .order("list_id", { ascending: true })
+      .order("owner_id", { ascending: true })
       .range(offset, offset + 999);
     if (slicers.campaignId) query = query.eq("campaign_id", slicers.campaignId);
     if (slicers.listId) query = query.eq("list_id", slicers.listId);
