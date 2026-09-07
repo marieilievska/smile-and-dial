@@ -619,17 +619,19 @@ export function CampaignSettingsDialog({
               ) : null}
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="campaign-smart-list">…or a smart list</Label>
+              <Label htmlFor="campaign-smart-list">
+                …or an auto-updating list
+              </Label>
               {smartLists.length > 0 ? (
                 <Select
                   value={selectedSmartListId}
                   onValueChange={setSelectedSmartListId}
                 >
                   <SelectTrigger id="campaign-smart-list">
-                    <SelectValue placeholder="No smart list" />
+                    <SelectValue placeholder="None" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NO_SMART_LIST}>No smart list</SelectItem>
+                    <SelectItem value={NO_SMART_LIST}>None</SelectItem>
                     {smartLists.map((sl) => (
                       <SelectItem key={sl.id} value={sl.id}>
                         {sl.name}
@@ -639,14 +641,15 @@ export function CampaignSettingsDialog({
                 </Select>
               ) : (
                 <p className="text-muted-foreground text-sm">
-                  No smart lists yet. Build one on the Leads page (advanced
-                  filters → Save as smart list).
+                  You don&rsquo;t have one yet. On the Leads page, open{" "}
+                  <strong>Advanced filter</strong>, describe the leads you want,
+                  then <strong>Save as auto-updating list</strong>.
                 </p>
               )}
               <p className="text-muted-foreground text-xs">
-                A smart list is a saved filter that auto-includes any new lead
-                matching it. Attaching one dials its members; membership
-                refreshes every few minutes.
+                A saved filter rather than a fixed set of leads: anything
+                matching it joins on its own, so the campaign keeps calling new
+                leads as they arrive without you re-uploading anything.
               </p>
               {selectedSmartListId !== NO_SMART_LIST ? (
                 <p className="text-muted-foreground text-xs">

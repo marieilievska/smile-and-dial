@@ -5,11 +5,16 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
-/** Opt-in wrapper for the advanced Filter Builder (and, for admins, the
- *  Smart List picker). Collapsed by default so the page presents ONE filter
- *  entry point — the basic Filters popover in the toolbar — with advanced
- *  filtering a click away, instead of two filter systems side by side. Opens
- *  automatically when a recipe is already applied. */
+/** Opt-in wrapper for the advanced Filter Builder. Collapsed by default so the
+ *  page presents ONE filter entry point — the basic Filters popover in the
+ *  toolbar — with advanced filtering a click away, instead of two filter
+ *  systems side by side. Opens automatically when a recipe is already applied.
+ *
+ *  The auto-updating-list picker used to live in here too, and should not come
+ *  back: it is the only control on the page that can feed the dialer, and
+ *  hiding it behind a button labelled "Advanced filter" is most of why nobody
+ *  ever made one. It now renders above this panel. Building a filter is an
+ *  advanced thing; opening a list you already saved is not. */
 export function AdvancedFilters({
   defaultOpen,
   children,
