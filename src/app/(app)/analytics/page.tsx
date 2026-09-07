@@ -16,7 +16,10 @@ import {
   type FunnelStep,
   type Slicers,
 } from "@/lib/analytics/stats";
-import { fetchListPerformance } from "@/lib/analytics/list-performance";
+import {
+  fetchListPerformance,
+  totalsFor,
+} from "@/lib/analytics/list-performance";
 import { formatUsd as fmtUsd } from "@/lib/format-usd";
 import { createClient } from "@/lib/supabase/server";
 
@@ -28,6 +31,7 @@ import { AnalyticsFunnel } from "./analytics-funnel";
 import { AnalyticsInsight } from "./analytics-insight";
 import { BestTimeHeatmap } from "./best-time-heatmap";
 import { CampaignLeaderboard, OutcomeBreakdown } from "./charts";
+import { FunnelEconomicsSection } from "./funnel-economics-section";
 import { KpiTile } from "./kpi-tile";
 import { ListPerformanceSection } from "./list-performance-section";
 import { ListReachabilitySection } from "./list-reachability-section";
@@ -382,6 +386,22 @@ export default async function AnalyticsPage({
               />
             </section>
           </div>
+
+          {/* Where the money goes — the whole chain, dialled business to sale,
+           *  with the spend divided into every step. It sits ABOVE the per-list
+           *  table because it answers the question that gets asked first: what
+           *  a registration costs and which step is losing the most. The table
+           *  below then answers "…and which list", which only makes sense once
+           *  you know what you are looking for.
+           *
+           *  Fed by totalsFor(listRows) — the SAME rows the two sections below
+           *  render, so the panels cannot disagree about how many
+           *  registrations there were or what was spent getting them. */}
+          <FunnelEconomicsSection
+            totals={totalsFor(listRows)}
+            period={listPeriod}
+            rangeLabel={rangeLabel}
+          />
 
           {/* Which lead list was worth the money. Full width: it carries the
            *  denominators (list size, how much of it has been worked) that make
