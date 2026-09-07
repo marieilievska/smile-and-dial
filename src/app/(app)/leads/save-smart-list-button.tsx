@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -35,7 +36,7 @@ export function SaveSmartListButton({ recipeJson }: { recipeJson: string }) {
         toast.error(res.error);
         return;
       }
-      toast.success("Smart list saved.");
+      toast.success("Saved. Attach it to a campaign to start calling it.");
       setOpen(false);
       setName("");
     });
@@ -45,12 +46,20 @@ export function SaveSmartListButton({ recipeJson }: { recipeJson: string }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button type="button" size="sm" variant="outline">
-          Save as Smart List
+          Save as auto-updating list
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Save smart list</DialogTitle>
+          <DialogTitle>Save as an auto-updating list</DialogTitle>
+          {/* This dialog is where most people meet the idea for the first
+              time, so it says what the thing DOES rather than naming a
+              category. "Smart list" told a business owner nothing. */}
+          <DialogDescription>
+            Any lead that matches this filter joins the list on its own, now and
+            later. Attach it to a campaign and the AI keeps calling it as it
+            fills up.
+          </DialogDescription>
         </DialogHeader>
         <Input
           value={name}

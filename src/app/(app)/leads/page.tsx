@@ -340,15 +340,24 @@ export default async function LeadsPage({
         <ActiveFilterChips lists={lists ?? []} />
       </div>
 
+      {/* Auto-updating lists sit OUTSIDE the collapsed panel below.
+          They used to live inside it, which meant the one thing on this page
+          that can feed the dialer was two clicks behind a control labelled
+          "Advanced filter" — while "+ New view" in the sidebar, which only
+          bookmarks the URL, was visible the whole time. The discoverable
+          control did less. This renders nothing until the viewer has a list,
+          so it costs an empty page nothing. */}
+      <SmartListPicker
+        lists={smartLists}
+        activeRecipeJson={str(params.recipe)}
+      />
+
       {/* Advanced filter — opt-in panel, available to everyone. The recipe
           resolves through the leads' own RLS (security-invoker function), so a
-          member only ever matches their own leads. Smart lists are owner-scoped
-          the same way, so members save, load and delete their own lists here. */}
+          member only ever matches their own leads. Auto-updating lists are
+          owner-scoped the same way, so members save, load and delete their
+          own here. */}
       <AdvancedFilters defaultOpen={initialRecipe.children.length > 0}>
-        <SmartListPicker
-          lists={smartLists}
-          activeRecipeJson={str(params.recipe)}
-        />
         <FilterBuilder
           initialRecipe={initialRecipe}
           statusOptions={statusOptions}

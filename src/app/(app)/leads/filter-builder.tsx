@@ -45,9 +45,9 @@ export function FilterBuilder({
   statusOptions: { value: string; label: string }[];
   ownerOptions: { value: string; label: string }[];
   customFields: CustomFieldOption[];
-  /** Whether to show the "Save as smart list" affordance. Open to members now:
-   *  a smart list is owner-scoped (its membership only ever contains the
-   *  owner's leads), so each teammate manages their own. */
+  /** Whether to show the "Save as auto-updating list" affordance. Open to
+   *  members: such a list is owner-scoped (its membership only ever contains
+   *  the owner's leads), so each teammate manages their own. */
   canSaveSmartList: boolean;
 }) {
   const router = useRouter();

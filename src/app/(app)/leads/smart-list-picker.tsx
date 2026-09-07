@@ -92,16 +92,19 @@ export function SmartListPicker({
         toast.error(res.error);
         return;
       }
-      toast.success("Smart list deleted.");
+      toast.success("List deleted.");
     });
   }
 
   if (lists.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <span className="text-muted-foreground text-xs font-medium">
+        Auto-updating lists
+      </span>
       <Select value={active?.id ?? ""} onValueChange={load}>
         <SelectTrigger className="h-8 w-[15rem]">
-          <SelectValue placeholder="Load a smart list…" />
+          <SelectValue placeholder="Open one…" />
         </SelectTrigger>
         <SelectContent>
           {lists.map((l) => (
