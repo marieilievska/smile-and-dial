@@ -122,6 +122,17 @@ describe("projectedCostPerSale", () => {
   it("returns null without a cost per registration", () => {
     expect(projectedCostPerSale(null, 0.5, 0.2)).toBeNull();
   });
+
+  it("returns null for a non-finite input rather than propagating NaN", () => {
+    // `NaN <= 0` is false, so the sign checks alone let a NaN through and this
+    // returned one. A NaN rate poisons every consumer downstream — the
+    // bottleneck callout skips a non-finite value, so the row would vanish
+    // rather than be flagged.
+    expect(projectedCostPerSale(Number.NaN, 0.5, 0.2)).toBeNull();
+    expect(projectedCostPerSale(37, Number.NaN, 0.2)).toBeNull();
+    expect(projectedCostPerSale(37, 0.5, Number.NaN)).toBeNull();
+    expect(projectedCostPerSale(Number.POSITIVE_INFINITY, 0.5, 0.2)).toBeNull();
+  });
 });
 
 describe("sample thresholds", () => {

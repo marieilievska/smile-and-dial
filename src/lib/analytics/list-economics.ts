@@ -16,8 +16,15 @@ export const MIN_PROJECTION_SAMPLE = 3;
 /** How much weight the reader should give a projected number. */
 export type Confidence = "hidden" | "low" | "normal";
 
-/** Everything the funnel needs. Structurally a `ListPerformanceRow` minus the
- *  identity columns, so both a single row and `totalsFor(...)` satisfy it. */
+/** The panel's data contract, not the funnel's. Structurally a
+ *  `ListPerformanceRow` minus the identity columns, so both a single row and
+ *  `totalsFor(...)` satisfy it.
+ *
+ *  Four of these sixteen — `leads`, `calls`, `connected` and `voicemail` — are
+ *  read by no function in this file. They are CALL- and inventory-level, and
+ *  belong to the header strip above the funnel; `buildEconomicsFunnel` stays
+ *  business-level on purpose. They are here so the panel needs one type rather
+ *  than two, not because the arithmetic below wants them. */
 export type EconomicsTotals = Pick<
   ListPerformanceRow,
   | "leads"
@@ -101,14 +108,33 @@ export function projectionConfidence(settled: number): Confidence {
 /**
  * How many days of dialling are left in a list at the recent pace.
  *
+ * PRECONDITION: `firstCall` must be `first_dial` -- the UNFILTERED first
+ * outbound dial -- and never `first_call`. The two columns are one character
+ * apart and mean different things: `first_call` is activity and follows the
+ * date pills and the campaign filter, so feeding it here makes this number a
+ * property of what you are looking at rather than of the list. Traced on
+ * 2026-09-07: with the Today pill, `first_call` was that morning, `ageDays`
+ * came out at ~0.1, `paceDays` floored to 1, and a list with 56 days left
+ * rendered 11. Two clicks, a fivefold swing. `first_dial` follows neither
+ * filter, exactly like `remaining` and `worked_7d`, so all three inputs move
+ * together or not at all.
+ *
  * The `min(7, age)` guard matters. Dialling on this workspace began five days
  * before this was written; dividing a five-day total by a flat seven days
  * understates pace by 29% and turns a true 56 days into a claimed 78. The
- * guard retires itself once a list is more than a week old.
+ * guard retires itself once a list is more than a week old. The `max(1, ...)`
+ * floor is the other side of it: a list first dialled twelve hours ago would
+ * otherwise divide a week's work by half a day and claim a pace it has never
+ * sustained.
  *
  * Null -- an em dash on screen -- when nothing has been dialled this week, so
  * an idle list never renders as Infinity. The Inbound list is exactly this
- * case: its calls are all inbound, so `worked_7d` is zero.
+ * case: its calls are all inbound, so `worked_7d` is zero and `first_dial` is
+ * null.
+ *
+ * Rounds UP. Zero is reserved for "nothing left"; rounding to nearest would
+ * hand the same 0 to a list with 300 leads still in it, which reads as
+ * finished at exactly the moment somebody is watching the column.
  */
 export function daysLeft(
   t: EconomicsTotals,
@@ -124,7 +150,7 @@ export function daysLeft(
   const paceDays = Math.max(1, Math.min(7, ageDays));
   const pace = t.worked_7d / paceDays;
   if (!Number.isFinite(pace) || pace <= 0) return null;
-  return Math.round(t.remaining / pace);
+  return Math.ceil(t.remaining / pace);
 }
 
 /** One row of the "Where the money goes" chain. */
@@ -142,10 +168,44 @@ export type EconomicsStep = {
   /** True when `costEach` is projected rather than divided. */
   projected: boolean;
   confidence: Confidence;
-  /** A second line under the label, or null. */
-  note: string | null;
+  /** Registrations on this step whose session has not happened or not
+   *  reconciled, or null where "pending" means nothing -- which is every step
+   *  but Attended. A COUNT, not a sentence: the wording belongs to the view,
+   *  and this module's sibling `cohorts/math.ts` contains no strings at all.
+   *
+   *  Do NOT render it as though `sample + pending` reconciled to the step
+   *  above. `calendly_events.scheduled_at` is nullable, and a non-cancelled,
+   *  unattended row with a null one falls out of both buckets -- the migration
+   *  spells this out. The two numbers are each true and do not add up. */
+  pending: number | null;
+  /** Whether this step may be named as the funnel's bottleneck.
+   *
+   *  False for Sold. A sale ripens over SALES_WINDOW_DAYS after the session,
+   *  and this module has no way to know how many of these attendees are still
+   *  inside that window -- so a zero here is "not yet", never "we are losing
+   *  them". Without this the callout hijacks itself the week attendance
+   *  crosses MIN_LEAK_SAMPLE with sales still ripening, and points at the one
+   *  step whose number means nothing. */
+  leakEligible: boolean;
 };
 
+/**
+ * A share, or null when the denominator makes one meaningless.
+ *
+ * Contract, and note where it DIFFERS from `costPer` next door: a zero
+ * numerator here is a real answer -- 0 of 8 attendees bought is a 0% close
+ * rate, and hiding it would hide the finding. `costPer(0, 5)` is null instead,
+ * because in this app a zero SPEND does not mean "free", it means no cost rows
+ * landed against these calls; the RPC's own Unattributed row hardcodes zero
+ * spend while carrying real registrations, so "—" is the honest render there
+ * and "$0.00 per registration" would be a lie. Same shape, opposite treatment
+ * of zero, and on the Sold row a reader sees both at once: `kept` 0 beside
+ * `costEach` null.
+ *
+ * Null only for a denominator that is zero or negative, or a ratio that comes
+ * out non-finite -- `worstDrop` skips a non-finite `kept`, and this is where
+ * that guarantee is made.
+ */
 function rate(numerator: number, denominator: number): number | null {
   if (denominator <= 0) return null;
   const r = numerator / denominator;
@@ -174,7 +234,8 @@ export function buildEconomicsFunnel(
     costEach: costPer(t.spend, count),
     projected: false,
     confidence: "normal",
-    note: null,
+    pending: null,
+    leakEligible: true,
   });
 
   const settled = settledCount(t);
@@ -197,11 +258,16 @@ export function buildEconomicsFunnel(
       costEach: projectedCostPerAttended(costPerReg, rateOfShow),
       projected: true,
       confidence: projectionConfidence(settled),
-      note:
-        settled > 0 || t.pending > 0
-          ? `of ${settled.toLocaleString()} settled · ${t.pending.toLocaleString()} pending`
-          : null,
+      pending: t.pending,
+      leakEligible: true,
     },
-    plain("Sold", t.sales, t.attended),
+    {
+      ...plain("Sold", t.sales, t.attended),
+      // The one step that must never be named as the bottleneck. See
+      // EconomicsStep.leakEligible: a zero here is a cohort that has not
+      // ripened, and it arrives with drop = 1.0, the maximum a funnel can
+      // produce, so it would outrank every genuine leak on the page.
+      leakEligible: false,
+    },
   ];
 }
