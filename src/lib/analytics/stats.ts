@@ -453,6 +453,10 @@ export type AnalyticsInsight = {
  *  sale yet — an unripe window, not a leak. */
 export const MIN_LEAK_SAMPLE = 10;
 
+/** Below this fractional drop, the leak sentence would render as "losing 0%"
+ *  — it formats with `.toFixed(0)` — so treat it as no leak worth naming. */
+export const MIN_MEANINGFUL_DROP = 0.005;
+
 export type DropCandidate = {
   from: string;
   to: string;
@@ -467,9 +471,15 @@ export type DropCandidate = {
  *
  * Callers pass rates rather than counts on purpose. A funnel step is not
  * always measured against its predecessor's count — the economics panel
- * measures Attended against SETTLED registrations, because the ones whose
- * session has not happened yet are not misses. Re-deriving the rate here from
- * counts would silently undo that.
+ * measures Attended against settled (what `cohorts/math.ts` calls reconciled)
+ * registrations, because the ones whose session has not happened yet are not
+ * misses. Re-deriving the rate here from counts would silently undo that.
+ *
+ * `sample` must be the denominator `kept` was divided by — it is NOT always
+ * the previous step's count. Passing the previous step's count out of habit,
+ * e.g. `worstDrop([{ from: "Registered", to: "Attended", kept: 4 / 8, sample:
+ * 500 }])`, declares a rate computed over 8 cases as 500 — sailing straight
+ * past the sample floor below.
  *
  * Null when no step drops meaningfully, so a healthy funnel gets no callout.
  */
@@ -482,7 +492,7 @@ export function worstDrop(
     if (c.kept === null || !Number.isFinite(c.kept)) continue;
     if (c.sample < MIN_LEAK_SAMPLE) continue;
     const drop = 1 - c.kept;
-    if (drop <= 0.005) continue;
+    if (drop <= MIN_MEANINGFUL_DROP) continue;
     if (worst === null || drop > worst.drop) {
       worst = { from: c.from, to: c.to, kept: c.kept, drop };
     }
@@ -541,6 +551,9 @@ export function buildInsights(opts: {
   const parts: string[] = [];
   // Each stage of this funnel IS measured against its predecessor's count, so
   // the rate is derived here and handed over. Other callers do it differently.
+  // Handing worstDrop `sample: prev` also gives this funnel a sample floor
+  // (MIN_LEAK_SAMPLE) it never enforced before the extraction — deliberate:
+  // an 89% drop off nine calls is noise, not a bottleneck worth naming.
   const worst = worstDrop(
     funnel.slice(1).map((step, i) => {
       const prev = funnel[i].count;
@@ -557,6 +570,16 @@ export function buildInsights(opts: {
       `Biggest drop-off is ${worst.from} → ${worst.to}, losing ${(
         worst.drop * 100
       ).toFixed(0)}% of calls.`,
+    );
+  } else if (
+    funnel[0] &&
+    funnel[0].count > 0 &&
+    funnel[0].count < MIN_LEAK_SAMPLE
+  ) {
+    // Say why the callout is missing rather than leaving a hole — the same
+    // move cohorts-view makes when a show rate is below its sample floor.
+    parts.push(
+      `Too few calls in this window to name a bottleneck — ${MIN_LEAK_SAMPLE} is the minimum.`,
     );
   }
   if (kpis.goalMet > 0 && kpis.costPerGoalMet > 0) {

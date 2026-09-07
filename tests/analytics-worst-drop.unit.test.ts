@@ -18,6 +18,18 @@ describe("worstDrop", () => {
     expect(worst?.drop).toBeCloseTo(0.94, 3);
   });
 
+  it("keeps the earlier step on a tie rather than the later one", () => {
+    // First-wins is the intended semantic: point the operator at the
+    // earliest bottleneck in the chain. Flipping the max comparison from `>`
+    // to `>=` would return "Connected" -> "Conversations" here instead.
+    const worst = worstDrop([
+      { from: "Called", to: "Connected", kept: 0.5, sample: 100 },
+      { from: "Connected", to: "Conversations", kept: 0.5, sample: 100 },
+    ]);
+    expect(worst?.from).toBe("Called");
+    expect(worst?.to).toBe("Connected");
+  });
+
   it("ignores steps with too small a sample to judge", () => {
     // Attended -> Sold is 0 of 4 today: a 100% "drop" that is really an
     // unripe sales window. Without this guard it would out-rank the real
@@ -49,8 +61,44 @@ describe("worstDrop", () => {
     ).toBe("Decision-maker");
   });
 
-  it("requires a sample of at least ten", () => {
-    expect(MIN_LEAK_SAMPLE).toBe(10);
+  it("skips a NaN rate rather than treating it as the first candidate", () => {
+    // Without the isFinite guard, `NaN <= 0.005` is false, so NaN would be
+    // adopted as `worst` outright -- and every later `drop > NaN` comparison
+    // is also false, permanently suppressing the real leak. The bad
+    // candidate goes first so this exercises that exact failure mode, not
+    // just "NaN is somewhere in the list."
+    expect(
+      worstDrop([
+        { from: "Bad", to: "Data", kept: NaN, sample: 4000 },
+        { from: "Answered", to: "Decision-maker", kept: 0.06, sample: 3194 },
+      ])?.to,
+    ).toBe("Decision-maker");
+  });
+
+  it("skips an infinite rate rather than treating it as the first candidate", () => {
+    expect(
+      worstDrop([
+        { from: "Bad", to: "Data", kept: Infinity, sample: 4000 },
+        { from: "Answered", to: "Decision-maker", kept: 0.06, sample: 3194 },
+      ])?.to,
+    ).toBe("Decision-maker");
+  });
+
+  it("requires a sample of at least MIN_LEAK_SAMPLE", () => {
+    // A literal `expect(MIN_LEAK_SAMPLE).toBe(10)` only dies to a mutation of
+    // the literal itself -- no behavioural test would notice, and the
+    // constant is meant to be tunable. Pin the floor by its effect instead,
+    // referencing the constant rather than hardcoding 9 and 10.
+    expect(
+      worstDrop([
+        { from: "Attended", to: "Sold", kept: 0, sample: MIN_LEAK_SAMPLE - 1 },
+      ]),
+    ).toBeNull();
+    expect(
+      worstDrop([
+        { from: "Attended", to: "Sold", kept: 0, sample: MIN_LEAK_SAMPLE },
+      ]),
+    ).not.toBeNull();
   });
 });
 
@@ -89,5 +137,47 @@ describe("buildInsights still reports the same leak after the extraction", () =>
       ranking: [],
     });
     expect(insight.detail).not.toContain("Biggest drop-off");
+  });
+});
+
+describe("buildInsights: the sample floor worstDrop now enforces on the funnel", () => {
+  // buildInsights hands worstDrop `sample: prev`, the previous step's count.
+  // That gives this funnel a sample floor (MIN_LEAK_SAMPLE) it never enforced
+  // before the extraction: an 89% drop off nine calls is noise, not a
+  // bottleneck. Pinning both sides of the boundary is the only way to be
+  // sure the floor landed instead of silently dropping the sentence for
+  // every funnel, big or small.
+  const kpis = {
+    totalCalls: 10,
+    goalMet: 0,
+    costPerGoalMet: 0,
+  } as Parameters<typeof buildInsights>[0]["kpis"];
+
+  it("says too few calls rather than naming a bottleneck under the floor", () => {
+    const insight = buildInsights({
+      kpis,
+      prior: null,
+      funnel: [
+        { label: "Called", count: 9 },
+        { label: "Connected", count: 1 },
+      ],
+      ranking: [],
+    });
+    expect(insight.detail).not.toContain("Biggest drop-off");
+    expect(insight.detail).toContain("Too few calls");
+  });
+
+  it("still names the drop-off once the funnel clears the floor", () => {
+    const insight = buildInsights({
+      kpis,
+      prior: null,
+      funnel: [
+        { label: "Called", count: 10 },
+        { label: "Connected", count: 1 },
+      ],
+      ranking: [],
+    });
+    expect(insight.detail).toContain("Biggest drop-off is Called → Connected");
+    expect(insight.detail).toContain("90%");
   });
 });
