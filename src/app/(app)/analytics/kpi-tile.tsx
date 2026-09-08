@@ -1,14 +1,19 @@
 import { ArrowDown, ArrowUp, ArrowUpRight, Minus } from "lucide-react";
 
-/** Supporting KPI tile — sits alongside the HeroKpi in a unified strip.
- *  Round 17:
- *  - Matched padding and animation to HeroKpi so the strip reads as one
- *    cohesive band.
- *  - Warning-tone badge now uses the project's text-warning palette
- *    (was raw amber utilities) so it lines up with every other warning
- *    badge in the app.
- *  - Optional `cta` renders a "View →" affordance in the corner when the
- *    tile is wrapped in a Link, so the click intent is explicit. */
+/** A single labelled number in a strip of them: label, value, optional hint,
+ *  optional period-over-period delta.
+ *
+ *  It once sat beside a HeroKpi, which no longer exists, and carried
+ *  /analytics' three funnel-rate tiles, which no longer exist either — those
+ *  rates ARE steps of the funnel panel, and printing them again underneath it
+ *  is how the page came to show the same conversion three times. Its one
+ *  remaining home is the /reporting dashboard's KPI strip; /analytics' own
+ *  inventory strip uses its own smaller tile.
+ *
+ *  A warning-tone badge uses the project's text-warning palette (never raw
+ *  amber utilities) so it lines up with every other warning badge in the app.
+ *  Optional `cta` renders a "View →" affordance in the corner when the tile is
+ *  wrapped in a Link, so the click intent is explicit. */
 export function KpiTile({
   label,
   value,

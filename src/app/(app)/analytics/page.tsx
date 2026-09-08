@@ -8,14 +8,13 @@ import {
   fetchAnalyticsSummary,
   funnelFromSummary,
   kpisFromSummary,
-  pctDelta,
   previousPeriod,
   rankCampaignsFromSummary,
   resolveDatePreset,
   type AnalyticsSummary,
-  type FunnelStep,
   type Slicers,
 } from "@/lib/analytics/stats";
+import { buildEconomicsFunnel } from "@/lib/analytics/list-economics";
 import {
   fetchListPerformance,
   totalsFor,
@@ -27,12 +26,10 @@ import { ActivityOverTime } from "./activity-over-time";
 import { AnalyticsDatePills } from "./analytics-date-pills";
 import { AnalyticsEmpty } from "./analytics-empty";
 import { AnalyticsFilters } from "./analytics-filters";
-import { AnalyticsFunnel } from "./analytics-funnel";
 import { AnalyticsInsight } from "./analytics-insight";
 import { BestTimeHeatmap } from "./best-time-heatmap";
 import { CampaignLeaderboard, OutcomeBreakdown } from "./charts";
-import { FunnelEconomicsSection } from "./funnel-economics-section";
-import { KpiTile } from "./kpi-tile";
+import { FunnelSection } from "./funnel-section";
 import { ListEconomicsTable } from "./list-economics-table";
 import { dateRangeLabel } from "@/lib/time/eastern";
 import { isSuperAdmin } from "@/lib/auth/roles";
@@ -49,11 +46,6 @@ function fmtSeconds(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}m ${s.toString().padStart(2, "0")}s`;
-}
-
-function fmtPct(value: number): string {
-  if (!Number.isFinite(value)) return "—";
-  return `${(value * 100).toFixed(1)}%`;
 }
 
 function isMockMode(): boolean {
@@ -128,6 +120,7 @@ export default async function AnalyticsPage({
     summary,
     priorSummary,
     listRows,
+    funnelListRows,
     { data: campaigns },
     { data: lists },
     { data: me },
@@ -151,10 +144,19 @@ export default async function AnalyticsPage({
       campaignId,
       ownerId,
     }),
+    // The funnel reads ONE window: the date pills. The list table's All-time
+    // toggle is a property of LISTS, which are imported at different moments —
+    // letting it reach the funnel is what let the old pair read different
+    // periods while looking like one story. Identical args when the toggle is
+    // already "range", so skip the second round trip in that case.
+    listPeriod === "range"
+      ? Promise.resolve(null)
+      : fetchListPerformance(supabase, { from, to, campaignId, ownerId }),
     supabase.from("campaigns").select("id, name").order("name"),
     supabase.from("lists").select("id, name").order("name"),
     supabase.from("profiles").select("role").eq("id", user.id).single(),
   ]);
+  const funnelRows = funnelListRows ?? listRows;
   // The Owner filter and the Owner column only make sense for the tier that
   // actually sees other people's calls — super admin (RLS `is_admin()`).
   const seesEveryone = isSuperAdmin(me?.role);
@@ -180,32 +182,37 @@ export default async function AnalyticsPage({
   const dailyCalls = dailyActivity.map((b) => b.count);
   const dailySpend = dailyActivity.map((b) => b.spend);
   const leadFunnel = funnelFromSummary(summary);
-  const priorLeadFunnel = priorSummary ? funnelFromSummary(priorSummary) : null;
-  // Step-over-step conversion rates derived from the per-business funnel.
-  const stepRate = (f: FunnelStep[], i: number): number => {
-    const denom = f[i - 1]?.count ?? 0;
-    return denom === 0 ? 0 : (f[i]?.count ?? 0) / denom;
-  };
-  const rates = {
-    connect: stepRate(leadFunnel, 1),
-    conversation: stepRate(leadFunnel, 2),
-    dm: stepRate(leadFunnel, 3),
-  };
-  const priorRates = priorLeadFunnel
-    ? {
-        connect: stepRate(priorLeadFunnel, 1),
-        conversation: stepRate(priorLeadFunnel, 2),
-        dm: stepRate(priorLeadFunnel, 3),
-      }
-    : null;
-  // Goals met is shown as the funnel card's "Outcome" block. Its "% of
-  // conversations" descriptor uses the funnel's Conversations stage as the
-  // denominator, so it reconciles with the bars above (goals ⊆ conversations,
-  // so it stays ≤ 100%); the decision-maker subset is measured against goals met
-  // inside the funnel component.
-  const convStage = leadFunnel[2]?.count ?? 0;
-  const goalRateOfConversations =
-    convStage === 0 ? 0 : kpis.goalMet / convStage;
+  // The two halves of the chain, from the two aggregates that own them. They
+  // share no quantity: analytics_summary supplies every call-level count, the
+  // goal counts and the spend; list_performance supplies only the registration
+  // outcomes. Moving one of them to the other source would silently change the
+  // window it reads.
+  const regTotals = totalsFor(funnelRows);
+  const chain = buildEconomicsFunnel(
+    {
+      called: summary.totals.funnel_called,
+      calls: summary.totals.total_calls,
+      connected: summary.totals.funnel_connected,
+      conversations: summary.totals.funnel_conversation,
+      dms: summary.totals.funnel_dm,
+      goals: summary.totals.lead_goal,
+      goalsWithDm: summary.totals.lead_goal_dm,
+      spend: Number(summary.totals.spend),
+      regs: regTotals.regs,
+      attended: regTotals.attended,
+      no_show: regTotals.no_show,
+      pending: regTotals.pending,
+      sales: regTotals.sales,
+    },
+    priorSummary
+      ? {
+          called: priorSummary.totals.funnel_called,
+          connected: priorSummary.totals.funnel_connected,
+          conversations: priorSummary.totals.funnel_conversation,
+          dms: priorSummary.totals.funnel_dm,
+        }
+      : null,
+  );
   const outcomeBuckets = summary.outcomes;
   const campaignNames = new Map(
     (campaigns ?? []).map((c) => [c.id, c.name] as const),
@@ -285,50 +292,13 @@ export default async function AnalyticsPage({
            *  raw tiles. */}
           <AnalyticsInsight insight={insight} />
 
-          {/* Conversion funnel hero — the per-business funnel, with the
-           *  step-over-step conversion rates pulled out beneath it, and goals met
-           *  as a separate "Outcome" block inside the card. */}
-          <AnalyticsFunnel
-            steps={leadFunnel}
-            outcome={{
-              goalMet: kpis.goalMet,
-              goalMetWithDm: kpis.goalMetWithDm,
-              goalRateOfConversations,
-            }}
-          />
-
-          {/* Funnel step conversion rates — how cleanly business→business moves
-           *  through the chain shown above. */}
-          <section className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            <KpiTile
-              label="Connect rate"
-              value={fmtPct(rates.connect)}
-              hint="Businesses we reached"
-              pctDelta={
-                priorRates
-                  ? pctDelta(rates.connect, priorRates.connect)
-                  : undefined
-              }
-            />
-            <KpiTile
-              label="Conversation rate"
-              value={fmtPct(rates.conversation)}
-              hint="Of connected, talked > 1 min"
-              pctDelta={
-                priorRates
-                  ? pctDelta(rates.conversation, priorRates.conversation)
-                  : undefined
-              }
-            />
-            <KpiTile
-              label="Decision-maker rate"
-              value={fmtPct(rates.dm)}
-              hint="Of conversations, reached the decision-maker"
-              pctDelta={
-                priorRates ? pctDelta(rates.dm, priorRates.dm) : undefined
-              }
-            />
-          </section>
+          {/* The whole chain, dialled business to sale, with conversion, cost
+           *  and trend on every step. One funnel: the page used to carry two
+           *  that read different windows and named different bottlenecks on
+           *  the same screen. The three rate tiles that sat under the old one
+           *  are gone too — their rates ARE these steps, and their trend now
+           *  sits on the number it describes. */}
+          <FunnelSection steps={chain} rangeLabel={rangeLabel} />
 
           <div className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both delay-150 duration-500">
             <ActivityOverTime
@@ -386,32 +356,17 @@ export default async function AnalyticsPage({
             </section>
           </div>
 
-          {/* Where the money goes — the whole chain, dialled business to sale,
-           *  with the spend divided into every step. It sits ABOVE the per-list
-           *  table because it answers the question that gets asked first: what
-           *  a registration costs and which step is losing the most. The table
-           *  below then answers "…and which list", which only makes sense once
-           *  you know what you are looking for.
-           *
-           *  Fed by totalsFor(listRows) — the SAME rows the table below
-           *  renders, so the two panels cannot disagree about how many
-           *  registrations there were or what was spent getting them. */}
-          <FunnelEconomicsSection
-            totals={totalsFor(listRows)}
-            period={listPeriod}
-            rangeLabel={rangeLabel}
-          />
-
           {/* Which lead list was worth the money, and whether it is still
            *  worth dialling — one table, because that was always one question.
            *
            *  This was two sections stacked until the funnel panel landed:
            *  fourteen columns of performance, then ten of reachability,
            *  repeating List / Leads / Worked and scrolling twenty-four
-           *  columns sideways to show two rows of data. The funnel panel directly above now carries the
-           *  chain — calls, connects, decision-makers, goals, sales — with
-           *  conversion and cost at every step, which is what those count
-           *  columns were reaching for and could not show. Nothing was lost:
+           *  columns sideways to show two rows of data. The funnel panel at
+           *  the top of the page now carries the chain — calls, connects,
+           *  decision-makers, goals, sales — with conversion and cost at every
+           *  step, which is what those count columns were reaching for and
+           *  could not show. Nothing was lost:
            *  the counts moved UP into the funnel, and Mobiles / Bad no. /
            *  Suppressed / Resting moved INTO the Remaining hover — on
            *  production they read —, 0, 36 and 400, four near-zero columns
@@ -436,8 +391,10 @@ export default async function AnalyticsPage({
             <BestTimeHeatmap />
           </div>
 
-          {/* Inventory strip — six low-priority counts displayed as a grid
-           *  of mini-tiles instead of a single run-on line. */}
+          {/* Inventory strip — four low-priority counts displayed as a grid
+           *  of mini-tiles instead of a single run-on line. Cost per goal and
+           *  Total spend used to sit here too; both are on the chain above
+           *  now, where they arrive with the step they price attached. */}
           <section
             data-testid="inventory-strip"
             className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both flex flex-col gap-2 delay-300 duration-500"
@@ -445,7 +402,7 @@ export default async function AnalyticsPage({
             <p className="text-muted-foreground text-[10px] font-semibold tracking-[0.16em] uppercase">
               Also in this period:
             </p>
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-4">
               <InventoryTile
                 label="Callbacks scheduled"
                 value={kpis.callbacksScheduled.toLocaleString()}
@@ -459,16 +416,8 @@ export default async function AnalyticsPage({
                 value={fmtSeconds(kpis.avgDurationSeconds)}
               />
               <InventoryTile
-                label="Cost per goal"
-                value={kpis.goalMet === 0 ? "—" : fmtUsd(kpis.costPerGoalMet)}
-              />
-              <InventoryTile
                 label="Avg cost / call"
                 value={fmtUsd(kpis.avgCostPerCall)}
-              />
-              <InventoryTile
-                label="Total spend"
-                value={fmtUsd(kpis.totalSpend)}
               />
             </div>
           </section>
