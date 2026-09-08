@@ -10,6 +10,8 @@ type Row = Record<string, unknown>;
 type Filter =
   | { kind: "eq"; col: string; val: unknown }
   | { kind: "is"; col: string; val: unknown }
+  | { kind: "gte"; col: string; val: unknown }
+  | { kind: "not-is-null"; col: string }
   | { kind: "or"; groups: Array<{ col: string; val: unknown }> };
 
 export function makeFakeDb(seed: Record<string, Row[]> = {}) {
@@ -27,6 +29,16 @@ export function makeFakeDb(seed: Record<string, Row[]> = {}) {
     return filters.every((f) => {
       if (f.kind === "eq") return row[f.col] === f.val;
       if (f.kind === "is") return f.val === null && row[f.col] == null;
+      if (f.kind === "not-is-null") return row[f.col] != null;
+      // String compare covers the ISO timestamps this is used for, which sort
+      // lexicographically; numbers compare numerically.
+      if (f.kind === "gte") {
+        const a = row[f.col];
+        if (a == null) return false;
+        return typeof a === "number" && typeof f.val === "number"
+          ? a >= f.val
+          : String(a) >= String(f.val);
+      }
       return f.groups.some((g) => row[g.col] === g.val);
     });
   }
@@ -92,6 +104,18 @@ export function makeFakeDb(seed: Record<string, Row[]> = {}) {
       },
       is: (col: string, val: unknown) => {
         filters.push({ kind: "is", col, val });
+        return api;
+      },
+      gte: (col: string, val: unknown) => {
+        filters.push({ kind: "gte", col, val });
+        return api;
+      },
+      /** PostgREST's `.not(col, op, val)`. Only the `is null` negation is
+       *  modelled — the one form our modules use. */
+      not: (col: string, op: string, val: unknown) => {
+        if (op === "is" && val === null) {
+          filters.push({ kind: "not-is-null", col });
+        }
         return api;
       },
       or: (expr: string) => {

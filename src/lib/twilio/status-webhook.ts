@@ -29,7 +29,19 @@ export type TwilioCallStatus =
   | "no-answer"
   | "canceled";
 
-const TWILIO_TO_DB_STATUS: Record<TwilioCallStatus, CallStatusRow> = {
+/**
+ * Twilio's CallStatus -> our `calls.status`.
+ *
+ * EXPORTED because it is the only correct copy. Outbound calls are placed by
+ * ElevenLabs natively, and the numbers' StatusCallback points at ElevenLabs
+ * (see `expectedNumberWebhooks` in ./numbers), so this webhook never fires for
+ * them and this mapping never runs — every outcome arrives from ElevenLabs
+ * instead, which reports anything that did not connect as `failed`. The
+ * reconciler in @/lib/calls/reconcile-twilio-status closes that gap by asking
+ * Twilio afterwards, and it IMPORTS this map rather than restating it. Two
+ * mappings for one concept is the defect it exists to fix.
+ */
+export const TWILIO_TO_DB_STATUS: Record<TwilioCallStatus, CallStatusRow> = {
   queued: "queued",
   initiated: "dialing",
   ringing: "ringing",
@@ -42,7 +54,9 @@ const TWILIO_TO_DB_STATUS: Record<TwilioCallStatus, CallStatusRow> = {
   canceled: "cancelled",
 };
 
-const TERMINAL: TwilioCallStatus[] = [
+/** The CallStatus values that end a call. Exported alongside the maps: the
+ *  reconciler must not rewrite a row from a status that is still moving. */
+export const TERMINAL: TwilioCallStatus[] = [
   "completed",
   "busy",
   "failed",
@@ -52,11 +66,13 @@ const TERMINAL: TwilioCallStatus[] = [
 
 // Status values that carry an automatic outcome inference. `completed` alone
 // doesn't — the actual outcome comes from ElevenLabs (Step 23).
-const STATUS_TO_OUTCOME: Partial<Record<TwilioCallStatus, CallOutcome>> = {
-  busy: "busy",
-  "no-answer": "no_answer",
-  failed: "failed",
-};
+// Exported for the same reason as TWILIO_TO_DB_STATUS above.
+export const STATUS_TO_OUTCOME: Partial<Record<TwilioCallStatus, CallOutcome>> =
+  {
+    busy: "busy",
+    "no-answer": "no_answer",
+    failed: "failed",
+  };
 
 /**
  * Validate Twilio's X-Twilio-Signature header.
