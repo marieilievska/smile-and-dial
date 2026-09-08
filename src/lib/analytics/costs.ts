@@ -233,53 +233,6 @@ export async function fetchLookupChargeTotal(
   return rows.reduce((sum, r) => sum + (Number(r.cost) || 0), 0);
 }
 
-export type AiChargeKindTotal = { kind: string; count: number; cost: number };
-
-export type AiChargeTotals = {
-  total: number;
-  byKind: AiChargeKindTotal[];
-};
-
-/** AI spend recorded outside a call's cost_breakdown (`ai_charges`: Ask
- *  Smile, agent drafting, template splitting, script tidying, live business
- *  research, ElevenLabs test calls) within the window, in total and by kind.
- *  Optionally scoped to one owner; campaign/list slicers don't apply. */
-export async function fetchAiChargeTotals(
-  supabase: SupabaseClient,
-  slicers: Pick<Slicers, "from" | "to" | "ownerId">,
-): Promise<AiChargeTotals> {
-  const rows = await fetchAllRows<{ kind: string; cost: number }>(
-    (from, to) => {
-      let query = supabase
-        .from("ai_charges")
-        .select("kind, cost")
-        .gte("created_at", startOfDay(slicers.from))
-        .lte("created_at", endOfDay(slicers.to));
-      if (slicers.ownerId) query = query.eq("owner_id", slicers.ownerId);
-      return query
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, to);
-    },
-  );
-  const acc = new Map<string, { count: number; cost: number }>();
-  let total = 0;
-  for (const r of rows) {
-    const cost = Number(r.cost) || 0;
-    total += cost;
-    const cur = acc.get(r.kind) ?? { count: 0, cost: 0 };
-    cur.count += 1;
-    cur.cost += cost;
-    acc.set(r.kind, cur);
-  }
-  return {
-    total,
-    byKind: [...acc.entries()]
-      .map(([kind, v]) => ({ kind, count: v.count, cost: v.cost }))
-      .sort((a, b) => b.cost - a.cost),
-  };
-}
-
 export type PerCampaign = {
   /** A campaign id, or NO_CAMPAIGN_KEY for calls whose campaign was deleted. */
   campaignId: string;
