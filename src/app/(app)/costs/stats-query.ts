@@ -55,7 +55,7 @@ export async function fetchCostsHeadlineStats(
   const monthStartEt = `${cy}-${String(cm).padStart(2, "0")}-01`;
   const startOfMonthIso = etMidnightUtcIso(monthStartEt);
 
-  const [rollup, lookupRows, aiRows] = await Promise.all([
+  const [rollup, lookupRows] = await Promise.all([
     // Pre-aggregated call spend for this ET month, by ET day (fast path — reads
     // the cost_rollup_daily table instead of scanning every call).
     fetchAllRows<{ et_day: string; total: number }>((from, to) =>
@@ -84,17 +84,6 @@ export async function fetchCostsHeadlineStats(
         .order("id", { ascending: true })
         .range(from, to),
     ),
-    // AI spend recorded outside a call's breakdown (Ask Smile, agent drafting,
-    // live research, ElevenLabs test calls …) this month.
-    fetchAllRows<{ cost: number; created_at: string }>((from, to) =>
-      supabase
-        .from("ai_charges")
-        .select("cost, created_at")
-        .gte("created_at", startOfMonthIso)
-        .order("created_at", { ascending: false })
-        .order("id", { ascending: true })
-        .range(from, to),
-    ),
   ]);
 
   let todaySpend = 0;
@@ -105,7 +94,12 @@ export async function fetchCostsHeadlineStats(
     if (row.et_day === todayEt) todaySpend += total;
   }
   const todayIso = startOfTodayEtIso(now);
-  for (const row of [...lookupRows, ...aiRows]) {
+  // Lookups only. The ai_charges ledger is admin tooling (Ask Smile, agent
+  // drafting, template splitting …), not the cost of dialling anybody, and it
+  // is absent from every other figure on this page — leaving it in the
+  // budget-pace tile would have let a template split move "am I on track this
+  // month?".
+  for (const row of lookupRows) {
     const cost = Number(row.cost) || 0;
     mtdSpend += cost;
     if (row.created_at >= todayIso) todaySpend += cost;
