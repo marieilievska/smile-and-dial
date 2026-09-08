@@ -45,6 +45,19 @@ export type EconomicsTotals = Pick<
   | "worked_7d"
 >;
 
+/** Just enough to decide how many registrations have resolved. Declared
+ *  structurally rather than as a Pick<> so BOTH a per-list row and the funnel's
+ *  own input satisfy it -- the list table and the funnel must agree about what
+ *  "settled" means, and the cheapest way to guarantee that is one function. */
+export type SettledInput = {
+  attended: number;
+  no_show: number;
+  regs: number;
+};
+
+/** Settled, plus the spend needed to price an attendee. */
+export type AttendedCostInput = SettledInput & { spend: number };
+
 /**
  * Registrations whose session has actually resolved.
  *
@@ -60,13 +73,13 @@ export type EconomicsTotals = Pick<
  * functions agreeing matters more; the clamp belongs here, in the consumer.
  * Without it the panel renders a show rate above 100%.
  */
-export function settledCount(t: EconomicsTotals): number {
+export function settledCount(t: SettledInput): number {
   return Math.min(t.attended + t.no_show, t.regs);
 }
 
 /** Attendance over settled registrations, or null while nothing has settled --
  *  which must not render as "nobody came". */
-export function showRate(t: EconomicsTotals): number | null {
+export function showRate(t: SettledInput): number | null {
   const settled = settledCount(t);
   if (settled <= 0) return null;
   return Math.min(t.attended / settled, 1);
@@ -105,7 +118,7 @@ export function projectedCostPerAttended(
  * that table's footer. They cannot disagree about the same number because
  * there is only one of it.
  */
-export function costPerAttended(t: EconomicsTotals): number | null {
+export function costPerAttended(t: AttendedCostInput): number | null {
   return projectedCostPerAttended(costPer(t.spend, t.regs), showRate(t));
 }
 
@@ -176,6 +189,46 @@ export function daysLeft(
   return Math.ceil(t.remaining / pace);
 }
 
+/** Everything the merged chain needs, and where each half comes from.
+ *
+ *  The split matters. The four call-level counts come from `analytics_summary`,
+ *  which follows the date pills. The registration outcomes come from
+ *  `list_performance` -- which MUST be fetched over the same window, not over
+ *  the list table's All-time toggle. Mixing the two is what let the old pair of
+ *  funnels read different periods while looking like one story. */
+export type FunnelInput = {
+  /** Distinct businesses called -- analytics_summary.funnel_called. */
+  called: number;
+  /** Raw calls placed. Not a funnel step -- the chain is business-level -- but
+   *  shown against `called` so the redial ratio is readable. */
+  calls: number;
+  connected: number;
+  /** Talked more than a minute -- the step the economics panel collapsed away,
+   *  and where the largest single drop actually is. */
+  conversations: number;
+  dms: number;
+  goals: number;
+  /** Of those goals, how many reached a decision-maker. Rendered as a subset
+   *  line, which is what the old funnel's separate Outcome block was for. */
+  goalsWithDm: number;
+  spend: number;
+  regs: number;
+  attended: number;
+  no_show: number;
+  pending: number;
+  sales: number;
+};
+
+/** The prior window's chain. Only the four call-level stages exist -- the page
+ *  computes a prior `analytics_summary` but not a prior `list_performance`, so
+ *  the economics steps have nothing to compare against and get no delta. */
+export type PriorChain = {
+  called: number;
+  connected: number;
+  conversations: number;
+  dms: number;
+};
+
 /** One row of the "Where the money goes" chain. */
 export type EconomicsStep = {
   label: string;
@@ -210,6 +263,23 @@ export type EconomicsStep = {
    *  crosses MIN_LEAK_SAMPLE with sales still ripening, and points at the one
    *  step whose number means nothing. */
   leakEligible: boolean;
+  /** How this step's conversion moved against the prior window, as a signed
+   *  proportion. Null where there is no prior figure -- which is every
+   *  economics step, and all of them when ?compare=0. */
+  delta: number | null;
+  /** A meaningful sub-count of this step, with the word that explains it, or
+   *  null. Two steps have one:
+   *
+   *    Called    the raw CALL count. Businesses get redialled, so calls exceed
+   *              businesses (8,156 against 7,518 today) -- and dropping the
+   *              panel's old metric strip would otherwise take the only total
+   *              call count off the page.
+   *    Goal met  how many of those goals reached a decision-maker. This is
+   *              what the old funnel's separate "Outcome" block was for.
+   *
+   *  `noun` is a fixed domain word, never a formatted string -- the count stays
+   *  a number so the view owns `toLocaleString` and its locale. */
+  subset: { count: number; noun: string } | null;
 };
 
 /**
@@ -235,41 +305,100 @@ function rate(numerator: number, denominator: number): number | null {
   return Number.isFinite(r) ? r : null;
 }
 
+/** Change from `before` to `now`, or null when the comparison is meaningless.
+ *  Null rather than Infinity for a zero baseline: "up from nothing" is not a
+ *  percentage, and rendering one invites a decision off a number that is not
+ *  there. */
+function delta(now: number | null, before: number | null): number | null {
+  if (now === null || before === null) return null;
+  if (!Number.isFinite(now) || !Number.isFinite(before)) return null;
+  if (before <= 0) return null;
+  return (now - before) / before;
+}
+
 /**
- * The business-level chain, with money attached to every step.
+ * The whole chain, from a dialled business to a sale, with money and trend on
+ * every step.
  *
- * Calls and voicemail are deliberately absent: they are CALL-level, and mixing
- * them into a column of business-level percentages would leave two rows whose
- * denominators differ with no way to tell. They belong in the header strip.
+ * One funnel, deliberately. This page used to carry two -- a call-level one
+ * ending at decision-makers and an economics one starting at businesses
+ * dialled -- which read different date windows and named different bottlenecks
+ * on the same screen. The second one also collapsed Connected -> Conversations
+ * -> Decision-maker into a single hop, which hid the largest drop in the funnel
+ * and made the callout point at the wrong step with full confidence.
+ *
+ * Calls and voicemail are still absent as STEPS: they are call-level and this
+ * chain is business-level, and mixing the two leaves rows whose denominators
+ * differ with nothing on screen saying so. The call count rides along as the
+ * first step's subset instead.
  */
 export function buildEconomicsFunnel(
-  t: EconomicsTotals,
+  t: FunnelInput,
+  prior: PriorChain | null = null,
 ): readonly EconomicsStep[] {
+  const priorRate = (n: number, d: number): number | null =>
+    prior === null || d <= 0 ? null : n / d;
+
   const plain = (
     label: string,
-    count: number,
+    countNow: number,
     prev: number | null,
+    priorNow: number | null,
+    priorPrev: number | null,
+    // A zero sub-count is not worth a line: "0 calls placed" under a step that
+    // is itself zero says nothing.
+    subset: { count: number; noun: string } | null = null,
   ): EconomicsStep => ({
     label,
-    count,
-    kept: prev === null ? null : rate(count, prev),
+    count: countNow,
+    kept: prev === null ? null : rate(countNow, prev),
     sample: prev ?? 0,
-    costEach: costPer(t.spend, count),
+    costEach: costPer(t.spend, countNow),
     projected: false,
     confidence: "normal",
     pending: null,
     leakEligible: true,
+    delta:
+      prev === null || priorNow === null || priorPrev === null
+        ? null
+        : delta(rate(countNow, prev), priorRate(priorNow, priorPrev)),
+    subset: subset && subset.count > 0 ? subset : null,
   });
 
   const settled = settledCount(t);
   const rateOfShow = showRate(t);
 
   return [
-    plain("Businesses dialled", t.worked, null),
-    plain("Someone answered", t.reached, t.worked),
-    plain("Decision-maker", t.dms, t.reached),
-    plain("Goal met", t.goals, t.dms),
-    plain("Registered", t.regs, t.goals),
+    plain("Called", t.called, null, null, null, {
+      count: t.calls,
+      noun: "calls placed",
+    }),
+    plain(
+      "Connected",
+      t.connected,
+      t.called,
+      prior?.connected ?? null,
+      prior?.called ?? null,
+    ),
+    plain(
+      "Conversations",
+      t.conversations,
+      t.connected,
+      prior?.conversations ?? null,
+      prior?.connected ?? null,
+    ),
+    plain(
+      "Decision-maker",
+      t.dms,
+      t.conversations,
+      prior?.dms ?? null,
+      prior?.conversations ?? null,
+    ),
+    plain("Goal met", t.goals, t.dms, null, null, {
+      count: t.goalsWithDm,
+      noun: "with a decision-maker",
+    }),
+    plain("Registered", t.regs, t.goals, null, null),
     {
       label: "Attended",
       count: t.attended,
@@ -282,14 +411,24 @@ export function buildEconomicsFunnel(
       confidence: projectionConfidence(settled),
       pending: t.pending,
       leakEligible: true,
+      delta: null,
+      subset: null,
     },
     {
-      ...plain("Sold", t.sales, t.attended),
-      // The one step that must never be named as the bottleneck. See
-      // EconomicsStep.leakEligible: a zero here is a cohort that has not
-      // ripened, and it arrives with drop = 1.0, the maximum a funnel can
-      // produce, so it would outrank every genuine leak on the page.
+      label: "Sold",
+      count: t.sales,
+      kept: rate(t.sales, t.attended),
+      sample: t.attended,
+      costEach: costPer(t.spend, t.sales),
+      projected: false,
+      confidence: "normal",
+      pending: null,
+      // A sale ripens over SALES_WINDOW_DAYS after the session, and this module
+      // cannot know how many of these attendees are still inside that window.
+      // So a zero here is "not yet", never "we are losing them".
       leakEligible: false,
+      delta: null,
+      subset: null,
     },
   ];
 }

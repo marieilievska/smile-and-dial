@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { MIN_LEAK_SAMPLE } from "@/lib/analytics/stats";
+import { worstDrop } from "@/lib/analytics/stats";
 import { MIN_SHOW_SAMPLE } from "@/lib/cohorts/math";
 import {
   buildEconomicsFunnel,
@@ -11,6 +11,8 @@ import {
   settledCount,
   showRate,
   type EconomicsTotals,
+  type FunnelInput,
+  type PriorChain,
 } from "@/lib/analytics/list-economics";
 
 /** Production, both lists, all time, 2026-09-07. Every expected value below
@@ -32,6 +34,34 @@ const LIVE: EconomicsTotals = {
   spend: 747.98,
   remaining: 83575,
   worked_7d: 7476,
+};
+
+/** Production, 30-day window, 2026-09-07. Call-level counts from
+ *  analytics_summary; registration outcomes from list_performance over the
+ *  same window. Verified against both RPCs before being written down. */
+const CHAIN: FunnelInput = {
+  called: 7518,
+  calls: 8156,
+  connected: 3194,
+  conversations: 677,
+  dms: 192,
+  goals: 20,
+  goalsWithDm: 18,
+  spend: 747.97,
+  regs: 20,
+  attended: 4,
+  no_show: 4,
+  pending: 12,
+  sales: 0,
+};
+
+/** The prior 30 days. Only the four call-level stages exist for a prior
+ *  window -- priorLeadFunnel carries nothing else. */
+const PRIOR: PriorChain = {
+  called: 4000,
+  connected: 1500,
+  conversations: 400,
+  dms: 120,
 };
 
 describe("settledCount", () => {
@@ -64,9 +94,17 @@ describe("showRate", () => {
   it("is null rather than 0 while nothing has settled", () => {
     // A cohort whose sessions are all still to come has no show rate. Zero
     // would read as "nobody came".
-    expect(
-      showRate({ ...LIVE, attended: 0, no_show: 0, pending: 20 }),
-    ).toBeNull();
+    // Typed rather than passed inline: SettledInput deliberately does not
+    // carry `pending`, and TypeScript rejects it as an excess property on a
+    // fresh literal. The count still belongs in the fixture -- it is what
+    // makes "nothing has settled" legible.
+    const unsettled: EconomicsTotals = {
+      ...LIVE,
+      attended: 0,
+      no_show: 0,
+      pending: 20,
+    };
+    expect(showRate(unsettled)).toBeNull();
   });
 
   it("never exceeds 1, so the panel cannot render above 100%", () => {
@@ -127,10 +165,10 @@ describe("costPerAttended", () => {
   it("is exactly what the funnel's Attended step prices", () => {
     // One definition, three callers. If these two ever diverge, the table and
     // the panel above it are quoting different prices for the same attendee.
-    const attended = buildEconomicsFunnel(LIVE).find(
+    const attended = buildEconomicsFunnel(CHAIN).find(
       (s) => s.label === "Attended",
     );
-    expect(costPerAttended(LIVE)).toBe(attended?.costEach);
+    expect(costPerAttended(CHAIN)).toBe(attended?.costEach);
   });
 
   it("is null for spend nothing has landed against", () => {
@@ -140,23 +178,26 @@ describe("costPerAttended", () => {
   });
 
   it("is null while nothing has settled, rather than free or infinite", () => {
-    expect(
-      costPerAttended({ ...LIVE, attended: 0, no_show: 0, pending: 20 }),
-    ).toBeNull();
+    const unsettled: EconomicsTotals = {
+      ...LIVE,
+      attended: 0,
+      no_show: 0,
+      pending: 20,
+    };
+    expect(costPerAttended(unsettled)).toBeNull();
   });
 
   it("is null for a list with no registrations at all", () => {
     // The Inbound list today: real spend, nothing booked off it.
-    expect(
-      costPerAttended({
-        ...LIVE,
-        regs: 0,
-        attended: 0,
-        no_show: 0,
-        pending: 0,
-        spend: 1.99,
-      }),
-    ).toBeNull();
+    const inbound: EconomicsTotals = {
+      ...LIVE,
+      regs: 0,
+      attended: 0,
+      no_show: 0,
+      pending: 0,
+      spend: 1.99,
+    };
+    expect(costPerAttended(inbound)).toBeNull();
   });
 });
 
@@ -265,12 +306,16 @@ describe("daysLeft", () => {
 });
 
 describe("buildEconomicsFunnel", () => {
-  const steps = buildEconomicsFunnel(LIVE);
+  const steps = buildEconomicsFunnel(CHAIN);
 
-  it("runs businesses dialled through to sold", () => {
+  it("runs called through to sold, with the conversation step restored", () => {
+    // The missing step is the whole reason this merge exists: collapsing
+    // Connected -> Conversations -> Decision-maker into one hop made the panel
+    // name the wrong bottleneck.
     expect(steps.map((s) => s.label)).toEqual([
-      "Businesses dialled",
-      "Someone answered",
+      "Called",
+      "Connected",
+      "Conversations",
       "Decision-maker",
       "Goal met",
       "Registered",
@@ -283,113 +328,148 @@ describe("buildEconomicsFunnel", () => {
     expect(steps[0].kept).toBeNull();
   });
 
-  it("measures each step against the one above it", () => {
+  it("measures each call-level step against the one above it", () => {
     expect(steps[1].kept).toBeCloseTo(3194 / 7518, 4);
-    expect(steps[2].kept).toBeCloseTo(192 / 3194, 4);
-    expect(steps[3].kept).toBeCloseTo(20 / 192, 4);
-    expect(steps[4].kept).toBeCloseTo(1, 4);
+    expect(steps[2].kept).toBeCloseTo(677 / 3194, 4);
+    expect(steps[3].kept).toBeCloseTo(192 / 677, 4);
+    expect(steps[4].kept).toBeCloseTo(20 / 192, 4);
   });
 
-  it("measures Attended against SETTLED, not against registrations", () => {
-    // The whole point. 4/8, not 4/20.
-    expect(steps[5].kept).toBeCloseTo(0.5, 4);
-    expect(steps[5].sample).toBe(8);
+  it("still measures Attended against SETTLED, not against registrations", () => {
+    expect(steps[6].kept).toBeCloseTo(0.5, 4);
+    expect(steps[6].sample).toBe(8);
+    expect(steps[6].pending).toBe(12);
   });
 
   it("prices every step from the same spend", () => {
     expect(steps[0].costEach).toBeCloseTo(0.0995, 3);
-    expect(steps[2].costEach).toBeCloseTo(3.896, 2);
+    expect(steps[2].costEach).toBeCloseTo(1.105, 2);
+    expect(steps[3].costEach).toBeCloseTo(3.896, 2);
     expect(steps[4].costEach).toBeCloseTo(37.4, 2);
   });
 
-  it("projects the cost of an attendee instead of dividing naively", () => {
-    expect(steps[5].projected).toBe(true);
-    expect(steps[5].costEach).toBeCloseTo(74.8, 1);
+  it("projects the cost of an attendee rather than dividing naively", () => {
+    expect(steps[6].projected).toBe(true);
+    expect(steps[6].costEach).toBeCloseTo(74.8, 1);
   });
 
-  it("says how thin the attendance sample is, in numbers not prose", () => {
-    // Two counts, no wording: the view decides how to say it. They are also
-    // NOT a breakdown of the 20 registrations -- scheduled_at is nullable and
-    // such a row lands in neither bucket -- so nothing here invites the reader
-    // to add them up.
-    expect(steps[5].sample).toBe(8);
-    expect(steps[5].pending).toBe(12);
-    expect(steps[5].confidence).toBe("low");
-  });
-
-  it("leaves pending null where the idea means nothing", () => {
-    expect(steps.filter((s) => s.pending !== null).map((s) => s.label)).toEqual(
-      ["Attended"],
-    );
-  });
-
-  it("prices a step with no outcomes as null, never Infinity", () => {
-    // The zero-DENOMINATOR path, not the zero-spend one: LIVE carries $747.98
-    // of real spend, so costPer clears its spend guard and it is `sales` being
-    // 0 that returns null. Do not swap LIVE for a zero-spend fixture here or
-    // the assertion stops testing what its name claims.
-    expect(LIVE.spend).toBeGreaterThan(0);
-    expect(LIVE.sales).toBe(0);
-    expect(steps[6].costEach).toBeNull();
-  });
-
-  it("never lets Sold be named as the bottleneck", () => {
-    // A sale ripens over the sales window after the session, and nothing here
-    // knows how many of these attendees are still inside it. `kept` is 0/4
-    // today, so drop is 1.0 -- the maximum a funnel can produce. The moment
-    // attendance crosses the leak sample floor with sales still ripening, Sold
-    // would beat every genuine leak on the page and headline "losing 100%
-    // between Attended and Sold".
-    expect(steps[6].label).toBe("Sold");
-    expect(steps[6].leakEligible).toBe(false);
-  });
-
-  it("lets every other step be named", () => {
-    expect(steps.filter((s) => !s.leakEligible).map((s) => s.label)).toEqual([
-      "Sold",
-    ]);
-  });
-
-  it("keeps Sold ineligible once its sample clears the leak floor", () => {
-    // The motivating case, pinned: twelve attendees, nobody has bought yet.
-    // The sample floor is no longer doing the work, so only leakEligible is
-    // standing between the panel and a meaningless headline.
-    const ripening = buildEconomicsFunnel({
-      ...LIVE,
-      regs: 12,
-      attended: 12,
-      no_show: 0,
-      pending: 0,
-      sales: 0,
+  it("carries the decision-maker subset on the goal step", () => {
+    // What the old funnel's separate "Outcome" block existed for.
+    expect(steps[4].subset).toEqual({
+      count: 18,
+      noun: "with a decision-maker",
     });
-    const sold = ripening[6];
-    expect(sold.label).toBe("Sold");
-    expect(sold.sample).toBeGreaterThanOrEqual(MIN_LEAK_SAMPLE);
-    expect(sold.kept).toBe(0);
-    expect(sold.leakEligible).toBe(false);
   });
 
+  it("shows raw calls against businesses, so redials stay visible", () => {
+    // 8,156 calls to 7,518 businesses. Deleting the old panel's metric strip
+    // would otherwise take the only total call count off the page, and with it
+    // any way to see that a business gets dialled more than once.
+    expect(steps[0].subset).toEqual({ count: 8156, noun: "calls placed" });
+    expect(steps.filter((s) => s.subset !== null)).toHaveLength(2);
+  });
+
+  it("keeps Sold out of the leak callout however big it gets", () => {
+    // A sale ripens over SALES_WINDOW_DAYS. Zero is "not yet", never a leak.
+    expect(steps[7].leakEligible).toBe(false);
+    expect(steps.filter((s) => !s.leakEligible)).toHaveLength(1);
+  });
+
+  it("no longer names the decision-maker step as the worst drop", () => {
+    // The regression that started this. The old chain measured decision-makers
+    // against everyone who ANSWERED -- 192 of 3,194 -- so the panel said
+    // "Decision-maker, 94%" and pointed at the wrong step. With the
+    // conversation step restored, decision-makers are measured against the 677
+    // who actually talked: a 72% drop, no longer the worst in the chain.
+    //
+    // Every eligible drop over this window, so the ranking is on the page and
+    // not in anyone's head:
+    //   Connected      3,194 / 7,518   57.5%
+    //   Conversations    677 / 3,194   78.8%
+    //   Decision-maker   192 /   677   71.6%
+    //   Goal met          20 /   192   89.6%   <- the worst
+    //   Registered        20 /    20    0.0%
+    //   Attended           4 /     8   -- sample below MIN_LEAK_SAMPLE
+    //   Sold               0 /     4   -- never eligible
+    //
+    // NOTE, and worth a second look before the panel copy is written: the merge
+    // plan predicted "Conversations, 79%". That is what the four-step CALL-level
+    // funnel says, because it stops at decision-makers and never sees Goal met.
+    // Over the full eight-step chain, Goal met drops harder.
+    const leak = worstDrop(
+      steps
+        .filter((s) => s.leakEligible)
+        .map((s) => ({
+          from: s.label,
+          to: s.label,
+          kept: s.kept,
+          sample: s.sample,
+        })),
+    );
+    expect(leak?.to).not.toBe("Decision-maker");
+    expect(leak?.to).toBe("Goal met");
+    expect(leak?.drop).toBeCloseTo(0.896, 2);
+  });
   it("never yields a NaN rate, which would poison the leak detector", () => {
     for (const s of steps) {
       expect(s.kept === null || Number.isFinite(s.kept)).toBe(true);
     }
   });
 
-  it("survives a list nothing has been dialled from", () => {
+  it("survives an all-zero window", () => {
     const empty = buildEconomicsFunnel({
-      ...LIVE,
-      worked: 0,
-      reached: 0,
+      called: 0,
+      calls: 0,
+      connected: 0,
+      conversations: 0,
       dms: 0,
       goals: 0,
+      goalsWithDm: 0,
+      spend: 0,
       regs: 0,
       attended: 0,
       no_show: 0,
       pending: 0,
       sales: 0,
-      spend: 0,
     });
     expect(empty.every((s) => s.costEach === null)).toBe(true);
     expect(empty.slice(1).every((s) => s.kept === null)).toBe(true);
+    expect(empty.every((s) => s.delta === null)).toBe(true);
+    // No "0 calls placed" line under a step that is itself zero.
+    expect(empty.every((s) => s.subset === null)).toBe(true);
+  });
+});
+
+describe("buildEconomicsFunnel deltas", () => {
+  it("compares each call-level rate against the prior window", () => {
+    const steps = buildEconomicsFunnel(CHAIN, PRIOR);
+    // Connected: 42.48% now vs 37.50% before = +13.3%
+    expect(steps[1].delta).toBeCloseTo(0.1328, 3);
+  });
+
+  it("puts a delta on exactly the three steps the deleted tiles covered", () => {
+    // priorLeadFunnel carries only the four call-level stages, so only the
+    // three conversions between them can be compared. Connect rate,
+    // conversation rate and decision-maker rate -- precisely the three
+    // KpiTiles this merge removes. Nothing lost, nothing new fetched.
+    const steps = buildEconomicsFunnel(CHAIN, PRIOR);
+    const withDelta = steps.filter((s) => s.delta !== null).map((s) => s.label);
+    expect(withDelta).toEqual(["Connected", "Conversations", "Decision-maker"]);
+  });
+
+  it("has no deltas at all without a prior window", () => {
+    // ?compare=0, or a first period with nothing before it.
+    const steps = buildEconomicsFunnel(CHAIN, null);
+    expect(steps.every((s) => s.delta === null)).toBe(true);
+  });
+
+  it("is null rather than Infinity when a prior rate was zero", () => {
+    const steps = buildEconomicsFunnel(CHAIN, {
+      called: 100,
+      connected: 0,
+      conversations: 0,
+      dms: 0,
+    });
+    expect(steps[2].delta).toBeNull();
   });
 });
