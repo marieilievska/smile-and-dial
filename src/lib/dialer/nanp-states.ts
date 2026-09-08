@@ -13,8 +13,16 @@
  * special-purpose codes (700, 500, 600, 911, 411, etc). Canadian NANP area
  * codes are out of scope — this platform only dials US business leads.
  *
- * A handful of rare/overlay codes may be missing; every state + DC is
- * represented by at least its primary code(s).
+ * Every state + DC is represented by at least its primary code(s).
+ *
+ * ⚠️ A missing code is not cosmetic. `regionForAreaCode` returns null for one,
+ * so `number-pool` computes matchTier "none" and the lead is dialled with no
+ * local presence — even when we hold a number in its state. Audited against
+ * 54,087 live leads on 2026-09-08: nine overlay codes were missing (840, 771,
+ * 448, 656, 728, 227, 645, 557, 572), costing 56 leads their local match.
+ * Added, with a test pinning each to the code it overlays.
+ *
+ * Puerto Rico (787/939) stays out: the scope here is the 50 states + DC.
  */
 export const STATE_AREA_CODES: Record<string, string[]> = {
   AL: ["205", "251", "256", "334", "938"],
@@ -51,6 +59,7 @@ export const STATE_AREA_CODES: Record<string, string[]> = {
     "818",
     "820",
     "831",
+    "840",
     "858",
     "909",
     "916",
@@ -61,7 +70,7 @@ export const STATE_AREA_CODES: Record<string, string[]> = {
   CO: ["303", "719", "720", "970", "983"],
   CT: ["203", "475", "860", "959"],
   DE: ["302"],
-  DC: ["202"],
+  DC: ["202", "771"],
   FL: [
     "239",
     "305",
@@ -69,7 +78,9 @@ export const STATE_AREA_CODES: Record<string, string[]> = {
     "352",
     "386",
     "407",
+    "448",
     "561",
+    "656",
     "689",
     "727",
     "754",
@@ -107,9 +118,9 @@ export const STATE_AREA_CODES: Record<string, string[]> = {
   IA: ["319", "515", "563", "641", "712"],
   KS: ["316", "620", "785", "913"],
   KY: ["270", "364", "502", "606", "859"],
-  LA: ["225", "318", "337", "504", "985"],
+  LA: ["225", "318", "337", "504", "728", "985"],
   ME: ["207"],
-  MD: ["240", "301", "410", "443", "667"],
+  MD: ["227", "240", "301", "410", "443", "645", "667"],
   MA: ["339", "351", "413", "508", "617", "774", "781", "857", "978"],
   MI: [
     "231",
@@ -128,7 +139,7 @@ export const STATE_AREA_CODES: Record<string, string[]> = {
   ],
   MN: ["218", "320", "507", "612", "651", "763", "952"],
   MS: ["228", "601", "662", "769"],
-  MO: ["314", "417", "573", "636", "660", "816", "975"],
+  MO: ["314", "417", "557", "573", "636", "660", "816", "975"],
   MT: ["406"],
   NE: ["308", "402", "531"],
   NV: ["702", "725", "775"],
@@ -174,7 +185,7 @@ export const STATE_AREA_CODES: Record<string, string[]> = {
     "740",
     "937",
   ],
-  OK: ["405", "539", "580", "918"],
+  OK: ["405", "539", "572", "580", "918"],
   OR: ["458", "503", "541", "971"],
   PA: [
     "215",
