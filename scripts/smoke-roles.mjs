@@ -64,7 +64,6 @@ const ROUTES = [
   "/campaigns",
   "/analytics",
   "/reporting",
-  "/reporting?tab=cohorts",
   "/reporting?tab=cause-of-death",
   "/reporting?tab=numbers",
   "/reporting?tab=changelog",

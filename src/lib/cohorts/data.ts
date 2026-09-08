@@ -1,7 +1,11 @@
 import "server-only";
 
-import { createClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import type { Database } from "@/lib/supabase/database.types";
 import { etDateDaysAgo, etDayString } from "@/lib/time/eastern";
+
+type DB = SupabaseClient<Database>;
 
 /**
  * One cohort row.
@@ -42,13 +46,18 @@ export const COHORT_WINDOW_DAYS = 30;
  * in application code, deliberately, because a UI check that disagrees with RLS
  * is how data leaks.
  *
+ * Takes its client rather than building one, the same convention as
+ * agent-analytics/report-data.ts: the in-app page passes an auth client and the
+ * public token-gated share passes a service-role one, and the SAME query and
+ * mapping serve both so the two surfaces cannot drift.
+ *
  * No pagination needed: the function returns one row per day, not per call, so
  * PostgREST's 1000-row cap is nowhere near.
  */
 export async function fetchCohortRows(
+  supabase: DB,
   days: number = COHORT_WINDOW_DAYS,
 ): Promise<CohortRow[]> {
-  const supabase = await createClient();
   const { data, error } = await supabase.rpc("cohort_rows", {
     p_start: etDateDaysAgo(days),
     p_end: etDayString(),
@@ -62,13 +71,7 @@ export async function fetchCohortRows(
   }));
 }
 
-/** Sessions that reconciled with nobody marked attended — almost always a day
- *  the operator forgot rather than a session literally nobody attended. Without
- *  surfacing this, forgetting looks identical to a genuine 0% show rate. */
-export function unmarkedSessions(
-  rows: readonly CohortRow[],
-): { dial_day: string; regs: number }[] {
-  return rows
-    .filter((r) => r.regs > 0 && r.attended === 0 && r.no_show > 0)
-    .map((r) => ({ dial_day: r.dial_day, regs: r.no_show }));
-}
+// `unmarkedSessions` lived here and had exactly one caller, the Cohorts tab.
+// The rule survives as `unmarkedDays` in reporting/daily-view.tsx, restated on
+// the joined row it now reads from; keeping a second copy here that nothing
+// calls is how two versions of one rule start disagreeing.

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   Bot,
-  CalendarClock,
   PhoneCall,
   HeartCrack,
   History,
@@ -12,8 +11,7 @@ import {
  *  read-only share so the two never drift. Plain (non-"use client") module
  *  so both Server Components can import the array + component safely. */
 export const REPORTING_TABS = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { key: "cohorts", label: "Cohorts", icon: CalendarClock },
+  { key: "daily", label: "Daily", icon: LayoutDashboard },
   { key: "cause-of-death", label: "Cause of Death", icon: HeartCrack },
   { key: "numbers", label: "Numbers", icon: PhoneCall },
   { key: "changelog", label: "App Changelog", icon: History },
@@ -21,6 +19,31 @@ export const REPORTING_TABS = [
 ] as const;
 
 export type ReportingTabKey = (typeof REPORTING_TABS)[number]["key"];
+
+/** The tab a retired key now opens. Dashboard and Cohorts were the same rows
+ *  keyed on the same day and are one tab now, but both keys are sitting in
+ *  bookmarks and in a share link already sent to management — so they open
+ *  Daily rather than falling through to a blank page. */
+const RETIRED_TABS: Record<string, ReportingTabKey> = {
+  dashboard: "daily",
+  cohorts: "daily",
+};
+
+/** The tab to render for a raw `?tab=` value, given what this viewer may see.
+ *
+ *  The tab list is the authority, never the query parameter: a member
+ *  deep-linking to an admin-only tab lands on Daily rather than being shown an
+ *  empty table. Shared by both surfaces so an old link behaves the same on
+ *  each. */
+export function resolveTabParam(
+  raw: string,
+  visible: readonly (typeof REPORTING_TABS)[number][],
+): ReportingTabKey {
+  const key = RETIRED_TABS[raw] ?? raw;
+  return visible.some((t) => t.key === key)
+    ? (key as ReportingTabKey)
+    : "daily";
+}
 
 /** The tabs to show for the current audience.
  *
@@ -34,22 +57,22 @@ export type ReportingTabKey = (typeof REPORTING_TABS)[number]["key"];
  *  (`app_changelog_admin_all`, `agent_prompt_log_admin_all`), so a member
  *  opening either would be shown a permanently empty table with no explanation.
  *  Hiding beats explaining. Everything else is scoped by RLS to the leads the
- *  viewer owns, which is exactly what a member should see. */
+ *  viewer owns, which is exactly what a member should see.
+ *
+ *  There is no longer a `showCohorts`. The share used to drop a whole tab to
+ *  keep cost per registration off an outsider's screen, and dropped the
+ *  registration and attendance counts with it. It now passes
+ *  `showMoney={false}` to the one Daily view instead: management finally sees
+ *  what the dialling produced, and the economics still stay in. */
 export function reportingTabsFor({
   showNumbers = true,
-  showCohorts = true,
   isAdmin = true,
 }: {
   showNumbers?: boolean;
-  showCohorts?: boolean;
   isAdmin?: boolean;
 } = {}): readonly (typeof REPORTING_TABS)[number][] {
   return REPORTING_TABS.filter((t) => {
     if (t.key === "numbers") return showNumbers;
-    // Cohorts is kept off the public share: it puts cost per registration and
-    // cost per sale on screen, which is our economics, not a recipient's
-    // business.
-    if (t.key === "cohorts") return showCohorts;
     if (t.key === "changelog" || t.key === "prompt-log") return isAdmin;
     return true;
   });

@@ -130,10 +130,12 @@ function attendedTitle(r: DailyRow): string | undefined {
 
 /** Whether a day has stopped changing. One function, so the Status cell and the
  *  CSV cannot disagree about a row. */
-function statusLabel(r: DailyRow, now: Date): string {
-  if (isRipe(r.lastSession, r.pending ?? 0, now)) return "Final";
-  const pending = r.pending ?? 0;
-  if (pending > 0) return `${pending} pending`;
+function statusLabel(r: DailyRow, now: Date): string | null {
+  // No cohort row for the day at all: null, which prints as an em dash. Saying
+  // "Settling" would claim we are waiting on sessions we have no record of.
+  if (r.pending === null) return null;
+  if (isRipe(r.lastSession, r.pending, now)) return "Final";
+  if (r.pending > 0) return `${r.pending} pending`;
   return "Settling";
 }
 
@@ -663,7 +665,7 @@ function DailyTableRow({
   // Under a campaign scope every cohort-derived cell describes the whole
   // workspace, so the right-hand side of the row goes to em dashes — Status
   // included, because "3 pending" is a count from that same unscoped source.
-  const settling = !ripe && (r.pending ?? 0) > 0;
+  const settling = !cohortsUnscoped && !ripe && (r.pending ?? 0) > 0;
 
   return (
     <TableRow>
@@ -716,15 +718,13 @@ function DailyTableRow({
         </>
       ) : null}
       <TableCell className="whitespace-nowrap">
-        {cohortsUnscoped ? (
-          <span className="text-muted-foreground text-xs">{DASH}</span>
-        ) : settling ? (
+        {settling ? (
           <span className="text-warning text-xs font-medium">
             {statusLabel(r, now)}
           </span>
         ) : (
           <span className="text-muted-foreground text-xs">
-            {statusLabel(r, now)}
+            {(cohortsUnscoped ? null : statusLabel(r, now)) ?? DASH}
           </span>
         )}
       </TableCell>
