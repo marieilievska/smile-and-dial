@@ -225,6 +225,54 @@ export async function listOwnedNumbers(): Promise<{
   }
 }
 
+/** Upper bound on number pages walked, so a malformed `next_page_uri` can
+ *  never loop forever (50 × 200 = 10,000 numbers, far beyond the pool). */
+const MAX_NUMBER_PAGES = 50;
+
+/**
+ * Every IncomingPhoneNumber SID the account currently owns, following Twilio's
+ * `next_page_uri` so a pool larger than one page is seen in full.
+ *
+ * Unlike `listOwnedNumbers` this NEVER reports an empty list without having
+ * actually read Twilio: mock mode and a missing config are errors here, not
+ * `{ [], null }`. The SHAKEN reconcile is the caller, and it treats an empty
+ * read as "the account owns nothing, remove every assignment" — so "we didn't
+ * look" and "there is nothing there" must not arrive as the same answer.
+ */
+export async function listOwnedNumberSids(): Promise<{
+  sids: string[];
+  error: string | null;
+}> {
+  if (!isLive()) return { sids: [], error: "Twilio is not live." };
+  const auth = twilioAuth();
+  if (!auth) return { sids: [], error: "Twilio is not configured." };
+  try {
+    const sids: string[] = [];
+    let next: string | null =
+      `${TWILIO_API}/${auth.account}/IncomingPhoneNumbers.json?PageSize=200`;
+    for (let page = 0; next && page < MAX_NUMBER_PAGES; page++) {
+      const res = await fetch(next, {
+        headers: { Authorization: auth.header },
+      });
+      if (!res.ok) {
+        return { sids: [], error: `Twilio listing failed (${res.status}).` };
+      }
+      const body = (await res.json()) as {
+        incoming_phone_numbers?: { sid: string }[];
+        next_page_uri?: string | null;
+      };
+      for (const n of body.incoming_phone_numbers ?? []) sids.push(n.sid);
+      // Twilio returns the next page as a path relative to the API host.
+      next = body.next_page_uri
+        ? `https://api.twilio.com${body.next_page_uri}`
+        : null;
+    }
+    return { sids, error: null };
+  } catch {
+    return { sids: [], error: "Twilio listing failed." };
+  }
+}
+
 /** Search for purchasable numbers. Mocked unless TWILIO_LIVE=live.
  *
  *  `limit` is how many candidates to ask Twilio for. It used to be pinned at 10,

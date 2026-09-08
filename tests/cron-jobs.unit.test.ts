@@ -130,6 +130,18 @@ const HTTP_JOBS = [
     header: "x-dialer-secret",
     secret: "dialer_tick_secret",
   },
+  // The SHAKEN/STIR reconcile. It lives here rather than in Windows Task
+  // Scheduler for one reason: evaluate_alerts() raises `cron_missed` for a
+  // pg_cron job that stops running, and could never see a scheduled task on a
+  // laptop. Its predecessor stopped silently and left ten numbers dialling
+  // without A-attestation for six days.
+  {
+    job: "shaken-reconcile",
+    schedule: "*/30 * * * *",
+    path: "/api/shaken/reconcile",
+    header: "x-dialer-secret",
+    secret: "dialer_tick_secret",
+  },
 ] as const;
 
 describe.each(HTTP_JOBS)(
