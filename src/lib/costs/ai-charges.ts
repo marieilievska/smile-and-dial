@@ -27,19 +27,11 @@ export const AI_CHARGE_KINDS = [
 
 export type AiChargeKind = (typeof AI_CHARGE_KINDS)[number];
 
-/** Human labels for the Costs page. Unknown kinds fall back to the raw key. */
-export const AI_CHARGE_KIND_LABELS: Record<AiChargeKind, string> = {
-  ask_smile: "Ask Smile answers",
-  draft_agent: "Agent drafting",
-  split_agent_template: "Template splitting",
-  tidy_prose: "Script tidy-ups",
-  business_research: "Live business research (demo)",
-  elevenlabs_test_call: "ElevenLabs test calls",
-};
-
-export function aiChargeKindLabel(kind: string): string {
-  return (AI_CHARGE_KIND_LABELS as Record<string, string>)[kind] ?? kind;
-}
+// Human labels for these kinds used to live here, for the Costs page's "Other
+// AI usage" table. That table was removed 2026-09-08 — this ledger records
+// admin tooling, not the cost of dialling anybody, and the Costs page answers
+// only the latter. The labels went with it rather than sitting here unused;
+// git has them if a surface ever wants to display kinds again.
 
 export type AiChargeInput = {
   ownerId: string;

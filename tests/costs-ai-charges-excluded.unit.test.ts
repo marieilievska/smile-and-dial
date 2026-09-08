@@ -6,85 +6,89 @@ import { describe, it, expect } from "vitest";
  *
  * The `ai_charges` ledger (Ask Smile, agent drafting, template splitting,
  * script tidy-ups, demo business research, ElevenLabs test calls) is admin
- * tooling someone used at a desk. It used to be folded into the OpenAI vendor
- * line and the headline total, which moved both for reasons unrelated to
- * calling — on 2026-09-08 the page reported spend on a day with ZERO calls
- * behind it, from a single $0.0261 template split.
+ * tooling someone used at a desk. It is recorded — `recordAiCharge` has six
+ * live callers — but it does not belong on this page in any form.
  *
- * These guard the separation. They read source text rather than render the
- * page because the numbers involved are composed in a Server Component that
- * needs a live Supabase client; the arithmetic here is addition, and what
- * actually regresses is someone adding the term back.
+ * It got here in two steps. First it was folded into the OpenAI vendor line
+ * and the headline total, which moved both for reasons unrelated to calling:
+ * on 2026-09-08 the page reported spend on a day with ZERO calls behind it,
+ * off a single $0.0261 template split. Removing it from the totals left an
+ * "Other AI usage" table, and that went too — a number nobody should act on
+ * is not improved by being shown in its own box.
+ *
+ * These read source text rather than render the page, because the page is a
+ * Server Component needing a live Supabase client. What actually regresses is
+ * someone wiring the ledger back in, and that is visible in the source.
  */
 const PAGE = readFileSync("src/app/(app)/costs/page.tsx", "utf8");
 const VENDOR = readFileSync(
   "src/app/(app)/costs/costs-vendor-breakdown.tsx",
   "utf8",
 );
-const OTHER_AI = readFileSync("src/app/(app)/costs/costs-other-ai.tsx", "utf8");
+const ANALYTICS_COSTS = readFileSync("src/lib/analytics/costs.ts", "utf8");
 
-/** Source with `//` and `/* *\/` comments stripped, so prose explaining the
- *  rule can never satisfy a test asserting the rule. */
+/** Source with `//` and block comments stripped, so prose explaining the rule
+ *  can never satisfy a test asserting the rule. */
 function code(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 }
 
-describe("ai_charges stays out of the Costs page totals", () => {
-  it("is not added to the headline period total", () => {
+describe("the ai_charges ledger is absent from the Costs page", () => {
+  it("is not referenced by the page at all", () => {
     const body = code(PAGE);
-    const line = /const periodTotal\s*=\s*([^;]+);/.exec(body)?.[1] ?? "";
+    expect(body).not.toContain("aiCharges");
+    expect(body).not.toContain("AiCharge");
+    expect(body).not.toContain("ai_charges");
+    expect(body).not.toContain("CostsOtherAi");
+  });
+
+  it("has no fetcher left to call", () => {
+    // The loader was deleted with the table. Leaving an unused exported
+    // fetcher is how a removed feature quietly comes back.
+    expect(code(ANALYTICS_COSTS)).not.toContain("fetchAiChargeTotals");
+    expect(code(ANALYTICS_COSTS)).not.toContain("AiChargeTotals");
+  });
+
+  it("leaves the OpenAI vendor line as call-attributable spend only", () => {
+    const body = code(VENDOR);
+    expect(body).toMatch(/value:\s*summary\.openai\s*,/);
+    expect(body).not.toMatch(/value:\s*summary\.openai\s*\+/);
+    expect(body).not.toContain("extraOpenAiCost");
+  });
+
+  it("keeps the headline total to calls, rental and lookups", () => {
+    const line = /const periodTotal\s*=\s*([^;]+);/.exec(code(PAGE))?.[1] ?? "";
     expect(line).not.toContain("aiCharges");
-    // The terms that SHOULD be there, so this fails loudly if the whole
-    // expression is refactored away rather than silently passing on an empty
-    // match.
+    // Named so this fails loudly if the expression is refactored away rather
+    // than passing on an empty match.
     expect(line).toContain("summary.total");
     expect(line).toContain("numberRentalInPeriod");
     expect(line).toContain("importLookupCost");
   });
 
-  it("is not added to the prior-period total either", () => {
+  it("keeps the prior-period total in step with it", () => {
     // A delta computed over a different set of costs than the figure it sits
     // under would be worse than no delta at all.
-    const body = code(PAGE);
-    const line = /const prevPeriodTotal\s*=\s*([^;]+);/.exec(body)?.[1] ?? "";
+    const line =
+      /const prevPeriodTotal\s*=\s*([^;]+);/.exec(code(PAGE))?.[1] ?? "";
     expect(line).not.toContain("AiCharges");
     expect(line).toContain("prevTotal");
     expect(line).toContain("prevImportLookupCost");
   });
 
-  it("is not passed into the vendor breakdown", () => {
-    expect(code(PAGE)).not.toContain("extraOpenAiCost");
-    expect(code(VENDOR)).not.toContain("extraOpenAiCost");
-  });
-
-  it("leaves the OpenAI vendor line as call-attributable spend only", () => {
-    const body = code(VENDOR);
-    // The OpenAI row's value, whatever else moves around it.
-    expect(body).toMatch(/value:\s*summary\.openai\s*,/);
-    expect(body).not.toMatch(/value:\s*summary\.openai\s*\+/);
-  });
-
-  it("keeps the vendor bar summing to its own vendor rows", () => {
-    const body = code(VENDOR);
-    const line = /const vendorTotal\s*=\s*([^;]+);/.exec(body)?.[1] ?? "";
+  it("keeps the vendor bar summing to its own rows", () => {
+    const line =
+      /const vendorTotal\s*=\s*([^;]+);/.exec(code(VENDOR))?.[1] ?? "";
     expect(line).toContain("summary.total");
     expect(line).toContain("extraLookupCost");
     expect(line).not.toContain("OpenAi");
   });
 
-  it("still fetches the ledger once, for the table", () => {
-    // The spend must stay VISIBLE — it is only barred from the totals. And
-    // only one fetch: nothing compares it to a prior window any more.
-    const body = code(PAGE);
-    expect(body).toContain("fetchAiChargeTotals");
-    expect(body.match(/fetchAiChargeTotals\(/g)).toHaveLength(1);
-    expect(body).toContain("aiCharges.byKind");
-  });
-
-  it("tells the reader the table is outside the totals", () => {
-    // The old caption said "Included in the OpenAI line and the total above".
-    // If the numbers change and the caption does not, the page lies.
-    expect(OTHER_AI).not.toContain("Included in the OpenAI line");
-    expect(OTHER_AI).toMatch(/not counted in any total/i);
+  it("still RECORDS the spend — only the display went", () => {
+    // Removing the page must not stop the ledger. If this ever fails, the
+    // money is being spent and no longer written down anywhere.
+    const ledger = readFileSync("src/lib/costs/ai-charges.ts", "utf8");
+    expect(ledger).toContain("export async function recordAiCharge");
+    expect(ledger).toContain("AI_CHARGE_KINDS");
   });
 });

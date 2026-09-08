@@ -13,7 +13,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  fetchAiChargeTotals,
   fetchCostRows,
   fetchLookupChargeTotal,
   fetchRollupRows,
@@ -38,7 +37,6 @@ import { BudgetProgress } from "./budget-progress";
 import { CostsDatePills } from "./costs-date-pills";
 import { CostsHero } from "./costs-hero";
 import { CostsKpiStrip } from "./costs-kpi-strip";
-import { CostsOtherAi } from "./costs-other-ai";
 import { CostsTopCampaigns } from "./costs-top-campaigns";
 import { CostsVendorBreakdown } from "./costs-vendor-breakdown";
 import { CostsViewTabs } from "./costs-view-tabs";
@@ -138,7 +136,6 @@ export default async function CostsPage({
     { data: activeNumbers },
     importLookupCost,
     prevImportLookupCost,
-    aiCharges,
   ] = await Promise.all([
     fetchRollupRows(supabase, slicers),
     supabase.from("campaigns").select("id, name").order("name"),
@@ -159,10 +156,6 @@ export default async function CostsPage({
       to: prevTo,
       ownerId,
     }),
-    // AI spend outside a call's breakdown (the ai_charges ledger). Fetched
-    // for the "Other AI usage" table ONLY — it is deliberately not part of any
-    // total on this page. No prior-window fetch, because nothing compares it.
-    fetchAiChargeTotals(supabase, { from, to, ownerId }),
   ]);
 
   const numberCount = activeNumbers?.length ?? 0;
@@ -434,8 +427,6 @@ export default async function CostsPage({
         />
         <CostsTopCampaigns items={topCampaigns} />
       </div>
-
-      <CostsOtherAi items={aiCharges.byKind} />
 
       <CostsViewTabs current={view} buildHref={buildViewHref} />
 
