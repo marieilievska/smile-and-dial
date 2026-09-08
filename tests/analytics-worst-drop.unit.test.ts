@@ -102,82 +102,36 @@ describe("worstDrop", () => {
   });
 });
 
-describe("buildInsights still reports the same leak after the extraction", () => {
+describe("buildInsights leaves the leak to the funnel panel", () => {
   const kpis = {
     totalCalls: 8156,
     goalMet: 20,
     costPerGoalMet: 37.4,
   } as Parameters<typeof buildInsights>[0]["kpis"];
 
-  it("names the biggest step-over-step drop, as it always did", () => {
-    // Drops are 57.5%, 62.4% and 84.0% -- the last one wins.
-    const insight = buildInsights({
-      kpis,
-      prior: null,
-      funnel: [
-        { label: "Called", count: 7518 },
-        { label: "Connected", count: 3194 },
-        { label: "Conversations", count: 1200 },
-        { label: "Decision-makers", count: 192 },
-      ],
-      ranking: [],
-    });
-    expect(insight.detail).toContain("Conversations → Decision-makers");
-    expect(insight.detail).toContain("84%");
+  const funnel = [
+    { label: "Called", count: 7518 },
+    { label: "Connected", count: 3194 },
+    { label: "Conversations", count: 677 },
+    { label: "Decision-makers reached", count: 192 },
+  ];
+
+  it("no longer names a bottleneck — the panel is the single answer", () => {
+    // Two answers to "where is the leak" on one screen is worse than one,
+    // especially when they disagree: this used to say Connected ->
+    // Conversations while the panel said Decision-maker.
+    const insight = buildInsights({ kpis, prior: null, funnel, ranking: [] });
+    expect(insight.detail).not.toContain("drop-off");
+    expect(insight.detail).not.toContain("bottleneck");
   });
 
-  it("says nothing about a leak when the funnel holds up", () => {
-    const insight = buildInsights({
-      kpis,
-      prior: null,
-      funnel: [
-        { label: "Called", count: 100 },
-        { label: "Connected", count: 100 },
-      ],
-      ranking: [],
-    });
-    expect(insight.detail).not.toContain("Biggest drop-off");
-  });
-});
-
-describe("buildInsights: the sample floor worstDrop now enforces on the funnel", () => {
-  // buildInsights hands worstDrop `sample: prev`, the previous step's count.
-  // That gives this funnel a sample floor (MIN_LEAK_SAMPLE) it never enforced
-  // before the extraction: an 89% drop off nine calls is noise, not a
-  // bottleneck. Pinning both sides of the boundary is the only way to be
-  // sure the floor landed instead of silently dropping the sentence for
-  // every funnel, big or small.
-  const kpis = {
-    totalCalls: 10,
-    goalMet: 0,
-    costPerGoalMet: 0,
-  } as Parameters<typeof buildInsights>[0]["kpis"];
-
-  it("says too few calls rather than naming a bottleneck under the floor", () => {
-    const insight = buildInsights({
-      kpis,
-      prior: null,
-      funnel: [
-        { label: "Called", count: 9 },
-        { label: "Connected", count: 1 },
-      ],
-      ranking: [],
-    });
-    expect(insight.detail).not.toContain("Biggest drop-off");
-    expect(insight.detail).toContain("Too few calls");
+  it("still says what a goal costs", () => {
+    const insight = buildInsights({ kpis, prior: null, funnel, ranking: [] });
+    expect(insight.detail).toContain("$37.40");
   });
 
-  it("still names the drop-off once the funnel clears the floor", () => {
-    const insight = buildInsights({
-      kpis,
-      prior: null,
-      funnel: [
-        { label: "Called", count: 10 },
-        { label: "Connected", count: 1 },
-      ],
-      ranking: [],
-    });
-    expect(insight.detail).toContain("Biggest drop-off is Called → Connected");
-    expect(insight.detail).toContain("90%");
+  it("still leads with goals met and the trend", () => {
+    const insight = buildInsights({ kpis, prior: null, funnel, ranking: [] });
+    expect(insight.headline).toContain("20 goals met");
   });
 });

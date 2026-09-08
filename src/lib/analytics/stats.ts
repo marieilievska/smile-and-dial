@@ -510,7 +510,7 @@ export function buildInsights(opts: {
   funnel: FunnelStep[];
   ranking: CampaignRank[];
 }): AnalyticsInsight {
-  const { kpis, prior, funnel, ranking } = opts;
+  const { kpis, prior, ranking } = opts;
 
   if (kpis.totalCalls === 0) {
     return {
@@ -546,42 +546,12 @@ export function buildInsights(opts: {
     tone = "none";
   }
 
-  // Detail — biggest funnel leak (largest step-over-step drop), then the
-  // all-in cost per appointment when we have bookings.
+  // Detail — the all-in cost per appointment when we have bookings.
   const parts: string[] = [];
-  // Each stage of this funnel IS measured against its predecessor's count, so
-  // the rate is derived here and handed over. Other callers do it differently.
-  // Handing worstDrop `sample: prev` also gives this funnel a sample floor
-  // (MIN_LEAK_SAMPLE) it never enforced before the extraction — deliberate:
-  // an 89% drop off nine calls is noise, not a bottleneck worth naming.
-  const worst = worstDrop(
-    funnel.slice(1).map((step, i) => {
-      const prev = funnel[i].count;
-      return {
-        from: funnel[i].label,
-        to: step.label,
-        kept: prev > 0 ? step.count / prev : null,
-        sample: prev,
-      };
-    }),
-  );
-  if (worst) {
-    parts.push(
-      `Biggest drop-off is ${worst.from} → ${worst.to}, losing ${(
-        worst.drop * 100
-      ).toFixed(0)}% of calls.`,
-    );
-  } else if (
-    funnel[0] &&
-    funnel[0].count > 0 &&
-    funnel[0].count < MIN_LEAK_SAMPLE
-  ) {
-    // Say why the callout is missing rather than leaving a hole — the same
-    // move cohorts-view makes when a show rate is below its sample floor.
-    parts.push(
-      `Too few calls in this window to name a bottleneck — ${MIN_LEAK_SAMPLE} is the minimum.`,
-    );
-  }
+  // No drop-off sentence here. The funnel panel names the bottleneck, from a
+  // chain that runs four steps further and measures Attended against settled
+  // registrations rather than against all of them. Two answers to one question
+  // on one screen is worse than one, and these two disagreed.
   if (kpis.goalMet > 0 && kpis.costPerGoalMet > 0) {
     parts.push(
       `Each goal met costs $${kpis.costPerGoalMet.toFixed(2)} all-in.`,
