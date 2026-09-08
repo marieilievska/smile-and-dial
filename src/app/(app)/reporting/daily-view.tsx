@@ -182,7 +182,6 @@ export function DailyView({
   showMoney = true,
   showActions = true,
   showWarm = false,
-  cohortsUnscoped = false,
 }: {
   rows: readonly DailyRow[];
   /** The day the KPI cards describe (YYYY-MM-DD, Eastern). */
@@ -207,19 +206,14 @@ export function DailyView({
   /** True when the scope has a sentiment field, so Warm % is a real measure
    *  rather than 0.0% meaning "we never asked". */
   showWarm?: boolean;
-  /** True when the viewer has narrowed to one campaign. `cohort_rows` is not
-   *  campaign-scoped, so its outcomes and spend are workspace-wide — pairing
-   *  them with this campaign's calls would make every cost-per figure wrong.
-   *  Under a campaign scope the outcome and money columns render an em dash
-   *  with an explanation rather than a plausible lie. */
-  cohortsUnscoped?: boolean;
 }) {
   const now = new Date();
   const selected = rows.find((r) => r.day === day) ?? zeroRow(day);
 
-  // Carried over from the Cohorts tab unchanged. The rates panel reads the
-  // whole window rather than a row, so it is never paired with one day's calls
-  // and survives a campaign scope; only the two cost figures below do not.
+  // Carried over from the Cohorts tab unchanged. Every input below is scoped
+  // the same way as the calls beside it — `cohort_rows` takes the campaign ids
+  // (20260908100000) — so the window totals and the two cost figures describe
+  // whatever the scope picker is pointing at.
   const rates = rollingRates(
     rows.map((r) => ({
       attended: r.attended ?? 0,
@@ -229,10 +223,12 @@ export function DailyView({
   );
   const windowSpend = rows.reduce((n, r) => n + (r.spend ?? 0), 0);
   const windowRegs = rows.reduce((n, r) => n + (r.regs ?? 0), 0);
-  const costPerReg = cohortsUnscoped ? null : costPer(windowSpend, windowRegs);
-  const projected = cohortsUnscoped
-    ? null
-    : projectedCostPerSale(costPerReg, rates.showRate, rates.closeRate);
+  const costPerReg = costPer(windowSpend, windowRegs);
+  const projected = projectedCostPerSale(
+    costPerReg,
+    rates.showRate,
+    rates.closeRate,
+  );
   const forgotten = unmarkedDays(rows);
 
   const header = (
@@ -274,14 +270,9 @@ export function DailyView({
         costPerReg={costPerReg}
         projected={projected}
         showMoney={showMoney}
-        cohortsUnscoped={cohortsUnscoped}
       />
 
-      {/* Also hidden under a campaign scope: the days it names are counted
-          workspace-wide, so telling someone looking at one campaign to go and
-          mark attendance sits directly under a table that has just said
-          outcomes are not available per campaign. */}
-      {showActions && !cohortsUnscoped && forgotten.length > 0 ? (
+      {showActions && forgotten.length > 0 ? (
         <UnmarkedWarning days={forgotten} />
       ) : null}
 
@@ -293,13 +284,7 @@ export function DailyView({
           <ExportCsvButton
             filename={`${scopeSlug}-daily.csv`}
             headers={csvHeaders({ showMoney, showWarm })}
-            rows={csvRows(rows, {
-              showMoney,
-              showWarm,
-              cohortsUnscoped,
-              notes,
-              now,
-            })}
+            rows={csvRows(rows, { showMoney, showWarm, notes, now })}
           />
         </div>
         <div className="overflow-x-auto">
@@ -330,7 +315,6 @@ export function DailyView({
                   now={now}
                   showMoney={showMoney}
                   showWarm={showWarm}
-                  cohortsUnscoped={cohortsUnscoped}
                   note={notes?.[r.day] ?? ""}
                   notesEditable={notesEditable}
                 />
@@ -340,23 +324,12 @@ export function DailyView({
         </div>
       </section>
 
-      {cohortsUnscoped ? (
-        <p className="text-muted-foreground text-xs">
-          Registrations, attendance, sales and spend are not yet available per
-          campaign: <code>cohort_rows</code> counts the whole workspace, and
-          showing those totals beside one campaign&apos;s calls would make every
-          cost-per figure wrong. Pick <strong>All campaigns</strong> to see
-          them. The call columns are correct as scoped.
-        </p>
-      ) : (
-        <p className="text-muted-foreground text-xs">
-          A day is <strong>Final</strong> once every registration it produced
-          has had its session and the {SALES_WINDOW_DAYS}-day sales window has
-          closed. Until then its ratios are shown in muted italics because they
-          will still move — a day with spend and no attendees yet is unfinished,
-          not bad.
-        </p>
-      )}
+      <p className="text-muted-foreground text-xs">
+        A day is <strong>Final</strong> once every registration it produced has
+        had its session and the {SALES_WINDOW_DAYS}-day sales window has closed.
+        Until then its ratios are shown in muted italics because they will still
+        move — a day with spend and no attendees yet is unfinished, not bad.
+      </p>
     </div>
   );
 }
@@ -391,9 +364,8 @@ function DayNavigator({
   );
 }
 
-/** The selected day at a glance. Activity only — every figure here is scoped by
- *  campaign when the viewer scopes the page, so none of it is touched by the
- *  cohort-scope caveat below the table. */
+/** The selected day at a glance. Activity only, and scoped by campaign when the
+ *  viewer scopes the page — as is every other figure on this tab. */
 function KpiCards({ row, showWarm }: { row: DailyRow; showWarm: boolean }) {
   return (
     <section className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
@@ -515,7 +487,6 @@ function RatesPanel({
   costPerReg,
   projected,
   showMoney,
-  cohortsUnscoped,
 }: {
   windowDays: number;
   showRate: number | null;
@@ -523,9 +494,7 @@ function RatesPanel({
   costPerReg: number | null;
   projected: number | null;
   showMoney: boolean;
-  cohortsUnscoped: boolean;
 }) {
-  const unavailable = "Not available per campaign — pick All campaigns";
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <Stat
@@ -551,21 +520,15 @@ function RatesPanel({
           <Stat
             label="Cost per registration"
             value={money(costPerReg)}
-            hint={
-              cohortsUnscoped
-                ? unavailable
-                : "Knowable the same day — your daily dial"
-            }
+            hint="Knowable the same day — your daily dial"
           />
           <Stat
             label="Projected cost per sale"
             value={money(projected)}
             hint={
-              cohortsUnscoped
-                ? unavailable
-                : projected === null
-                  ? "Needs both rates above"
-                  : "$/reg ÷ show rate ÷ close rate"
+              projected === null
+                ? "Needs both rates above"
+                : "$/reg ÷ show rate ÷ close rate"
             }
           />
         </>
@@ -648,7 +611,6 @@ function DailyTableRow({
   now,
   showMoney,
   showWarm,
-  cohortsUnscoped,
   note,
   notesEditable,
 }: {
@@ -656,7 +618,6 @@ function DailyTableRow({
   now: Date;
   showMoney: boolean;
   showWarm: boolean;
-  cohortsUnscoped: boolean;
   note: string;
   notesEditable: boolean;
 }) {
@@ -666,10 +627,7 @@ function DailyTableRow({
   const ratioClass = ripe
     ? "text-right tabular-nums"
     : "text-muted-foreground text-right tabular-nums italic";
-  // Under a campaign scope every cohort-derived cell describes the whole
-  // workspace, so the right-hand side of the row goes to em dashes — Status
-  // included, because "3 pending" is a count from that same unscoped source.
-  const settling = !cohortsUnscoped && !ripe && (r.pending ?? 0) > 0;
+  const settling = !ripe && (r.pending ?? 0) > 0;
 
   return (
     <TableRow>
@@ -693,34 +651,35 @@ function DailyTableRow({
         {r.goals.toLocaleString()}
       </TableCell>
       <TableCell className="text-right font-medium tabular-nums">
-        {cohortsUnscoped ? DASH : count(r.regs)}
+        {count(r.regs)}
       </TableCell>
       <TableCell
-        title={cohortsUnscoped ? undefined : attendedTitle(r)}
+        title={attendedTitle(r)}
         className={
-          cohortsUnscoped || r.attended === null
+          r.attended === null
             ? "text-right tabular-nums"
             : "cursor-help text-right tabular-nums"
         }
       >
-        {cohortsUnscoped ? DASH : count(r.attended)}
+        {count(r.attended)}
       </TableCell>
       <TableCell className="text-right tabular-nums">
-        {cohortsUnscoped ? DASH : count(r.sales)}
+        {count(r.sales)}
       </TableCell>
       {showMoney ? (
         <>
           <TableCell className="text-right tabular-nums">
-            {cohortsUnscoped ? DASH : money(r.spend)}
+            {money(r.spend)}
           </TableCell>
+          <TableCell className={ratioClass}>{money(r.costPerReg)}</TableCell>
           <TableCell className={ratioClass}>
-            {cohortsUnscoped ? DASH : money(r.costPerReg)}
-          </TableCell>
-          <TableCell className={ratioClass}>
-            {cohortsUnscoped ? DASH : money(r.costPerAttended)}
+            {money(r.costPerAttended)}
           </TableCell>
         </>
       ) : null}
+      {/* An em dash still stands for a day with NO cohort row: `statusLabel`
+          returns null there rather than claiming "Settling" about sessions we
+          have no record of. */}
       <TableCell className="whitespace-nowrap">
         {settling ? (
           <span className="text-warning text-xs font-medium">
@@ -728,7 +687,7 @@ function DailyTableRow({
           </span>
         ) : (
           <span className="text-muted-foreground text-xs">
-            {(cohortsUnscoped ? null : statusLabel(r, now)) ?? DASH}
+            {statusLabel(r, now) ?? DASH}
           </span>
         )}
       </TableCell>
@@ -744,9 +703,7 @@ function DailyTableRow({
 }
 
 /** The CSV keeps every field, including the nine folded behind the Calls hover
- *  — that is what makes folding them safe. Money leaves the share here too, and
- *  a campaign-scoped export writes the cohort fields blank rather than putting
- *  a workspace-wide number under a campaign's name. */
+ *  — that is what makes folding them safe. Money leaves the share here too. */
 function csvHeaders({
   showMoney,
   showWarm,
@@ -788,19 +745,15 @@ function csvRows(
   {
     showMoney,
     showWarm,
-    cohortsUnscoped,
     notes,
     now,
   }: {
     showMoney: boolean;
     showWarm: boolean;
-    cohortsUnscoped: boolean;
     notes?: Record<string, string>;
     now: Date;
   },
 ): (string | number | null)[][] {
-  // A blank cell, not a zero — the same em-dash rule the table follows.
-  const cohort = <T,>(v: T | null): T | null => (cohortsUnscoped ? null : v);
   return rows.map((r) => [
     r.day,
     r.calls,
@@ -817,17 +770,17 @@ function csvRows(
     r.breakdown.dnc,
     r.breakdown.callbacks,
     ...(showWarm ? [pct(r.breakdown.warmPct)] : []),
-    cohort(r.regs),
-    cohort(r.attended),
-    cohort(r.noShow),
-    cohort(r.rescheduled),
-    cohort(r.sales),
-    cohort(r.pending),
-    ...(showMoney
-      ? [cohort(r.spend), cohort(r.costPerReg), cohort(r.costPerAttended)]
-      : []),
-    cohort(r.lastSession),
-    cohort(statusLabel(r, now)),
+    // Null stays null — a blank cell, not a zero — for a day with no cohort
+    // row, the same em-dash rule the table follows.
+    r.regs,
+    r.attended,
+    r.noShow,
+    r.rescheduled,
+    r.sales,
+    r.pending,
+    ...(showMoney ? [r.spend, r.costPerReg, r.costPerAttended] : []),
+    r.lastSession,
+    statusLabel(r, now),
     notes?.[r.day] ?? "",
   ]);
 }
