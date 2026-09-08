@@ -718,6 +718,7 @@ export type Database = {
           talk_time_seconds: number | null;
           transcript_json: Json | null;
           twilio_call_sid: string | null;
+          twilio_error_code: number | null;
           twilio_number_id: string | null;
         };
         Insert: {
@@ -757,6 +758,7 @@ export type Database = {
           talk_time_seconds?: number | null;
           transcript_json?: Json | null;
           twilio_call_sid?: string | null;
+          twilio_error_code?: number | null;
           twilio_number_id?: string | null;
         };
         Update: {
@@ -796,6 +798,7 @@ export type Database = {
           talk_time_seconds?: number | null;
           transcript_json?: Json | null;
           twilio_call_sid?: string | null;
+          twilio_error_code?: number | null;
           twilio_number_id?: string | null;
         };
         Relationships: [

@@ -50,6 +50,7 @@ export function makeFakeDb(seed: Record<string, Row[]> = {}) {
     let op: "select" | "insert" | "upsert" | "update" = "select";
     let payload: Row | null = null;
     let onConflict: string | null = null;
+    let ignoreDuplicates = false;
     let result: Promise<Row[]> | null = null;
 
     const exec = (): Row[] => {
@@ -77,11 +78,22 @@ export function makeFakeDb(seed: Record<string, Row[]> = {}) {
         }
         const row = payload as Row;
         if (op === "upsert" && onConflict) {
-          const existing = table(name).find(
-            (r) => r[onConflict as string] === row[onConflict as string],
+          // PostgREST's onConflict is a COMMA-SEPARATED column list, and the
+          // one that matters most here is composite: dnc_entries conflicts on
+          // "owner_id,phone" (20260905241000). Comparing the raw string as a
+          // single column name made every row look like a conflict on
+          // `undefined === undefined`, so the first row in the table was
+          // clobbered by an unrelated upsert. Split and compare every column.
+          const cols = onConflict.split(",").map((c) => c.trim());
+          const existing = table(name).find((r) =>
+            cols.every((c) => r[c] === row[c]),
           );
           if (existing) {
-            Object.assign(existing, row);
+            // ignoreDuplicates: true is PostgREST's "do nothing on conflict" —
+            // the existing row wins untouched. Without this the fake silently
+            // overwrote it, which is the opposite of what every dnc_entries
+            // writer asks for.
+            if (!ignoreDuplicates) Object.assign(existing, row);
             return [existing];
           }
         }
@@ -139,10 +151,14 @@ export function makeFakeDb(seed: Record<string, Row[]> = {}) {
         payload = row;
         return api;
       },
-      upsert: (row: Row, opts?: { onConflict?: string }) => {
+      upsert: (
+        row: Row,
+        opts?: { onConflict?: string; ignoreDuplicates?: boolean },
+      ) => {
         op = "upsert";
         payload = row;
         onConflict = opts?.onConflict ?? null;
+        ignoreDuplicates = opts?.ignoreDuplicates ?? false;
         return api;
       },
       update: (patch: Row) => {
