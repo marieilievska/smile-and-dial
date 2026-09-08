@@ -28,7 +28,7 @@ import {
   type AvailableNumber,
   type Country,
 } from "./numbers";
-import { assignNumberToShaken } from "./shaken";
+import { assignNumberToShaken, logShakenSignFailure } from "./shaken";
 
 /**
  * Server actions for a campaign's NUMBER POOL (Phase 3 provisioning). Buy numbers
@@ -202,17 +202,22 @@ export async function addNumbersToPool(input: {
     }
 
     // A-attestation now, so the number never dials unsigned (best-effort; a
-    // not-yet-configured parent token simply skips).
+    // not-yet-configured parent token simply skips). This is the path that
+    // bought 97 numbers on 2026-09-02, ten of which the Trust Hub rejected
+    // mid-batch — recorded rather than warned, and healed by the 30-minute
+    // reconcile (/api/shaken/reconcile).
     if (twilioSid) {
       try {
         const shaken = await assignNumberToShaken(twilioSid);
         if (!shaken.ok && !shaken.skipped) {
-          console.warn(
-            `SHAKEN/STIR signing failed for ${n.phoneNumber}: ${shaken.error}`,
-          );
+          await logShakenSignFailure(n.phoneNumber, twilioSid, shaken.error);
         }
       } catch (e) {
-        console.warn(`SHAKEN/STIR signing threw for ${n.phoneNumber}`, e);
+        await logShakenSignFailure(
+          n.phoneNumber,
+          twilioSid,
+          e instanceof Error ? e.message : "SHAKEN/STIR signing threw",
+        );
       }
     }
 

@@ -10,6 +10,7 @@ import {
 } from "@/lib/twilio/place-call";
 import {
   assignNumberToShaken,
+  logShakenSignFailure,
   unassignNumberFromShaken,
 } from "@/lib/twilio/shaken";
 
@@ -153,17 +154,23 @@ export async function purchaseNumber(input: {
   if (error) return { error: "Could not save the purchased number." };
 
   // Sign the number for SHAKEN/STIR now (best-effort; a not-yet-configured
-  // parent token simply skips).
+  // parent token simply skips). A failure is recorded, never thrown: the
+  // number is bought and paid for, and the 30-minute reconcile
+  // (/api/shaken/reconcile) is what heals a half-signed number. This used to
+  // be a console.warn in a serverless function, which is where ten numbers
+  // spent six days dialling without A-attestation and nobody could see it.
   if (twilioSid) {
     try {
       const shaken = await assignNumberToShaken(twilioSid);
       if (!shaken.ok && !shaken.skipped) {
-        console.warn(
-          `SHAKEN/STIR signing failed for ${input.phoneNumber}: ${shaken.error}`,
-        );
+        await logShakenSignFailure(input.phoneNumber, twilioSid, shaken.error);
       }
     } catch (e) {
-      console.warn(`SHAKEN/STIR signing threw for ${input.phoneNumber}`, e);
+      await logShakenSignFailure(
+        input.phoneNumber,
+        twilioSid,
+        e instanceof Error ? e.message : "SHAKEN/STIR signing threw",
+      );
     }
   }
 
