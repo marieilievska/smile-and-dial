@@ -15,9 +15,14 @@ import { formatUsd as usd } from "@/lib/format-usd";
 
 /** AI spend that is not a call's own cost — the `ai_charges` ledger, by kind:
  *  Ask Smile answers, agent drafting, template splitting, script tidy-ups,
- *  the demo's live business research, ElevenLabs test calls. Already folded
- *  into the OpenAI vendor line and the headline total; this table says what
- *  it was. Renders nothing when the range has none. */
+ *  the demo's live business research, ElevenLabs test calls.
+ *
+ *  Deliberately OUTSIDE every total on this page. These are admin tools
+ *  someone used at a desk, not the cost of dialling anybody — folded in, they
+ *  moved the headline for reasons unrelated to calling, and on 2026-09-08 the
+ *  page reported spend on a day with zero calls behind it. Shown here so the
+ *  money is still visible, and nowhere else so it cannot distort a number
+ *  campaigns are judged by. Renders nothing when the range has none. */
 export function CostsOtherAi({ items }: { items: AiChargeKindTotal[] }) {
   if (items.length === 0) return null;
   const total = items.reduce((a, b) => a + b.cost, 0);
@@ -33,7 +38,7 @@ export function CostsOtherAi({ items }: { items: AiChargeKindTotal[] }) {
           Other AI usage
         </h2>
         <p className="text-muted-foreground text-xs">
-          Included in the OpenAI line and the total above
+          Tools, not calls — not counted in any total above
         </p>
       </div>
       <Table>

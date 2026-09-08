@@ -11,20 +11,19 @@ import type { rollupByVendor } from "@/lib/analytics/costs";
 export function CostsVendorBreakdown({
   summary,
   extraLookupCost = 0,
-  extraOpenAiCost = 0,
   monthlyNumberCost = 0,
   numberCount = 0,
 }: {
   summary: ReturnType<typeof rollupByVendor>;
-  /** Import-time Twilio Lookup spend (lookup_charges), not tied to a call. */
+  /** Import-time Twilio Lookup spend (lookup_charges), not tied to a call.
+   *  Folded in because a lookup IS part of what it costs to work a lead —
+   *  unlike the ai_charges ledger, which is admin tooling and is deliberately
+   *  absent from every figure on this page. See "Other AI usage". */
   extraLookupCost?: number;
-  /** AI spend from the ai_charges ledger (Ask Smile, agent drafting, live
-   *  research, ElevenLabs test calls …), not tied to a call's breakdown. */
-  extraOpenAiCost?: number;
   monthlyNumberCost?: number;
   numberCount?: number;
 }) {
-  const vendorTotal = summary.total + extraLookupCost + extraOpenAiCost;
+  const vendorTotal = summary.total + extraLookupCost;
   // ElevenLabs bundles its credits into LLM (the agent's model) vs call_charge
   // (TTS/ASR/telephony). Show them as two rows. Any EL spend without a split
   // (legacy / pre-backfill rows) surfaces as an "unsplit" remainder so the EL
@@ -86,9 +85,9 @@ export function CostsVendorBreakdown({
     },
     {
       label: "OpenAI",
-      note: "summaries, review, research & AI tools",
+      note: "call summaries & review",
       key: "openai",
-      value: summary.openai + extraOpenAiCost,
+      value: summary.openai,
       credits: undefined as number | undefined,
       color: "#7F77DD",
     },

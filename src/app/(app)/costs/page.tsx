@@ -139,7 +139,6 @@ export default async function CostsPage({
     importLookupCost,
     prevImportLookupCost,
     aiCharges,
-    prevAiCharges,
   ] = await Promise.all([
     fetchRollupRows(supabase, slicers),
     supabase.from("campaigns").select("id, name").order("name"),
@@ -160,9 +159,10 @@ export default async function CostsPage({
       to: prevTo,
       ownerId,
     }),
-    // AI spend outside a call's breakdown (the ai_charges ledger).
+    // AI spend outside a call's breakdown (the ai_charges ledger). Fetched
+    // for the "Other AI usage" table ONLY — it is deliberately not part of any
+    // total on this page. No prior-window fetch, because nothing compares it.
     fetchAiChargeTotals(supabase, { from, to, ownerId }),
-    fetchAiChargeTotals(supabase, { from: prevFrom, to: prevTo, ownerId }),
   ]);
 
   const numberCount = activeNumbers?.length ?? 0;
@@ -219,23 +219,29 @@ export default async function CostsPage({
   const mockMode = isMockMode();
   const rangeLabel = fmtRangeLabel(from, to);
 
-  // Period total INCLUDING the number rental, import-lookup spend and the
-  // ai_charges ledger for this window — what the headline and "Total spend"
-  // tile report. Per-call rollups (per-campaign, per-list, …) stay call-only
-  // since none of those is attributable per call.
-  const periodTotal =
-    summary.total + numberRentalInPeriod + importLookupCost + aiCharges.total;
+  // Period total INCLUDING the number rental and import-lookup spend — what
+  // the headline and "Total spend" tile report. Per-call rollups
+  // (per-campaign, per-list, …) stay call-only since none of those is
+  // attributable per call.
+  //
+  // The ai_charges ledger is deliberately NOT here. This page answers "what
+  // does dialling cost", and Ask Smile, agent drafting, template splitting,
+  // script tidy-ups and demo research are none of them — they are admin tools
+  // someone used at a desk. Folded in, they moved the headline for reasons
+  // unrelated to calling: on 2026-09-08 the page showed spend on a day with
+  // zero calls behind it. They still appear, in "Other AI usage", outside
+  // every total.
+  const periodTotal = summary.total + numberRentalInPeriod + importLookupCost;
 
   // vs-previous-period delta on total spend. null when there was no
   // spend in the prior window to compare against (avoids a fake ▲). The
-  // rental is constant across equal-length windows; import-lookup and AI
-  // ledger spend are compared window-to-window.
+  // rental is constant across equal-length windows; import-lookup spend is
+  // compared window-to-window. Mirrors periodTotal exactly — a delta computed
+  // over a different set of costs than the figure it sits under would be worse
+  // than no delta at all.
   const prevTotal = rollupByVendor(prevRows).total;
   const prevPeriodTotal =
-    prevTotal +
-    numberRentalInPeriod +
-    prevImportLookupCost +
-    prevAiCharges.total;
+    prevTotal + numberRentalInPeriod + prevImportLookupCost;
 
   // When the pre-aggregated rollup was last rebuilt (the cron rewrites the
   // last 4 ET days every 10 minutes) — so a reader knows how fresh it is.
@@ -423,7 +429,6 @@ export default async function CostsPage({
         <CostsVendorBreakdown
           summary={summary}
           extraLookupCost={importLookupCost}
-          extraOpenAiCost={aiCharges.total}
           monthlyNumberCost={monthlyNumberCost}
           numberCount={numberCount}
         />
