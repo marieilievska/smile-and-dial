@@ -277,7 +277,11 @@ export function DailyView({
         cohortsUnscoped={cohortsUnscoped}
       />
 
-      {showActions && forgotten.length > 0 ? (
+      {/* Also hidden under a campaign scope: the days it names are counted
+          workspace-wide, so telling someone looking at one campaign to go and
+          mark attendance sits directly under a table that has just said
+          outcomes are not available per campaign. */}
+      {showActions && !cohortsUnscoped && forgotten.length > 0 ? (
         <UnmarkedWarning days={forgotten} />
       ) : null}
 
