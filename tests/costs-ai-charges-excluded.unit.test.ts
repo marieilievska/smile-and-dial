@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 
 /**
@@ -40,6 +40,21 @@ describe("the ai_charges ledger is absent from the Costs page", () => {
     expect(body).not.toContain("AiCharge");
     expect(body).not.toContain("ai_charges");
     expect(body).not.toContain("CostsOtherAi");
+  });
+
+  it("is not read by ANY file behind the Costs page", () => {
+    // The version of this guard that only checked three named files MISSED a
+    // second query in stats-query.ts, which was still folding the ledger into
+    // today's spend, month-to-date and the month-end projection. Naming files
+    // is how you get a fix that looks complete and is not; sweep the directory
+    // instead.
+    const dir = "src/app/(app)/costs";
+    const offenders = readdirSync(dir)
+      .filter((f) => /\.(ts|tsx)$/.test(f))
+      .filter((f) =>
+        code(readFileSync(`${dir}/${f}`, "utf8")).includes("ai_charges"),
+      );
+    expect(offenders).toEqual([]);
   });
 
   it("has no fetcher left to call", () => {
