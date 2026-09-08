@@ -4,13 +4,15 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 
 import { CauseOfDeathView } from "@/app/(app)/reporting/cause-of-death-view";
 import { ChangelogTable } from "@/app/(app)/reporting/changelog-table";
-import { DashboardView } from "@/app/(app)/reporting/dashboard-view";
+import { DailyView } from "@/app/(app)/reporting/daily-view";
 import { PromptLogTable } from "@/app/(app)/reporting/prompt-log-table";
 import {
   ReportingTabs,
   reportingTabsFor,
+  resolveTabParam,
 } from "@/app/(app)/reporting/reporting-tabs";
 import { ScopePicker } from "@/app/(app)/reporting/scope-picker";
+import { buildDailyRows, type DailyRow } from "@/lib/agent-analytics/daily";
 import {
   detectCampaignFields,
   type DetectedFields,
@@ -24,14 +26,20 @@ import {
 } from "@/lib/agent-analytics/report-data";
 import { parseScopeParam, serializeScope } from "@/lib/agent-analytics/scope";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
+import { fetchCohortRows } from "@/lib/cohorts/data";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import { isSuperAdmin } from "@/lib/auth/roles";
 
 // Public, read-only, all-agents combined reporting view, gated by an
 // unguessable token in the URL (validated against app_settings, so it's
-// revocable). No login. Same tabs as the in-app page, all rendered read-only.
-// Never indexed.
+// revocable). No login. Same tabs as the in-app page minus Numbers, all
+// rendered read-only. Never indexed.
+//
+// The Daily tab renders with `showMoney={false}`: registrations, attendance and
+// sales are what the recipient is here to see, spend and the two cost-per
+// figures are ours. This used to be done by dropping a whole tab, which took
+// the outcomes with it.
 export const metadata = {
   title: "Reporting",
   robots: { index: false, follow: false },
@@ -88,26 +96,25 @@ export default async function PublicReporting({
     scope.kind === "campaign"
       ? await detectCampaignFields(supabase, scope.campaignId)
       : { sentimentKey: null, sentimentValues: [], notesKey: null };
-  const visibleTabs = reportingTabsFor({
-    showNumbers: false,
-    showCohorts: false,
-  });
-  const tab = visibleTabs.some((t) => t.key === str(sp.tab))
-    ? str(sp.tab)
-    : "dashboard";
+  const visibleTabs = reportingTabsFor({ showNumbers: false });
+  const tab = resolveTabParam(str(sp.tab), visibleTabs);
 
   const kpiScope =
     scope.kind === "all" ? { all: true } : { campaignIds: [scope.campaignId] };
 
-  // Per-day comments on the dashboard: read-only to anyone with the link, and
+  // Per-day comments on the Daily tab: read-only to anyone with the link, and
   // editable when a logged-in admin is viewing the preview (the
   // upsertDashboardNote action re-checks admin, so this is safe).
+  let dailyRows: readonly DailyRow[] = [];
   let dashNotes: Record<string, string> | undefined;
   let viewerIsAdmin = false;
-  if (tab === "dashboard") {
-    const { data: noteRows } = await supabase
-      .from("dashboard_notes")
-      .select("day, note");
+  if (tab === "daily") {
+    const [activity, cohorts, { data: noteRows }] = await Promise.all([
+      fetchDashboardKpis(supabase, kpiScope, detected.sentimentKey),
+      fetchCohortRows(supabase),
+      supabase.from("dashboard_notes").select("day, note"),
+    ]);
+    dailyRows = buildDailyRows(activity, cohorts);
     dashNotes = {};
     for (const r of noteRows ?? []) dashNotes[r.day] = r.note;
     try {
@@ -162,19 +169,18 @@ export default async function PublicReporting({
           }
         />
 
-        {tab === "dashboard" ? (
-          <DashboardView
-            kpis={await fetchDashboardKpis(
-              supabase,
-              kpiScope,
-              detected.sentimentKey,
-            )}
+        {tab === "daily" ? (
+          <DailyView
+            rows={dailyRows}
             day={yesterdayEt()}
             historyDays={DASHBOARD_DAYS}
             notes={dashNotes}
             notesEditable={viewerIsAdmin}
             scopeSlug={scope.kind === "campaign" ? "campaign" : "all-campaigns"}
-            sentimentValues={detected.sentimentValues}
+            showMoney={false}
+            showActions={false}
+            showWarm={detected.sentimentValues.length > 0}
+            cohortsUnscoped={scope.kind === "campaign"}
           />
         ) : tab === "cause-of-death" ? (
           causeOfDeath ? (

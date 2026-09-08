@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+import { buildDailyRows } from "@/lib/agent-analytics/daily";
 import {
   detectCampaignFields,
   type DetectedFields,
@@ -19,15 +20,19 @@ import {
   serializeScope,
   type ReportScope,
 } from "@/lib/agent-analytics/scope";
+import { fetchCohortRows } from "@/lib/cohorts/data";
 
-import { CohortsView } from "./cohorts-view";
 import { CauseOfDeathView } from "./cause-of-death-view";
 import { ChangelogTable } from "./changelog-table";
 import { CopyShareLinkButton } from "./copy-share-link-button";
-import { DashboardView } from "./dashboard-view";
+import { DailyView } from "./daily-view";
 import { PromptLogTable } from "./prompt-log-table";
 import { NumbersPanel } from "./numbers-panel";
-import { ReportingTabs, reportingTabsFor } from "./reporting-tabs";
+import {
+  ReportingTabs,
+  reportingTabsFor,
+  resolveTabParam,
+} from "./reporting-tabs";
 import { ScopePicker } from "./scope-picker";
 import { isSuperAdmin } from "@/lib/auth/roles";
 
@@ -95,13 +100,8 @@ export default async function AgentAnalyticsPage({
     scope.kind === "campaign"
       ? await detectCampaignFields(supabase, scope.campaignId)
       : { sentimentKey: null, sentimentValues: [], notesKey: null };
-  // The tab list is the authority on what this viewer may open — never the raw
-  // query parameter. A member deep-linking to an admin-only tab lands on
-  // Dashboard rather than being shown an empty table.
   const visibleTabs = reportingTabsFor({ isAdmin });
-  const tab = visibleTabs.some((t) => t.key === str(params.tab))
-    ? str(params.tab)
-    : "dashboard";
+  const tab = resolveTabParam(str(params.tab), visibleTabs);
 
   const kpiScope: DashboardKpiScope =
     scope.kind === "all" ? { all: true } : { campaignIds: [scope.campaignId] };
@@ -145,18 +145,17 @@ export default async function AgentAnalyticsPage({
         hrefFor={(k) => `/reporting?tab=${k}&scope=${scopeParam}`}
       />
 
-      {tab === "dashboard" ? (
-        <DashboardTab
+      {tab === "daily" ? (
+        <DailyTab
           kpiScope={kpiScope}
           selectedDay={str(params.day)}
           scopeParam={scopeParam}
           slug={slug}
           sentimentKey={detected.sentimentKey}
-          sentimentValues={detected.sentimentValues}
+          showWarm={detected.sentimentValues.length > 0}
           isAdmin={isAdmin}
+          cohortsUnscoped={scope.kind === "campaign"}
         />
-      ) : tab === "cohorts" ? (
-        <CohortsView />
       ) : tab === "cause-of-death" ? (
         <CauseOfDeathTab kpiScope={kpiScope} />
       ) : tab === "numbers" ? (
@@ -170,46 +169,53 @@ export default async function AgentAnalyticsPage({
   );
 }
 
-async function DashboardTab({
+async function DailyTab({
   kpiScope,
   selectedDay,
   scopeParam,
   slug,
   sentimentKey,
-  sentimentValues,
+  showWarm,
   isAdmin,
+  cohortsUnscoped,
 }: {
   kpiScope: DashboardKpiScope;
   selectedDay: string;
   scopeParam: string;
   slug: string;
   sentimentKey: string | null;
-  sentimentValues: string[];
+  showWarm: boolean;
   isAdmin: boolean;
+  cohortsUnscoped: boolean;
 }) {
   const supabase = await createClient();
-  const kpis = await fetchDashboardKpis(supabase, kpiScope, sentimentKey);
   const day = /^\d{4}-\d{2}-\d{2}$/.test(selectedDay)
     ? selectedDay
     : yesterdayEt();
-  // Per-day operator notes (admin-only; not passed to the public share).
-  const { data: noteRows } = await supabase
-    .from("dashboard_notes")
-    .select("day, note");
+  // Both halves of a row load together — the activity counts and the outcomes
+  // that day produced are one table now, so fetching them in series would just
+  // be one round trip's latency for nothing. Per-day operator notes ride along;
+  // `dashboard_notes` is admin-only in RLS, so a member simply gets none.
+  const [activity, cohorts, { data: noteRows }] = await Promise.all([
+    fetchDashboardKpis(supabase, kpiScope, sentimentKey),
+    fetchCohortRows(supabase),
+    supabase.from("dashboard_notes").select("day, note"),
+  ]);
   const notes: Record<string, string> = {};
   for (const r of noteRows ?? []) notes[r.day] = r.note;
   return (
-    <DashboardView
-      kpis={kpis}
+    <DailyView
+      rows={buildDailyRows(activity, cohorts)}
       day={day}
       historyDays={DASHBOARD_DAYS}
-      dayHrefFor={(d) =>
-        `/reporting?tab=dashboard&scope=${scopeParam}&day=${d}`
-      }
+      dayHrefFor={(d) => `/reporting?tab=daily&scope=${scopeParam}&day=${d}`}
       notes={notes}
       notesEditable={isAdmin}
       scopeSlug={slug}
-      sentimentValues={sentimentValues}
+      showMoney
+      showActions
+      showWarm={showWarm}
+      cohortsUnscoped={cohortsUnscoped}
     />
   );
 }
