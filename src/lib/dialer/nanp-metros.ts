@@ -143,3 +143,46 @@ export function siblingAreaCodes(
 
   return out;
 }
+
+/**
+ * Where it is legitimate to BUY a number for `areaCode`: the code itself first,
+ * then its metro peers and the rest of its state or province, nearest first —
+ * with everything outside its region removed.
+ *
+ * This is `siblingAreaCodes` narrowed to the promise the buy side actually
+ * needs, because a metro is not a state. Washington DC's metro peers are all
+ * out-of-state (703/571 VA, 240/301 MD) and DC's own overlay 771 sorts last, so
+ * an unguarded metro-first fallback buys Virginia for a DC request — confirmed
+ * live on 2026-09-08, when a one-per-state buy asked for DC and Twilio offered
+ * a second Virginia number. Kansas City straddles MO/KS the same way.
+ *
+ * Crossing that line buys nothing for the state it was meant to serve: the two
+ * ends of "local" disagree. This end thinks in metros; `pickPoolNumber` scores
+ * its state tier on `regionForAreaCode` equality, so a 571 number does not
+ * match a 202 lead even at the state tier — it falls through to "none" and the
+ * lead is dialed from an arbitrary number anyway.
+ *
+ * An area code with no known region substitutes NOTHING and yields just itself.
+ * `regionForAreaCode` is null for a handful of real overlays (274, 686, 659 as
+ * of writing), and comparing regions directly would let `null === null` pair a
+ * Wisconsin code with a Virginia one — the very defect this guard exists to
+ * prevent, in a costume.
+ *
+ * Unlike `siblingAreaCodes`, the input IS included: this is the whole ordered
+ * list to try, not a supplement to it. Pure.
+ */
+export function sameRegionAreaCodes(
+  areaCode: string | null | undefined,
+): string[] {
+  if (!areaCode) return [];
+  const region = regionForAreaCode(areaCode);
+  // Unknown region — we cannot prove a substitute is in the same state, so we
+  // do not offer one.
+  if (!region) return [areaCode];
+  return [
+    areaCode,
+    ...siblingAreaCodes(areaCode).filter(
+      (code) => regionForAreaCode(code) === region,
+    ),
+  ];
+}

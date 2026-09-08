@@ -55,6 +55,8 @@ export function BuyIntoPoolDialog({
   const [result, setResult] = useState<{
     bought: number;
     failed: number;
+    unavailable: number;
+    region: string | null;
     byAreaCode: Record<string, number>;
   } | null>(null);
 
@@ -101,13 +103,23 @@ export function BuyIntoPoolDialog({
       setResult({
         bought: res.bought,
         failed: res.failed,
+        unavailable: res.unavailable,
+        region: res.region,
         byAreaCode: res.byAreaCode,
       });
       if (res.bought > 0) {
+        // The shortfall rides on the toast, not just the result line: the
+        // dialog closes itself a beat later, and "8 asked for, 5 bought" is
+        // exactly the thing an operator must not miss.
+        const short =
+          res.unavailable > 0
+            ? ` ${res.unavailable} more not available${res.region ? ` in ${res.region}` : ""}.`
+            : "";
         toast.success(
-          res.failed > 0
+          (res.failed > 0
             ? `Bought ${res.bought}, failed ${res.failed}.`
-            : `Bought ${res.bought} number${res.bought === 1 ? "" : "s"}.`,
+            : `Bought ${res.bought} number${res.bought === 1 ? "" : "s"}.`) +
+            short,
         );
         // Give the operator a beat to read the result line before the dialog
         // closes itself; the table has already revalidated server-side.
@@ -269,7 +281,7 @@ export function BuyIntoPoolDialog({
           {result ? (
             <p
               className={
-                result.failed > 0
+                result.failed > 0 || result.unavailable > 0
                   ? "text-warning text-sm"
                   : "text-muted-foreground text-sm"
               }
@@ -287,6 +299,18 @@ export function BuyIntoPoolDialog({
                     .map(([ac, n]) => `${n} × ${ac}`)
                     .join(", ")}
                   .
+                </>
+              ) : null}
+              {/* The shortfall. The buy never crosses a state line to fill a
+                  batch — an out-of-state caller ID reads as a robocall and
+                  wouldn't even match these leads at dial time — so a short
+                  batch is reported rather than quietly topped up. */}
+              {result.unavailable > 0 ? (
+                <>
+                  {" "}
+                  {result.unavailable} more not available
+                  {result.region ? ` anywhere in ${result.region}` : ""} — none
+                  bought outside it.
                 </>
               ) : null}
             </p>
