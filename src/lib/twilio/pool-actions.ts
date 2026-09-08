@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { siblingAreaCodes } from "@/lib/dialer/nanp-metros";
+import { sameRegionAreaCodes } from "@/lib/dialer/nanp-metros";
 import {
   countryForAreaCode,
   regionForAreaCode,
@@ -68,7 +68,8 @@ async function requireSignedIn(): Promise<{
  * row (attached to the campaign, area code stamped, warm-up starting now), import
  * into ElevenLabs for outbound, and assign the campaign's agent so the number
  * also answers inbound. Best-effort PER NUMBER — one failure never aborts the
- * batch. Returns how many landed vs failed.
+ * batch. Returns how many landed vs failed, and how many the region simply
+ * could not supply.
  */
 export async function addNumbersToPool(input: {
   campaignId: string;
@@ -77,12 +78,29 @@ export async function addNumbersToPool(input: {
 }): Promise<{
   bought: number;
   failed: number;
+  /** How many were asked for, after clamping to MAX_BATCH. */
+  requested: number;
+  /** The shortfall: how many had no in-region number to buy at all. Reported
+   *  rather than filled from the next state over — see `sameRegionAreaCodes`.
+   *  `requested === bought + failed + unavailable`. */
+  unavailable: number;
+  /** The state or province the buy was confined to (null for an area code with
+   *  no known region, where nothing is substituted at all), so the UI can name
+   *  it in a shortfall instead of saying a vague "locally". */
+  region: string | null;
   /** How many landed per area code, so the UI can say "8 bought: 5 x 305,
    *  3 x 786" instead of silently substituting a different city. */
   byAreaCode: Record<string, number>;
   error: string | null;
 }> {
-  const empty = { bought: 0, failed: 0, byAreaCode: {} };
+  const empty = {
+    bought: 0,
+    failed: 0,
+    requested: 0,
+    unavailable: 0,
+    region: null,
+    byAreaCode: {},
+  };
   const { supabase, error: authError } = await requireSignedIn();
   if (authError) return { ...empty, error: authError };
 
@@ -113,7 +131,16 @@ export async function addNumbersToPool(input: {
   // falls to 786/954/754 before it ever considers Pensacola. Never leaves the
   // state — a random out-of-state number is the robocall pattern this exists to
   // avoid, so running out means reporting it, not substituting.
-  const candidateAreaCodes = [areaCode, ...siblingAreaCodes(areaCode)];
+  //
+  // `sameRegionAreaCodes`, not `siblingAreaCodes`, is what makes that last
+  // sentence true. Metro peers can be out-of-state: DC's are ALL out-of-state
+  // and its own overlay 771 sorts last, so the plain metro fallback bought
+  // Virginia for a DC request (seen live on 2026-09-08). It also bought nothing
+  // — `pickPoolNumber` scores its state tier on region equality, so that 571
+  // number never matches a 202 lead even at the state tier.
+  const candidateAreaCodes = sameRegionAreaCodes(areaCode);
+  const allowedAreaCodes = new Set(candidateAreaCodes);
+  const region = regionForAreaCode(areaCode);
 
   const toBuy: AvailableNumber[] = [];
   let firstSearchError: string | null = null;
@@ -130,15 +157,26 @@ export async function addNumbersToPool(input: {
       firstSearchError ??= searchErr;
       continue;
     }
-    toBuy.push(...numbers.slice(0, count - toBuy.length));
+    // Check what came back rather than trusting Twilio's AreaCode filter. A
+    // number is billed the moment it is bought and releasing it is a separate
+    // chore, so the cheap verification happens before the purchase, not after.
+    const inRegion = numbers.filter((n) =>
+      allowedAreaCodes.has(areaCodeOf(n.phoneNumber) ?? ""),
+    );
+    toBuy.push(...inRegion.slice(0, count - toBuy.length));
   }
 
   if (toBuy.length === 0) {
     return {
       ...empty,
+      requested: count,
+      unavailable: count,
+      region,
       error:
         firstSearchError ??
-        `No numbers available in ${areaCode} or anywhere else in ${regionForAreaCode(areaCode) ?? "that region"}.`,
+        (region
+          ? `No numbers available in ${areaCode} or anywhere else in ${region}.`
+          : `No numbers available in ${areaCode}.`),
     };
   }
 
@@ -228,16 +266,32 @@ export async function addNumbersToPool(input: {
 
   revalidatePath(NUMBERS_PATH);
   revalidatePath(CAMPAIGNS_PATH);
+  // Whatever the region could not supply. Reported, never substituted from
+  // across a state line — a caller ID from the wrong state is the robocall
+  // pattern local presence exists to avoid, and it would not even match its own
+  // leads at dial time.
+  const unavailable = count - toBuy.length;
   // Nothing landed at all — surface why rather than reporting a silent success.
   if (bought === 0) {
     return {
       bought,
       failed,
+      requested: count,
+      unavailable,
+      region,
       byAreaCode,
       error: firstBuyError ?? "No numbers could be purchased.",
     };
   }
-  return { bought, failed, byAreaCode, error: null };
+  return {
+    bought,
+    failed,
+    requested: count,
+    unavailable,
+    region,
+    byAreaCode,
+    error: null,
+  };
 }
 
 /** Retire a number from the pool (permanent until reactivated) — selection skips
