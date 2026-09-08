@@ -154,7 +154,6 @@ export default async function AgentAnalyticsPage({
           sentimentKey={detected.sentimentKey}
           showWarm={detected.sentimentValues.length > 0}
           isAdmin={isAdmin}
-          cohortsUnscoped={scope.kind === "campaign"}
         />
       ) : tab === "cause-of-death" ? (
         <CauseOfDeathTab kpiScope={kpiScope} />
@@ -177,7 +176,6 @@ async function DailyTab({
   sentimentKey,
   showWarm,
   isAdmin,
-  cohortsUnscoped,
 }: {
   kpiScope: DashboardKpiScope;
   selectedDay: string;
@@ -186,7 +184,6 @@ async function DailyTab({
   sentimentKey: string | null;
   showWarm: boolean;
   isAdmin: boolean;
-  cohortsUnscoped: boolean;
 }) {
   const supabase = await createClient();
   const day = /^\d{4}-\d{2}-\d{2}$/.test(selectedDay)
@@ -196,9 +193,13 @@ async function DailyTab({
   // that day produced are one table now, so fetching them in series would just
   // be one round trip's latency for nothing. Per-day operator notes ride along;
   // `dashboard_notes` is admin-only in RLS, so a member simply gets none.
+  //
+  // Both halves take their campaign ids from the SAME `kpiScope`, so a scoped
+  // call count can never end up beside workspace-wide registrations and spend
+  // — which is what made every $/reg on this page wrong before 20260908100000.
   const [activity, cohorts, { data: noteRows }] = await Promise.all([
     fetchDashboardKpis(supabase, kpiScope, sentimentKey),
-    fetchCohortRows(supabase),
+    fetchCohortRows(supabase, kpiScope.campaignIds),
     supabase.from("dashboard_notes").select("day, note"),
   ]);
   const notes: Record<string, string> = {};
@@ -215,7 +216,6 @@ async function DailyTab({
       showMoney
       showActions
       showWarm={showWarm}
-      cohortsUnscoped={cohortsUnscoped}
     />
   );
 }

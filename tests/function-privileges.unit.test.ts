@@ -25,7 +25,13 @@ const LOCKDOWN = "20260905170000_lock_down_function_execute.sql";
 /** The only functions the app calls with the user-scoped (cookie / RLS)
  *  client, plus the helpers those need. Each has its call site documented
  *  next to the grant in the migration. Adding one here without adding the
- *  grant (or vice versa) fails the test on purpose. */
+ *  grant (or vice versa) fails the test on purpose.
+ *
+ *  Signatures are the LIVE ones, not the lock-down's. Two of these functions
+ *  have since been dropped and recreated with a different argument list — a
+ *  dropped function is a new function and loses its grant, so the re-grant
+ *  moved to the migration that recreated it, and pinning the old signature
+ *  would pin a function that no longer exists. See `liveAuthenticatedGrants`. */
 const AUTHENTICATED_ALLOW_LIST = [
   "public.is_admin(uuid)",
   "public.leads_matching_filter_rows(jsonb)",
@@ -35,9 +41,12 @@ const AUTHENTICATED_ALLOW_LIST = [
   "public._smart_list_date_sql(text, text, jsonb)",
   "public._smart_list_num_sql(text, text, jsonb)",
   "public._smart_list_text_sql(text, text, jsonb)",
-  "public.cohort_rows(date, date)",
+  // Gained p_campaign_ids in 20260908100000, so the Daily tab's two per-day
+  // sources scope to a campaign identically.
+  "public.cohort_rows(date, date, uuid[])",
   "public.pre_call_check(uuid, uuid)",
-  "public.is_phone_on_dnc(text)",
+  // Gained the owner whose list to check in 20260906020000.
+  "public.is_phone_on_dnc(text, uuid)",
   "public.refresh_smart_list(uuid)",
   "public.merge_inbound_lead(uuid, uuid, jsonb, uuid)",
   "public.set_updated_at()",
@@ -89,6 +98,45 @@ function executeGrants(sql: string): Grant[] {
   return out;
 }
 
+/** Every target the SQL grants EXECUTE on to `authenticated`. */
+function authenticatedTargets(sql: string): string[] {
+  return executeGrants(sql)
+    .filter((g) => g.roles.includes("authenticated"))
+    .map((g) => g.target.replace(/^function\s+/i, ""));
+}
+
+/** A target's function name without its argument list. */
+function fnName(target: string): string {
+  return target.slice(0, target.indexOf("("));
+}
+
+/**
+ * The lock-down's authenticated grants, at the signatures those functions
+ * carry TODAY: function name → live target.
+ *
+ * A function that is dropped and recreated with a different argument list is a
+ * NEW function and loses its grant, so the re-grant lives in the migration that
+ * recreated it. Reading only the lock-down would therefore pin a signature that
+ * no longer exists — `is_phone_on_dnc(text)` was gone by 20260906020000 and
+ * `cohort_rows(date, date)` by 20260908100000, and nothing noticed.
+ *
+ * Only functions the lock-down itself granted are tracked, so this stays a
+ * guard on ITS allow-list: a later migration granting some brand-new function
+ * to authenticated is out of scope here (list_performance has its own tests).
+ */
+function liveAuthenticatedGrants(): Map<string, string> {
+  const live = new Map<string, string>();
+  for (const t of authenticatedTargets(read(`${MIGRATIONS}/${LOCKDOWN}`))) {
+    live.set(fnName(t), t);
+  }
+  for (const f of migrationFiles().filter((f) => f > LOCKDOWN)) {
+    for (const t of authenticatedTargets(read(`${MIGRATIONS}/${f}`))) {
+      if (live.has(fnName(t))) live.set(fnName(t), t);
+    }
+  }
+  return live;
+}
+
 describe("function EXECUTE lock-down migration", () => {
   const sql = read(`${MIGRATIONS}/${LOCKDOWN}`);
   const code = stripComments(sql);
@@ -113,11 +161,11 @@ describe("function EXECUTE lock-down migration", () => {
   });
 
   it("grants authenticated exactly the documented allow-list", () => {
-    const granted = executeGrants(sql)
-      .filter((g) => g.roles.includes("authenticated"))
-      .map((g) => g.target.replace(/^function\s+/i, ""));
-    expect(new Set(granted)).toEqual(new Set(AUTHENTICATED_ALLOW_LIST));
-    expect(granted).toHaveLength(AUTHENTICATED_ALLOW_LIST.length);
+    const granted = liveAuthenticatedGrants();
+    expect(new Set(granted.values())).toEqual(
+      new Set(AUTHENTICATED_ALLOW_LIST),
+    );
+    expect(granted.size).toBe(AUTHENTICATED_ALLOW_LIST.length);
   });
 
   it("grants anon and PUBLIC nothing", () => {

@@ -23,6 +23,7 @@ import {
   fetchChangelogRows,
   fetchDashboardKpis,
   fetchPromptLogRows,
+  type DashboardKpiScope,
 } from "@/lib/agent-analytics/report-data";
 import { parseScopeParam, serializeScope } from "@/lib/agent-analytics/scope";
 import { yesterdayEt } from "@/lib/agent-analytics/stats";
@@ -99,7 +100,7 @@ export default async function PublicReporting({
   const visibleTabs = reportingTabsFor({ showNumbers: false });
   const tab = resolveTabParam(str(sp.tab), visibleTabs);
 
-  const kpiScope =
+  const kpiScope: DashboardKpiScope =
     scope.kind === "all" ? { all: true } : { campaignIds: [scope.campaignId] };
 
   // Per-day comments on the Daily tab: read-only to anyone with the link, and
@@ -109,9 +110,12 @@ export default async function PublicReporting({
   let dashNotes: Record<string, string> | undefined;
   let viewerIsAdmin = false;
   if (tab === "daily") {
+    // Both halves of a row take their campaign ids from the SAME `kpiScope`,
+    // so a scoped call count can never sit beside workspace-wide registrations
+    // and spend (20260908100000).
     const [activity, cohorts, { data: noteRows }] = await Promise.all([
       fetchDashboardKpis(supabase, kpiScope, detected.sentimentKey),
-      fetchCohortRows(supabase),
+      fetchCohortRows(supabase, kpiScope.campaignIds),
       supabase.from("dashboard_notes").select("day, note"),
     ]);
     dailyRows = buildDailyRows(activity, cohorts);
@@ -180,7 +184,6 @@ export default async function PublicReporting({
             showMoney={false}
             showActions={false}
             showWarm={detected.sentimentValues.length > 0}
-            cohortsUnscoped={scope.kind === "campaign"}
           />
         ) : tab === "cause-of-death" ? (
           causeOfDeath ? (

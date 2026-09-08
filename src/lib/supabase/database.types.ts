@@ -2693,7 +2693,7 @@ export type Database = {
         Returns: boolean;
       };
       cohort_rows: {
-        Args: { p_end: string; p_start: string };
+        Args: { p_campaign_ids?: string[]; p_end: string; p_start: string };
         Returns: {
           attended: number;
           calls: number;

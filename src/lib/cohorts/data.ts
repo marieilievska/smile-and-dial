@@ -38,7 +38,7 @@ export type CohortRow = {
 export const COHORT_WINDOW_DAYS = 30;
 
 /**
- * Cohort rows for the last `days` ET days, newest first.
+ * Cohort rows for the last `COHORT_WINDOW_DAYS` ET days, newest first.
  *
  * The RPC is SECURITY INVOKER, so the CALLER's row-level security decides which
  * leads are counted: an admin sees everything, a member sees only leads they
@@ -51,16 +51,27 @@ export const COHORT_WINDOW_DAYS = 30;
  * public token-gated share passes a service-role one, and the SAME query and
  * mapping serve both so the two surfaces cannot drift.
  *
+ * `campaignIds` scopes calls, spend AND registrations to those campaigns —
+ * empty or omitted means every campaign. It has to be passed wherever
+ * `reporting_daily_kpis` is scoped, because the Daily tab puts the two sources
+ * in one row: a scoped call count beside workspace-wide registrations made
+ * every $/reg on the page wrong (20260908100000).
+ *
  * No pagination needed: the function returns one row per day, not per call, so
  * PostgREST's 1000-row cap is nowhere near.
  */
 export async function fetchCohortRows(
   supabase: DB,
-  days: number = COHORT_WINDOW_DAYS,
+  campaignIds?: readonly string[] | null,
 ): Promise<CohortRow[]> {
   const { data, error } = await supabase.rpc("cohort_rows", {
-    p_start: etDateDaysAgo(days),
+    p_start: etDateDaysAgo(COHORT_WINDOW_DAYS),
     p_end: etDayString(),
+    // undefined, never null: PostgREST then omits the argument and the SQL
+    // default (null = all campaigns) applies. The generated Args type models an
+    // optional argument as `?: T`, not `T | null` — same reason
+    // report-data.ts omits it for reporting_daily_kpis.
+    p_campaign_ids: campaignIds?.length ? [...campaignIds] : undefined,
   });
   if (error) throw new Error(`cohort_rows: ${error.message}`);
   return ((data ?? []) as CohortRow[]).map((r) => ({
