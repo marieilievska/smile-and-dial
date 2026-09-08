@@ -142,6 +142,19 @@ const HTTP_JOBS = [
     header: "x-dialer-secret",
     secret: "dialer_tick_secret",
   },
+  // Ask Twilio what actually happened to the calls we recorded as failures.
+  // Our own Twilio status webhook never fires for an outbound call — the
+  // numbers' StatusCallback points at ElevenLabs — so no-answer and busy
+  // arrived as a flat `failed`: 37 of 84 on 2026-09-08. Same reason as
+  // shaken-reconcile for living here: a backstop nobody can see stop is not a
+  // backstop.
+  {
+    job: "reconcile-call-status",
+    schedule: "*/15 * * * *",
+    path: "/api/maintenance/reconcile-call-status",
+    header: "x-dialer-secret",
+    secret: "dialer_tick_secret",
+  },
 ] as const;
 
 describe.each(HTTP_JOBS)(
