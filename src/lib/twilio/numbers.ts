@@ -45,9 +45,11 @@ const TWILIO_API = "https://api.twilio.com/2010-04-01/Accounts";
 // Twilio's number-search API doesn't return your account's price (and the
 // Pricing API only returns list price, not negotiated rates), so the monthly
 // cost shown on search results is an estimate. The rate lives in the central
-// rates module (env TWILIO_NUMBER_MONTHLY_COST; default $0.04/mo).
-function estimatedMonthlyCost(): number {
-  return twilioNumberMonthlyUsd();
+// rates module, and it is PER COUNTRY: the negotiated $0.04 is US-only, while
+// Canadian numbers bill at the full $1.15. Passing the country is what keeps a
+// mixed pool's recorded rental from reading at a fifth of the real bill.
+function estimatedMonthlyCost(country: Country): number {
+  return twilioNumberMonthlyUsd(country);
 }
 
 function isLive(): boolean {
@@ -394,7 +396,7 @@ function mockSearch(
     return {
       phoneNumber,
       friendlyName: formatUsNumber(phoneNumber),
-      monthlyCost: estimatedMonthlyCost(),
+      monthlyCost: estimatedMonthlyCost(country),
     };
   });
 }
@@ -425,7 +427,7 @@ async function liveSearch(
     const numbers = (body.available_phone_numbers ?? []).map((n) => ({
       phoneNumber: n.phone_number,
       friendlyName: n.friendly_name,
-      monthlyCost: estimatedMonthlyCost(),
+      monthlyCost: estimatedMonthlyCost(country),
     }));
     return { numbers, error: null };
   } catch {

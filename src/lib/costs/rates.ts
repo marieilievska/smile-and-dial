@@ -129,10 +129,26 @@ export function twilioLookupUsd(): number {
   return rate("twilio_lookup_usd", "TWILIO_LOOKUP_USD", 0.008);
 }
 
-/** Twilio phone-number rental, USD per month. A negotiated deal — env →
- *  default only, never derived from usage. Do not change the default. */
-export function twilioNumberMonthlyUsd(): number {
-  return envNum("TWILIO_NUMBER_MONTHLY_COST", 0.04);
+/**
+ * Twilio phone-number rental, USD per month, BY COUNTRY. A negotiated deal —
+ * env → default only, never derived from usage. Do not change the defaults.
+ *
+ * ⚠️ The discount is US-only. US local numbers bill at $0.04 against a $1.15
+ * list price; Canadian local numbers bill at the full $1.15. Confirmed three
+ * ways on 2026-09-09 — the Pricing API under both the parent and the
+ * subaccount, and the account's own `phonenumbers-local` usage record, which
+ * billed $12.27 for 48 US + 9 Canadian numbers (48 × 0.04 + 9 × 1.15 = 12.27
+ * exactly).
+ *
+ * This used to be one flat rate. With a US-only pool that was harmless; the
+ * moment nine Canadian numbers were bought it under-reported rental by 438%
+ * ($2.28 recorded against $12.27 billed) and carried the error into the Costs
+ * page headline.
+ */
+export function twilioNumberMonthlyUsd(country: "US" | "CA" = "US"): number {
+  return country === "CA"
+    ? envNum("TWILIO_NUMBER_MONTHLY_COST_CA", 1.15)
+    : envNum("TWILIO_NUMBER_MONTHLY_COST", 0.04);
 }
 
 // ---------------------------------------------------------------------------
