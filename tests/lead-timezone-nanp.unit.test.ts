@@ -168,3 +168,136 @@ describe("behaviour the single map must not change", () => {
     expect(stateToTimezone("")).toBeNull();
   });
 });
+
+describe("split-state overrides, weighed against where the code actually sits", () => {
+  // The override table is a judgement call — "the zone covering most of the
+  // code's territory" — so unlike the state map it cannot simply be read off
+  // NANPA. These three were checked against 49 CFR 71 (which sets the legal
+  // zone boundaries) and county populations, and two of them were backwards.
+
+  it("puts 432 on Central: it is Midland/Odessa, not El Paso", () => {
+    // 49 CFR 71.7(e) runs the mountain boundary along the EAST LINE OF
+    // HUDSPETH COUNTY, so Texas's mountain zone is El Paso + Hudspeth (plus a
+    // sliver of northwest Culberson) — all of it 915 territory. 432 is the
+    // Permian Basin: Midland (~180k) and Ector/Odessa (~165k), every county
+    // Central. NANPA agrees, marking 915 "CM" and every other Texas code,
+    // 432 included, plain "C". The old comment here named the wrong code.
+    expect(stateFromPhone("4325550123")).toBe("TX");
+    expect(phoneToTimezone("4325550123")).toBe("America/Chicago");
+    expect(phoneToTimezone("4325550123")).toBe(stateToTimezone("TX"));
+  });
+
+  it("keeps 915 on Mountain: that one really is El Paso", () => {
+    expect(phoneToTimezone("9155550123")).toBe("America/Denver");
+    expect(phoneToTimezone("9155550123")).not.toBe(stateToTimezone("TX"));
+  });
+
+  it("puts 308 on Central, where most of Nebraska's 308 lives", () => {
+    // 308 is genuinely split (NANPA "CM"), so this is decided by population.
+    // Nebraska's mountain zone is the panhandle: 82,567 across the 13 counties
+    // usually counted, 99,488 on the most generous reading. Nine of 308's ~70
+    // central-zone counties alone — Hall (Grand Island), Buffalo (Kearney),
+    // Adams (Hastings), Lincoln (North Platte), Dawson, Phelps, Red Willow,
+    // Custer, Holt — come to 243,499. Central leads by at least 2.4:1.
+    expect(stateFromPhone("3085550123")).toBe("NE");
+    expect(phoneToTimezone("3085550123")).toBe("America/Chicago");
+    expect(phoneToTimezone("3085550123")).toBe(stateToTimezone("NE"));
+  });
+
+  it("keeps 986 on Mountain even though NANPA files it Pacific", () => {
+    // The one place we knowingly depart from the CSV. NANPA marks 986 "P",
+    // but 986 is a STATEWIDE overlay on 208 — and NANPA marks 208 itself "MP".
+    // A statewide code cannot touch fewer zones than the code it overlays, so
+    // the "P" is a quirk in that column, not a fact about Idaho.
+    //
+    // Idaho splits at the Salmon River. The ten northern (Pacific) counties
+    // total 400,362 — an upper bound, since Idaho County is itself split —
+    // while five southern counties alone (Ada 546,141, Canyon, Bonneville,
+    // Bannock, Twin Falls) come to 1,146,165. Mountain leads by at least
+    // 2.9:1, so both statewide codes stay on Idaho's Mountain default.
+    expect(phoneToTimezone("9865550123")).toBe("America/Denver");
+    expect(phoneToTimezone("9865550123")).toBe(phoneToTimezone("2085550123"));
+    expect(phoneToTimezone("9865550123")).not.toBe("America/Los_Angeles");
+  });
+});
+
+describe("no override may name a zone its area code never touches", () => {
+  // A structural guard, and the one that would have caught 432 mechanically:
+  // it was pinned to Mountain while NANPA said the code is Central-only. Every
+  // row below is [code, state, NANPA TIME_ZONE, our zone], generated from the
+  // NANPA NPA Database (file dated 09/09/2026), not transcribed.
+  //
+  // This does NOT decide WHICH zone predominates — 308 sat here happily while
+  // pointing at the smaller half of Nebraska, because "CM" does contain "M".
+  // It only catches a zone the code cannot reach at all.
+  //
+  // Nor does it require a row to DIFFER from its state's default. Six of these
+  // deliberately restate it (458, 541, 605, 620, 701, 906): the table is a
+  // record of every straddling code that has been adjudicated, not only the
+  // ones whose answer came out different, and "we checked, it stays" is worth
+  // writing down.
+  const NANPA_ZONES: [code: string, state: string, zones: string][] = [
+    ["219", "IN", "EC"],
+    ["270", "KY", "EC"],
+    ["308", "NE", "CM"],
+    ["364", "KY", "EC"],
+    ["423", "TN", "EC"],
+    ["448", "FL", "EC"],
+    ["458", "OR", "MP"],
+    ["541", "OR", "MP"],
+    ["605", "SD", "CM"],
+    ["620", "KS", "CM"],
+    ["701", "ND", "CM"],
+    ["729", "TN", "EC"],
+    ["850", "FL", "EC"],
+    ["865", "TN", "E"],
+    ["906", "MI", "EC"],
+    ["915", "TX", "CM"],
+  ];
+  const LETTER: Record<string, string> = {
+    "America/New_York": "E",
+    "America/Chicago": "C",
+    "America/Denver": "M",
+    "America/Los_Angeles": "P",
+  };
+  const LETTER_TO_ZONE: Record<string, string> = Object.fromEntries(
+    Object.entries(LETTER).map(([zone, letter]) => [letter, zone]),
+  );
+
+  /** The override table, read out of the source so a new row cannot slip past
+   *  this guard by simply not being listed above. */
+  function overriddenCodes(): Record<string, string> {
+    const src = readFileSync("src/lib/leads/timezone.ts", "utf8");
+    const start = src.indexOf("const AREA_CODE_TO_TIMEZONE");
+    expect(start).toBeGreaterThan(-1);
+    const body = src.slice(start, src.indexOf("\n};", start));
+    return Object.fromEntries(
+      [...body.matchAll(/"(\d{3})":\s*"([^"]+)"/g)].map((m) => [m[1], m[2]]),
+    );
+  }
+
+  it("covers every code the override table actually holds", () => {
+    expect(Object.keys(overriddenCodes()).sort()).toEqual(
+      NANPA_ZONES.map(([code]) => code).sort(),
+    );
+  });
+
+  it.each(NANPA_ZONES)(
+    "%s (%s) is overridden to a zone inside NANPA's %s",
+    (code, state, zones) => {
+      const zone = overriddenCodes()[code];
+      expect(stateFromPhone(`${code}5550123`)).toBe(state);
+      expect(zones).toContain(LETTER[zone]);
+    },
+  );
+
+  it("holds no code NANPA files as single-zone in a single-zone state", () => {
+    // The shape 432 had: a code NANPA marks with ONE zone letter, sitting in a
+    // state whose own default is that same zone, yet carrying an override to
+    // something else. There is nothing left for such a row to express.
+    for (const [, state, zones] of NANPA_ZONES) {
+      if (zones.length > 1) continue;
+      expect(stateToTimezone(state)).not.toBe(LETTER_TO_ZONE[zones]);
+    }
+  });
+});

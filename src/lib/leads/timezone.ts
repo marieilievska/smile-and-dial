@@ -322,7 +322,13 @@ const CA_PROVINCE_NAME_TO_CODE: Record<string, string> = {
 const AREA_CODE_TO_TIMEZONE: Record<string, string> = {
   // Texas — mostly Central; the far west (El Paso, Hudspeth) is Mountain.
   "915": "America/Denver", // El Paso
-  "432": "America/Denver", // West Texas: El Paso-region Mountain counties
+  // 432 is NOT Mountain, though it was listed here as "El Paso-region" until
+  // 2026-09-09. 49 CFR 71.7(e) runs the boundary along the EAST LINE OF
+  // HUDSPETH COUNTY, so Texas's mountain zone is El Paso + Hudspeth (plus a
+  // sliver of northwest Culberson) — all 915. 432 is the Permian Basin:
+  // Midland (~180k) and Ector/Odessa (~165k), every county Central. NANPA
+  // agrees, marking 915 "CM" and every other Texas code, 432 included, plain
+  // "C". It stays Central via the TX state default.
 
   // Florida — mostly Eastern; the western panhandle is Central.
   "850": "America/Chicago", // Pensacola / Panama City panhandle
@@ -352,8 +358,15 @@ const AREA_CODE_TO_TIMEZONE: Record<string, string> = {
   // South Dakota — eastern half Central, western half (Black Hills) Mountain.
   "605": "America/Chicago", // statewide code, predominantly Central.
 
-  // Nebraska — eastern Central; the panhandle is Mountain.
-  "308": "America/Denver", // western/panhandle Nebraska (Mountain)
+  // Nebraska — eastern Central; the panhandle is Mountain. 308 covers both
+  // (NANPA "CM"), so it goes to whichever holds more people, and that is
+  // Central by a wide margin: the mountain-zone panhandle is 82,567 across the
+  // 13 counties usually counted, 99,488 on the most generous reading, while
+  // nine of 308's ~70 central-zone counties alone — Hall (Grand Island),
+  // Buffalo (Kearney), Adams (Hastings), Lincoln (North Platte), Dawson,
+  // Phelps, Red Willow, Custer, Holt — come to 243,499. It was pinned to
+  // Mountain until 2026-09-09, which had it on the smaller half.
+  "308": "America/Chicago", // central Nebraska outweighs the panhandle
   // 402/531 (Omaha/Lincoln) stay Central via the NE state default.
 
   // Kansas — mostly Central; four far-western counties are Mountain.
@@ -365,7 +378,18 @@ const AREA_CODE_TO_TIMEZONE: Record<string, string> = {
 
   // Idaho — north Idaho (incl. 208 panhandle) is Pacific; south is Mountain.
   // The state default is Mountain; the panhandle is the exception, but 208
-  // covers the whole state, so leave it on the Mountain state default.
+  // and its overlay 986 both cover the whole state, so leave them on the
+  // Mountain state default. Idaho splits at the Salmon River, and Mountain
+  // holds the people: the ten northern counties total 400,362 — an upper
+  // bound, since Idaho County is itself split — against 1,146,165 in five
+  // southern counties alone (Ada 546,141, Canyon, Bonneville, Bannock, Twin
+  // Falls).
+  //
+  // ⚠️ Do NOT "correct" 986 to Pacific from the NANPA CSV. That file marks 986
+  // "P" while marking 208 — the very code 986 overlays, with the identical
+  // statewide footprint — "MP". A statewide overlay cannot touch fewer zones
+  // than its parent, so the "P" is a quirk in that column, not a fact about
+  // Idaho. It is the one place here we knowingly depart from NANPA.
 };
 
 /** Extract the 3-digit area code from a US/CA phone in any format
