@@ -246,7 +246,7 @@ export async function addNumbersToPool(input: {
     // reconcile (/api/shaken/reconcile).
     if (twilioSid) {
       try {
-        const shaken = await assignNumberToShaken(twilioSid);
+        const shaken = await assignNumberToShaken(twilioSid, n.phoneNumber);
         if (!shaken.ok && !shaken.skipped) {
           await logShakenSignFailure(n.phoneNumber, twilioSid, shaken.error);
         }

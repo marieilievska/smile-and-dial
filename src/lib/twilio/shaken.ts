@@ -25,7 +25,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Json } from "@/lib/supabase/database.types";
 
-import { listOwnedNumberSids } from "./numbers";
+import { countryForAreaCode } from "@/lib/dialer/nanp-states";
+import { areaCodeOf } from "@/lib/dialer/number-pool";
+
+import { listOwnedNumberRefs } from "./numbers";
 
 const TRUSTHUB = "https://trusthub.twilio.com/v1";
 
@@ -36,6 +39,29 @@ export const SHAKEN_POLICY_SID = "RN7a97559effdf62d00f4298208492a5ea";
  *  next_page_url can never loop forever (200 × 50 = 10,000 numbers — far
  *  beyond the pool). */
 const MAX_PAGES = 50;
+
+/**
+ * Is this number one SHAKEN/STIR can never cover?
+ *
+ * SHAKEN/STIR is a US framework and the parent Trust Hub rejects a Canadian
+ * number outright, so signing one is not a transient failure that a retry
+ * heals — it fails identically forever. Nine Canadian numbers bought on
+ * 2026-09-09 landed on the customer profile (which accepts them) and were
+ * refused by the trust product, leaving the 30-minute reconcile trying to add
+ * the same nine on every pass.
+ *
+ * ONLY a positively-identified Canadian number is excluded. An unknown area
+ * code stays in, deliberately: exclusion here is the destructive direction —
+ * the reconcile would read an excluded number as "not ours" and strip the
+ * signing off it. A US number whose new overlay has not reached
+ * `nanp-states.ts` yet must keep its A-attestation, not lose it to a stale map.
+ * Pure.
+ */
+export function isUnsignableCountry(
+  phoneNumber: string | null | undefined,
+): boolean {
+  return countryForAreaCode(areaCodeOf(phoneNumber)) === "CA";
+}
 
 export type ShakenResult = {
   ok: boolean;
@@ -137,11 +163,25 @@ async function resolveShaken(
  * itself (Twilio's required order). Idempotent and best-effort — returns
  * { ok:false } rather than throwing, so a hiccup (or a not-yet-configured parent
  * token) never blocks a purchase.
+ *
+ * Pass `phoneNumber` when the caller has it: a Canadian number is SKIPPED
+ * rather than attempted. Without it the profile assignment succeeds and the
+ * product assignment fails, which is how nine Canadian numbers ended up half
+ * assigned. `skipped` marks it so callers do not log a failure for something
+ * that was never going to work — see `isUnsignableCountry`.
  */
 export async function assignNumberToShaken(
   twilioSid: string | null | undefined,
+  phoneNumber?: string | null,
 ): Promise<ShakenResult> {
   if (!twilioSid) return { ok: false, error: "no Twilio number sid" };
+  if (isUnsignableCountry(phoneNumber)) {
+    return {
+      ok: false,
+      skipped: true,
+      error: "SHAKEN/STIR covers US numbers only",
+    };
+  }
 
   const auth = parentAuth();
   if (!auth) {
@@ -547,10 +587,22 @@ export async function reconcileShakenNumbers(): Promise<ShakenReconcileResult> {
       });
     }
 
-    const live = await listOwnedNumberSids();
+    const live = await listOwnedNumberRefs();
     if (live.error) return report({ ok: false, error: live.error });
 
-    const plan = planShakenReconcile(live.sids, onProfile, onProduct);
+    // Canadian numbers are not candidates for signing at all. Left in, every
+    // pass computes the same "add to product", the Trust Hub refuses each one,
+    // and the pass reports failures forever. Dropped here they also fall out of
+    // the profile on the next pass, which is correct: they should never have
+    // been assigned there either.
+    const signable = live.refs.filter(
+      (r) => !isUnsignableCountry(r.phoneNumber),
+    );
+    const plan = planShakenReconcile(
+      signable.map((r) => r.sid),
+      onProfile,
+      onProduct,
+    );
 
     // --- add: profile FIRST, then product ---------------------------------
     const profileAddFailed = new Set<string>();
@@ -616,7 +668,14 @@ export async function reconcileShakenNumbers(): Promise<ShakenReconcileResult> {
 
     return report(
       { ok: firstError === null, error: firstError, added, removed },
-      { live_numbers: live.sids.length, plan: planSizes(plan) },
+      // Both counts: a gap between them is Canadian numbers being excluded, and
+      // is the first thing worth seeing when the plan looks smaller than the
+      // pool.
+      {
+        live_numbers: live.refs.length,
+        signable_numbers: signable.length,
+        plan: planSizes(plan),
+      },
     );
   } catch (e) {
     const error = e instanceof Error ? e.message : "SHAKEN reconcile threw";

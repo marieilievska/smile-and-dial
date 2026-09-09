@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  assignNumberToShaken,
+  isUnsignableCountry,
   planShakenReconcile,
   reconcileShakenNumbers,
   SHAKEN_POLICY_SID,
@@ -252,6 +254,10 @@ describe("reconcileShakenNumbers", () => {
   /** Plays the parent Trust Hub and the subaccount's number list. */
   function stub(opts: {
     live?: string[];
+    /** E.164 per live sid. Omitted sids come back with no `phone_number`,
+     *  which is what Twilio does for a malformed row and what every test
+     *  written before the country guard assumes. */
+    livePhones?: Record<string, string>;
     /** Non-200 status for the IncomingPhoneNumbers GET. */
     numbersStatus?: number;
     onProfile?: ChannelEndpointAssignment[];
@@ -282,7 +288,10 @@ describe("reconcileShakenNumbers", () => {
             return json(opts.numbersStatus, {});
           }
           return json(200, {
-            incoming_phone_numbers: (opts.live ?? []).map((sid) => ({ sid })),
+            incoming_phone_numbers: (opts.live ?? []).map((sid) => ({
+              sid,
+              phone_number: opts.livePhones?.[sid],
+            })),
             next_page_uri: null,
           });
         }
@@ -500,5 +509,178 @@ describe("reconcileShakenNumbers", () => {
       ok: false,
       error: "network down",
     });
+  });
+
+  // ---- Canadian numbers are not candidates for signing -------------------
+  //
+  // The pool went mixed on 2026-09-09: 48 US numbers and 9 Canadian, one per
+  // province, for the 1,265 Canadian leads. The Trust Hub took the Canadian
+  // ones onto the customer profile and refused them on the trust product, so
+  // every pass planned the same nine product adds and failed all nine. Not a
+  // transient failure — the same result forever, every thirty minutes.
+
+  /** POST bodies only — an ADD carries its PN sid in the body, not the URL
+   *  (a DELETE is the other way round: assignment sid, in the URL). */
+  const posted = (calls: Call[]) =>
+    calls
+      .filter((c) => c.method === "POST")
+      .map((c) => c.body ?? "")
+      .join("\n");
+
+  it("never tries to sign a Canadian number", async () => {
+    const { calls } = stub({
+      live: ["PNus", "PNca"],
+      livePhones: { PNus: "+12125551212", PNca: "+14168675309" },
+      onProfile: [],
+      onProduct: [],
+    });
+    await reconcileShakenNumbers();
+
+    expect(posted(calls)).toContain("PNus");
+    expect(posted(calls)).not.toContain("PNca");
+  });
+
+  it("removes a Canadian number already assigned to the profile", async () => {
+    // Self-healing for the nine that got there before the guard existed: they
+    // are excluded from the live set, so the plan reads them as no longer ours
+    // and takes them off. No migration or manual cleanup needed.
+    const { calls } = stub({
+      live: ["PNus", "PNca"],
+      livePhones: { PNus: "+12125551212", PNca: "+14168675309" },
+      onProfile: [on("RAfUS", "PNus"), on("RAfCA", "PNca")],
+      onProduct: [on("RApUS", "PNus")],
+    });
+    await reconcileShakenNumbers();
+
+    const w = writes(calls);
+    expect(w.some((c) => c.startsWith("DELETE") && c.includes("RAfCA"))).toBe(
+      true,
+    );
+    // and the US number is left completely alone
+    expect(w.some((c) => c.includes("RAfUS"))).toBe(false);
+    expect(w.some((c) => c.includes("RApUS"))).toBe(false);
+  });
+
+  it("still signs a US number whose area code is unknown to the map", async () => {
+    // The conservative half of the guard. If exclusion were "not positively
+    // US" instead of "positively Canadian", a US number carrying a brand-new
+    // overlay NANPA has activated but nanp-states.ts has not yet learned would
+    // be read as foreign and STRIPPED of its A-attestation by the very job
+    // meant to protect it.
+    const { calls } = stub({
+      live: ["PNweird"],
+      livePhones: { PNweird: "+12745551212" },
+      onProfile: [],
+      onProduct: [],
+    });
+    await reconcileShakenNumbers();
+
+    expect(posted(calls)).toContain("PNweird");
+  });
+
+  it("is a clean no-op once the Canadian numbers are off the Trust Hub", async () => {
+    // The steady state a mixed pool settles into: the US numbers signed on both
+    // containers, the Canadian ones on neither, and nothing left to do. Without
+    // the guard this pass would plan nine product adds and fail all nine, on
+    // every run, forever.
+    const { calls } = stub({
+      live: ["PNus", "PNca"],
+      livePhones: { PNus: "+12125551212", PNca: "+14168675309" },
+      onProfile: [on("RAfUS", "PNus")],
+      onProduct: [on("RApUS", "PNus")],
+    });
+    const result = await reconcileShakenNumbers();
+
+    expect(result).toMatchObject({ ok: true, added: 0, removed: 0 });
+    expect(writes(calls)).toEqual([]);
+  });
+});
+
+/**
+ * SHAKEN/STIR is a US framework. The parent Trust Hub accepts a Canadian number
+ * onto the supporting customer profile and REFUSES it on the trust product, so
+ * a Canadian number in the pool is not a transient failure a retry heals — it
+ * fails identically on every pass, forever.
+ *
+ * Nine Canadian numbers bought on 2026-09-09 (one per province, for the 1,265
+ * Canadian leads in CA_MIXED) produced exactly that: profile 57, product 48,
+ * and a reconcile that wanted to add the same nine every thirty minutes.
+ */
+describe("isUnsignableCountry", () => {
+  it("is true for a Canadian number", () => {
+    expect(isUnsignableCountry("+14168675309")).toBe(true); // 416 Toronto
+    expect(isUnsignableCountry("+16045551212")).toBe(true); // 604 Vancouver
+  });
+
+  it("is false for a US number", () => {
+    expect(isUnsignableCountry("+12125551212")).toBe(false);
+    expect(isUnsignableCountry("+19075551212")).toBe(false); // Alaska
+  });
+
+  it("is FALSE for an unknown area code, deliberately", () => {
+    // Exclusion is the destructive direction: an excluded number reads as "not
+    // ours" and the reconcile strips its signing. A US number whose brand-new
+    // overlay has not reached nanp-states.ts yet must keep its A-attestation
+    // rather than lose it to a stale map. Only a POSITIVE Canadian match is
+    // excluded.
+    expect(isUnsignableCountry("+18005551212")).toBe(false); // toll-free
+    expect(isUnsignableCountry(null)).toBe(false);
+    expect(isUnsignableCountry(undefined)).toBe(false);
+    expect(isUnsignableCountry("not a number")).toBe(false);
+  });
+});
+
+describe("assignNumberToShaken and Canadian numbers", () => {
+  const OLD_ENV = { ...process.env };
+  beforeEach(() => {
+    process.env.TWILIO_PARENT_ACCOUNT_SID = "ACparent";
+    process.env.TWILIO_PARENT_AUTH_TOKEN = "parent-token";
+  });
+  afterEach(() => {
+    process.env = { ...OLD_ENV };
+    vi.unstubAllGlobals();
+  });
+
+  it("skips a Canadian number without calling Twilio at all", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await assignNumberToShaken("PN1", "+14168675309");
+
+    expect(result.ok).toBe(false);
+    // `skipped` is what stops the caller logging a sign FAILURE for something
+    // that was never going to work.
+    expect(result.skipped).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("still attempts a US number", async () => {
+    // Guard against the skip being too broad. Any fetch at all proves it went
+    // down the real path; what Twilio then answers is covered elsewhere.
+    const fetchSpy = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await assignNumberToShaken("PN1", "+12125551212");
+
+    expect(result.skipped).not.toBe(true);
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+
+  it("still attempts when no phone number is supplied", async () => {
+    // Back-compat: callers that only hold a sid keep the old behaviour.
+    const fetchSpy = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+    }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await assignNumberToShaken("PN1");
+
+    expect(fetchSpy).toHaveBeenCalled();
   });
 });

@@ -30,6 +30,14 @@ export type OwnedNumber = {
   statusCallback: string | null;
 };
 
+/** The minimum needed to reason about a number the account owns: which one it
+ *  is, and enough to tell its country. `phoneNumber` is nullable because it is
+ *  Twilio's field and we never assume a payload shape we did not check. */
+export type OwnedNumberRef = {
+  sid: string;
+  phoneNumber: string | null;
+};
+
 export type Country = "US" | "CA";
 
 const TWILIO_API = "https://api.twilio.com/2010-04-01/Accounts";
@@ -230,24 +238,30 @@ export async function listOwnedNumbers(): Promise<{
 const MAX_NUMBER_PAGES = 50;
 
 /**
- * Every IncomingPhoneNumber SID the account currently owns, following Twilio's
- * `next_page_uri` so a pool larger than one page is seen in full.
+ * Every IncomingPhoneNumber the account currently owns — SID and E.164 —
+ * following Twilio's `next_page_uri` so a pool larger than one page is seen in
+ * full.
  *
  * Unlike `listOwnedNumbers` this NEVER reports an empty list without having
  * actually read Twilio: mock mode and a missing config are errors here, not
  * `{ [], null }`. The SHAKEN reconcile is the caller, and it treats an empty
  * read as "the account owns nothing, remove every assignment" — so "we didn't
  * look" and "there is nothing there" must not arrive as the same answer.
+ *
+ * The phone number rides along because the caller has to tell US numbers from
+ * Canadian ones: SHAKEN/STIR is a US framework and the Trust Hub rejects a
+ * Canadian number, so signing one is a permanent, repeating failure rather than
+ * a transient one. A SID alone cannot answer that question.
  */
-export async function listOwnedNumberSids(): Promise<{
-  sids: string[];
+export async function listOwnedNumberRefs(): Promise<{
+  refs: OwnedNumberRef[];
   error: string | null;
 }> {
-  if (!isLive()) return { sids: [], error: "Twilio is not live." };
+  if (!isLive()) return { refs: [], error: "Twilio is not live." };
   const auth = twilioAuth();
-  if (!auth) return { sids: [], error: "Twilio is not configured." };
+  if (!auth) return { refs: [], error: "Twilio is not configured." };
   try {
-    const sids: string[] = [];
+    const refs: OwnedNumberRef[] = [];
     let next: string | null =
       `${TWILIO_API}/${auth.account}/IncomingPhoneNumbers.json?PageSize=200`;
     for (let page = 0; next && page < MAX_NUMBER_PAGES; page++) {
@@ -255,21 +269,23 @@ export async function listOwnedNumberSids(): Promise<{
         headers: { Authorization: auth.header },
       });
       if (!res.ok) {
-        return { sids: [], error: `Twilio listing failed (${res.status}).` };
+        return { refs: [], error: `Twilio listing failed (${res.status}).` };
       }
       const body = (await res.json()) as {
-        incoming_phone_numbers?: { sid: string }[];
+        incoming_phone_numbers?: { sid: string; phone_number?: string }[];
         next_page_uri?: string | null;
       };
-      for (const n of body.incoming_phone_numbers ?? []) sids.push(n.sid);
+      for (const n of body.incoming_phone_numbers ?? []) {
+        refs.push({ sid: n.sid, phoneNumber: n.phone_number ?? null });
+      }
       // Twilio returns the next page as a path relative to the API host.
       next = body.next_page_uri
         ? `https://api.twilio.com${body.next_page_uri}`
         : null;
     }
-    return { sids, error: null };
+    return { refs, error: null };
   } catch {
-    return { sids: [], error: "Twilio listing failed." };
+    return { refs: [], error: "Twilio listing failed." };
   }
 }
 
