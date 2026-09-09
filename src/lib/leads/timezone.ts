@@ -713,16 +713,40 @@ export function phoneToTimezone(
   return stateToTimezone(stateForAreaCode(ac));
 }
 
+/** The zone an area code pins DIRECTLY — the split-state overrides and the
+ *  Canadian table — without falling back to its state's default. Null when the
+ *  code carries no more information than its state already does, which is the
+ *  case for the great majority of them. Pure. */
+function areaCodeZoneOverride(phone: string | null | undefined): string | null {
+  const ac = areaCodeOf(phone);
+  if (!ac) return null;
+  return AREA_CODE_TO_TIMEZONE[ac] ?? CA_AREA_CODE_TO_TIMEZONE[ac] ?? null;
+}
+
 /** The timezone an imported lead should carry, from whatever the CSV gave us.
  *
  *  Precedence is most-specific-first:
- *    1. the CITY, but only in a state whose area codes cannot split it — today
+ *    1. the CITY, but only in a state whose area codes cannot split it —
  *       Idaho, Nebraska, South Dakota and North Dakota, whose 208/986, 308,
  *       605 and 701 have no second code on the far side of the line;
- *    2. an explicit STATE, because people keep their numbers when they move, so
- *       a stated address beats an area code;
- *    3. the PHONE, whose area code carries the split-state overrides and can
- *       also tell us the state when the CSV had no state column.
+ *    2. the area code's OVERRIDE, when the phone and any stated state agree on
+ *       which state we are in (see below);
+ *    3. an explicit STATE;
+ *    4. the PHONE, which also tells us the state when the CSV had no state
+ *       column.
+ *
+ *  Step 2 is the subtle one. An explicit state normally outranks an area code,
+ *  because people keep their numbers when they move — a New York business with
+ *  a 213 number is in New York. But an override is not the area code merely
+ *  repeating the state: it is SUB-state information the state column cannot
+ *  hold. 915 means "the El Paso part of Texas", and "TX" alone can never say
+ *  that. So an override outranks the state DEFAULT, gated on the two agreeing
+ *  about the state — which is exactly what makes 213 stay silent for a New
+ *  York lead while 915 speaks up for a Texan one.
+ *
+ *  Until this gate existed a stated state short-circuited everything, so the
+ *  whole override table only ever fired for state-LESS imports — the rarer
+ *  case, and not the one it was written for.
  *
  *  Lifted out of import-actions.ts, where it was inline and untested. Pure. */
 export function leadTimezoneFrom({
@@ -741,6 +765,16 @@ export function leadTimezoneFrom({
   const forCity = hasState ? state : stateFromPhone(phone);
   const byCity = cityToTimezone(city, forCity);
   if (byCity) return byCity;
+
+  // A Canadian province resolves to null here, which is deliberate: it lets a
+  // Canadian area code's zone through on the same branch as a state-less lead,
+  // since no US state can contradict it.
+  const statedCode = usStateCode(state);
+  if (!statedCode || statedCode === stateFromPhone(phone)) {
+    const override = areaCodeZoneOverride(phone);
+    if (override) return override;
+  }
+
   if (hasState) return stateToTimezone(state);
   return phoneToTimezone(phone);
 }

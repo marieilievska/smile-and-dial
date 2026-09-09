@@ -578,3 +578,117 @@ describe("the three new states behave the way Idaho does", () => {
     expect(cityToTimezone("Coeur d'Alene", "SD")).toBeNull();
   });
 });
+
+describe("a stated state no longer hides the split-state overrides", () => {
+  // The bypass, found while writing #514 and left alone through #515: an
+  // explicit state short-circuited the whole resolution, so a lead that said
+  // "TX" and carried a 915 El Paso number came out CENTRAL and #511's override
+  // never fired. The overrides only ever worked for state-LESS imports — the
+  // rarer case.
+  //
+  // The fix is narrow. An area code's override carries SUB-state information
+  // the state column cannot ("the El Paso part of Texas", not "Texas"), so it
+  // outranks the state DEFAULT — but only when the phone and the stated state
+  // agree about which state we are in. That keeps an explicit state winning
+  // where it should: people move and keep their numbers.
+
+  it.each([
+    ["TX", "9155550123", "America/Denver", "El Paso"],
+    ["FL", "8505550123", "America/Chicago", "Pensacola panhandle"],
+    ["FL", "4485550123", "America/Chicago", "the 850 overlay"],
+    ["TN", "4235550123", "America/New_York", "Chattanooga"],
+    ["TN", "7295550123", "America/New_York", "the 423 overlay"],
+    ["TN", "8655550123", "America/New_York", "Knoxville"],
+    ["KY", "2705550123", "America/Chicago", "western Kentucky"],
+    ["KY", "3645550123", "America/Chicago", "the 270 overlay"],
+    ["IN", "2195550123", "America/Chicago", "Gary"],
+  ])("%s + a %s number is %s (%s)", (state, phone, zone) => {
+    expect(leadTimezoneFrom({ city: null, state, phone })).toBe(zone);
+    // ...and it differs from the state default, which is the whole point.
+    expect(zone).not.toBe(stateToTimezone(state));
+  });
+
+  it("still lets an explicit state beat an out-of-state area code", () => {
+    // The guard. A New York business that kept its Los Angeles number is in
+    // New York; 213 tells us nothing about which PART of New York, so it must
+    // not override. Same for a Californian holding an El Paso number.
+    expect(
+      leadTimezoneFrom({ city: null, state: "NY", phone: "2135550123" }),
+    ).toBe("America/New_York");
+    expect(
+      leadTimezoneFrom({ city: null, state: "CA", phone: "9155550123" }),
+    ).toBe("America/Los_Angeles");
+    expect(
+      leadTimezoneFrom({ city: null, state: "WA", phone: "8505550123" }),
+    ).toBe("America/Los_Angeles");
+  });
+
+  it("leaves a stated state alone when its area code has no override", () => {
+    expect(
+      leadTimezoneFrom({ city: null, state: "TX", phone: "2145550123" }),
+    ).toBe("America/Chicago");
+    expect(
+      leadTimezoneFrom({ city: null, state: "NY", phone: "2125550123" }),
+    ).toBe("America/New_York");
+    expect(
+      leadTimezoneFrom({ city: null, state: "FL", phone: "3055550123" }),
+    ).toBe("America/New_York");
+  });
+
+  it("reads the state written out in full, not just the code", () => {
+    expect(
+      leadTimezoneFrom({ city: null, state: "Texas", phone: "9155550123" }),
+    ).toBe("America/Denver");
+    expect(
+      leadTimezoneFrom({ city: null, state: "  tx  ", phone: "9155550123" }),
+    ).toBe("America/Denver");
+  });
+
+  it("keeps Canada working, where no US state code applies", () => {
+    expect(
+      leadTimezoneFrom({ city: null, state: "Ontario", phone: "4165550123" }),
+    ).toBe("America/New_York");
+    expect(
+      leadTimezoneFrom({ city: null, state: "BC", phone: "6045550123" }),
+    ).toBe("America/Los_Angeles");
+    // An explicit province still beats a US area code.
+    expect(
+      leadTimezoneFrom({ city: null, state: "BC", phone: "2125550123" }),
+    ).toBe("America/Los_Angeles");
+    // Saskatchewan keeps its own zone rather than collapsing to Central.
+    expect(
+      leadTimezoneFrom({ city: null, state: "SK", phone: "3065550123" }),
+    ).toBe("America/Regina");
+  });
+
+  it("still puts the city ahead of the area code", () => {
+    // Idaho has no override, but the ordering must survive the change: the
+    // city is more specific than any area code and stays first.
+    expect(
+      leadTimezoneFrom({
+        city: "Coeur d'Alene",
+        state: "ID",
+        phone: "2085550123",
+      }),
+    ).toBe(PACIFIC);
+    expect(
+      leadTimezoneFrom({
+        city: "Rapid City",
+        state: "SD",
+        phone: "6055550123",
+      }),
+    ).toBe(MOUNTAIN);
+  });
+
+  it("is unchanged for leads with no state at all", () => {
+    expect(
+      leadTimezoneFrom({ city: null, state: null, phone: "9155550123" }),
+    ).toBe("America/Denver");
+    expect(
+      leadTimezoneFrom({ city: null, state: "", phone: "8505550123" }),
+    ).toBe("America/Chicago");
+    expect(
+      leadTimezoneFrom({ city: null, state: null, phone: "8005550123" }),
+    ).toBeNull();
+  });
+});
