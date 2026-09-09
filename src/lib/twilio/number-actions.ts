@@ -161,7 +161,7 @@ export async function purchaseNumber(input: {
   // spent six days dialling without A-attestation and nobody could see it.
   if (twilioSid) {
     try {
-      const shaken = await assignNumberToShaken(twilioSid);
+      const shaken = await assignNumberToShaken(twilioSid, input.phoneNumber);
       if (!shaken.ok && !shaken.skipped) {
         await logShakenSignFailure(input.phoneNumber, twilioSid, shaken.error);
       }
