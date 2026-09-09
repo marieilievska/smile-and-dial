@@ -392,6 +392,128 @@ const AREA_CODE_TO_TIMEZONE: Record<string, string> = {
   // Idaho. It is the one place here we knowingly depart from NANPA.
 };
 
+// --- City, for the states no area code can split ---------------------------
+// AREA_CODE_TO_TIMEZONE above works because those states have a code on each
+// side of the line: 915 against 214, 850 against 305, 423 against 615. Idaho
+// has no such pair. 208 and its overlay 986 BOTH cover the whole state, so no
+// area-code table can ever be right about a lead there — Mountain is only the
+// answer that is wrong about fewer people (~400,362 live north of the Salmon
+// River against ~1.55M south of it), not an answer that is right.
+//
+// The city does separate them, and CSV imports already carry one next to the
+// state. It is the only signal we hold that can.
+//
+// ⚠️ This table is safe ONLY because it is additive: a city that is not listed
+// falls straight through to the state default, which is exactly today's
+// behaviour. So an omission costs nothing and a WRONG entry costs everything —
+// it would still produce a timezone, and still look resolved. Every city below
+// was checked to its county, and two candidates were dropped for failing that:
+//
+//   • "Shoshone" is the seat of LINCOLN county in south-central Idaho and
+//     observes MOUNTAIN. It shares a name with northern Shoshone County, so a
+//     list of that county's cities reports it as northern. It is not.
+//   • Idaho County is split by the Salmon River — 49 CFR 71.9(a) draws the
+//     Pacific boundary along it — so Grangeville, Riggins, Kamiah and the rest
+//     are left out rather than guessed at.
+//
+// Authored as readable names and normalised at load, so the literal stays
+// checkable by eye and nobody has to hand-write a normalised key.
+const NORTH_IDAHO_PACIFIC = [
+  // Kootenai County
+  "Coeur d'Alene",
+  "Post Falls",
+  "Hayden",
+  "Hayden Lake",
+  "Rathdrum",
+  "Dalton Gardens",
+  "Spirit Lake",
+  "Hauser",
+  "Athol",
+  // Nez Perce County
+  "Lewiston",
+  "Lapwai",
+  "Culdesac",
+  // Latah County
+  "Moscow",
+  "Genesee",
+  "Troy",
+  "Potlatch",
+  "Juliaetta",
+  "Deary",
+  // Bonner County
+  "Sandpoint",
+  "Priest River",
+  "Ponderay",
+  "Kootenai",
+  "Dover",
+  "Clark Fork",
+  // Boundary County
+  "Bonners Ferry",
+  "Moyie Springs",
+  // Benewah County
+  "St. Maries",
+  "Saint Maries", // same place; CSVs spell it both ways
+  "Plummer",
+  // Shoshone County (the COUNTY — see the note about the city above)
+  "Kellogg",
+  "Pinehurst",
+  "Osburn",
+  "Wallace",
+  "Smelterville",
+  "Mullan",
+  // Clearwater County
+  "Orofino",
+  "Pierce",
+  "Weippe",
+  // Lewis County
+  "Craigmont",
+  "Nezperce",
+];
+
+/** Fold a free-text city to a comparison key. CSVs spell Coeur d'Alene at
+ *  least four ways — straight apostrophe, curly apostrophe, a space, nothing —
+ *  so every non-alphanumeric character is dropped rather than normalised. */
+function normalizeCity(city: string): string {
+  return city.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+const CITY_TIMEZONES: Record<string, Record<string, string>> = {
+  ID: Object.fromEntries(
+    NORTH_IDAHO_PACIFIC.map((city) => [
+      normalizeCity(city),
+      "America/Los_Angeles",
+    ]),
+  ),
+};
+
+/** US state as a 2-letter code, from a code or a full name. Null for anything
+ *  that isn't one of the 50 states or DC — Canadian provinces included. */
+function usStateCode(state: string | null | undefined): string | null {
+  if (!state) return null;
+  const trimmed = state.trim();
+  if (!trimmed) return null;
+  if (trimmed.length === 2) {
+    const up = trimmed.toUpperCase();
+    return STATE_TIMEZONES[up] ? up : null;
+  }
+  return STATE_NAME_TO_CODE[trimmed.toLowerCase()] ?? null;
+}
+
+/** IANA timezone for a lead's city, but only in states where the area code
+ *  cannot tell the two halves apart (today: Idaho). Null everywhere else, and
+ *  null for an unrecognised city, so the caller keeps whatever the area code
+ *  or the state already gave it. Pure. */
+export function cityToTimezone(
+  city: string | null | undefined,
+  state: string | null | undefined,
+): string | null {
+  const code = usStateCode(state);
+  if (!code || !city) return null;
+  const table = CITY_TIMEZONES[code];
+  if (!table) return null;
+  return table[normalizeCity(city)] ?? null;
+}
+
 /** Extract the 3-digit area code from a US/CA phone in any format
  *  ("(205) 259-8928", "2052598928", "+12052598928"). Returns null when the
  *  value isn't a 10-digit NANP number. */
@@ -424,4 +546,35 @@ export function phoneToTimezone(
   if (AREA_CODE_TO_TIMEZONE[ac]) return AREA_CODE_TO_TIMEZONE[ac];
   if (CA_AREA_CODE_TO_TIMEZONE[ac]) return CA_AREA_CODE_TO_TIMEZONE[ac];
   return stateToTimezone(stateForAreaCode(ac));
+}
+
+/** The timezone an imported lead should carry, from whatever the CSV gave us.
+ *
+ *  Precedence is most-specific-first:
+ *    1. the CITY, but only in a state whose area codes cannot split it — today
+ *       just Idaho, where 208 and 986 are both statewide;
+ *    2. an explicit STATE, because people keep their numbers when they move, so
+ *       a stated address beats an area code;
+ *    3. the PHONE, whose area code carries the split-state overrides and can
+ *       also tell us the state when the CSV had no state column.
+ *
+ *  Lifted out of import-actions.ts, where it was inline and untested. Pure. */
+export function leadTimezoneFrom({
+  city,
+  state,
+  phone,
+}: {
+  city?: string | null;
+  state?: string | null;
+  phone?: string | null;
+}): string | null {
+  const hasState = typeof state === "string" && state.trim().length > 0;
+  // The city table is keyed by state, so when the CSV omitted the state we
+  // still need one — the area code gives it, which is how a city-only-plus-
+  // phone row still reaches north Idaho.
+  const forCity = hasState ? state : stateFromPhone(phone);
+  const byCity = cityToTimezone(city, forCity);
+  if (byCity) return byCity;
+  if (hasState) return stateToTimezone(state);
+  return phoneToTimezone(phone);
 }

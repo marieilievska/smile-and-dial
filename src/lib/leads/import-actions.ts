@@ -14,7 +14,7 @@ import {
   type ImportResult,
   type LineType,
 } from "./import-fields";
-import { phoneToTimezone, stateFromPhone, stateToTimezone } from "./timezone";
+import { leadTimezoneFrom, stateFromPhone } from "./timezone";
 import {
   isDefinitiveLineType,
   isLookupLive,
@@ -600,26 +600,36 @@ export async function importLeads(input: {
         fields[key] = raw;
       }
     }
-    // Timezone for calling-hours. Primary signal is the state; if there's no
-    // state, fall back to the phone's area code — which maps to a state and
-    // thus a timezone — and backfill the state too so the lead isn't blank.
+    // Timezone for calling-hours. The precedence lives in leadTimezoneFrom:
+    // city first (only where no area code can split the state — Idaho), then
+    // an explicit state, then the phone. The state column is backfilled from
+    // the area code afterwards so the lead isn't left blank.
     const phoneRaw =
       typeof fields.business_phone === "string" ? fields.business_phone : "";
-    if (typeof fields.state === "string" && fields.state.trim()) {
-      if (!fields.timezone) {
-        const tz = stateToTimezone(fields.state);
-        if (tz) fields.timezone = tz;
-      }
-    } else if (phoneRaw) {
+    const cityRaw = typeof fields.city === "string" ? fields.city : "";
+    // Capture the state the CSV ACTUALLY gave us before the backfill below
+    // overwrites it. leadTimezoneFrom treats an explicit state as the stronger
+    // signal, so handing it a state we derived from the area code would make
+    // every lead look like it stated one — and the split-state overrides (915
+    // El Paso, 850 panhandle) would stop firing for the very leads they exist
+    // for.
+    const statedRaw =
+      typeof fields.state === "string" && fields.state.trim()
+        ? fields.state
+        : null;
+    if (!fields.timezone) {
+      const tz = leadTimezoneFrom({
+        city: cityRaw,
+        state: statedRaw,
+        phone: phoneRaw,
+      });
+      if (tz) fields.timezone = tz;
+    }
+    // Backfill the state from the area code when the CSV had no state column,
+    // so the lead isn't left blank.
+    if (!statedRaw && phoneRaw) {
       const st = stateFromPhone(phoneRaw);
       if (st && !fields.state) fields.state = st;
-      // Resolve the timezone straight from the area code so split-state codes
-      // (915 El Paso -> Denver, 850 Pensacola -> Chicago) get the right zone
-      // rather than the state's single default.
-      if (!fields.timezone) {
-        const tz = phoneToTimezone(phoneRaw);
-        if (tz) fields.timezone = tz;
-      }
     }
     // Store the phone in E.164 so it's dialable by Twilio and dedups
     // consistently. Leave non-US/CA numbers untouched.
