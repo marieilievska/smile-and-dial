@@ -477,13 +477,178 @@ function normalizeCity(city: string): string {
   return city.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+// Nebraska, South Dakota and North Dakota have the same defect as Idaho: 308,
+// 605 and 701 each span two zones with no second code on the other side of the
+// line. These three default to CENTRAL, so unlike Idaho the tables below list
+// the MOUNTAIN minority — the same additive rule, pointing the other way.
+
+// 49 CFR 71.7(c) runs the line along the west boundaries of Thomas, McPherson,
+// Keith, Lincoln, Hayes and Hitchcock, so the eighteen counties beyond it are
+// Mountain. The regulation's path reads least clearly around Keith, Chase and
+// Hooker, so those were checked directly: Ogallala, Imperial and Mullen all
+// state Mountain. Note North Platte is NOT here — the line runs along Lincoln
+// County's west edge, leaving it Central.
+const WESTERN_NEBRASKA_MOUNTAIN = [
+  // Scotts Bluff
+  "Scottsbluff",
+  "Gering",
+  "Mitchell", // NB: South Dakota's Mitchell is Central. Hence the state key.
+  "Terrytown",
+  "Minatare",
+  "Morrill", // the village in Scotts Bluff; Morrill is also a county
+  "Lyman",
+  "Henry",
+  "Melbeta",
+  // Box Butte / Dawes / Sheridan / Sioux
+  "Alliance",
+  "Hemingford",
+  "Chadron",
+  "Crawford",
+  "Gordon",
+  "Rushville",
+  "Harrison",
+  // Morrill / Garden
+  "Bridgeport",
+  "Bayard",
+  "Oshkosh",
+  "Lewellen",
+  // Sandhills: Grant / Hooker / Arthur
+  "Hyannis",
+  "Mullen",
+  "Arthur",
+  // Kimball / Cheyenne / Deuel
+  "Kimball",
+  "Dix",
+  "Bushnell",
+  "Sidney",
+  "Potter",
+  "Lodgepole",
+  "Dalton",
+  "Gurley",
+  "Chappell",
+  "Big Springs",
+  // Keith / Perkins / Chase / Dundy
+  "Ogallala",
+  "Paxton",
+  "Brule",
+  "Grant", // the city is in Perkins county; Grant is also a county
+  "Madrid",
+  "Venango",
+  "Imperial",
+  "Wauneta",
+  "Benkelman",
+  "Haigler",
+];
+
+// 49 CFR 71.7(b) follows the Missouri's main channel south to Pierre, then the
+// west boundaries of Jones, Mellette and Todd — so those three, and everything
+// east of the river, stay Central.
+//
+// ⚠️ Fort Pierre is deliberately absent. It is de jure Mountain (Stanley
+// County, west bank) but "most residents of the city use Central Time because
+// of close social and economic ties with Pierre". Calling hours care about the
+// clock people actually keep, and omitting it yields Central.
+const WEST_RIVER_SOUTH_DAKOTA_MOUNTAIN = [
+  // Pennington / Lawrence / Meade — the Black Hills
+  "Rapid City",
+  "Hill City",
+  "Wall",
+  "Keystone",
+  "New Underwood",
+  "Quinn",
+  "Wasta",
+  "Spearfish",
+  "Lead",
+  "Deadwood",
+  "Whitewood",
+  "Central City", // in the mountain zone, whatever the name suggests
+  "Box Elder",
+  "Sturgis",
+  "Summerset",
+  "Piedmont",
+  "Faith",
+  // Butte / Fall River / Custer
+  "Belle Fourche",
+  "Newell",
+  "Nisland",
+  "Hot Springs",
+  "Edgemont",
+  "Oelrichs",
+  "Custer",
+  "Hermosa",
+  "Pringle",
+  "Buffalo Gap",
+  "Fairburn",
+  // Haakon / Harding / Jackson
+  "Philip",
+  "Midland",
+  "Buffalo",
+  "Camp Crook",
+  "Kadoka",
+  "Interior",
+  "Belvidere",
+  // Perkins / Dewey / Ziebach / Corson
+  "Lemmon",
+  "Bison",
+  "Eagle Butte",
+  "Timber Lake",
+  "Isabel",
+  "Dupree",
+  "McLaughlin",
+  "McIntosh",
+  "Morristown",
+];
+
+// The eight North Dakota counties lying WHOLLY in the mountain zone: Adams,
+// Billings, Bowman, Golden Valley, Grant, Hettinger, Slope, Stark. McKenzie,
+// Dunn and Sioux are split, and 49 CFR 71.7(a) draws the line through Mercer
+// and Morton, so all five are left out rather than guessed at — which is why
+// Mandan, Killdeer, Watford City, Fort Yates and Beulah are absent.
+const SOUTHWEST_NORTH_DAKOTA_MOUNTAIN = [
+  // Stark
+  "Dickinson",
+  "Belfield",
+  "Richardton",
+  "Gladstone",
+  "South Heart",
+  "Taylor",
+  // Bowman / Slope / Billings / Golden Valley
+  "Bowman",
+  "Scranton",
+  "Rhame",
+  "Gascoyne",
+  "Marmarth",
+  "Amidon",
+  "Medora",
+  "Beach",
+  "Golva",
+  "Sentinel Butte",
+  // Adams — the CITY of Hettinger is here; Hettinger is also a county
+  "Hettinger",
+  "Reeder",
+  "Haynes",
+  "Bucyrus",
+  // Hettinger county
+  "New England",
+  "Mott",
+  "Regent",
+  // Grant
+  "Elgin",
+  "Carson",
+  "New Leipzig",
+  "Leith",
+];
+
+/** Key a city list to one zone. */
+function zoneByCity(cities: string[], zone: string): Record<string, string> {
+  return Object.fromEntries(cities.map((city) => [normalizeCity(city), zone]));
+}
+
 const CITY_TIMEZONES: Record<string, Record<string, string>> = {
-  ID: Object.fromEntries(
-    NORTH_IDAHO_PACIFIC.map((city) => [
-      normalizeCity(city),
-      "America/Los_Angeles",
-    ]),
-  ),
+  ID: zoneByCity(NORTH_IDAHO_PACIFIC, "America/Los_Angeles"),
+  NE: zoneByCity(WESTERN_NEBRASKA_MOUNTAIN, "America/Denver"),
+  SD: zoneByCity(WEST_RIVER_SOUTH_DAKOTA_MOUNTAIN, "America/Denver"),
+  ND: zoneByCity(SOUTHWEST_NORTH_DAKOTA_MOUNTAIN, "America/Denver"),
 };
 
 /** US state as a 2-letter code, from a code or a full name. Null for anything
@@ -500,7 +665,7 @@ function usStateCode(state: string | null | undefined): string | null {
 }
 
 /** IANA timezone for a lead's city, but only in states where the area code
- *  cannot tell the two halves apart (today: Idaho). Null everywhere else, and
+ *  cannot tell the two halves apart (ID, NE, SD, ND). Null everywhere else, and
  *  null for an unrecognised city, so the caller keeps whatever the area code
  *  or the state already gave it. Pure. */
 export function cityToTimezone(
@@ -552,7 +717,8 @@ export function phoneToTimezone(
  *
  *  Precedence is most-specific-first:
  *    1. the CITY, but only in a state whose area codes cannot split it — today
- *       just Idaho, where 208 and 986 are both statewide;
+ *       Idaho, Nebraska, South Dakota and North Dakota, whose 208/986, 308,
+ *       605 and 701 have no second code on the far side of the line;
  *    2. an explicit STATE, because people keep their numbers when they move, so
  *       a stated address beats an area code;
  *    3. the PHONE, whose area code carries the split-state overrides and can

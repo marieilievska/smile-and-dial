@@ -129,15 +129,23 @@ describe("south Idaho is left on Mountain", () => {
 });
 
 describe("the city table is deliberately narrow", () => {
-  it("answers for no state but Idaho", () => {
-    // Every other split state has an area code that can tell its halves apart,
-    // and #511's override table already does that. Consulting a city there
-    // could only fight a better signal.
+  it("answers only for the states no area code can split", () => {
+    // ID, NE, SD and ND have no second code on the far side of the line, so
+    // the city is the only signal left. Every OTHER split state does have one
+    // — 915 against 214, 850 against 305, 423 against 615 — and #511's
+    // override table already reads it. Consulting a city there could only
+    // fight a better signal, so the table stays silent.
     expect(cityToTimezone("El Paso", "TX")).toBeNull();
     expect(cityToTimezone("Pensacola", "FL")).toBeNull();
     expect(cityToTimezone("Knoxville", "TN")).toBeNull();
-    expect(cityToTimezone("Rapid City", "SD")).toBeNull();
-    expect(cityToTimezone("Scottsbluff", "NE")).toBeNull();
+    expect(cityToTimezone("Gary", "IN")).toBeNull();
+    expect(cityToTimezone("Bowling Green", "KY")).toBeNull();
+    expect(cityToTimezone("Marquette", "MI")).toBeNull();
+    // ...and it does answer for the four that need it.
+    expect(cityToTimezone("Coeur d'Alene", "ID")).toBe(PACIFIC);
+    expect(cityToTimezone("Rapid City", "SD")).toBe(MOUNTAIN);
+    expect(cityToTimezone("Scottsbluff", "NE")).toBe(MOUNTAIN);
+    expect(cityToTimezone("Dickinson", "ND")).toBe(MOUNTAIN);
   });
 
   it("returns null rather than guessing at an unknown Idaho city", () => {
@@ -283,5 +291,290 @@ describe("the import actually uses it", () => {
     expect(resolveAt).toBeGreaterThan(-1);
     expect(backfillAt).toBeGreaterThan(-1);
     expect(resolveAt).toBeLessThan(backfillAt);
+  });
+});
+
+// --- The same defect in SD, ND and NE ---------------------------------------
+// 605, 701 and 308 are statewide-ish codes spanning two zones, exactly like
+// Idaho's. All three states default to CENTRAL, so unlike Idaho these tables
+// list the MOUNTAIN minority — but the additive-safety property is identical:
+// an unlisted city keeps the Central default, which is today's behaviour.
+//
+// Boundaries are 49 CFR 71.7; counties come from that text (plus, for North
+// Dakota, the explicit list of wholly-mountain counties) and cities from each
+// state's Wikipedia city list filtered to those counties.
+
+describe("western Nebraska resolves to Mountain by city", () => {
+  // 49 CFR 71.7(c) runs the line along the west boundaries of Thomas,
+  // McPherson, Keith, Lincoln, Hayes and Hitchcock, leaving the eighteen
+  // counties beyond it on Mountain. Three were checked against their own
+  // infoboxes because the regulation's path reads least clearly there:
+  // Ogallala (Keith), Imperial (Chase) and Mullen (Hooker) are all Mountain.
+  const WESTERN_NEBRASKA: [city: string, county: string][] = [
+    ["Scottsbluff", "Scotts Bluff"],
+    ["Gering", "Scotts Bluff"],
+    ["Mitchell", "Scotts Bluff"],
+    ["Terrytown", "Scotts Bluff"],
+    ["Minatare", "Scotts Bluff"],
+    ["Morrill", "Scotts Bluff"],
+    ["Lyman", "Scotts Bluff"],
+    ["Henry", "Scotts Bluff"],
+    ["Melbeta", "Scotts Bluff"],
+    ["Alliance", "Box Butte"],
+    ["Hemingford", "Box Butte"],
+    ["Chadron", "Dawes"],
+    ["Crawford", "Dawes"],
+    ["Gordon", "Sheridan"],
+    ["Rushville", "Sheridan"],
+    ["Harrison", "Sioux"],
+    ["Bridgeport", "Morrill"],
+    ["Bayard", "Morrill"],
+    ["Oshkosh", "Garden"],
+    ["Lewellen", "Garden"],
+    ["Hyannis", "Grant"],
+    ["Mullen", "Hooker"],
+    ["Arthur", "Arthur"],
+    ["Kimball", "Kimball"],
+    ["Dix", "Kimball"],
+    ["Bushnell", "Kimball"],
+    ["Sidney", "Cheyenne"],
+    ["Potter", "Cheyenne"],
+    ["Lodgepole", "Cheyenne"],
+    ["Dalton", "Cheyenne"],
+    ["Gurley", "Cheyenne"],
+    ["Chappell", "Deuel"],
+    ["Big Springs", "Deuel"],
+    ["Ogallala", "Keith"],
+    ["Paxton", "Keith"],
+    ["Brule", "Keith"],
+    ["Grant", "Perkins"],
+    ["Madrid", "Perkins"],
+    ["Venango", "Perkins"],
+    ["Imperial", "Chase"],
+    ["Wauneta", "Chase"],
+    ["Benkelman", "Dundy"],
+    ["Haigler", "Dundy"],
+  ];
+
+  it.each(WESTERN_NEBRASKA)("%s (%s County) is Mountain", (city) => {
+    expect(cityToTimezone(city, "NE")).toBe(MOUNTAIN);
+  });
+
+  it("leaves central and eastern Nebraska on Central", () => {
+    for (const city of [
+      "Omaha",
+      "Lincoln",
+      "Grand Island",
+      "Kearney",
+      "Hastings",
+      "North Platte", // Lincoln County — the line runs along its WEST edge
+      "Columbus",
+      "Norfolk",
+      "McCook",
+      "Lexington",
+    ]) {
+      expect(cityToTimezone(city, "NE")).toBeNull();
+    }
+  });
+});
+
+describe("west-river South Dakota resolves to Mountain by city", () => {
+  // 49 CFR 71.7(b) follows the Missouri's main channel south to Pierre, then
+  // runs along the west boundaries of Jones, Mellette and Todd — so those
+  // three, and everything east of the river, stay Central.
+  const WEST_RIVER: [city: string, county: string][] = [
+    ["Rapid City", "Pennington"],
+    ["Hill City", "Pennington"],
+    ["Wall", "Pennington"],
+    ["Keystone", "Pennington"],
+    ["New Underwood", "Pennington"],
+    ["Quinn", "Pennington"],
+    ["Wasta", "Pennington"],
+    ["Spearfish", "Lawrence"],
+    ["Lead", "Lawrence"],
+    ["Deadwood", "Lawrence"],
+    ["Whitewood", "Lawrence"],
+    ["Central City", "Lawrence"],
+    ["Box Elder", "Meade"],
+    ["Sturgis", "Meade"],
+    ["Summerset", "Meade"],
+    ["Piedmont", "Meade"],
+    ["Faith", "Meade"],
+    ["Belle Fourche", "Butte"],
+    ["Newell", "Butte"],
+    ["Nisland", "Butte"],
+    ["Hot Springs", "Fall River"],
+    ["Edgemont", "Fall River"],
+    ["Oelrichs", "Fall River"],
+    ["Custer", "Custer"],
+    ["Hermosa", "Custer"],
+    ["Pringle", "Custer"],
+    ["Buffalo Gap", "Custer"],
+    ["Fairburn", "Custer"],
+    ["Philip", "Haakon"],
+    ["Midland", "Haakon"],
+    ["Buffalo", "Harding"],
+    ["Camp Crook", "Harding"],
+    ["Kadoka", "Jackson"],
+    ["Interior", "Jackson"],
+    ["Belvidere", "Jackson"],
+    ["Lemmon", "Perkins"],
+    ["Bison", "Perkins"],
+    ["Eagle Butte", "Dewey"],
+    ["Timber Lake", "Dewey"],
+    ["Isabel", "Dewey"],
+    ["Dupree", "Ziebach"],
+    ["McLaughlin", "Corson"],
+    ["McIntosh", "Corson"],
+    ["Morristown", "Corson"],
+  ];
+
+  it.each(WEST_RIVER)("%s (%s County) is Mountain", (city) => {
+    expect(cityToTimezone(city, "SD")).toBe(MOUNTAIN);
+  });
+
+  it("does NOT claim Fort Pierre, whose residents keep Central", () => {
+    // De jure Mountain (Stanley County, west bank), but its own article says
+    // "most residents of the city use Central Time because of close social and
+    // economic ties with Pierre". Calling hours care about the clock people
+    // actually keep, and omitting it yields Central — both safer and truer.
+    expect(cityToTimezone("Fort Pierre", "SD")).toBeNull();
+    expect(cityToTimezone("Pierre", "SD")).toBeNull();
+  });
+
+  it("leaves east-river South Dakota on Central", () => {
+    for (const city of [
+      "Sioux Falls",
+      "Aberdeen",
+      "Brookings",
+      "Watertown",
+      "Mitchell", // Davison County — the Nebraska city of this name IS Mountain
+      "Yankton",
+      "Huron",
+      "Vermillion",
+      "Mobridge", // Walworth County, east bank
+      "Chamberlain",
+      "Winner",
+    ]) {
+      expect(cityToTimezone(city, "SD")).toBeNull();
+    }
+  });
+});
+
+describe("southwest North Dakota resolves to Mountain by city", () => {
+  // The eight counties lying wholly in the mountain zone. McKenzie, Dunn and
+  // Sioux are SPLIT, and 49 CFR 71.7(a) draws the line through Mercer and
+  // Morton, so all five are left out rather than guessed at.
+  const SOUTHWEST_ND: [city: string, county: string][] = [
+    ["Dickinson", "Stark"],
+    ["Belfield", "Stark"],
+    ["Richardton", "Stark"],
+    ["Gladstone", "Stark"],
+    ["South Heart", "Stark"],
+    ["Taylor", "Stark"],
+    ["Bowman", "Bowman"],
+    ["Scranton", "Bowman"],
+    ["Rhame", "Bowman"],
+    ["Gascoyne", "Bowman"],
+    ["Hettinger", "Adams"], // the CITY is in Adams; Hettinger is a county too
+    ["Reeder", "Adams"],
+    ["Haynes", "Adams"],
+    ["Bucyrus", "Adams"],
+    ["New England", "Hettinger"],
+    ["Mott", "Hettinger"],
+    ["Regent", "Hettinger"],
+    ["Beach", "Golden Valley"],
+    ["Golva", "Golden Valley"],
+    ["Sentinel Butte", "Golden Valley"],
+    ["Elgin", "Grant"],
+    ["Carson", "Grant"],
+    ["New Leipzig", "Grant"],
+    ["Leith", "Grant"],
+    ["Medora", "Billings"],
+    ["Marmarth", "Slope"],
+    ["Amidon", "Slope"],
+  ];
+
+  it.each(SOUTHWEST_ND)("%s (%s County) is Mountain", (city) => {
+    expect(cityToTimezone(city, "ND")).toBe(MOUNTAIN);
+  });
+
+  it("leaves the rest of North Dakota, split counties included, on Central", () => {
+    for (const city of [
+      "Fargo",
+      "Bismarck",
+      "Grand Forks",
+      "Minot",
+      "Williston", // Williams County — western, but Central
+      "Jamestown",
+      "Mandan", // Morton — the boundary runs through it
+      "Killdeer", // Dunn — split
+      "Watford City", // McKenzie — split
+      "Fort Yates", // Sioux — split
+      "Beulah", // Mercer — the boundary runs through it
+    ]) {
+      expect(cityToTimezone(city, "ND")).toBeNull();
+    }
+  });
+});
+
+describe("the three new states behave the way Idaho does", () => {
+  it("beats the area code, which says Central for all three", () => {
+    expect(phoneToTimezone("6055550123")).toBe("America/Chicago"); // SD
+    expect(phoneToTimezone("7015550123")).toBe("America/Chicago"); // ND
+    expect(phoneToTimezone("3085550123")).toBe("America/Chicago"); // NE
+    expect(
+      leadTimezoneFrom({
+        city: "Rapid City",
+        state: "SD",
+        phone: "6055550123",
+      }),
+    ).toBe(MOUNTAIN);
+    expect(
+      leadTimezoneFrom({ city: "Dickinson", state: "ND", phone: "7015550123" }),
+    ).toBe(MOUNTAIN);
+    expect(
+      leadTimezoneFrom({
+        city: "Scottsbluff",
+        state: "NE",
+        phone: "3085550123",
+      }),
+    ).toBe(MOUNTAIN);
+  });
+
+  it("still reaches the city when the state came from the phone", () => {
+    expect(
+      leadTimezoneFrom({
+        city: "Rapid City",
+        state: null,
+        phone: "6055550123",
+      }),
+    ).toBe(MOUNTAIN);
+  });
+
+  it("leaves an unlisted city on the state default, as before", () => {
+    expect(
+      leadTimezoneFrom({
+        city: "Sioux Falls",
+        state: "SD",
+        phone: "6055550123",
+      }),
+    ).toBe("America/Chicago");
+    expect(
+      leadTimezoneFrom({ city: "Fargo", state: "ND", phone: "7015550123" }),
+    ).toBe("America/Chicago");
+    expect(
+      leadTimezoneFrom({ city: "Kearney", state: "NE", phone: "3085550123" }),
+    ).toBe("America/Chicago");
+  });
+
+  it("never lets one state's city table answer for another", () => {
+    // Mitchell is Mountain in Nebraska (Scotts Bluff) and Central in South
+    // Dakota (Davison). Keying by state is what keeps those apart.
+    expect(cityToTimezone("Mitchell", "NE")).toBe(MOUNTAIN);
+    expect(cityToTimezone("Mitchell", "SD")).toBeNull();
+    expect(cityToTimezone("Rapid City", "NE")).toBeNull();
+    expect(cityToTimezone("Dickinson", "SD")).toBeNull();
+    expect(cityToTimezone("Coeur d'Alene", "SD")).toBeNull();
   });
 });
