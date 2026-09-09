@@ -45,6 +45,13 @@
  * ⚠️ After ANY edit here, regenerate the SQL seed so the DB cannot drift:
  *      npx tsx scripts/gen-nanp-seed.mjs
  *
+ * ⚠️ This map has a second reader: src/lib/leads/timezone.ts turns a lead's
+ * area code into an IANA zone for calling hours. Adding a code costs the
+ * dialer nothing extra, but over there a code in a SPLIT-timezone state falls
+ * to its state's default zone, which may be the wrong one. If NANPA's
+ * TIME_ZONE column shows a split ("EC", "CM", "MP") for a code you add, give
+ * it a row in that file's AREA_CODE_TO_TIMEZONE as well.
+ *
  * Out of scope, so they resolve to null: Puerto Rico (787/939) and the other
  * US territories (340 VI, 670 CNMI, 671 GU, 684 AS) — the scope here is the 50
  * states + DC — and the Caribbean NANP countries.

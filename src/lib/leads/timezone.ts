@@ -1,3 +1,5 @@
+import { stateForAreaCode } from "@/lib/dialer/nanp-states";
+
 // US state -> IANA timezone. State-level is an approximation (a few states
 // span zones); BUILD_PLAN.md Section 5.1 uses state as the primary signal.
 
@@ -161,236 +163,22 @@ export function stateToTimezone(
 
 // NANP area code -> US state, so we can recover a state (and thus a timezone)
 // from a phone number when the CSV had no state column. State-level only, same
-// approximation as STATE_TIMEZONES. Authored as state -> codes for legibility;
-// flattened to code -> state below. Unknown / Canadian / toll-free codes fall
-// through to null and the caller's default timezone.
-const STATE_AREA_CODES: Record<string, string[]> = {
-  AL: ["205", "251", "256", "334", "659", "938"],
-  AK: ["907"],
-  AZ: ["480", "520", "602", "623", "928"],
-  AR: ["479", "501", "870"],
-  CA: [
-    "209",
-    "213",
-    "279",
-    "310",
-    "323",
-    "341",
-    "350",
-    "408",
-    "415",
-    "424",
-    "442",
-    "510",
-    "530",
-    "559",
-    "562",
-    "619",
-    "626",
-    "628",
-    "650",
-    "657",
-    "661",
-    "669",
-    "707",
-    "714",
-    "747",
-    "760",
-    "805",
-    "818",
-    "820",
-    "831",
-    "858",
-    "909",
-    "916",
-    "925",
-    "949",
-    "951",
-  ],
-  CO: ["303", "719", "720", "970", "983"],
-  CT: ["203", "475", "860", "959"],
-  DE: ["302"],
-  DC: ["202"],
-  FL: [
-    "239",
-    "305",
-    "321",
-    "352",
-    "386",
-    "407",
-    "561",
-    "645",
-    "656",
-    "689",
-    "727",
-    "754",
-    "772",
-    "786",
-    "813",
-    "850",
-    "863",
-    "904",
-    "941",
-    "954",
-  ],
-  GA: ["229", "404", "470", "478", "678", "706", "762", "770", "912", "943"],
-  HI: ["808"],
-  ID: ["208", "986"],
-  IL: [
-    "217",
-    "224",
-    "309",
-    "312",
-    "331",
-    "447",
-    "464",
-    "618",
-    "630",
-    "708",
-    "730",
-    "773",
-    "779",
-    "815",
-    "847",
-    "872",
-  ],
-  IN: ["219", "260", "317", "463", "574", "765", "812", "930"],
-  IA: ["319", "515", "563", "641", "712"],
-  KS: ["316", "620", "785", "913"],
-  KY: ["270", "364", "502", "606", "859"],
-  LA: ["225", "318", "337", "504", "985"],
-  ME: ["207"],
-  MD: ["240", "301", "410", "443", "667"],
-  MA: ["339", "351", "413", "508", "617", "774", "781", "857", "978"],
-  MI: [
-    "231",
-    "248",
-    "269",
-    "313",
-    "517",
-    "586",
-    "616",
-    "679",
-    "734",
-    "810",
-    "906",
-    "947",
-    "989",
-  ],
-  MN: ["218", "320", "507", "612", "651", "763", "952"],
-  MS: ["228", "601", "662", "769"],
-  MO: ["314", "417", "557", "573", "636", "660", "816", "975"],
-  MT: ["406"],
-  NE: ["308", "402", "531"],
-  NV: ["702", "725", "775"],
-  NH: ["603"],
-  NJ: ["201", "551", "609", "640", "732", "848", "856", "862", "908", "973"],
-  NM: ["505", "575"],
-  NY: [
-    "212",
-    "315",
-    "332",
-    "347",
-    "363",
-    "516",
-    "518",
-    "585",
-    "607",
-    "631",
-    "646",
-    "680",
-    "716",
-    "718",
-    "838",
-    "845",
-    "914",
-    "917",
-    "929",
-    "934",
-  ],
-  NC: ["252", "336", "472", "704", "743", "828", "910", "919", "980", "984"],
-  ND: ["701"],
-  OH: [
-    "216",
-    "220",
-    "234",
-    "326",
-    "330",
-    "380",
-    "419",
-    "440",
-    "513",
-    "567",
-    "614",
-    "740",
-    "937",
-  ],
-  OK: ["405", "539", "580", "918"],
-  OR: ["458", "503", "541", "971"],
-  PA: [
-    "215",
-    "223",
-    "267",
-    "272",
-    "412",
-    "445",
-    "484",
-    "570",
-    "582",
-    "610",
-    "717",
-    "724",
-    "814",
-    "835",
-    "878",
-  ],
-  RI: ["401"],
-  SC: ["803", "839", "843", "854", "864"],
-  SD: ["605"],
-  TN: ["423", "615", "629", "731", "865", "901", "931"],
-  TX: [
-    "210",
-    "214",
-    "254",
-    "281",
-    "325",
-    "346",
-    "361",
-    "409",
-    "430",
-    "432",
-    "469",
-    "512",
-    "682",
-    "713",
-    "726",
-    "737",
-    "806",
-    "817",
-    "830",
-    "832",
-    "903",
-    "915",
-    "936",
-    "940",
-    "945",
-    "956",
-    "972",
-    "979",
-  ],
-  UT: ["385", "435", "801"],
-  VT: ["802"],
-  VA: ["276", "434", "540", "571", "703", "757", "804", "826", "948"],
-  WA: ["206", "253", "360", "425", "509", "564"],
-  WV: ["304", "681"],
-  WI: ["262", "274", "414", "534", "608", "715", "920"],
-  WY: ["307"],
-};
-
-const AREA_CODE_TO_STATE: Record<string, string> = {};
-for (const [state, codes] of Object.entries(STATE_AREA_CODES)) {
-  for (const code of codes) AREA_CODE_TO_STATE[code] = state;
-}
+// approximation as STATE_TIMEZONES. The map itself lives in
+// src/lib/dialer/nanp-states.ts and is shared with the dialer.
+//
+// This file used to keep a second, private copy of that map. It drifted: by
+// 2026-09-09 the copy was 29 in-service area codes behind, and every one of
+// those was a lead we could not place in a timezone at all. That is not a
+// silent no-op. `is_within_calling_hours` resolves a null lead timezone with
+// `coalesce(lead_timezone, 'America/New_York')`, and Eastern is the EARLIEST
+// US zone — so an unresolved California code did not stop the call, it opened
+// a 9am calling window at 6am local, under the 8am floor. Two maps of the same
+// facts cannot both be right for long; there is now one, reconciled against
+// the NANPA NPA Database itself.
+//
+// `stateForAreaCode` is US-only by design — Canadian codes resolve through
+// `provinceForAreaCode` over there, and through CA_AREA_CODE_TO_TIMEZONE
+// below for zoning — so `stateFromPhone` still returns null for them.
 
 // --- Canada -----------------------------------------------------------------
 // Canadian numbers share the NANP (+1) but none of the US tables above cover
@@ -522,6 +310,15 @@ const CA_PROVINCE_NAME_TO_CODE: Record<string, string> = {
 // Assignment is by where the area code predominantly sits. A handful of codes
 // straddle a zone boundary internally (e.g. ND's 701, NE's 308); those are
 // assigned to the zone covering most of their territory.
+//
+// ⚠️ When a code is ADDED to the shared map in src/lib/dialer/nanp-states.ts,
+// check it here too. The dialer only needs the state, so a new code costs it
+// nothing; here a code in a split state takes its state's DEFAULT zone, which
+// can be the wrong one — and a wrong zone is worse than the missing one it
+// replaced, because it silently succeeds: calling hours are computed, the lead
+// looks placed, and the window is simply an hour off. NANPA's own TIME_ZONE
+// column names the split ones ("EC", "CM", "MP"); 448 (FL) and 729 (TN) both
+// arrived that way on 2026-09-09 and both needed a row here.
 const AREA_CODE_TO_TIMEZONE: Record<string, string> = {
   // Texas — mostly Central; the far west (El Paso, Hudspeth) is Mountain.
   "915": "America/Denver", // El Paso
@@ -529,9 +326,11 @@ const AREA_CODE_TO_TIMEZONE: Record<string, string> = {
 
   // Florida — mostly Eastern; the western panhandle is Central.
   "850": "America/Chicago", // Pensacola / Panama City panhandle
+  "448": "America/Chicago", // overlay on 850 (NANPA complex 448/850)
 
   // Tennessee — East TN is Eastern; Middle/West TN is Central.
   "423": "America/New_York", // Chattanooga / Knoxville region (Eastern)
+  "729": "America/New_York", // overlay on 423 (NANPA complex 423/729)
   "865": "America/New_York", // Knoxville (Eastern)
   // 615/629 (Nashville), 731 (Jackson), 901 (Memphis), 931 stay Central
   // via the TN state default.
@@ -585,7 +384,7 @@ export function stateFromPhone(
   phone: string | null | undefined,
 ): string | null {
   const ac = areaCodeOf(phone);
-  return ac ? (AREA_CODE_TO_STATE[ac] ?? null) : null;
+  return stateForAreaCode(ac);
 }
 
 /** Best-effort IANA timezone from a phone number's area code — the fallback
@@ -600,5 +399,5 @@ export function phoneToTimezone(
   if (!ac) return null;
   if (AREA_CODE_TO_TIMEZONE[ac]) return AREA_CODE_TO_TIMEZONE[ac];
   if (CA_AREA_CODE_TO_TIMEZONE[ac]) return CA_AREA_CODE_TO_TIMEZONE[ac];
-  return stateToTimezone(AREA_CODE_TO_STATE[ac] ?? null);
+  return stateToTimezone(stateForAreaCode(ac));
 }
