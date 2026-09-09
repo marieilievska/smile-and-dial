@@ -1,5 +1,8 @@
 import { test, expect, describe } from "vitest";
-import { priceOpenAiTokens } from "../src/lib/costs/rates";
+import {
+  priceOpenAiTokens,
+  twilioNumberMonthlyUsd,
+} from "../src/lib/costs/rates";
 
 // 1M prompt + 1M completion makes each model's price its (input + output)
 // per-1M rate, so the assertions read as the published USD/1M numbers.
@@ -35,5 +38,44 @@ describe("priceOpenAiTokens is model-aware", () => {
 
   test("negative token counts are floored to zero", () => {
     expect(priceOpenAiTokens(-100, -100, "gpt-5.4")).toBe(0);
+  });
+});
+
+/**
+ * Number rental is priced PER COUNTRY. The account's negotiated $0.04 covers US
+ * local numbers only; Canadian local numbers bill at the full $1.15 list price.
+ *
+ * Confirmed three ways on 2026-09-09 — the Pricing API under the parent, under
+ * the subaccount, and the account's own `phonenumbers-local` usage record,
+ * which billed $12.27 for 48 US + 9 Canadian numbers. 48 × 0.04 + 9 × 1.15 =
+ * 12.27 exactly.
+ *
+ * One flat rate was harmless while the pool was US-only. The day nine Canadian
+ * numbers were bought it under-reported rental by 438% — $2.28 recorded against
+ * $12.27 billed — and carried that error into the Costs page headline, because
+ * `numberRentalInPeriod` sums `twilio_numbers.monthly_cost`.
+ */
+describe("twilioNumberMonthlyUsd is country-aware", () => {
+  test("US local numbers use the negotiated rate", () => {
+    expect(twilioNumberMonthlyUsd("US")).toBe(0.04);
+  });
+
+  test("Canadian local numbers bill at full list price", () => {
+    expect(twilioNumberMonthlyUsd("CA")).toBe(1.15);
+  });
+
+  test("the two are NOT the same — the discount is US-only", () => {
+    expect(twilioNumberMonthlyUsd("CA")).not.toBe(twilioNumberMonthlyUsd("US"));
+  });
+
+  test("defaults to US when the caller does not say", () => {
+    expect(twilioNumberMonthlyUsd()).toBe(0.04);
+  });
+
+  test("reproduces the real bill for the mixed pool", () => {
+    const billed =
+      48 * twilioNumberMonthlyUsd("US") + 9 * twilioNumberMonthlyUsd("CA");
+    // Twilio's own usage record for 2026-09-09.
+    expect(Number(billed.toFixed(2))).toBe(12.27);
   });
 });
