@@ -126,13 +126,41 @@ describe("sameRegionAreaCodes", () => {
   });
 
   it("refuses to substitute when the requested code has no known region", () => {
-    // 274, 686 and 659 are real overlays missing from the state table, so
-    // regionForAreaCode is null for each. Matching on `null === null` would
-    // let a Wisconsin request buy a Virginia number — the exact defect this
-    // guard exists to prevent. An unknown region substitutes nothing.
-    expect(sameRegionAreaCodes("274")).toEqual(["274"]);
-    expect(sameRegionAreaCodes("686")).toEqual(["686"]);
+    // Matching on `null === null` would let a Wisconsin request buy a Virginia
+    // number — the exact defect this guard exists to prevent. An unknown
+    // region substitutes nothing.
+    //
+    // 274, 686 and 659 stood here until the 2026-09-09 NANPA reconcile, which
+    // gave all three a real state; they now belong to the in-region cases
+    // below. The guard is exercised with codes that genuinely have no region
+    // and never will: 800 is toll-free, and NANPA lists 922 as an Easily
+    // Recognizable Code that was never placed in service.
     expect(sameRegionAreaCodes("800")).toEqual(["800"]);
+    expect(sameRegionAreaCodes("922")).toEqual(["922"]);
+  });
+
+  it("now substitutes in-region for the codes the reconcile fixed", () => {
+    // The other half of that change: these three used to substitute nothing,
+    // so a lead on one was dialled from an arbitrary number. Each now stays
+    // inside its own state.
+    for (const [code, region] of [
+      ["274", "WI"],
+      ["686", "VA"],
+      ["659", "AL"],
+    ] as const) {
+      const codes = sameRegionAreaCodes(code);
+      expect(codes[0]).toBe(code);
+      expect(codes.length).toBeGreaterThan(1);
+      for (const c of codes) expect(regionForAreaCode(c)).toBe(region);
+    }
+  });
+
+  it("groups 274 with Green Bay's 920, not Milwaukee's 414", () => {
+    // Both are Wisconsin, so the state tier agreed either way and nothing
+    // failed — which is why the misgrouping survived. NANPA files 274 in the
+    // "274/920" overlay complex.
+    expect(metroPeers("274")).toEqual(["920"]);
+    expect(metroPeers("414")).not.toContain("274");
   });
 
   it("returns nothing for a missing area code", () => {
