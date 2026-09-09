@@ -601,7 +601,7 @@ export async function importLeads(input: {
       }
     }
     // Timezone for calling-hours. The precedence lives in leadTimezoneFrom:
-    // city first (only where no area code can split the state — Idaho), then
+    // city first (only where no area code can split the state — ID/NE/SD/ND),
     // an explicit state, then the phone. The state column is backfilled from
     // the area code afterwards so the lead isn't left blank.
     const phoneRaw =
