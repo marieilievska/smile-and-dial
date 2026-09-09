@@ -33,7 +33,7 @@ export const METRO_AREA_CODES: readonly (readonly string[])[] = [
   ["312", "773", "872", "847", "224", "630", "331", "708", "464"], // Chicago
   ["214", "469", "972", "945", "817", "682"], // Dallas–Fort Worth
   ["713", "281", "832", "346"], // Houston
-  ["305", "786", "954", "754", "561"], // South Florida
+  ["305", "786", "645", "954", "754", "561", "728"], // South Florida
   ["215", "267", "445", "610", "484"], // Philadelphia
   ["404", "678", "470", "770", "943"], // Atlanta
   ["602", "480", "623", "520"], // Phoenix / Tucson corridor
@@ -61,7 +61,15 @@ export const METRO_AREA_CODES: readonly (readonly string[])[] = [
   ["614", "380"], // Columbus
   ["317", "463"], // Indianapolis
   ["816", "913"], // Kansas City (straddles MO/KS)
-  ["414", "274"], // Milwaukee
+  // 274 is NOT Milwaukee, though it sat under 414 here until 2026-09-09.
+  // NANPA files it as the 920 overlay (complex "274/920") — Green Bay,
+  // Appleton, Oshkosh, Door County — some 120 miles up the lake. Both codes
+  // are Wisconsin, which is exactly why the error survived a year: the state
+  // tier agreed, so nothing ever failed. Only the metro tier was wrong, and
+  // the metro tier is what decides which area code we BUY for a Milwaukee
+  // lead. 414 now has no group: it has no overlay, so it falls straight
+  // through to the state tier, like most codes here.
+  ["920", "274"], // Green Bay / Fox Valley
   ["801", "385"], // Salt Lake City
   ["919", "984"], // Raleigh–Durham
   ["804", "686"], // Richmond
@@ -163,10 +171,12 @@ export function siblingAreaCodes(
  * lead is dialed from an arbitrary number anyway.
  *
  * An area code with no known region substitutes NOTHING and yields just itself.
- * `regionForAreaCode` is null for a handful of real overlays (274, 686, 659 as
- * of writing), and comparing regions directly would let `null === null` pair a
- * Wisconsin code with a Virginia one — the very defect this guard exists to
- * prevent, in a costume.
+ * Comparing regions directly would let `null === null` pair a Wisconsin code
+ * with a Virginia one — the very defect this guard exists to prevent, in a
+ * costume. The 2026-09-09 NANPA reconcile closed the gap that made this
+ * reachable (274, 686 and 659 all resolve now), so the guard should no longer
+ * fire for any live US or Canadian code; it stays because the next overlay
+ * NANPA activates will be unknown here until someone updates the map.
  *
  * Unlike `siblingAreaCodes`, the input IS included: this is the whole ordered
  * list to try, not a supplement to it. Pure.
