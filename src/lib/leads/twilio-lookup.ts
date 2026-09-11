@@ -1,3 +1,4 @@
+import { hasForeignCountryCode } from "./foreign-country-code";
 import type { LineType } from "./import-fields";
 
 const LOOKUP_URL = "https://lookups.twilio.com/v2/PhoneNumbers";
@@ -20,13 +21,13 @@ export function isUsCaNumber(phone: string): boolean {
  * — even when its digits total ten, the length of a bare US number ("+354 611
  * 1234" is Iceland, not area code 354). That includes a US number written
  * with a "+" but no 1: "+8135550123" reads as +81 Japan, and a rejected typo
- * is better than a dialed stranger.
+ * is better than a dialed stranger. That rule is hasForeignCountryCode's, which
+ * areaCodeOf and deriveCountry ask too, so all three agree on what's foreign.
  */
 export function toE164UsCa(phone: string): string | null {
   const cleaned = phone.replace(/[^\d+]/g, "");
   if (/^\+1\d{10}$/.test(cleaned)) return cleaned; // already E.164
-  // Mirrored in areaCodeOf (src/lib/leads/timezone.ts): change both.
-  if (cleaned.startsWith("+") && !cleaned.startsWith("+1")) return null;
+  if (hasForeignCountryCode(phone)) return null;
   const digits = phone.replace(/\D/g, "");
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
