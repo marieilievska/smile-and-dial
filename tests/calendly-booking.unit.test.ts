@@ -582,6 +582,14 @@ describe("buildOptionalPhoneAnswer", () => {
     expect(buildOptionalPhoneAnswer(liveForm, "   ")).toBeNull();
   });
 
+  it("trims surrounding whitespace from the phone before returning it", () => {
+    expect(buildOptionalPhoneAnswer(liveForm, `  ${phone}  `)).toEqual({
+      question: "Phone Number",
+      answer: phone,
+      position: 1,
+    });
+  });
+
   it("leaves a REQUIRED phone question to buildQuestionsAndAnswers", () => {
     const qs: CalendlyCustomQuestion[] = [{ ...liveForm[1], required: true }];
     expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();

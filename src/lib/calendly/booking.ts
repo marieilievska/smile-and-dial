@@ -355,14 +355,11 @@ export type BookingPhone =
 
 /** A US/Canada number in E.164 with a possible NANP shape (area code and
  *  exchange can't start with 0 or 1), or null. A best-effort shape check: it
- *  can't know whether an area code is actually in service. */
+ *  can't know whether an area code is actually in service. toE164UsCa already
+ *  rejects an explicit non-+1 country code (#518), so this needs no
+ *  foreign-number guard of its own. */
 function toBookableUsCaPhone(raw: string | null | undefined): string | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
-  // An explicit non-+1 country code is a foreign number. Without this guard, a
-  // foreign number whose digits total ten ("+354 611 1234") would be read as a
-  // US number.
-  const cleaned = raw.replace(/[^\d+]/g, "");
-  if (cleaned.startsWith("+") && !cleaned.startsWith("+1")) return null;
   const e164 = toE164UsCa(raw);
   return e164 && /^\+1[2-9]\d{2}[2-9]\d{6}$/.test(e164) ? e164 : null;
 }
@@ -400,19 +397,25 @@ export function pickBookingPhone(args: {
  * buildQuestionsAndAnswers deliberately answers only REQUIRED questions: a
  * wrong answer to an optional question can get the whole booking rejected or
  * corrupt the host's data. The phone is the one optional field we fill on
- * purpose, because the host's reminder texts go to it.
+ * purpose, because the host's reminder texts go to it. A REQUIRED
+ * `phone_number` question is skipped HERE and left to buildQuestionsAndAnswers,
+ * so it is never answered twice.
  *
  * Only Calendly's own `phone_number` question type counts, never the wording.
  * The webinar is about answering phones, so the host's form can easily hold a
  * question like "What phone system do you use today?", and a wording match
  * would silently overwrite that answer with a number. A free-text "Phone"
  * question therefore stays blank, as it does today.
+ *
+ * The first enabled optional `phone_number` question wins when a form somehow
+ * has more than one.
  */
 export function buildOptionalPhoneAnswer(
   questions: CalendlyCustomQuestion[] | null | undefined,
   phone: string | null,
 ): CalendlyQuestionAnswer | null {
-  if (!phone?.trim()) return null;
+  const answer = phone?.trim();
+  if (!answer) return null;
   const list = questions ?? [];
   for (let i = 0; i < list.length; i++) {
     const q = list[i];
@@ -421,7 +424,7 @@ export function buildOptionalPhoneAnswer(
     if ((q.type ?? "").toLowerCase() !== "phone_number") continue;
     return {
       question,
-      answer: phone,
+      answer: answer,
       position: typeof q.position === "number" ? q.position : i,
     };
   }
