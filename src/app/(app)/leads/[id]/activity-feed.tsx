@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 
 import { LEAD_PHONE_NOT_US_CA } from "@/lib/dialer/dialable-number";
+import { CALLBACK_PAST_TIME_CLAMPED } from "@/lib/dialer/local-schedule";
 import { humanizeFallback, outcomeLabel } from "@/lib/labels";
 import { relativeTime } from "@/lib/relative-time";
 import { etDateTimeExact } from "@/lib/time/eastern";
@@ -98,6 +99,8 @@ export function describeEvent(
       return "Campaign hit a spend cap";
     case LEAD_PHONE_NOT_US_CA:
       return "Not dialed: the number isn't a US or Canadian (+1) number";
+    case CALLBACK_PAST_TIME_CLAMPED:
+      return "Callback time had already passed — held to the next few minutes instead";
     default:
       return humanizeFallback(item.eventKind);
   }
