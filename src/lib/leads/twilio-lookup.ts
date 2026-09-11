@@ -13,12 +13,19 @@ export function isUsCaNumber(phone: string): boolean {
  * pretty formats like "(205) 259-8928" or bare 10-digit "2052598928" with no
  * country code; without this they'd fail the US/CA check, skip the lookup
  * (so no line type, no cost), and later fail to dial. Returns null when the
- * value can't be a US/CA number (e.g. an international or malformed number),
- * in which case the caller imports it as-is.
+ * value can't be a US/CA number (e.g. an international or malformed number);
+ * the CSV import then keeps it as-is, and the other callers reject it.
+ *
+ * A leading "+" means a country code follows, so anything but "+1" is foreign
+ * — even when its digits total ten, the length of a bare US number ("+354 611
+ * 1234" is Iceland, not area code 354). That includes a US number written
+ * with a "+" but no 1: "+8135550123" reads as +81 Japan, and a rejected typo
+ * is better than a dialed stranger.
  */
 export function toE164UsCa(phone: string): string | null {
   const cleaned = phone.replace(/[^\d+]/g, "");
   if (/^\+1\d{10}$/.test(cleaned)) return cleaned; // already E.164
+  if (cleaned.startsWith("+") && !cleaned.startsWith("+1")) return null;
   const digits = phone.replace(/\D/g, "");
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
