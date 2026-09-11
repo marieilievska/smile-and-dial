@@ -392,3 +392,41 @@ export function pickBookingPhone(args: {
   }
   return { phone: null, source: null, mobileInvalid: mobileGiven };
 }
+
+/**
+ * The answer to the host's OPTIONAL phone question (the webinar form's "Phone
+ * Number"), or null.
+ *
+ * buildQuestionsAndAnswers deliberately answers only REQUIRED questions: a
+ * wrong answer to an optional select gets the whole booking rejected. The
+ * phone is the one optional field we fill on purpose, because the host's
+ * reminder texts go to it. Every other optional question stays blank, and a
+ * required phone question is still answered by buildQuestionsAndAnswers.
+ */
+export function buildOptionalPhoneAnswer(
+  questions: CalendlyCustomQuestion[] | null | undefined,
+  phone: string | null,
+): CalendlyQuestionAnswer | null {
+  if (!phone) return null;
+  for (const q of questions ?? []) {
+    const question = typeof q?.name === "string" ? q.name : "";
+    if (!question) continue;
+    if (q.enabled === false) continue;
+    if (q.required === true) continue;
+
+    const type = (q.type ?? "").toLowerCase();
+    const hasChoices = (q.answer_choices ?? []).some(
+      (c) => typeof c === "string" && c.trim().length > 0,
+    );
+    if (hasChoices || type.includes("select")) continue;
+
+    if (type === "phone_number" || /\b(phone|mobile|cell)\b/i.test(question)) {
+      return {
+        question,
+        answer: phone,
+        position: typeof q.position === "number" ? q.position : 0,
+      };
+    }
+  }
+  return null;
+}

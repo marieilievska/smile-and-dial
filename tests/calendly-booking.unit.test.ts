@@ -5,6 +5,7 @@ import {
   availabilityWindows,
   bookingTracking,
   buildInviteeLocation,
+  buildOptionalPhoneAnswer,
   buildQuestionsAndAnswers,
   normalizeUtmCampaign,
   OFFER_LOOKAHEAD_DAYS,
@@ -539,5 +540,104 @@ describe("pickBookingPhone", () => {
       source: null,
       mobileInvalid: true,
     });
+  });
+});
+
+describe("buildOptionalPhoneAnswer", () => {
+  // The live webinar form, read from Calendly on 2026-09-10.
+  const liveForm: CalendlyCustomQuestion[] = [
+    {
+      name: "Company Name",
+      type: "string",
+      position: 0,
+      required: true,
+      enabled: true,
+      answer_choices: [],
+    },
+    {
+      name: "Phone Number",
+      type: "phone_number",
+      position: 1,
+      required: false,
+      enabled: true,
+      answer_choices: [],
+    },
+  ];
+  const phone = "+18135550123";
+
+  it("answers the form's optional Phone Number question, text copied exactly", () => {
+    expect(buildOptionalPhoneAnswer(liveForm, phone)).toEqual({
+      question: "Phone Number",
+      answer: phone,
+      position: 1,
+    });
+  });
+
+  it("returns null when there is no phone to give", () => {
+    expect(buildOptionalPhoneAnswer(liveForm, null)).toBeNull();
+  });
+
+  it("leaves a REQUIRED phone question to buildQuestionsAndAnswers", () => {
+    const qs: CalendlyCustomQuestion[] = [{ ...liveForm[1], required: true }];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
+  });
+
+  it("never answers other optional questions, since a wrong answer can reject the booking", () => {
+    const qs: CalendlyCustomQuestion[] = [
+      {
+        name: "Which best describes you?",
+        type: "single_select",
+        position: 0,
+        required: false,
+        enabled: true,
+        answer_choices: ["Current Referrizer client", "New to Referrizer"],
+      },
+      {
+        name: "Anything you'd like us to cover?",
+        type: "text",
+        position: 1,
+        required: false,
+        enabled: true,
+        answer_choices: [],
+      },
+      {
+        name: "How did you hear about our excellent program?",
+        type: "string",
+        position: 2,
+        required: false,
+        enabled: true,
+        answer_choices: [],
+      },
+    ];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
+  });
+
+  it("skips a disabled phone question", () => {
+    const qs: CalendlyCustomQuestion[] = [{ ...liveForm[1], enabled: false }];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
+  });
+
+  it("recognises a free-text question that asks for a cell by its wording", () => {
+    const qs: CalendlyCustomQuestion[] = [
+      {
+        name: "Best cell for reminders",
+        type: "string",
+        position: 3,
+        required: false,
+        enabled: true,
+        answer_choices: [],
+      },
+    ];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toEqual({
+      question: "Best cell for reminders",
+      answer: phone,
+      position: 3,
+    });
+  });
+
+  it("returns null when the event type has no questions", () => {
+    expect(buildOptionalPhoneAnswer([], phone)).toBeNull();
+    expect(buildOptionalPhoneAnswer(null, phone)).toBeNull();
+    expect(buildOptionalPhoneAnswer(undefined, phone)).toBeNull();
   });
 });
