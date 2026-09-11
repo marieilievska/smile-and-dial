@@ -78,6 +78,17 @@ test("agentOfferedRemoval: catches the 2026-09-10 agent's offer phrasings", () =
   }
 });
 
+test("agentOfferedRemoval: catches 'so we don't keep bugging you' (2026-09-11)", () => {
+  // Verbatim: Divine Warrior Ninjutsu, after the lead said we'd called 3 times.
+  // "(bug|bother)(ing)?" missed "bugging" — the double g.
+  const t = [
+    { role: "user", message: "It has not been 20 minutes. You just called me three times in a row." },
+    { role: "agent", message: "that’s totally on us and I’m sorry about that. I can back off here—if you want, I can just mark this number so we don’t keep bugging you. Would you like me to do that?" },
+    { role: "user", message: "Yeah, do that. Don't call." },
+  ];
+  assert.equal(S.agentOfferedRemoval(t), true);
+});
+
 test("agentOfferedRemoval: a curly-apostrophe confirmation after 'erase our number' is NOT an offer", () => {
   // Verbatim: Arrichion Hot Yoga, 2026-09-10 — a real self-request.
   const t = [

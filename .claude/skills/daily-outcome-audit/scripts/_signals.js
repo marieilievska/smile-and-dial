@@ -24,7 +24,7 @@ const MACHINE_REPLY_RE =
  *  those 10 across all 2,206 calls that day. Apostrophes are ['’]: ElevenLabs
  *  writes the curly one. */
 const AGENT_OFFER_REMOVAL_RE =
-  /\bmake sure (we|this number|you|they|nobody|no one)\b[^.?!]{0,25}\b(don['’]?t|do not|doesn['’]?t|won['’]?t|never|stop)\b|\bstop (calling|callin['’]?|reaching out|contacting)\b|\b(want|like) me to (stop|take you|remove|make sure)\b|\bwon['’]?t (reach out|call|contact|bug|bother)\b[^.?!]{0,25}\bagain\b|\bwon['’]?t be (contacted|called)\b|\b(don['’]?t|not) (keep )?(bug|bother)(ing)? you\b|\btake you off\b|\bremove you\b|\btake you out of\b|\boff (the|our|your) (list|calling list)\b|\bdo[-\s]?not[-\s]?call\b/i;
+  /\bmake sure (we|this number|you|they|nobody|no one)\b[^.?!]{0,25}\b(don['’]?t|do not|doesn['’]?t|won['’]?t|never|stop)\b|\bstop (calling|callin['’]?|reaching out|contacting)\b|\b(want|like) me to (stop|take you|remove|make sure)\b|\bwon['’]?t (reach out|call|contact|bug|bother)\b[^.?!]{0,25}\bagain\b|\bwon['’]?t be (contacted|called)\b|\b(don['’]?t|not) (keep )?(bug|bugging|bother|bothering) you\b|\btake you off\b|\bremove you\b|\btake you out of\b|\boff (the|our|your) (list|calling list)\b|\bdo[-\s]?not[-\s]?call\b/i;
 
 function normalizeTurns(transcript) {
   if (!Array.isArray(transcript)) return [];

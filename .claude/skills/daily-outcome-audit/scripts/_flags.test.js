@@ -67,6 +67,16 @@ test("a dnc_entries row on a dnc-family call is NOT flagged", () => {
   }
 });
 
+test("a callback scheduled before it was created is flagged (Divine Warrior, 2026-09-11)", () => {
+  const f = F.structuralFlags({ outcome: "callback", extracted: { callback_datetime: "2026-09-11T11:57:00Z" }, leadHasBooking: false, hasCallbackRow: true, status: "completed", callbackScheduledInPast: true });
+  assert.equal(f.some((x) => x.type === "callback_in_past"), true);
+});
+
+test("an ordinary future callback is NOT flagged", () => {
+  const f = F.structuralFlags({ outcome: "callback", extracted: { callback_datetime: "2026-09-14T16:30:00Z" }, leadHasBooking: false, hasCallbackRow: true, status: "completed", callbackScheduledInPast: false });
+  assert.equal(f.length, 0);
+});
+
 test("transcriptFlags: an agent removal offer on a NON-dnc call is flagged", () => {
   const t = [
     { role: "user", message: "This is creepy." },
