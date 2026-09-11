@@ -19,6 +19,7 @@ import {
   buildOptionalPhoneAnswer,
   buildQuestionsAndAnswers,
   type DncLookup,
+  isSlotGoneError,
   OFFER_LOOKAHEAD_DAYS,
   pickBookingPhone,
   relativeDayLabel,
@@ -1619,10 +1620,7 @@ async function bookAppointment(
       // unavailable" made the AI re-offer the SAME slot over and over and let a
       // full-day, 100%-failure outage pass as ordinary bad luck. Say something
       // true instead, and bank the email so the lead isn't lost.
-      const slotGone =
-        /unavailable|already.*(booked|taken)|no longer|invalid start.?time|spot|capacity|full/i.test(
-          result.error ?? "",
-        );
+      const slotGone = isSlotGoneError(result.error);
       return {
         success: false,
         message: slotGone

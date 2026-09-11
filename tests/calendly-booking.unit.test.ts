@@ -9,6 +9,7 @@ import {
   buildInviteeLocation,
   buildOptionalPhoneAnswer,
   buildQuestionsAndAnswers,
+  isSlotGoneError,
   normalizeUtmCampaign,
   OFFER_LOOKAHEAD_DAYS,
   pickBookingPhone,
@@ -879,5 +880,30 @@ describe("bookingPhoneOutcome", () => {
         dncLookup: null,
       }),
     ).toEqual({ optionalAnswer: null, audit: {} });
+  });
+});
+
+describe("isSlotGoneError", () => {
+  it.each([
+    "start_time That start time has been filled",
+    "That time is unavailable",
+    "start_time is no longer available",
+    "The event is at capacity",
+  ])("treats %j as the time being gone", (detail) => {
+    expect(isSlotGoneError(detail)).toBe(true);
+  });
+
+  it.each([
+    "questions_and_answers Phone Number is not a valid phone number",
+    "Required Questions and Answers cannot be blank.",
+    "invitee either name or first_name must be filled",
+    "Calendly booking failed (500).",
+  ])("does not treat %j as the time being gone", (detail) => {
+    expect(isSlotGoneError(detail)).toBe(false);
+  });
+
+  it("is false for no error", () => {
+    expect(isSlotGoneError(null)).toBe(false);
+    expect(isSlotGoneError(undefined)).toBe(false);
   });
 });
