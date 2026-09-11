@@ -1485,14 +1485,20 @@ async function bookAppointment(
     // Keep a cell the person booking gave on the lead itself (best-effort, as
     // send_text does): an inbound call or text reply from that number then
     // finds this lead, and it survives a booking that fails below.
+    let mobileSaveFailed = false;
     if (
       bookingPhone.source === "mobile" &&
       bookingPhone.phone !== ctx.lead.mobile_phone
     ) {
-      await ctx.supabase
+      const { error: mobileSaveError } = await ctx.supabase
         .from("leads")
         .update({ mobile_phone: bookingPhone.phone })
         .eq("id", ctx.lead.id);
+      // The booking still proceeds either way — the cell reached Calendly
+      // regardless — but phone_source: "mobile" is logged below as if this
+      // save landed, so a silent failure here would misreport the lead as
+      // holding a cell it never got.
+      if (mobileSaveError) mobileSaveFailed = true;
     }
 
     // Idempotency guard (webinar-SAFE — never cancels): if this lead is already
@@ -1615,6 +1621,7 @@ async function bookAppointment(
         ...phoneAudit,
         ...phoneOutcome.audit,
         ...(result.droppedOptionalAnswers ? { phone_dropped: true } : {}),
+        ...(mobileSaveFailed ? { mobile_save_failed: true } : {}),
       });
       // Only a genuine availability clash should send the AI back to pick
       // another time. Every OTHER failure is a config problem on the host's
@@ -1675,6 +1682,7 @@ async function bookAppointment(
       ...phoneAudit,
       ...phoneOutcome.audit,
       ...(result.droppedOptionalAnswers ? { phone_dropped: true } : {}),
+      ...(mobileSaveFailed ? { mobile_save_failed: true } : {}),
     });
     return {
       success: true,

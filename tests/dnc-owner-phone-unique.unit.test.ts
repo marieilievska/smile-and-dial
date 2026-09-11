@@ -284,6 +284,41 @@ describe("createInvitee only ever receives the DNC-filtered optional answer", ()
   });
 });
 
+describe("a failed mobile_phone save is logged, not swallowed", () => {
+  it("captures the update's error and flags mobile_save_failed on both outcome audits, keyed on that same error", () => {
+    const src = read("src/lib/elevenlabs/tool-webhook.ts");
+    const save =
+      /error:\s*(\w+)\s*\}\s*=\s*await ctx\.supabase\s*\.from\("leads"\)[^;]*\.update\(\{\s*mobile_phone:[^;]*;/.exec(
+        src,
+      );
+    expect(save, "leads.mobile_phone save").not.toBeNull();
+    const errVar = save![1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // The flag must be set FROM that same captured error …
+    const flagSet = new RegExp(
+      `if\\s*\\(${errVar}\\)\\s*(\\w+)\\s*=\\s*true;`,
+    ).exec(src);
+    expect(flagSet, "mobile_save_failed flag assignment").not.toBeNull();
+    const flagVar = flagSet![1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const usesFlag = new RegExp(
+      `${flagVar}\\s*\\?\\s*\\{\\s*mobile_save_failed:\\s*true\\s*\\}`,
+    );
+    // … and BOTH the failure and success tool_book_appointment audits must
+    // use it, not just one of them.
+    const failure =
+      /logToolEvent\(ctx, "tool_book_appointment", \{[^;]*?error: result\.error[^;]*?\}\);/.exec(
+        src,
+      );
+    const success =
+      /logToolEvent\(ctx, "tool_book_appointment", \{[^;]*?invitee_uri: result\.inviteeUri[^;]*?\}\);/.exec(
+        src,
+      );
+    expect(failure, "tool_book_appointment failure audit").not.toBeNull();
+    expect(success, "tool_book_appointment success audit").not.toBeNull();
+    expect(failure![0], "failure audit").toMatch(usesFlag);
+    expect(success![0], "success audit").toMatch(usesFlag);
+  });
+});
+
 describe("every dnc_entries writer conflicts on (owner_id, phone)", () => {
   const files = walk(join(ROOT, "src"));
 

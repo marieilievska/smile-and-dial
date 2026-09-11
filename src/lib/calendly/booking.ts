@@ -443,7 +443,7 @@ export function buildOptionalPhoneAnswer(
     if ((q.type ?? "").toLowerCase() !== "phone_number") continue;
     return {
       question,
-      answer: answer,
+      answer,
       position: typeof q.position === "number" ? q.position : i,
     };
   }
@@ -507,7 +507,10 @@ export type BookingPhoneOutcomeAudit = {
    *  unverifiable number, because skipping it would fail the booking. */
   phone_dnc_required?: boolean;
   /** A phone was chosen, but the form has no phone_number question to carry it
-   *  (e.g. the host turned Phone Number into free text). */
+   *  (e.g. the host turned Phone Number into free text) — also true when
+   *  getEventTypeConfig's read itself failed and returned no questions at
+   *  all. That booking fails loudly anyway (Calendly rejects a missing
+   *  location or required question), so this case is rare in practice. */
   phone_unanswered?: boolean;
 };
 
@@ -526,7 +529,10 @@ export type BookingPhoneOutcomeAudit = {
  * - "Unanswered" is judged by question TYPE, not by comparing answer values,
  *   because an inbound-created lead's company can equal its phone number.
  *   Known gap: a required free-text "Phone" question (not the phone_number
- *   type) still carries the number but is reported as unanswered.
+ *   type) still carries the number but is reported as unanswered. It is also
+ *   reported when getEventTypeConfig's read failed and returned no questions
+ *   at all — that booking fails loudly anyway (Calendly rejects the missing
+ *   required question or location it can no longer see).
  */
 export function bookingPhoneOutcome(args: {
   bookingPhone: BookingPhone;
