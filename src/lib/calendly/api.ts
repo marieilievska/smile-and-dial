@@ -352,8 +352,9 @@ export async function createInvitee(
     questionsAndAnswers?: CalendlyQuestionAnswer[];
     /** Answers to OPTIONAL booking-form questions we fill on purpose (today
      *  only the phone, from buildOptionalPhoneAnswer). Sent with the required
-     *  answers, but dropped on a retry if Calendly rejects the booking over an
-     *  answer: an optional field must never cost a booking. */
+     *  answers, but dropped on one retry if Calendly rejects the booking over
+     *  an answer or with a bare 400/422: an optional field must never cost a
+     *  booking. */
     optionalQuestionsAndAnswers?: CalendlyQuestionAnswer[];
   },
   token: string,
@@ -429,17 +430,19 @@ export async function createInvitee(
       result = await post(body);
     }
     // Same rule for the optional answers we volunteer (the phone): if Calendly
-    // rejects the booking over an answer, or with no field-level details at all
-    // (it sometimes sends just "The supplied parameters are invalid."), book
-    // without them. Required answers stay, in position order — without those
-    // Calendly refuses the booking outright. A needless retry costs one fast
-    // 4xx: validation errors don't resolve themselves.
+    // rejects the booking over an answer, or with a bare validation error that
+    // names no field (a 400/422 with no details, e.g. just "The supplied
+    // parameters are invalid."), book without them. Required answers stay, in
+    // position order — without those Calendly refuses the booking outright. A
+    // 401/403/404/429 can't be caused by an answer, so the phone is kept and
+    // that failure is returned as-is.
     let droppedOptionalAnswers = false;
     if (
       isRejection(result) &&
       optionalAnswers.length > 0 &&
       (/question|answer|phone/i.test(result.detail) ||
-        !result.data?.details?.length)
+        ((result.status === 400 || result.status === 422) &&
+          !result.data?.details?.length))
     ) {
       body = { ...body };
       const kept = allAnswers.filter((a) => !optionalAnswers.includes(a));

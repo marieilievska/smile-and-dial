@@ -55,6 +55,14 @@ const company = {
 };
 const phone = { question: "Phone Number", answer: "+18135550123", position: 1 };
 const role = { question: "Your role", answer: "Owner", position: 2 };
+const tracking = {
+  utm_source: "smile_dial",
+  utm_medium: "voice",
+  utm_campaign: "webinar",
+  utm_content: "webinar",
+  utm_term: "voice_ai",
+  salesforce_uuid: "lead-1",
+};
 
 const input = {
   eventTypeUri: "https://api.calendly.com/event_types/ET1",
@@ -117,14 +125,6 @@ describe("createInvitee: optional answers", () => {
   });
 
   it("composes with the tracking retry: drop tracking first, then the phone", async () => {
-    const tracking = {
-      utm_source: "smile_dial",
-      utm_medium: "voice",
-      utm_campaign: "webinar",
-      utm_content: "webinar",
-      utm_term: "voice_ai",
-      salesforce_uuid: "lead-1",
-    };
     const { sent } = stubCalendly([
       rejected("tracking.utm_content", "is missing"),
       rejected(
@@ -171,22 +171,25 @@ describe("createInvitee: optional answers", () => {
     expect(sent).toHaveLength(1);
   });
 
-  it("drops the phone on a bare 400 with no details (Calendly sends those too)", async () => {
-    const { sent } = stubCalendly([
-      {
-        status: 400,
-        body: {
-          title: "Invalid Argument",
-          message: "The supplied parameters are invalid.",
+  it.each([400, 422])(
+    "drops the phone on a bare %i with no details (Calendly sends those too)",
+    async (status) => {
+      const { sent } = stubCalendly([
+        {
+          status,
+          body: {
+            title: "Invalid Argument",
+            message: "The supplied parameters are invalid.",
+          },
         },
-      },
-      booked,
-    ]);
-    const result = await createInvitee(input, "token");
-    expect(result).toMatchObject({ ok: true, droppedOptionalAnswers: true });
-    expect(sent).toHaveLength(2);
-    expect(sent[1].questions_and_answers).toEqual([company]);
-  });
+        booked,
+      ]);
+      const result = await createInvitee(input, "token");
+      expect(result).toMatchObject({ ok: true, droppedOptionalAnswers: true });
+      expect(sent).toHaveLength(2);
+      expect(sent[1].questions_and_answers).toEqual([company]);
+    },
+  );
 
   it("retries only once, and returns the retry's own error", async () => {
     const { sent } = stubCalendly([
@@ -207,14 +210,6 @@ describe("createInvitee: optional answers", () => {
   });
 
   it("keeps tracking when only the phone is rejected", async () => {
-    const tracking = {
-      utm_source: "smile_dial",
-      utm_medium: "voice",
-      utm_campaign: "webinar",
-      utm_content: "webinar",
-      utm_term: "voice_ai",
-      salesforce_uuid: "lead-1",
-    };
     const { sent } = stubCalendly([
       rejected(
         "questions_and_answers",
@@ -242,4 +237,30 @@ describe("createInvitee: optional answers", () => {
     expect(sent[0].questions_and_answers).toEqual([company, phone, role]);
     expect(sent[1].questions_and_answers).toEqual([company, role]);
   });
+
+  it("never retries a 5xx that mentions tracking", async () => {
+    const { sent } = stubCalendly([
+      { status: 502, body: { message: "tracking service unavailable" } },
+      booked,
+    ]);
+    const result = await createInvitee({ ...input, tracking }, "token");
+    expect(result).toEqual({
+      ok: false,
+      error: "tracking service unavailable",
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it.each([401, 429])(
+    "keeps the phone on a bare %i, which no answer can cause",
+    async (status) => {
+      const { sent } = stubCalendly([{ status, body: {} }, booked]);
+      const result = await createInvitee(input, "token");
+      expect(result).toEqual({
+        ok: false,
+        error: `Calendly booking failed (${status}).`,
+      });
+      expect(sent).toHaveLength(1);
+    },
+  );
 });
