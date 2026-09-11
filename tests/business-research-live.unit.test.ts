@@ -1,13 +1,17 @@
 import { config } from "dotenv";
 import { describe, expect, it } from "vitest";
 
-// Real credentials. ES imports are hoisted above this call, so the module under
-// test is imported dynamically inside the test rather than at the top — that
-// way the key is definitely in process.env before anything reads it.
-config({ path: ".env.local", quiet: true });
+// Read the opt-in from the shell BEFORE loading .env.local, and load it only
+// once opted in: a RESEARCH_LIVE=1 line inside .env.local can't turn this on by
+// itself, and a skipped run never loads the real credentials. ES imports are
+// hoisted above this call, so the module under test is imported dynamically
+// inside the test rather than at the top — that way the key is definitely in
+// process.env before anything reads it.
+const live = process.env.RESEARCH_LIVE === "1";
+if (live) config({ path: ".env.local", quiet: true });
 
 /**
- * OPT-IN live check — skipped unless RESEARCH_LIVE=1.
+ * OPT-IN live check — skipped unless RESEARCH_LIVE=1 is set in the shell.
  *
  * This is the only way to judge whether the research is actually good enough to
  * role-play a stranger's front desk, and it needs no phone call, no agent and
@@ -27,10 +31,16 @@ config({ path: ".env.local", quiet: true });
  * identify them" is a correct outcome for a business with no web presence, and
  * failing the run for that would train us to ignore it.
  */
-const live = process.env.RESEARCH_LIVE === "1";
-
 describe.skipIf(!live)("researchBusiness — LIVE", () => {
-  it("returns a complete, speakable brief for a real business", async () => {
+  it("returns a complete, speakable brief for a real business", async (ctx) => {
+    // Without a key, researchBusiness quietly returns its offline fallback
+    // brief, which passes every shape check below while testing nothing live.
+    if (!process.env.OPENAI_API_KEY?.trim()) {
+      ctx.skip(
+        "RESEARCH_LIVE=1, but OPENAI_API_KEY is not set (shell or .env.local)",
+      );
+      return;
+    }
     const { researchBusiness } =
       await import("../src/lib/openai/business-research");
 
