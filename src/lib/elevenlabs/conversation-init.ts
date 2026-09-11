@@ -5,7 +5,9 @@ import { timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/database.types";
+import { hangUpCall } from "@/lib/twilio/hangup";
 
+import { resolveBlockedInbound } from "./blocked-inbound";
 import { resolveOrCreateInboundCall } from "./inbound-call";
 
 /**
@@ -29,6 +31,12 @@ import { resolveOrCreateInboundCall } from "./inbound-call";
  * returned call it is and its tools (callback / booking / DNC) can find the
  * lead. Before this, every inbound call got blank "cold" context and every
  * tool failed with "couldn't find the right record".
+ *
+ * One inbound caller never gets that far: a number on the dialed campaign
+ * owner's DNC list is hung up on here, at the Twilio layer, before any lead or
+ * call row exists (see blocked-inbound). This is the ONLY place we can stop a
+ * nuisance caller cheaply — past this point the conversation is running and
+ * ElevenLabs' own end_call can be talked over indefinitely.
  *
  * ALL dynamic variables an agent declares must be present in the response
  * or the conversation can fail to start, so we always return the three keys
@@ -476,6 +484,44 @@ export async function buildConversationInitData(
   // the caller's lead, create the row now, and mark the context "inbound".
   // A dialed number that isn't ours (an outbound-shaped init, which in
   // practice never reaches this webhook) resolves to nothing and stays blank.
+  // A caller the owner has blocked never reaches the agent. Terminating the
+  // Twilio call here costs one API request; letting it through costs an
+  // ElevenLabs conversation whose length the CALLER decides — one nuisance
+  // caller ran up ~124 minutes over 40 calls on 2026-09-10/11, and releasing
+  // the number he was dialing was the only lever available. Checked BEFORE
+  // resolveOrCreateInboundCall so he doesn't leave an orphan Inbound lead
+  // behind either.
+  const blocked = await resolveBlockedInbound(supabase, {
+    agentNumber: body.called_number ?? "",
+    callerNumber: body.caller_id ?? "",
+  });
+  if (blocked.blocked) {
+    const hangup = await hangUpCall(callSid);
+    // Best-effort audit — never fail the response over a log row. Scoped to
+    // the campaign rather than a lead because we deliberately created neither,
+    // so this is informational: the block already happened when she listed the
+    // number. It's here so the saved calls are visible and countable.
+    try {
+      await supabase.from("system_events").insert({
+        kind: "inbound_blocked",
+        actor_user_id: null,
+        ref_table: "campaigns",
+        ref_id: blocked.campaignId,
+        payload: {
+          caller: (body.caller_id ?? "").trim(),
+          called_number: (body.called_number ?? "").trim(),
+          call_sid: callSid,
+          conversation_id: body.conversation_id?.trim() || null,
+          hangup_ok: hangup.ok,
+          hangup_error: hangup.error,
+        },
+      });
+    } catch {
+      // best-effort — never fail the webhook over an audit row
+    }
+    return wrap(emptyVariables());
+  }
+
   const inbound = await resolveOrCreateInboundCall(supabase, {
     agentNumber: body.called_number ?? "",
     callerNumber: body.caller_id ?? "",
