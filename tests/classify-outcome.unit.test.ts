@@ -182,6 +182,73 @@ describe("classifyCallOutcome", () => {
     expect(r.outcome).toBe("gatekeeper_not_interested");
   });
 
+  it("does NOT treat a person saying 'I can tell this is an AI call' as an AI receptionist", () => {
+    // Verbatim: Kaos CrossFit, 2026-09-11 — the owner. "this is an AI" matched
+    // the "this is <name>, an AI" branch with "an" standing in for the name.
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Good morning. Chaos CrossFit, Sean speaking. How may I help you?"],
+        ["agent", "Would you happen to be the owner?"],
+        ["user", "Okay. I am."],
+        ["agent", "Would you ever consider having an AI pick up your phone when you're closed?"],
+        ["user", "Nope, and I can tell this is an AI call."],
+      ),
+      disposition: "not_interested",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 39,
+      decisionMakerReached: "yes",
+    });
+    expect(r.outcome).toBe("not_interested");
+  });
+
+  it("does NOT treat a person naming an AI as the object ('give it to a AI agent') as an AI receptionist", () => {
+    // Verbatim: Melba's Dance School, 2026-09-11 — the owner, who wanted a real
+    // person to call her back.
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Melbourne Stance."],
+        ["agent", "Would you happen to be the owner?"],
+        ["user", "Yes, I am."],
+        ["agent", "I'm actually an AI, yeah."],
+        [
+          "user",
+          "Um, I’m kind of hesitant to give it out to a AI agent, uh, so, uh, you’ll have to have a real person call me.",
+        ],
+      ),
+      disposition: "gatekeeper",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 125,
+    });
+    expect(r.outcome).toBe("gatekeeper");
+  });
+
+  it("still labels a bot that says 'you're speaking with an AI assistant'", () => {
+    const r = classifyCallOutcome({
+      transcript: t([
+        "user",
+        "Thanks for calling Iron Gym, you're speaking with an AI assistant. How can I help?",
+      ]),
+      disposition: "gatekeeper",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 20,
+    });
+    expect(r.outcome).toBe("ai_receptionist");
+  });
+
+  it("still labels a bot that calls itself an automated assistant mid-greeting", () => {
+    // Verbatim: Crunch Santa Maria, 2026-09-11.
+    const r = classifyCallOutcome({
+      transcript: t([
+        "user",
+        "This call is recorded for quality and compliance, and this is Kylie, an automated assistant. Thank you for calling Crunch Santa Maria. How can I help you?",
+      ]),
+      disposition: "gatekeeper",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 10,
+    });
+    expect(r.outcome).toBe("ai_receptionist");
+  });
+
   it("labels dead air (agent talks, only silence from the other end) as no_answer", () => {
     const r = classifyCallOutcome({
       transcript: t(
