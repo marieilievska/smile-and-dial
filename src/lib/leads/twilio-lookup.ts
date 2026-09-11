@@ -25,6 +25,7 @@ export function isUsCaNumber(phone: string): boolean {
 export function toE164UsCa(phone: string): string | null {
   const cleaned = phone.replace(/[^\d+]/g, "");
   if (/^\+1\d{10}$/.test(cleaned)) return cleaned; // already E.164
+  // Mirrored in areaCodeOf (src/lib/leads/timezone.ts): change both.
   if (cleaned.startsWith("+") && !cleaned.startsWith("+1")) return null;
   const digits = phone.replace(/\D/g, "");
   if (digits.length === 10) return `+1${digits}`;
