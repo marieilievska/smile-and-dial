@@ -55,6 +55,28 @@ test("transcriptFlags: dnc with an agent removal offer is flagged", () => {
   assert.equal(f.some((x) => x.type === "dnc_agent_offer"), true);
 });
 
+test("a dnc_entries row on a NON-dnc call is flagged (LGNDS, 2026-09-10)", () => {
+  const f = F.structuralFlags({ outcome: "ai_receptionist", extracted: null, leadHasBooking: false, hasCallbackRow: false, status: "completed", hasDncEntry: true });
+  assert.equal(f.some((x) => x.type === "dnc_entry_not_dnc"), true);
+});
+
+test("a dnc_entries row on a dnc-family call is NOT flagged", () => {
+  for (const outcome of ["dnc", "invalid_number", "language_barrier"]) {
+    const f = F.structuralFlags({ outcome, extracted: null, leadHasBooking: false, hasCallbackRow: false, status: "completed", hasDncEntry: true });
+    assert.equal(f.some((x) => x.type === "dnc_entry_not_dnc"), false, outcome);
+  }
+});
+
+test("transcriptFlags: an agent removal offer on a NON-dnc call is flagged", () => {
+  const t = [
+    { role: "user", message: "This is creepy." },
+    { role: "agent", message: "If you want, I can just make sure we stop reaching out to this number." },
+  ];
+  const f = F.transcriptFlags({ outcome: "not_interested", transcript: t });
+  assert.equal(f.some((x) => x.type === "agent_offer_not_dnc"), true);
+  assert.equal(f.some((x) => x.type === "dnc_agent_offer"), false);
+});
+
 test("transcriptFlags: voicemail with >=2 human replies is flagged", () => {
   const t = [
     { role: "agent", message: "Hi, is the owner in?" },

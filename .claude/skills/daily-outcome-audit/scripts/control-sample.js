@@ -30,15 +30,20 @@ const evenSample = (arr, n) => (arr.length <= n ? arr.slice() : Array.from({ len
   // Booking + callbacks context, so "flagged" matches triage exactly.
   const leadIds = [...new Set(rows.map((r) => r.lead_id).filter(Boolean))];
   const booked = new Set();
-  for (let i = 0; i < leadIds.length; i += 100)
-    for (const l of await C.get(`leads?id=in.(${C.inList(leadIds.slice(i, i + 100))})&calendly_event_uri=not.is.null&select=id`)) booked.add(l.id);
+  for (let i = 0; i < leadIds.length; i += 100) {
+    const chunk = C.inList(leadIds.slice(i, i + 100));
+    for (const l of await C.get(`leads?id=in.(${chunk})&calendly_event_uri=not.is.null&select=id`)) booked.add(l.id);
+    for (const e of await C.get(`calendly_events?lead_id=in.(${chunk})&status=eq.scheduled&select=lead_id`)) booked.add(e.lead_id);
+  }
   const callbackIds = rows.filter((r) => r.outcome === "callback").map((r) => r.id);
   const hasCb = new Set();
   for (let i = 0; i < callbackIds.length; i += 100)
     for (const c of await C.get(`callbacks?originating_call_id=in.(${C.inList(callbackIds.slice(i, i + 100))})&select=originating_call_id`)) hasCb.add(c.originating_call_id);
+  const dncEntryCall = new Set();
+  for (const e of await C.pageAll(`dnc_entries?source_call_id=not.is.null&select=source_call_id&order=id.asc`)) dncEntryCall.add(e.source_call_id);
 
   const isFlagged = (r) =>
-    F.structuralFlags({ outcome: r.outcome, extracted: r.extracted_data, leadHasBooking: booked.has(r.lead_id), hasCallbackRow: hasCb.has(r.id), status: r.status }).length > 0;
+    F.structuralFlags({ outcome: r.outcome, extracted: r.extracted_data, leadHasBooking: booked.has(r.lead_id), hasCallbackRow: hasCb.has(r.id), status: r.status, hasDncEntry: dncEntryCall.has(r.id) }).length > 0;
 
   // The pool triage said nothing about: a human conversation, not flagged, not
   // an always-read bucket, not already hand-corrected.

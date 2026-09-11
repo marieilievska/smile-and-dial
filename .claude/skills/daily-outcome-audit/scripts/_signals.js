@@ -15,9 +15,16 @@ const MACHINE_REPLY_RE =
   /invalid|try again|recogniz|press (one|two|three|four|five|six|seven|eight|nine|zero|\d)|\boption\b|\bqueue\b|\bhold\b|transfer you to (the )?(receptionist|voicemail|our|billing|extension)|leave (a |your |us )?(message|voicemail)|after the (tone|beep)|thank you for calling|website|www\.|\.com|\.ca\b|receptionist for|virtual|assistant|\bai\b|not available|unavailable|please (stay|hold|wait)|connect you|record your|mailbox|good ?bye|voicemail|this call (may|will) be recorded|quality (assurance|purposes)|deja(r|me|nos)? (un |tu )?mensaje|despu[eé]s del (tono|bip|se[nñ]al)|permane(ce|zca) en la l[ií]nea|buz[oó]n|correo de voz|no (puedo|puede|está|estamos|estoy) (disponible|hablar|atender)|en este momento|gracias por (llamar|comunicarse)|dijo:|laissez (un |votre )?message|apr[eè]s (la|le) (tonalit|bip)|bo[iî]te vocale|messagerie/i;
 
 /** An AGENT turn offers to remove the lead from calling (agent-manufactured DNC,
- *  as opposed to the person asking to stop unprompted). */
+ *  as opposed to the person asking to stop unprompted). Widened 2026-09-11: the
+ *  Daily HireAI Webinar agent (agent_2401…) says "if you want, I can make sure
+ *  we don't bug you again", "would you want me to stop callin' this number",
+ *  "if you do want me to stop reaching out, just let me know" — the old pattern
+ *  caught 1 of the 10 offers made on 2026-09-10, and that one only through the
+ *  agent's later "taken off the list" confirmation. This version flags exactly
+ *  those 10 across all 2,206 calls that day. Apostrophes are ['’]: ElevenLabs
+ *  writes the curly one. */
 const AGENT_OFFER_REMOVAL_RE =
-  /\btake you off\b|\bremove you\b|\btake you out of\b|\boff (the|our|your) (list|calling list)\b|\bdo(?:-| )?not(?:-| )?call\b|\bstop calling you\b|\bwon'?t call you again\b|\bmake sure we don'?t call\b/i;
+  /\bmake sure (we|this number|you|they|nobody|no one)\b[^.?!]{0,25}\b(don['’]?t|do not|doesn['’]?t|won['’]?t|never|stop)\b|\bstop (calling|callin['’]?|reaching out|contacting)\b|\b(want|like) me to (stop|take you|remove|make sure)\b|\bwon['’]?t (reach out|call|contact|bug|bother)\b[^.?!]{0,25}\bagain\b|\bwon['’]?t be (contacted|called)\b|\b(don['’]?t|not) (keep )?(bug|bother)(ing)? you\b|\btake you off\b|\bremove you\b|\btake you out of\b|\boff (the|our|your) (list|calling list)\b|\bdo[-\s]?not[-\s]?call\b/i;
 
 function normalizeTurns(transcript) {
   if (!Array.isArray(transcript)) return [];
@@ -57,9 +64,13 @@ function genuineHumanReplyCount(transcript) {
   return count;
 }
 
-/** A LEAD turn that itself asks to stop / be removed (an unprompted request). */
+/** A LEAD turn that itself asks to stop / be removed (an unprompted request).
+ *  Only used to ORDER turns (agent lines after this are confirmations), so it
+ *  is deliberately BROADER than classify-outcome.ts's LEAD_REQUEST_REMOVAL_RE,
+ *  which forces a DNC and must stay narrow. "erase our number from your
+ *  Rolodex" (2026-09-10) is a real request the classifier doesn't match. */
 const LEAD_REQUEST_REMOVAL_RE =
-  /\b(take|get|leave)\s+(me|us|it|this|our|my)\b[^.?!]{0,40}\b(off|out)\b|\bremove\s+(me|us|it|this|our|my)\b|\bstop\s+call|\b(do not|don.?t|never)\s+(call|contact)|\bdo[- ]not[- ]call\b|\bunsubscribe\b/i;
+  /\b(take|get|leave)\s+(me|us|it|this|our|my)\b[^.?!]{0,40}\b(off|out)\b|\bremove\s+(me|us|it|this|our|my)\b|\berase\s+(me|us|it|this|our|my|the)\b|\bstop\s+call|\b(do not|don.?t|never)\s+(call|contact)|\bdo[- ]not[- ]call\b|\bunsubscribe\b/i;
 
 /** True when an AGENT turn offers to remove the lead from calling BEFORE the
  *  lead asked for it themself. Agent turns after a lead-initiated request are
