@@ -12,10 +12,13 @@ import {
 } from "@/lib/calendly/api";
 import {
   availabilityWindows,
+  bookingPhoneAudit,
+  bookingPhoneOutcome,
   bookingTracking,
   buildInviteeLocation,
   buildOptionalPhoneAnswer,
   buildQuestionsAndAnswers,
+  type DncLookup,
   OFFER_LOOKAHEAD_DAYS,
   pickBookingPhone,
   relativeDayLabel,
@@ -1331,14 +1334,13 @@ async function bookAppointment(
     businessPhone: ctx.lead.business_phone,
   });
   // Folded into every live-booking audit event, so how often a cell is given
-  // (and how often one is misheard or unusable) can be read from system_events.
-  const phoneAudit = {
-    phone_source: bookingPhone.source,
-    ...(bookingPhone.mobileInvalid ? { mobile_invalid: true } : {}),
-    ...(rawMobile && bookingPhone.source !== "mobile"
-      ? { mobile_unused: rawMobile }
-      : {}),
-  };
+  // (and how often one is misheard, unusable or replaces another) can be read
+  // from system_events.
+  const phoneAudit = bookingPhoneAudit({
+    bookingPhone,
+    rawMobile,
+    leadMobilePhone: ctx.lead.mobile_phone,
+  });
 
   // Resolve the campaign's Calendly BEFORE the slot check: a fixed-time event
   // supplies its own time, so we need to know that before deciding a missing
@@ -1543,45 +1545,38 @@ async function bookAppointment(
         phone: bookingPhone.phone || ctx.lead.owner_phone,
       },
     );
-    // The host's OPTIONAL phone question, filled on purpose so the host's
-    // reminder texts have a number. createInvitee drops it if Calendly objects.
-    let optionalPhoneAnswer = buildOptionalPhoneAnswer(
-      eventConfig.customQuestions,
-      bookingPhone.phone,
-    );
-    // Never volunteer an opted-out number to the host's texting automation: the
-    // same rule send_text follows. Skip the optional answer (the booking still
-    // goes through) when the lead is DNC or the number is on the lead OWNER's
-    // DNC list — DNC is per person. limit(1), not maybeSingle(), as in
-    // send_text: maybeSingle() errors on two rows, which would read as "not on
-    // DNC".
-    let phoneOnDnc = false;
-    if (optionalPhoneAnswer) {
-      if (ctx.lead.status === "dnc") {
-        phoneOnDnc = true;
-      } else {
-        const { data: dncHits } = await ctx.supabase
-          .from("dnc_entries")
-          .select("phone")
-          .eq("phone", optionalPhoneAnswer.answer)
-          .eq("owner_id", ctx.lead.owner_id)
-          .limit(1);
-        phoneOnDnc = Boolean(dncHits && dncHits.length > 0);
-      }
-      if (phoneOnDnc) optionalPhoneAnswer = null;
+    // Do-not-call lookup for the booking phone, on the lead OWNER's list (DNC
+    // is per person). A failed lookup is "unknown", never "clear": an
+    // unreadable list must not read as "not on DNC". limit(1), not
+    // maybeSingle(), as in send_text: maybeSingle() errors on two rows.
+    let dncLookup: DncLookup | null = null;
+    if (bookingPhone.phone && ctx.lead.status !== "dnc") {
+      const { data: dncHits, error: dncError } = await ctx.supabase
+        .from("dnc_entries")
+        .select("phone")
+        .eq("phone", bookingPhone.phone)
+        .eq("owner_id", ctx.lead.owner_id)
+        .limit(1);
+      dncLookup = dncError
+        ? "unknown"
+        : (dncHits?.length ?? 0) > 0
+          ? "listed"
+          : "clear";
     }
-    // Why the phone did or didn't reach Calendly, for the audits below: skipped
-    // as do-not-call, or no form question to carry it (e.g. the host turned
-    // Phone Number into free text). A required phone question carries it too.
-    const phoneSent =
-      optionalPhoneAnswer !== null ||
-      questionsAndAnswers.some((a) => a.answer === bookingPhone.phone);
-    const phoneOutcomeAudit = {
-      ...(phoneOnDnc ? { phone_dnc: true } : {}),
-      ...(bookingPhone.phone && !phoneOnDnc && !phoneSent
-        ? { phone_unanswered: true }
-        : {}),
-    };
+    // The host's OPTIONAL phone question, filled on purpose so the host's
+    // reminder texts have a number, unless the do-not-call rule drops it (the
+    // booking still goes through). createInvitee drops it too if Calendly
+    // objects.
+    const phoneOutcome = bookingPhoneOutcome({
+      bookingPhone,
+      optionalAnswer: buildOptionalPhoneAnswer(
+        eventConfig.customQuestions,
+        bookingPhone.phone,
+      ),
+      questions: eventConfig.customQuestions,
+      leadIsDnc: ctx.lead.status === "dnc",
+      dncLookup,
+    });
     // UTM attribution so booked appointments are traceable to Smile & Dial in
     // Calendly's reporting (utm_source=smile_dial, utm_medium=voice, campaign
     // per bookingTracking). Surfaces on the invitee + the post-call webhook.
@@ -1601,8 +1596,8 @@ async function bookAppointment(
         location,
         tracking,
         questionsAndAnswers,
-        optionalQuestionsAndAnswers: optionalPhoneAnswer
-          ? [optionalPhoneAnswer]
+        optionalQuestionsAndAnswers: phoneOutcome.optionalAnswer
+          ? [phoneOutcome.optionalAnswer]
           : undefined,
       },
       cal.token,
@@ -1614,7 +1609,7 @@ async function bookAppointment(
         live: true,
         error: result.error,
         ...phoneAudit,
-        ...phoneOutcomeAudit,
+        ...phoneOutcome.audit,
         ...(result.droppedOptionalAnswers ? { phone_dropped: true } : {}),
       });
       // Only a genuine availability clash should send the AI back to pick
@@ -1677,7 +1672,7 @@ async function bookAppointment(
       invitee_uri: result.inviteeUri,
       ...agreedDayAudit,
       ...phoneAudit,
-      ...phoneOutcomeAudit,
+      ...phoneOutcome.audit,
       ...(result.droppedOptionalAnswers ? { phone_dropped: true } : {}),
     });
     return {

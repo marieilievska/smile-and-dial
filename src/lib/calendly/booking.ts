@@ -427,3 +427,122 @@ export function buildOptionalPhoneAnswer(
   }
   return null;
 }
+
+/** What the lead owner's do-not-call lookup said about the booking phone.
+ *  "unknown" means the list couldn't be read, which is never treated as clear. */
+export type DncLookup = "listed" | "clear" | "unknown";
+
+/** The phone-choice fields logged on every live booking audit. */
+export type BookingPhoneAudit = {
+  phone_source: BookingPhoneSource | null;
+  /** A cell with digits was passed but couldn't be used (misheard, partial or
+   *  foreign). */
+  mobile_invalid?: boolean;
+  /** Whatever the agent passed as `mobile` but wasn't used, including words or
+   *  placeholders that mobile_invalid can't see. */
+  mobile_unused?: string;
+  /** The lead's previous, different mobile_phone that this booking's cell
+   *  replaces (e.g. a returning caller's number kept by merge_inbound_lead). */
+  mobile_phone_replaced?: string;
+};
+
+/**
+ * The audit fields describing which phone a booking chose and why. Pure, so
+ * the flags that verify this feature in production are pinned by tests.
+ */
+export function bookingPhoneAudit(args: {
+  bookingPhone: BookingPhone;
+  /** The trimmed `mobile` the agent passed ("" when none). */
+  rawMobile: string;
+  /** The lead's mobile_phone before this booking saves a cell. */
+  leadMobilePhone: string | null;
+}): BookingPhoneAudit {
+  const { bookingPhone, rawMobile, leadMobilePhone } = args;
+  const audit: BookingPhoneAudit = { phone_source: bookingPhone.source };
+  if (bookingPhone.mobileInvalid) audit.mobile_invalid = true;
+  if (rawMobile && bookingPhone.source !== "mobile") {
+    audit.mobile_unused = rawMobile;
+  }
+  if (
+    bookingPhone.source === "mobile" &&
+    leadMobilePhone &&
+    leadMobilePhone !== bookingPhone.phone
+  ) {
+    audit.mobile_phone_replaced = leadMobilePhone;
+  }
+  return audit;
+}
+
+/** Why the phone did or didn't reach Calendly, for the failure/success audits. */
+export type BookingPhoneOutcomeAudit = {
+  /** The optional phone answer was dropped: the lead or the number is
+   *  do-not-call. */
+  phone_dnc?: boolean;
+  /** The optional phone answer was dropped: the do-not-call list couldn't be
+   *  read. */
+  phone_dnc_unchecked?: boolean;
+  /** A REQUIRED phone_number question still carried a do-not-call or
+   *  unverifiable number, because skipping it would fail the booking. */
+  phone_dnc_required?: boolean;
+  /** A phone was chosen, but the form has no phone_number question to carry it
+   *  (e.g. the host turned Phone Number into free text). */
+  phone_unanswered?: boolean;
+};
+
+/**
+ * Applies the do-not-call rule to the booking phone and says why it did or
+ * didn't reach Calendly.
+ *
+ * - Never volunteer an opted-out number to the host's texting automation. The
+ *   optional phone answer is dropped when the lead is DNC, the number is on the
+ *   owner's list, or the list couldn't be read. That last case fails closed: an
+ *   unreadable list must not read as "not on DNC". The booking goes through
+ *   either way.
+ * - A REQUIRED phone_number question is answered by buildQuestionsAndAnswers
+ *   regardless, because skipping it would fail the booking, so that case is
+ *   only flagged.
+ * - "Unanswered" is judged by question TYPE, not by comparing answer values,
+ *   because an inbound-created lead's company can equal its phone number.
+ *   Known gap: a required free-text "Phone" question (not the phone_number
+ *   type) still carries the number but is reported as unanswered.
+ */
+export function bookingPhoneOutcome(args: {
+  bookingPhone: BookingPhone;
+  /** From buildOptionalPhoneAnswer, before the do-not-call rule. */
+  optionalAnswer: CalendlyQuestionAnswer | null;
+  questions: CalendlyCustomQuestion[] | null | undefined;
+  leadIsDnc: boolean;
+  /** The owner's dnc_entries lookup for bookingPhone.phone; null when none
+   *  ran. */
+  dncLookup: DncLookup | null;
+}): {
+  optionalAnswer: CalendlyQuestionAnswer | null;
+  audit: BookingPhoneOutcomeAudit;
+} {
+  const { bookingPhone, optionalAnswer, questions, leadIsDnc, dncLookup } =
+    args;
+  if (!bookingPhone.phone) return { optionalAnswer: null, audit: {} };
+
+  const listed = leadIsDnc || dncLookup === "listed";
+  // Fail closed: anything but a confirmed "clear" (an error, or no lookup at
+  // all) counts as unchecked.
+  const unchecked = !listed && dncLookup !== "clear";
+  const requiredPhoneQuestion = (questions ?? []).some(
+    (q) =>
+      typeof q?.name === "string" &&
+      q.name.length > 0 &&
+      q.enabled !== false &&
+      q.required === true &&
+      (q.type ?? "").toLowerCase() === "phone_number",
+  );
+
+  const audit: BookingPhoneOutcomeAudit = {};
+  if (optionalAnswer && listed) audit.phone_dnc = true;
+  if (optionalAnswer && unchecked) audit.phone_dnc_unchecked = true;
+  if (requiredPhoneQuestion && (listed || unchecked)) {
+    audit.phone_dnc_required = true;
+  }
+  if (!optionalAnswer && !requiredPhoneQuestion) audit.phone_unanswered = true;
+
+  return { optionalAnswer: listed || unchecked ? null : optionalAnswer, audit };
+}

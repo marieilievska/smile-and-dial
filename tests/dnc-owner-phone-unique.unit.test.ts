@@ -251,6 +251,18 @@ describe("both is_phone_on_dnc callers pass the lead owner and fail closed", () 
   });
 });
 
+describe("the booking phone's DNC read fails closed", () => {
+  it("bookAppointment reads the lookup's error and turns it into 'unknown', never 'clear'", () => {
+    const src = read("src/lib/elevenlabs/tool-webhook.ts");
+    // A dropped error reads as "not on DNC" (see the is_phone_on_dnc callers
+    // above); bookingPhoneOutcome treats "unknown" as not clear.
+    expect(src).toMatch(
+      /error:\s*(\w+)\s*\}\s*=\s*await ctx\.supabase\s*\.from\("dnc_entries"\)[^;]*\.eq\("phone",\s*bookingPhone\.phone\)/,
+    );
+    expect(src).toMatch(/dncLookup\s*=\s*\w+\s*\?\s*"unknown"/);
+  });
+});
+
 describe("every dnc_entries writer conflicts on (owner_id, phone)", () => {
   const files = walk(join(ROOT, "src"));
 
