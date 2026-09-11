@@ -10,6 +10,11 @@ import {
   type ToolsEnabled,
 } from "@/lib/agents/prompt";
 import { appBaseUrl } from "@/lib/app-url";
+import {
+  mergeToolConfig,
+  ownedFieldsDiffer,
+  type ToolConfig,
+} from "@/lib/elevenlabs/tool-config-merge";
 
 /** How the agent must express a callback time — shared by the in-call
  *  schedule_callback tool and the post-call callback_datetime extraction so
@@ -25,8 +30,9 @@ export const CALLBACK_TIME_RULES =
  * reusable across agents. We keep exactly one tool per key, matched by
  * `tool_config.name` (which must equal the key so the agent prompt's tool
  * instructions line up with the function the LLM sees). On each sync we
- * upsert every definition, then attach the enabled subset's ids to the
- * agent.
+ * create any missing tool, update ONLY the plumbing of existing ones (the
+ * ElevenLabs dashboard owns how a tool runs; see tool-config-merge.ts), then
+ * attach the enabled subset's ids to the agent.
  *
  * Everything here is mocked unless ELEVENLABS_LIVE=live, so tests and local
  * dev never hit the network and never need an app URL or secret.
@@ -192,7 +198,8 @@ function bodySchemaFor(
 /** Seconds ElevenLabs waits for our webhook before giving up. 20s is ample for
  *  the tools that only touch our own database; demo_front_desk also runs a live
  *  web search (measured ~4-13s, capped at 18s in the research module), so it
- *  gets longer. */
+ *  gets longer. CREATION default only: once a tool exists the dashboard owns
+ *  its timeout. */
 const TOOL_TIMEOUT_SECS: Record<ServerToolKey, number> = {
   send_email: 20,
   send_text: 20,
@@ -213,7 +220,8 @@ const TOOL_TIMEOUT_SECS: Record<ServerToolKey, number> = {
  *  agent's follow-up line ("…is open, are you able to make that live?") so the
  *  offered time isn't talked over. Long-running / cosmetic tools stay
  *  interruptible. Values per the tools API: allow | disable_during_tool |
- *  disable_during_tool_and_turn. */
+ *  disable_during_tool_and_turn. CREATION default only: once a tool exists
+ *  the dashboard owns this setting. */
 const TOOL_INTERRUPTION_MODE: Record<ServerToolKey, string> = {
   send_email: "allow",
   send_text: "allow",
@@ -227,16 +235,33 @@ const TOOL_INTERRUPTION_MODE: Record<ServerToolKey, string> = {
 /** ElevenLabs `pre_tool_speech` per tool: auto | force | off. "force" makes the
  *  agent say something before the tool runs ("Perfect, let me grab that for
  *  you"), so the availability check — which now happens AFTER the lead picks a
- *  day — never sounds like the line went dead. Everything else stays "auto"
- *  (ElevenLabs decides from recent latency). */
+ *  day — never sounds like the line went dead. book_appointment is "force" too
+ *  ("Just a sec, locking that in"), as Marija set it live on 2026-09-11.
+ *  Everything else stays "auto" (ElevenLabs decides from recent latency).
+ *  CREATION default only: once a tool exists the dashboard owns this setting. */
 const TOOL_PRE_SPEECH: Record<ServerToolKey, string> = {
   send_email: "auto",
   send_text: "auto",
   schedule_callback: "auto",
   get_available_times: "force",
-  book_appointment: "auto",
+  book_appointment: "force",
   mark_dnc: "auto",
   demo_front_desk: "auto",
+};
+
+/** ElevenLabs `execution_mode` per tool: immediate | post_tool_speech | async.
+ *  Tools that only RECORD something run in the background ("async") so the
+ *  agent keeps talking; tools whose answer the agent needs for its next
+ *  sentence wait ("immediate"). Mirrors what Marija set live on 2026-09-11.
+ *  CREATION default only: once a tool exists the dashboard owns this setting. */
+const TOOL_EXECUTION_MODE: Record<ServerToolKey, string> = {
+  send_email: "async",
+  send_text: "async",
+  schedule_callback: "async",
+  get_available_times: "immediate",
+  book_appointment: "immediate",
+  mark_dnc: "async",
+  demo_front_desk: "immediate",
 };
 
 /** Build the ElevenLabs tool_config for one key, in the shape the live
@@ -247,7 +272,7 @@ function buildToolConfig(
   key: ServerToolKey,
   baseUrl: string,
   secret: string,
-): Record<string, unknown> {
+): ToolConfig {
   const { properties, required } = bodySchemaFor(key, secret);
   return {
     type: "webhook",
@@ -256,6 +281,7 @@ function buildToolConfig(
     response_timeout_secs: TOOL_TIMEOUT_SECS[key],
     interruption_mode: TOOL_INTERRUPTION_MODE[key],
     pre_tool_speech: TOOL_PRE_SPEECH[key],
+    execution_mode: TOOL_EXECUTION_MODE[key],
     api_schema: {
       url: `${baseUrl}/api/elevenlabs/tools/${key}`,
       method: "POST",
@@ -272,10 +298,17 @@ function buildToolConfig(
   };
 }
 
+/** A workspace tool as listed: its id and its LIVE tool_config, dashboard
+ *  settings included. */
+type LiveTool = { id: string; config: ToolConfig };
+
 /** List every workspace tool, paging through the cursor, returning a
- *  name → id map so we can reuse existing tools instead of duplicating. */
-async function listToolsByName(apiKey: string): Promise<Map<string, string>> {
-  const byName = new Map<string, string>();
+ *  name → {id, live config} map. The id lets us reuse existing tools instead
+ *  of duplicating them; the config lets us merge into their live settings
+ *  instead of replacing them (the list endpoint returns full configs, so no
+ *  extra GET per tool). */
+async function listToolsByName(apiKey: string): Promise<Map<string, LiveTool>> {
+  const byName = new Map<string, LiveTool>();
   let cursor: string | null = null;
   // Bounded loop so a misbehaving cursor can't spin forever.
   for (let page = 0; page < 20; page++) {
@@ -285,13 +318,15 @@ async function listToolsByName(apiKey: string): Promise<Map<string, string>> {
     const res = await fetch(url, { headers: { "xi-api-key": apiKey } });
     if (!res.ok) break;
     const data = (await res.json()) as {
-      tools?: { id?: string; tool_config?: { name?: string } }[];
+      tools?: { id?: string; tool_config?: ToolConfig }[];
       has_more?: boolean;
       next_cursor?: string | null;
     };
     for (const t of data.tools ?? []) {
       const name = t.tool_config?.name;
-      if (name && t.id) byName.set(name, t.id);
+      if (typeof name === "string" && name && t.id) {
+        byName.set(name, { id: t.id, config: t.tool_config ?? {} });
+      }
     }
     if (!data.has_more || !data.next_cursor) break;
     cursor = data.next_cursor;
@@ -334,28 +369,40 @@ export async function ensureServerTools(): Promise<Record<string, string>> {
       // Match on the namespaced function name so we only ever reuse/patch OUR
       // tool, never a same-named tool from another product in this shared
       // workspace.
-      const existingId = existing.get(toolFunctionName(key));
+      const live = existing.get(toolFunctionName(key));
 
-      if (existingId) {
-        // Refresh the definition (URL/secret/schema may have changed) but keep
-        // the id even if the update fails — the tool still exists.
-        const patched = await fetch(
-          `${TOOLS_API}/${encodeURIComponent(existingId)}`,
-          {
-            method: "PATCH",
-            headers: {
-              "xi-api-key": apiKey,
-              "Content-Type": "application/json",
+      if (live) {
+        // The ElevenLabs dashboard owns HOW a tool runs (background mode,
+        // pre-tool speech, interruptions, sounds, timeout; Marija's call,
+        // 2026-09-11). We own only its plumbing. A tool whose plumbing already
+        // matches is left completely alone. Otherwise we PATCH the live config
+        // with just our fields swapped in (see tool-config-merge.ts). Keep the
+        // id even if the update fails: the tool still exists.
+        if (ownedFieldsDiffer(live.config, config)) {
+          const patched = await fetch(
+            `${TOOLS_API}/${encodeURIComponent(live.id)}`,
+            {
+              method: "PATCH",
+              headers: {
+                "xi-api-key": apiKey,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                tool_config: mergeToolConfig(live.config, config),
+              }),
             },
-            body: JSON.stringify({ tool_config: config }),
-          },
-        );
-        if (!patched.ok) {
-          console.error(
-            `[server-tools] PATCH ${toolFunctionName(key)} failed (${patched.status}): ${await patched.text()}`,
           );
+          if (!patched.ok) {
+            console.error(
+              `[server-tools] PATCH ${toolFunctionName(key)} failed (${patched.status}): ${await patched.text()}`,
+            );
+          } else {
+            console.info(
+              `[server-tools] updated ${toolFunctionName(key)} plumbing; dashboard settings kept`,
+            );
+          }
         }
-        out[key] = existingId;
+        out[key] = live.id;
         continue;
       }
 
