@@ -316,3 +316,53 @@ export function clampCallbackToFloor(when: Date, now: Date = new Date()): Date {
   const floor = now.getTime() + CALLBACK_FLOOR_MS;
   return when.getTime() >= floor ? when : new Date(floor);
 }
+
+/** The longest delay we accept as a RELATIVE callback. Past this the request
+ *  was a named time ("tomorrow", "Monday morning"), and a named time belongs in
+ *  callback_datetime — where reading the clock in the lead's own zone is the
+ *  correct thing to do. Anything longer therefore falls back to that path
+ *  rather than being honoured as a raw offset from the end of the call. Eight
+ *  hours comfortably covers every same-session "call me back shortly". */
+export const MAX_CALLBACK_RELATIVE_MINUTES = 8 * 60;
+
+/**
+ * Read the agent's "call me back in N minutes" answer.
+ *
+ * This is the escape hatch from a frame mismatch that cannot be resolved any
+ * other way. The model expresses a callback as a wall clock, and for a RELATIVE
+ * request it writes that clock in ElevenLabs' own zone (America/New_York) no
+ * matter where the lead is — so "in an hour" for a Los Angeles lead came back
+ * as `13:47-04:00`: the right instant, the wrong zone's clock. Re-reading
+ * "13:47" in Los Angeles then books it three hours late. The two readings are
+ * both valid-looking and both in the future, so nothing downstream can pick
+ * between them (see resolveCallbackDatetime, which can only rescue the reading
+ * that lands in the PAST).
+ *
+ * A count of minutes has no zone and no clock in it, so there is nothing to
+ * misread. Accepts a number or a numeric string (ElevenLabs sends tool
+ * arguments as strings), and returns null for anything that isn't a sane,
+ * positive, near-term delay — the caller then falls back to the datetime.
+ */
+export function parseRelativeCallbackMinutes(raw: unknown): number | null {
+  const n =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" && raw.trim() !== ""
+        ? Number(raw)
+        : Number.NaN;
+  if (!Number.isFinite(n)) return null;
+  const minutes = Math.round(n);
+  if (minutes <= 0 || minutes > MAX_CALLBACK_RELATIVE_MINUTES) return null;
+  return minutes;
+}
+
+/** The instant `minutes` after `from`. Null when the minute count isn't a sane
+ *  relative delay, which is the caller's signal to use the datetime instead. */
+export function relativeCallbackInstant(
+  raw: unknown,
+  from: Date = new Date(),
+): Date | null {
+  const minutes = parseRelativeCallbackMinutes(raw);
+  if (minutes === null || Number.isNaN(from.getTime())) return null;
+  return new Date(from.getTime() + minutes * 60_000);
+}

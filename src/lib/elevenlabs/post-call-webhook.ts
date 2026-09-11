@@ -18,6 +18,7 @@ import {
   clampCallbackToFloor,
   deferSameDayCallbackIso,
   localHourDaysAheadIso,
+  relativeCallbackInstant,
   resolveCallbackDatetime,
 } from "@/lib/dialer/local-schedule";
 import {
@@ -94,6 +95,7 @@ function extractedDataOf(
 const RESERVED_EXTRACTION_KEYS = new Set([
   "disposition",
   "callback_datetime",
+  "callback_relative_minutes",
   "business_email",
   "owner_name",
   "manager_name",
@@ -115,6 +117,7 @@ const IDENTITY_EXTRACTION_KEYS = new Set([
   "employee_name",
   "business_email",
   "callback_datetime",
+  "callback_relative_minutes",
 ]);
 
 /** When a real conversation happened, keep the full extraction. Otherwise keep
@@ -427,6 +430,7 @@ export type ElevenLabsPostCallPayload = {
       manager_name?: string;
       employee_name?: string;
       callback_datetime?: string;
+      callback_relative_minutes?: number;
       objection_summary?: string;
     };
     evaluation?: { score?: number };
@@ -1118,9 +1122,8 @@ async function processTranscription(
   // also falls back to the legacy flat data_collection.callback_datetime. The
   // old code read only the legacy field, which real ElevenLabs payloads never
   // send — so an agreed callback always defaulted to tomorrow-10am.
-  const extractedCallbackDatetime = extractedDataOf(
-    payload.analysis,
-  )?.callback_datetime;
+  const extracted = extractedDataOf(payload.analysis);
+  const extractedCallbackDatetime = extracted?.callback_datetime;
   await applyOutcomeSideEffects(supabase, {
     callId: call.id,
     leadId: call.lead_id,
@@ -1130,6 +1133,10 @@ async function processTranscription(
       typeof extractedCallbackDatetime === "string"
         ? extractedCallbackDatetime
         : null,
+    // Preferred over the datetime when the agent gave one — see the callback
+    // branch of applyOutcomeSideEffects. Passed through unvalidated: the
+    // parser there rejects anything that isn't a sane relative delay.
+    callbackRelativeMinutes: extracted?.callback_relative_minutes,
   });
 
   // Step 39: roll this connected call into the lead's per-campaign rolling
@@ -1368,6 +1375,11 @@ export async function applyOutcomeSideEffects(
     campaignId: string;
     outcome: CallOutcome;
     callbackDatetime: string | null;
+    /** The agent's "call me back in N minutes" answer, when it gave one. Wins
+     *  over `callbackDatetime`: a minute count has no time zone in it, so it
+     *  cannot be read in the wrong frame the way a wall clock can. Counted
+     *  from when the call ended. */
+    callbackRelativeMinutes?: unknown;
     /** Overrides the dnc_entries `reason` for a DNC-family outcome. The AI +
      *  human-call paths leave this unset (a real caller asked → 'dnc_requested');
      *  a manual outcome override passes 'manual' so the DNC page doesn't read
@@ -1589,12 +1601,28 @@ export async function applyOutcomeSideEffects(
       .select("timezone")
       .eq("id", input.leadId)
       .maybeSingle();
-    // Lead-local wall clock, falling back to the offset the model stamped when
-    // that reading would land in the past (see resolveCallbackDatetime).
-    const parsed = resolveCallbackDatetime(
-      input.callbackDatetime,
-      leadTz?.timezone,
+    // A DELAY the agent captured as minutes wins over any wall clock. The
+    // analysis model never learns the lead's local time — ElevenLabs leaves
+    // {{current_time}} uninterpolated in data-collection descriptions — so it
+    // times "in an hour" off its own Eastern clock, and re-reading that clock
+    // in the lead's zone books it an hour late per zone west. Minutes carry no
+    // zone, so they cannot be misread. Counted from the end of the call rather
+    // than from now: this webhook can arrive minutes late, or be replayed.
+    const { data: endedCall } = await supabase
+      .from("calls")
+      .select("ended_at")
+      .eq("id", input.callId)
+      .maybeSingle();
+    const endedAt = endedCall?.ended_at ? new Date(endedCall.ended_at) : null;
+    const relative = relativeCallbackInstant(
+      input.callbackRelativeMinutes,
+      endedAt && !Number.isNaN(endedAt.getTime()) ? endedAt : new Date(),
     );
+    // Otherwise the lead-local wall clock, falling back to the offset the model
+    // stamped when that reading would land in the past (resolveCallbackDatetime).
+    const parsed =
+      relative ??
+      resolveCallbackDatetime(input.callbackDatetime, leadTz?.timezone);
     // Honor the exact time the lead named, weekends included (agreed callbacks
     // dial on weekends now). Only the DEFAULT slot (no time given) rolls to a
     // weekday via nextDayLocalHourIso.
