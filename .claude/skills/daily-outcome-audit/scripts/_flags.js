@@ -14,7 +14,7 @@ const dmOf = (extracted) => {
  *  DNC family in src/lib/elevenlabs/post-call-webhook.ts (dncReasonForOutcome). */
 const DNC_FAMILY = new Set(["dnc", "invalid_number", "language_barrier"]);
 
-function structuralFlags({ outcome, extracted, leadHasBooking, hasCallbackRow, status, hasDncEntry = false }) {
+function structuralFlags({ outcome, extracted, leadHasBooking, hasCallbackRow, status, hasDncEntry = false, callbackScheduledInPast = false }) {
   const out = [];
   const dm = dmOf(extracted);
 
@@ -54,6 +54,19 @@ function structuralFlags({ outcome, extracted, leadHasBooking, hasCallbackRow, s
     out.push({
       type: "goal_met_no_booking",
       reason: "goal_met but lead has NO Calendly booking → false win / failed booking",
+    });
+  }
+
+  // A callback booked for a time that has ALREADY PASSED is due the moment it
+  // is written, so the dialer rings straight back. 2026-09-11: Divine Warrior
+  // Ninjutsu got three calls in four minutes that way ("You just called me
+  // three times in a row") and asked for the DNC list. All three cases that day
+  // were leads an hour ahead of Eastern, so a relative time ("in 20 minutes")
+  // read as lead-local lands in the past.
+  if (outcome === "callback" && callbackScheduledInPast) {
+    out.push({
+      type: "callback_in_past",
+      reason: "callback scheduled BEFORE it was created → dialer redials immediately (check the lead's time zone)",
     });
   }
 

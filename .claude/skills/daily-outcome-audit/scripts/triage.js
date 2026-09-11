@@ -52,9 +52,14 @@ const evenSample = (arr, n) => (arr.length <= n ? arr.slice() : Array.from({ len
   // 3) callbacks rows for this day's callback calls (strand detection)
   const callbackIds = (byOutcome.callback || []).map((r) => r.id);
   const hasCb = new Set();
+  const cbInPast = new Set();
   for (let i = 0; i < callbackIds.length; i += 100) {
-    const cbs = await C.get(`callbacks?originating_call_id=in.(${C.inList(callbackIds.slice(i, i + 100))})&select=originating_call_id`);
-    for (const c of cbs) hasCb.add(c.originating_call_id);
+    const cbs = await C.get(`callbacks?originating_call_id=in.(${C.inList(callbackIds.slice(i, i + 100))})&select=originating_call_id,created_at,scheduled_at`);
+    for (const c of cbs) {
+      hasCb.add(c.originating_call_id);
+      // a minute of slack: "call me right back" is legitimate, an hour early is not
+      if (Date.parse(c.scheduled_at) < Date.parse(c.created_at) - 60000) cbInPast.add(c.originating_call_id);
+    }
   }
 
   // 3b) calls that put a phone on the DNC list. dnc_entries is small, so read it
@@ -65,7 +70,7 @@ const evenSample = (arr, n) => (arr.length <= n ? arr.slice() : Array.from({ len
   // 4) structural flags (no transcript)
   const flags = [];
   for (const r of rows) {
-    for (const f of F.structuralFlags({ outcome: r.outcome, extracted: r.extracted_data, leadHasBooking: booked.has(r.lead_id), hasCallbackRow: hasCb.has(r.id), status: r.status, hasDncEntry: dncEntryCall.has(r.id) })) {
+    for (const f of F.structuralFlags({ outcome: r.outcome, extracted: r.extracted_data, leadHasBooking: booked.has(r.lead_id), hasCallbackRow: hasCb.has(r.id), status: r.status, hasDncEntry: dncEntryCall.has(r.id), callbackScheduledInPast: cbInPast.has(r.id) })) {
       flags.push({ id: r.id, lead_id: r.lead_id, outcome: r.outcome, ...f });
     }
   }
