@@ -236,8 +236,12 @@ async function buildMatchingLiveTools(): Promise<WireEntry[]> {
 type Scenario = {
   /** GET /v1/convai/tools pages, in order. Default: one page, no tools. */
   pages?: WireEntry[][];
-  /** >=400 makes every GET fail with this status (FIX A). */
+  /** >=400 makes GET fail with this status (FIX A) — every page, unless
+   *  `failOnPage` narrows it to one (FIX E: a page beyond the first). */
   listStatus?: number;
+  /** 0-based page index the `listStatus` failure applies to; other pages
+   *  succeed normally. Ignored without `listStatus`. */
+  failOnPage?: number;
   /** Makes every GET throw instead of resolving (FIX A's other failure mode). */
   listThrows?: boolean;
   patchStatus?: number;
@@ -262,7 +266,11 @@ async function run(scenario: Scenario) {
       );
       if (method === "GET") {
         if (scenario.listThrows) throw new Error("simulated network failure");
-        if (scenario.listStatus && scenario.listStatus >= 400) {
+        const shouldFailThisPage =
+          scenario.listStatus &&
+          scenario.listStatus >= 400 &&
+          (scenario.failOnPage === undefined || scenario.failOnPage === page);
+        if (shouldFailThisPage) {
           return new Response("boom", { status: scenario.listStatus });
         }
         const pages = scenario.pages ?? [[]];
@@ -322,6 +330,13 @@ function setLiveEnv() {
   delete process.env.NEXT_PUBLIC_APP_URL;
 }
 
+/** The "already matching" fixture every test below clones from — derived from
+ *  buildToolConfig's real output and reshaped into the wire format
+ *  GET /v1/convai/tools returns (see the module doc comment above for how,
+ *  and DASHBOARD above for the per-tool run-time settings layered on). If
+ *  this shape ever needs re-checking against a real workspace, a redacted
+ *  dump of that endpoint lives at
+ *  C:\Users\Marija\AppData\Local\Temp\claude\C--Users-Marija-Documents-smile-and-dial-finalVersion\73b57871-a349-4313-aee8-1e64903102e0\scratchpad\el-tools-live.json */
 let matchingLiveTools: WireEntry[];
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -403,6 +418,12 @@ describe("ensureServerTools (live ElevenLabs sync, fetch stubbed)", () => {
     expect(patchBodies).toHaveLength(1);
     expect(postBodies).toHaveLength(0);
     expect(out.mark_dnc).toBe("existing_mark_dnc");
+    // The whole point of this PR: the dashboard-owned run-time settings on the
+    // live config survive the merge into the PATCH body, untouched.
+    expect(patchBodies[0].execution_mode).toBe(
+      DASHBOARD.mark_dnc.executionMode,
+    );
+    expect("force_pre_tool_speech" in patchBodies[0]).toBe(false);
     expect(
       consoleErrorSpy.mock.calls.some((c: unknown[]) =>
         String(c[0]).includes(`PATCH ${PREFIX}mark_dnc failed`),
@@ -466,6 +487,38 @@ describe("ensureServerTools (live ElevenLabs sync, fetch stubbed)", () => {
           String(c[0]).includes("could not list workspace tools"),
         ),
       ).toBe(true);
+    });
+  });
+
+  describe("FIX E: a page beyond the first must also complete cleanly", () => {
+    it("recognises tools spread across two pages: zero POSTs, all 7 ids", async () => {
+      const all = structuredClone(matchingLiveTools);
+      const pages = [all.slice(0, 3), all.slice(3)];
+      const { out, callsAfterFirst, patchBodies, postBodies } = await run({
+        pages,
+      });
+
+      expect(callsAfterFirst).toHaveLength(2); // 2 GET pages, zero writes
+      expect(postBodies).toHaveLength(0);
+      expect(patchBodies).toHaveLength(0);
+      expect(Object.keys(out)).toHaveLength(7);
+      for (const key of KEYS) expect(out[key]).toBe(`existing_${key}`);
+    });
+
+    it("a failing second page makes the whole list unreadable: {}, zero writes", async () => {
+      const all = structuredClone(matchingLiveTools);
+      const pages = [all.slice(0, 3), all.slice(3)];
+      const { out, callsAfterFirst, patchBodies, postBodies } = await run({
+        pages,
+        listStatus: 500,
+        failOnPage: 1,
+      });
+
+      expect(callsAfterFirst).toHaveLength(2); // page 1 ok, page 2 failed
+      expect(callsAfterFirst.every((c) => c.startsWith("GET"))).toBe(true);
+      expect(patchBodies).toHaveLength(0);
+      expect(postBodies).toHaveLength(0);
+      expect(out).toEqual({});
     });
   });
 

@@ -308,16 +308,21 @@ type LiveTool = { id: string; config: ToolConfig };
  *  instead of replacing them (the list endpoint returns full configs, so no
  *  extra GET per tool).
  *
- *  Returns null when the workspace could not be READ at all (a failed page or
- *  a thrown request) — distinct from an empty Map, which means the workspace
- *  genuinely has no tools. The two must never be confused: treating a failed
- *  read as "no tools" would make every tool look missing and rebuild all of
- *  them as duplicates, stranding the dashboard settings on the originals. */
+ *  Returns null when the workspace could not be READ at all (a failed page, a
+ *  thrown request, a 200 with no `tools` array, or the page cap below running
+ *  out before a clean finish) — distinct from an empty Map, which means the
+ *  workspace genuinely has no tools. The two must never be confused: treating
+ *  a failed read as "no tools" would make every tool look missing and rebuild
+ *  all of them as duplicates, stranding the dashboard settings on the
+ *  originals. */
 async function listToolsByName(
   apiKey: string,
 ): Promise<Map<string, LiveTool> | null> {
   const byName = new Map<string, LiveTool>();
   let cursor: string | null = null;
+  // Only set true by the normal end-of-pages break below, so a page cap or an
+  // early return never falls through to "byName is the whole workspace".
+  let complete = false;
   // Bounded loop so a misbehaving cursor can't spin forever.
   for (let page = 0; page < 20; page++) {
     const url: string = cursor
@@ -331,19 +336,25 @@ async function listToolsByName(
         has_more?: boolean;
         next_cursor?: string | null;
       };
-      for (const t of data.tools ?? []) {
+      // A 200 without a `tools` array is a response we don't understand, not
+      // an empty workspace.
+      if (!Array.isArray(data.tools)) return null;
+      for (const t of data.tools) {
         const name = t.tool_config?.name;
         if (typeof name === "string" && name && t.id) {
           byName.set(name, { id: t.id, config: t.tool_config ?? {} });
         }
       }
-      if (!data.has_more || !data.next_cursor) break;
+      if (!data.has_more || !data.next_cursor) {
+        complete = true;
+        break;
+      }
       cursor = data.next_cursor;
     } catch {
       return null;
     }
   }
-  return byName;
+  return complete ? byName : null;
 }
 
 // Resolved once per process — the configs are static for the process lifetime
@@ -354,9 +365,11 @@ let cachedToolIds: Record<string, string> | null = null;
 /**
  * Ensure every server tool exists in the ElevenLabs workspace and return
  * a key → tool_id map. Mocked (no network) unless ELEVENLABS_LIVE=live.
- * Returns {} when the app URL or secret isn't configured — the caller then
- * attaches no tool_ids, which is recoverable via the re-sync button once the
- * env is set.
+ * Returns {} when the app URL or secret isn't configured, or the workspace
+ * could not be read — recoverable via the re-sync button (or the next
+ * automatic sync) once that resolves. A connected agent keeps the tools it
+ * already has either way; a managed agent's tool_ids are left untouched by
+ * its caller's guard (agents.ts), rather than cleared.
  */
 export async function ensureServerTools(): Promise<Record<string, string>> {
   if (!isLive()) {
@@ -378,9 +391,10 @@ export async function ensureServerTools(): Promise<Record<string, string>> {
     // a failed list as empty would create a second copy of every tool, point
     // the agents at the copies, and leave the dashboard settings this module
     // exists to protect stranded on the originals. Do nothing instead: nothing
-    // is cached, so the next sync retries. (Attaching no ids is safe for a
-    // connected agent — the overlay can only drop ids it can identify, so the
-    // agent keeps the tools it already has.)
+    // is cached, so the next sync retries. (A connected agent keeps the tools
+    // it already has — the overlay can only drop ids it can identify. A
+    // managed agent's tool_ids are left untouched by the caller's guard in
+    // agents.ts, rather than cleared.)
     if (!existing) {
       console.error(
         "[server-tools] could not list workspace tools; skipping this sync",

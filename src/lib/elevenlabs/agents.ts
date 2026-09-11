@@ -928,8 +928,15 @@ async function liveSync(
           cascade_timeout_seconds: 6,
           built_in_tools: BUILT_IN_TOOLS,
           // Workspace tool ids for the enabled custom server tools. Set
-          // unconditionally so disabling a tool removes it on the next sync.
-          tool_ids: serverToolIds,
+          // unconditionally so disabling a tool removes it on the next sync —
+          // but ONLY when we actually resolved the workspace. ensureServerTools
+          // returns {} when it could not read ElevenLabs (or has no app
+          // URL/secret), and sending [] then would detach every server tool
+          // from this agent over a transient outage. Gated on the MAP, not the
+          // ids, so an agent with every tool disabled still gets [].
+          ...(Object.keys(serverToolMap).length > 0
+            ? { tool_ids: serverToolIds }
+            : {}),
           // Knowledge documents, one per synced source of each attached
           // knowledge base: { type, id, name, usage_mode: "auto" }.
           knowledge_base: knowledgeBase,
