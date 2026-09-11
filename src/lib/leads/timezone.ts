@@ -681,9 +681,15 @@ export function cityToTimezone(
 
 /** Extract the 3-digit area code from a US/CA phone in any format
  *  ("(205) 259-8928", "2052598928", "+12052598928"). Returns null when the
- *  value isn't a 10-digit NANP number. */
+ *  value isn't a 10-digit NANP number, and for a foreign one even when its
+ *  digits would otherwise spell a plausible code. Pure. */
 function areaCodeOf(phone: string | null | undefined): string | null {
   if (!phone) return null;
+  // A "+" announces a country code, and every code but 1 is outside the
+  // NANP — same rule as toE164UsCa (#518), so the two agree on what's
+  // foreign.
+  const withPlus = phone.replace(/[^\d+]/g, "");
+  if (withPlus.startsWith("+") && !withPlus.startsWith("+1")) return null;
   let digits = phone.replace(/\D/g, "");
   if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
   if (digits.length < 10) return null;
