@@ -551,7 +551,7 @@ export function bookingPhoneOutcome(args: {
  * True when a Calendly booking error means the chosen time is gone (taken, full
  * or past), so the AI should offer another time. Any other failure is a config
  * problem that picking another time can't fix. "has been filled" is Calendly's
- * wording for a time that's no longer open; it must not match "must be filled"
+ * wording for a full session; it must not match "must be filled"
  * (a missing-field error).
  */
 export function isSlotGoneError(detail: string | null | undefined): boolean {

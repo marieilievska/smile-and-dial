@@ -256,10 +256,19 @@ describe("the booking phone's DNC read fails closed", () => {
     const src = read("src/lib/elevenlabs/tool-webhook.ts");
     // A dropped error reads as "not on DNC" (see the is_phone_on_dnc callers
     // above); bookingPhoneOutcome treats "unknown" as not clear.
+    const lookup =
+      /error:\s*(\w+)\s*\}\s*=\s*await ctx\.supabase\s*\.from\("dnc_entries"\)[^;]*\.eq\("phone",\s*bookingPhone\.phone\)/.exec(
+        src,
+      );
+    expect(lookup, src).not.toBeNull();
+    // Build the second pattern from the SAME variable the destructuring above
+    // just captured, so a mapping keyed on a different variable (e.g.
+    // `dncLookup = dncHits ? "unknown" : …`, checking the row count instead of
+    // the error) fails this check instead of slipping past a bare `\w+`.
+    const errVar = lookup![1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     expect(src).toMatch(
-      /error:\s*(\w+)\s*\}\s*=\s*await ctx\.supabase\s*\.from\("dnc_entries"\)[^;]*\.eq\("phone",\s*bookingPhone\.phone\)/,
+      new RegExp(`dncLookup\\s*=\\s*${errVar}\\s*\\?\\s*"unknown"`),
     );
-    expect(src).toMatch(/dncLookup\s*=\s*\w+\s*\?\s*"unknown"/);
   });
 });
 

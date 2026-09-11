@@ -867,6 +867,53 @@ describe("bookingPhoneOutcome", () => {
         dncLookup: "listed",
       }),
     ).toEqual({ optionalAnswer: null, audit: { phone_dnc_required: true } });
+    // An UNVERIFIABLE number (an unreadable list, or no lookup at all) is sent
+    // too, same as a listed one: skipping a REQUIRED question would fail the
+    // whole booking either way, so it is only ever flagged, never dropped.
+    expect(
+      outcome({
+        optionalAnswer: null,
+        questions: requiredForm,
+        dncLookup: "unknown",
+      }),
+    ).toEqual({ optionalAnswer: null, audit: { phone_dnc_required: true } });
+    expect(
+      outcome({
+        optionalAnswer: null,
+        questions: requiredForm,
+        dncLookup: null,
+      }),
+    ).toEqual({ optionalAnswer: null, audit: { phone_dnc_required: true } });
+  });
+
+  it.each(["listed", "unknown"] as const)(
+    "phone_unanswered is judged by question TYPE alone, never do-not-call status — still flagged when the number is %s",
+    (dncLookup) => {
+      expect(
+        outcome({ optionalAnswer: null, questions: [companyQ], dncLookup }),
+      ).toEqual({ optionalAnswer: null, audit: { phone_unanswered: true } });
+    },
+  );
+
+  it("known gap: a REQUIRED free-text 'Phone' question is recognised by its TYPE, not its name, so it still reads as unanswered", () => {
+    const wordedForm: CalendlyCustomQuestion[] = [
+      companyQ,
+      {
+        name: "Phone",
+        type: "string",
+        position: 1,
+        required: true,
+        enabled: true,
+        answer_choices: [],
+      },
+    ];
+    expect(
+      outcome({
+        optionalAnswer: null,
+        questions: wordedForm,
+        dncLookup: "listed",
+      }),
+    ).toEqual({ optionalAnswer: null, audit: { phone_unanswered: true } });
   });
 
   it("does nothing when there is no phone at all", () => {
