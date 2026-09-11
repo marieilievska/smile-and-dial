@@ -447,7 +447,7 @@ describe("buildQuestionsAndAnswers", () => {
 
 describe("pickBookingPhone", () => {
   // Marija, 2026-09-10: the cell the lead gives on the call goes into Calendly's
-  // Phone Number question; if they don't give one, the number we dialed does.
+  // Phone Number question; if they don't give one, the lead's business number does.
   const businessPhone = "+19075551234";
 
   it("uses the cell the lead gave, normalised to E.164", () => {
@@ -472,10 +472,17 @@ describe("pickBookingPhone", () => {
       source: "mobile",
       mobileInvalid: false,
     });
+    expect(
+      pickBookingPhone({ mobile: "+(1) 813-555-0123", businessPhone }),
+    ).toEqual({
+      phone: "+18135550123",
+      source: "mobile",
+      mobileInvalid: false,
+    });
   });
 
-  it("falls back to the dialed business number when no cell was given", () => {
-    for (const mobile of [undefined, null, "", "   "]) {
+  it("falls back to the business number when no cell was given", () => {
+    for (const mobile of [undefined, null, "", "   ", "N/A", "none"]) {
       expect(pickBookingPhone({ mobile, businessPhone })).toEqual({
         phone: businessPhone,
         source: "business",
@@ -487,7 +494,8 @@ describe("pickBookingPhone", () => {
   it("falls back to the business number when the cell was misheard, and flags it", () => {
     // Partial numbers, foreign numbers (even one whose digits total ten) and
     // impossible NANP numbers (area code or exchange starting with 0 or 1) are
-    // never sent: the number we called goes in instead.
+    // never sent: the business number goes in instead. "+8135550123" (a US
+    // cell with the 1 dropped) is deliberately read as foreign: +81 is Japan.
     for (const mobile of [
       "813 555",
       "+44 20 7946 0958",
@@ -496,6 +504,8 @@ describe("pickBookingPhone", () => {
       "023-456-7890",
       "813-055-0123",
       "813-155-0123",
+      "+8135550123",
+      " +354 611 1234",
     ]) {
       expect(pickBookingPhone({ mobile, businessPhone })).toEqual({
         phone: businessPhone,

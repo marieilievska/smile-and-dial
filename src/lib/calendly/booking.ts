@@ -381,8 +381,9 @@ export function pickBookingPhone(args: {
   mobile: string | null | undefined;
   businessPhone: string | null | undefined;
 }): BookingPhone {
-  const mobileGiven =
-    typeof args.mobile === "string" && args.mobile.trim().length > 0;
+  // A cell counts as "given" only if it has a digit: a placeholder the model
+  // sends instead of omitting the field ("N/A", "none") isn't a misheard number.
+  const mobileGiven = typeof args.mobile === "string" && /\d/.test(args.mobile);
   const mobile = toBookableUsCaPhone(args.mobile);
   if (mobile) return { phone: mobile, source: "mobile", mobileInvalid: false };
   const business = toBookableUsCaPhone(args.businessPhone);
