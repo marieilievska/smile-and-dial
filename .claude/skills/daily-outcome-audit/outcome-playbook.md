@@ -22,7 +22,7 @@ Outcome is the AI's disposition guess unless `outcome_source='manual'` (a human/
 ## goal_met — the highest-stakes outcome
 Terminal (`status=goal_met`, stops calling) and the headline success number. **The bar is per-campaign.** The two active campaigns share goal "Webinar invite" → success = the decision-maker actually **booked** for the Zoom event.
 
-**Objective signal:** `leads.calendly_event_uri` is set AND a `smiledial_book_appointment` tool call fired on the call. Email captured / "I'll send info" is NOT a booking.
+**Objective signal:** a booking — `leads.calendly_event_uri` is set OR the lead has a `scheduled` `calendly_events` row — AND a `smiledial_book_appointment` tool call fired on the call. Email captured / "I'll send info" is NOT a booking. The two booking sources should agree; `reconcile-bookings.js` warns when only the row exists (2026-09-10: Ascendance booked on an inbound call from the owner's cell, so the orphan "Inbound" lead got the link, and `merge_inbound_lead` before v4 never copied it to the real lead).
 
 **Three failure modes (all seen 2026-08-10):**
 1. **False win** — a gatekeeper handed over the owner's email, the AI fired `send_email`, and the disposition extractor marked `goal_met`. No owner, no booking. → relabel `gatekeeper`, un-terminate.
@@ -39,8 +39,14 @@ Terminal + compliance-loaded. Valid ONLY when **the person themself asks to be r
 **Objective signal:** in the transcript, who first raised removal? A lead imperative ("take me off", "stop calling", "remove us") = valid. Assent to an agent offer = invalid.
 
 **Traps:**
-- ~half of a day's dnc can be agent-manufactured (the agent freelances the offer). Read every one.
+- ~half of a day's dnc can be agent-manufactured (the agent freelances the offer). Read every one. 2026-09-10: 9 of 17 — the Daily HireAI Webinar agent offers in its own words ("if you want, I can make sure we don't bug you again", "would you want me to stop callin' this number?"), and the offers also hide under other labels (`not_interested`, `ai_receptionist`).
 - A person saying "you sound like AI, stop calling" is still a valid dnc (human asking to stop), not `ai_receptionist`.
+- `dnc` can come from the CODE, not the agent: `leadRequestedRemoval` in `classify-outcome.ts` forces dnc on a lead's own "take us off" even when the agent guessed otherwise. Check `tool_mark_dnc` in `system_events` — a dnc with no tool event was classifier-forced. It once fired on "get me out of here because I got clients" (BioFit StL, fixed 2026-09-11).
+
+**What to do with an agent-offered DNC (Marija, 2026-09-11 — supersedes the Aug 11 "reverse them all"):**
+- The person accepted and the agent told them "you won't be contacted again" → **keep it blocked**. Calling back someone who was promised no more calls is worse than a slightly inflated DNC count; the fix is the prompt wording (Marija's).
+- The business has **closed**, or the number **isn't the business's** → relabel **`invalid_number`**. Keep the `dnc_entries` row, change its `reason` to `invalid_number` (still blocked, no longer counted as someone asking us to stop). See fix-patterns §3b.
+- Never asked and never offered — the agent or the classifier invented it → reverse (un-DNC, §3).
 
 **Fix caution:** un-DNC-ing is reversing a compliance flag. Before setting a formerly-dnc lead callable, confirm it has **no other DNC signal** — no `dnc` call on another day and no `dnc_entries` row (match by `phone` E.164 OR `source_call_id` in the lead's calls). To reverse: relabel the call, DELETE the `dnc_entries` row, set the lead to the real outcome's state.
 
@@ -67,6 +73,17 @@ Assigned only when EL kills the call with `termination_reason` matching quota/cr
 - Automated **call-screener** that takes a message → `voicemail` (stays).
 
 Beware silent auto-receptionists that DON'T announce themselves ("Sky", "Lux") — they stay `gatekeeper` by the literal "says it's an AI" rule.
+
+---
+
+## ai_receptionist — a bot answered and said so
+A no-human outcome: not connected, not a conversation, lead rests 15 days. So a wrong one erases a real conversation. **Triage reads every one** (the bucket is 2–25 a day).
+
+**Judge by:** the called party's own words introducing itself as an AI/virtual/automated receptionist or assistant.
+
+**Traps (2026-09-10, 3 of 5 wrong):**
+- A **person asking** "are you an AI agent, Tom?" or saying "we already have an AI assistant" — the classifier read those as self-IDs until 2026-09-11 (it now skips sentences that ask about us or describe their own tools). → the real outcome (Stay Strong BJJ → `not_interested`).
+- A bot that **transfers to a real person**: "Kirsten, your virtual receptionist" → "please hold" → "Yes, I am the owner." The self-ID still wins in the classifier. Read the turns after the transfer; if a person talked, relabel to what they said (LGNDS, Crunch Fitness Reno).
 
 ---
 

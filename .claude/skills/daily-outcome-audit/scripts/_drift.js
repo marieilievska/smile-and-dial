@@ -6,6 +6,10 @@
 
 const DEFAULT_WATCHES = [
   { key: "not_interested_dm_no", kind: "share", threshold: 0.15, label: "not_interested with dm≠yes" },
+  // Share of ALL calls. 2026-09-10 went 0.007 → 0.042 (92 vs 14–35/day) on a new
+  // agent version + the FITNESS list and nothing flagged it; normal days sit at
+  // 0.006–0.011. It was a real lead-mix change, but that is what drift is for.
+  { key: "not_interested_share", kind: "share", threshold: 0.02, label: "not_interested share" },
   { key: "ai_receptionist_share", kind: "share", threshold: 0.01, label: "ai_receptionist share" },
   { key: "callback_share", kind: "share", threshold: 0.1, label: "callback share" },
   { key: "connect_rate", kind: "share", threshold: 0.15, label: "connect rate" },

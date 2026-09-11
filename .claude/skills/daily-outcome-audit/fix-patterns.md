@@ -41,6 +41,16 @@ Before making a formerly-`dnc` lead callable, **prove it has no other DNC signal
 
 Only then: relabel the call, `DELETE` the `dnc_entries` row(s), set the lead to the real outcome's state. `relabel.js --allow-undnc` enforces this check and aborts on any stray signal.
 
+## 3b. `dnc` → `invalid_number` (closed business / not the business's number)
+
+The phone must STAY blocked, so don't use `relabel.js` here: its `--allow-undnc` path deletes the `dnc_entries` row, and it has no `invalid_number` target. Per call:
+
+1. `PATCH /calls` → `outcome="invalid_number"`, `outcome_source="manual"`, `goal_met=false`, `retry_applied_at=null`
+2. `PATCH /dnc_entries?source_call_id=eq.<callId>` → `reason="invalid_number"` (keep the row; this mirrors `dncReasonForOutcome()` in `post-call-webhook.ts`)
+3. `PATCH /leads` → `status="dnc"`, `next_call_at=null`, `resting_until=null` (what `applyOutcomeSideEffects` does for `invalid_number`)
+
+Then check the lead is absent from `dial_queue`. First used 2026-09-11 for 4 calls from 2026-09-10 (FIT4MOM, Paragon BJJ, Premier Martial Arts, Zion Amazing Adventures).
+
 ## 4. Reschedule leads pushed out by an ai_error spike
 
 For leads whose **latest** call that day was a quota `ai_error` and are now `ready_to_call`/`resting` with a future `next_call_at`: `PATCH /leads` → `next_call_at`=now, `status="ready_to_call"`, `resting_until=null`. Exclude leads that got a later real call (already rescheduled) and any on active callbacks. `scripts/credit-check.js --reschedule` does the dry-run/apply.
