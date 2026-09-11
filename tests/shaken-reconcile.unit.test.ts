@@ -243,6 +243,12 @@ describe("reconcileShakenNumbers", () => {
     process.env.TWILIO_ACCOUNT_SID = SUBACCOUNT;
     process.env.TWILIO_API_KEY_SID = "SKtest";
     process.env.TWILIO_API_KEY_SECRET = "sk-secret";
+    // A pass that changes something or fails is audited to system_events, and
+    // with Supabase credentials in the environment that write goes out through
+    // the same stubbed fetch — one extra POST the assertions below don't expect.
+    // Clear them so every machine sees only the Twilio traffic.
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
   });
   afterEach(() => {
     process.env = { ...OLD_ENV };

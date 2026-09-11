@@ -1,13 +1,15 @@
 import { config as loadEnv } from "dotenv";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { beforeAll, describe, expect, test } from "vitest";
+import { createClient } from "@supabase/supabase-js";
+import { describe, expect, test } from "vitest";
 
 import { buildLeadsQuery } from "@/app/(app)/leads/leads-query";
 import type { SearchParams } from "@/app/(app)/leads/leads-url";
 
-loadEnv({ path: ".env.local" });
-
+// Read the opt-in from the shell BEFORE loading .env.local, and load it only
+// once opted in: a LEADS_SCALE_LIVE=1 line inside .env.local can't turn this
+// on by itself, and a skipped run never loads the production keys.
 const live = process.env.LEADS_SCALE_LIVE === "1";
+if (live) loadEnv({ path: ".env.local", quiet: true });
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
@@ -22,26 +24,32 @@ const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
  * state) already matches far more leads than any request URL can carry. No rows
  * are created or deleted.
  *
- * OPT-IN live check — skipped unless LEADS_SCALE_LIVE=1, the same gate the
- * business-research live test uses for RESEARCH_LIVE. Without it, this test
- * would query the production Supabase project on every `npm run test:unit`
- * whenever a developer's .env.local happens to carry real Supabase keys.
+ * OPT-IN live check — skipped unless LEADS_SCALE_LIVE=1 is set in the shell,
+ * the same gate the business-research live test uses for RESEARCH_LIVE.
+ * Without it, this test would query the production Supabase project on every
+ * `npm run test:unit` whenever a developer's .env.local happens to carry real
+ * Supabase keys. The default suite guards the same fix offline, in
+ * tests/leads-advanced-filter-rpc.unit.test.ts.
  *
  *   LEADS_SCALE_LIVE=1 npx vitest run tests/leads-advanced-filter-scale.unit.test.ts
  */
-describe.skipIf(!live || !URL || !KEY)("advanced filter at scale", () => {
-  let admin: SupabaseClient;
+describe.skipIf(!live)("advanced filter at scale", () => {
   // A state that holds thousands of leads — enough that the id-list approach is
   // guaranteed to overflow. Verified against prod (CA ≈ 11.8k).
   const state = "CA";
 
-  beforeAll(() => {
-    admin = createClient(URL, KEY, {
+  test("a recipe matching thousands of leads returns a filtered page, not an overflow error", async (ctx) => {
+    // Opted in with nothing to connect to: say so, rather than skip in silence.
+    if (!URL || !KEY) {
+      ctx.skip(
+        "LEADS_SCALE_LIVE=1, but NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set (shell or .env.local)",
+      );
+      return;
+    }
+    const admin = createClient(URL, KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
-  });
 
-  test("a recipe matching thousands of leads returns a filtered page, not an overflow error", async (ctx) => {
     // This test only means anything against a workspace that actually holds
     // enough leads to overflow the old id-list approach. After the 2026-09-08
     // wipe it holds none, and asserting against an empty database would leave
