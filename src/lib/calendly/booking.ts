@@ -4,7 +4,7 @@
  * live in ./api.ts.
  */
 
-import { toE164UsCa } from "@/lib/leads/twilio-lookup";
+import { toUsCaPhone } from "@/lib/leads/us-ca-phone";
 
 /** One entry of a Calendly event type's `locations` array (GET /event_types).
  *  We only care about `kind`; the other fields vary by location type. */
@@ -353,17 +353,6 @@ export type BookingPhone =
   | { phone: string; source: BookingPhoneSource; mobileInvalid: boolean }
   | { phone: null; source: null; mobileInvalid: boolean };
 
-/** A US/Canada number in E.164 with a possible NANP shape (area code and
- *  exchange can't start with 0 or 1), or null. A best-effort shape check: it
- *  can't know whether an area code is actually in service. toE164UsCa already
- *  rejects an explicit non-+1 country code (#518), so this needs no
- *  foreign-number guard of its own. */
-function toBookableUsCaPhone(raw: string | null | undefined): string | null {
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  const e164 = toE164UsCa(raw);
-  return e164 && /^\+1[2-9]\d{2}[2-9]\d{6}$/.test(e164) ? e164 : null;
-}
-
 /**
  * The number to put in the host's Calendly "Phone Number" question when the AI
  * books. Marija's rule (2026-09-10): the cell the lead gave on the call if
@@ -381,9 +370,9 @@ export function pickBookingPhone(args: {
   // A cell counts as "given" only if it has a digit: a placeholder the model
   // sends instead of omitting the field ("N/A", "none") isn't a misheard number.
   const mobileGiven = typeof args.mobile === "string" && /\d/.test(args.mobile);
-  const mobile = toBookableUsCaPhone(args.mobile);
+  const mobile = toUsCaPhone(args.mobile);
   if (mobile) return { phone: mobile, source: "mobile", mobileInvalid: false };
-  const business = toBookableUsCaPhone(args.businessPhone);
+  const business = toUsCaPhone(args.businessPhone);
   if (business) {
     return { phone: business, source: "business", mobileInvalid: mobileGiven };
   }
