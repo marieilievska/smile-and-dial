@@ -17,6 +17,7 @@ const STANDARD_KEYS = new Set([
   "manager_name",
   "employee_name",
   "callback_datetime",
+  "callback_relative_minutes",
 ]);
 
 const POSITIVE = new Set([

@@ -31,7 +31,10 @@ import {
   resolveAgentKnowledgeBase,
 } from "@/lib/elevenlabs/knowledge-base";
 import { appBaseUrl } from "@/lib/app-url";
-import { CALLBACK_TIME_RULES } from "./server-tools";
+import {
+  CALLBACK_RELATIVE_MINUTES_RULE,
+  CALLBACK_TIME_RULES,
+} from "./server-tools";
 
 export type AgentSyncPayload = {
   name: string;
@@ -154,6 +157,20 @@ const DATA_COLLECTION_FIELDS = [
       "field, the disposition MUST be callback (unless the goal was met) — never " +
       "gatekeeper.",
     type: "string",
+  },
+  {
+    // The companion to callback_datetime, and it WINS over it when filled.
+    // The mustaches in CALLBACK_TIME_RULES above are DEAD here — ElevenLabs
+    // does not interpolate dynamic variables into data-collection descriptions,
+    // so that field's "it is now {{current_time}}" never reaches the analysis
+    // model and it times relative requests off ElevenLabs' own Eastern clock.
+    // This field needs no such context, which is exactly why it works.
+    id: "callback_relative_minutes",
+    description:
+      "How many MINUTES from the end of this call to ring the person back. " +
+      CALLBACK_RELATIVE_MINUTES_RULE +
+      " Like callback_datetime, this belongs with a callback disposition.",
+    type: "number",
   },
 ];
 

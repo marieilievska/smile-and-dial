@@ -693,6 +693,7 @@ const SYSTEM_DATA_FIELDS: { id: string; note: string }[] = [
   { id: "manager_name", note: "auto-fills the lead" },
   { id: "employee_name", note: "auto-fills the lead" },
   { id: "callback_datetime", note: "schedules callbacks" },
+  { id: "callback_relative_minutes", note: "schedules callbacks" },
 ];
 
 function DataEvalStep({

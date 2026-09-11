@@ -35,6 +35,7 @@ import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-ca
 import {
   clampCallbackToFloor,
   localHourDaysAheadIso,
+  relativeCallbackInstant,
   resolveCallbackDatetime,
 } from "@/lib/dialer/local-schedule";
 import { toUsCaPhone } from "@/lib/leads/us-ca-phone";
@@ -1078,15 +1079,26 @@ async function scheduleCallback(
   body: Record<string, unknown>,
 ): Promise<ToolWebhookResult> {
   const raw = str(body.callback_datetime);
-  // The clock time is read in the LEAD's timezone and any offset the model
-  // attached is ignored: it stamps -04:00 on every lead, so "10:00-04:00" for
-  // a Honolulu spa used to mean 4 AM there. 10:00 means 10:00 where they are.
-  // The one exception is a reading that lands in the past, which the model
+  // A DELAY the agent captured as minutes wins outright: it carries no time
+  // zone, so unlike a clock time there is no frame to get wrong. The model
+  // writes relative requests on ElevenLabs' own Eastern clock even when it was
+  // handed the lead's zone and local time correctly, and re-reading that clock
+  // in the lead's zone booked "in an hour" three hours late for a Los Angeles
+  // lead. Counting minutes from now sidesteps the whole question.
+  //
+  // Otherwise the clock time is read in the LEAD's timezone and any offset the
+  // model attached is ignored: it stamps -04:00 on every lead, so "10:00-04:00"
+  // for a Honolulu spa used to mean 4 AM there. 10:00 means 10:00 where they
+  // are. The one exception is a reading that lands in the past, which the model
   // never intends — there the stamped offset is what it meant (see
   // resolveCallbackDatetime), and without it "call me in 20 minutes" from an
   // Atlantic lead was refused as already passed.
-  const when = resolveCallbackDatetime(raw, ctx.lead.timezone);
-  if (!raw || !when || Number.isNaN(when.getTime())) {
+  const relative = relativeCallbackInstant(body.callback_relative_minutes);
+  const when = relative ?? resolveCallbackDatetime(raw, ctx.lead.timezone);
+  // No `!raw` check: a minute count on its own is a complete answer, and
+  // refusing it because the model skipped the datetime would throw away the
+  // one reading we can trust.
+  if (!when || Number.isNaN(when.getTime())) {
     return {
       success: false,
       message:
@@ -1149,6 +1161,11 @@ async function scheduleCallback(
     // What the model sent, so an audit can see when its offset disagreed
     // with the lead's zone.
     model_datetime: raw,
+    // The relative delay, when the model gave one, plus which of the two
+    // readings actually won — the pair that makes a mis-timed callback
+    // diagnosable from the Activity feed alone.
+    model_relative_minutes: str(body.callback_relative_minutes) || null,
+    resolved_from: relative ? "relative_minutes" : "datetime",
     lead_timezone: ctx.lead.timezone,
     note: str(body.note),
   });

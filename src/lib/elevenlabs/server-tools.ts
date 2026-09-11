@@ -18,6 +18,34 @@ export const CALLBACK_TIME_RULES =
   "Write the time in the LEAD's local time zone ({{lead_timezone}}) as a full ISO 8601 datetime with that zone's offset, e.g. '2026-01-15T14:00:00-06:00'. In the lead's zone it is now {{current_time}} on {{current_date}}; count from that for relative requests ('in 20 minutes', 'in two hours', 'later today'). 'tomorrow morning' / 'in the morning' / 'Tuesday morning' / 'when the owner is in' with no clock time -> 10:00 that day; 'afternoon' -> 14:00; 'tomorrow at 3' -> 15:00; a loose window ('next week', 'in a couple of days', 'end of the month', 'after she's back') -> the first business day in that window at 10:00. The clock time you write is read as the lead's local time.";
 
 /**
+ * How the agent must express a callback the person asked for as a DELAY
+ * ("in 20 minutes", "in about an hour") instead of at a named time.
+ *
+ * This deliberately names no time zone and no clock, and that is the whole
+ * point. The wall-clock rules above lean on {{lead_timezone}} and
+ * {{current_time}}; those interpolate in the in-call tool's parameter
+ * description but NOT in the post-call data-collection description, which
+ * ElevenLabs returns with the literal mustaches still in it. And even where
+ * they DO interpolate, the model follows ElevenLabs' own Eastern system clock
+ * anyway — the Los Angeles lead whose tool call was sent the correct
+ * `lead_timezone` and `current_time` still got a `-04:00` answer.
+ *
+ * Either way the result is a clock time in the wrong frame, and re-reading it
+ * in the lead's zone pushes the callback an hour late per zone west. A count of
+ * minutes cannot go wrong that way, because there is no frame in it at all.
+ * Shared by both writers so they can never drift apart.
+ */
+export const CALLBACK_RELATIVE_MINUTES_RULE =
+  "Use this ONLY when the person asked to be called back after a DELAY rather " +
+  "than at a named time — 'in 20 minutes', 'in about an hour', 'give me half " +
+  "an hour', 'try me right after lunch'. Give the delay as a whole number of " +
+  "MINUTES counted from the end of this call: 'in 20 minutes' -> 20, 'in an " +
+  "hour' -> 60, 'in a couple of hours' -> 120. Leave it blank for a named day " +
+  "or time ('tomorrow at 3', 'Monday morning', 'after 9', 'next week') — those " +
+  "belong in callback_datetime instead. Never write a clock time or a date " +
+  "here, and never convert a named time into minutes.";
+
+/**
  * Register our custom server tools with ElevenLabs and map each to the
  * workspace tool id the agent references via `tool_ids`.
  *
@@ -127,6 +155,19 @@ function bodySchemaFor(
         "callback_datetime",
         "The requested callback time. " + CALLBACK_TIME_RULES,
         true,
+      );
+      // Optional, and it WINS over callback_datetime when the agent fills it.
+      // Kept optional (and callback_datetime still required) so an agent that
+      // ignores the new field behaves exactly as it does today. Declared as a
+      // string rather than a number: every other property in this schema is a
+      // string, and the webhook parses it either way — a type the live API
+      // might reject would 422 the whole agent sync.
+      add(
+        "callback_relative_minutes",
+        "How many MINUTES from now to call back. " +
+          CALLBACK_RELATIVE_MINUTES_RULE +
+          " Write digits only, e.g. '20'.",
+        false,
       );
       add("note", "Optional note about the callback.", false);
       break;

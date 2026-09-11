@@ -3,8 +3,8 @@
  *
  * These are ADDITIVE to the system base set the sync layer always sends.
  * The base data-collection fields (disposition, business_email, owner_name,
- * manager_name, employee_name, callback_datetime) and the
- * base "goal met" evaluation criterion are load-bearing — the post-call
+ * manager_name, employee_name, callback_datetime, callback_relative_minutes)
+ * and the base "goal met" evaluation criterion are load-bearing — the post-call
  * webhook reads them to map outcomes, autofill lead fields, and schedule
  * callbacks. User-defined fields/criteria are merged on top and can never
  * remove or shadow a base field (we drop any whose id collides with a base
@@ -40,6 +40,7 @@ export const BASE_DATA_COLLECTION_IDS = new Set([
   "manager_name",
   "employee_name",
   "callback_datetime",
+  "callback_relative_minutes",
 ]);
 
 /** The base evaluation criterion id ("goal met") that always ships. */
