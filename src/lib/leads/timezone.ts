@@ -688,11 +688,15 @@ export function cityToTimezone(
  *  three agree on what's foreign. Otherwise it's lenient: any 10+ digits give
  *  their first three, which is what keeps "(205) 259-8928 ext. 12" on 205 —
  *  so a foreign number that has lost its "+" (e.g. "442079460958") can still
- *  spell a code. Pure. */
+ *  spell a code. Full-width characters ("＋", "２０５") are read as ASCII first,
+ *  exactly as toE164UsCa reads them: an import stores a phone through that
+ *  and places it through this, and if only one of them read "２０５" the lead
+ *  would be stored dialable with no timezone. Pure. */
 function areaCodeOf(phone: string | null | undefined): string | null {
   if (!phone) return null;
-  if (hasForeignCountryCode(phone)) return null;
-  let digits = phone.replace(/\D/g, "");
+  const text = phone.normalize("NFKC");
+  if (hasForeignCountryCode(text)) return null;
+  let digits = text.replace(/\D/g, "");
   if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
   if (digits.length < 10) return null;
   return digits.slice(0, 3);

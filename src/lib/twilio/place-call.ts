@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isDialableNumber } from "@/lib/dialer/dialable-number";
 import type { Database } from "@/lib/supabase/database.types";
 
 /** Place outbound calls via ElevenLabs' NATIVE Twilio integration.
@@ -211,7 +212,8 @@ export type PlaceCallInput = {
   /** Our internal call_id. Passed to ElevenLabs as a dynamic variable so the
    *  post-call webhook can resolve our `calls` row deterministically. */
   callId: string;
-  /** The lead's phone, E.164. */
+  /** The lead's phone. Must be "+1" and ten digits (isDialableNumber), or the
+   *  call is refused rather than placed. */
   toNumber: string;
   /** The agent to run (agents.elevenlabs_agent_id). */
   elevenlabsAgentId: string;
@@ -228,10 +230,23 @@ export type PlaceCallResult =
   | { ok: false; error: string };
 
 /** Ask ElevenLabs to place one outbound call through Twilio. Mocked unless
- *  ELEVENLABS_LIVE=live. */
+ *  ELEVENLABS_LIVE=live.
+ *
+ *  Refuses any `to_number` that isn't "+1" and ten digits. The dialer tick and
+ *  Call Now both apply that gate well before this, so reaching it here means a
+ *  caller forgot to — and this is the last hop before the number leaves for
+ *  ElevenLabs, so it is the cheapest place to be sure. */
 export async function placeAgentCall(
   input: PlaceCallInput,
 ): Promise<PlaceCallResult> {
+  // Ahead of the mock branch on purpose, so mock mode refuses exactly what
+  // live mode would rather than reporting a call that could never be placed.
+  if (!isDialableNumber(input.toNumber)) {
+    return {
+      ok: false,
+      error: "Refused to dial a number that isn't +1 followed by ten digits.",
+    };
+  }
   if (!isLive()) {
     // Deterministic-looking fakes so the rest of the pipeline has something to
     // write. Tests never run live.

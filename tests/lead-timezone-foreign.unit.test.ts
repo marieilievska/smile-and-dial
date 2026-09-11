@@ -205,3 +205,29 @@ describe("leadTimezoneFrom: a foreign phone places no one", () => {
     ).toBe("America/New_York");
   });
 });
+
+/** Text as typed on a full-width (CJK) keyboard: each ASCII symbol and digit
+ *  becomes its U+FFxx twin, so "+" is "＋" (U+FF0B) and "2" is "２". */
+const fullWidth = (s: string) =>
+  s.replace(/[!-~]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0xfee0));
+
+describe("full-width characters, read the same way by both parsers", () => {
+  it("a full-width plus is a country code, not an area code", () => {
+    // "＋65 9234 5678" is Singapore. With the "＋" stripped like any other
+    // symbol its digits spell 659, so the lead came in as Alabama on Central.
+    expect(stateFromPhone("＋65 9234 5678")).toBeNull();
+    expect(phoneToTimezone("＋65 9234 5678")).toBeNull();
+    expect(toE164UsCa("＋65 9234 5678")).toBeNull();
+  });
+
+  it("full-width digits are still a US number, placed as one", () => {
+    // An import stores the number through toE164UsCa and reads its timezone
+    // through areaCodeOf. If only the first read full-width digits, the lead
+    // would be stored dialable with no timezone, and a blank timezone is
+    // gated on Eastern time.
+    const phone = fullWidth("(205) 259-8928");
+    expect(toE164UsCa(phone)).toBe("+12052598928");
+    expect(stateFromPhone(phone)).toBe("AL");
+    expect(phoneToTimezone(phone)).toBe("America/Chicago");
+  });
+});

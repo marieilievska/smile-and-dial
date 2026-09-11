@@ -91,6 +91,9 @@ describe("deriveCountry — a country code other than +1 is foreign", () => {
     ["the UK", "+44 20 7946 0958"],
     // The "+" isn't first in the raw text; it is once the text is cleaned.
     ["the UK, + in brackets", "(+44) 20 7946 0958"],
+    // A CJK keyboard's full-width "＋" (U+FF0B) is still a plus. Stripped as
+    // a symbol, it left 659, Alabama: sent as US.
+    ["Singapore, full-width plus", "＋65 9234 5678"],
   ];
 
   it.each(FOREIGN)("%s (%s) is neither US nor CA", (_country, phone) => {
