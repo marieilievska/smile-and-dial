@@ -260,7 +260,7 @@ describe("the booking phone's DNC read fails closed", () => {
       /error:\s*(\w+)\s*\}\s*=\s*await ctx\.supabase\s*\.from\("dnc_entries"\)[^;]*\.eq\("phone",\s*bookingPhone\.phone\)/.exec(
         src,
       );
-    expect(lookup, src).not.toBeNull();
+    expect(lookup, "bookAppointment dnc_entries lookup").not.toBeNull();
     // Build the second pattern from the SAME variable the destructuring above
     // just captured, so a mapping keyed on a different variable (e.g.
     // `dncLookup = dncHits ? "unknown" : …`, checking the row count instead of
@@ -268,6 +268,18 @@ describe("the booking phone's DNC read fails closed", () => {
     const errVar = lookup![1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     expect(src).toMatch(
       new RegExp(`dncLookup\\s*=\\s*${errVar}\\s*\\?\\s*"unknown"`),
+    );
+  });
+});
+
+describe("createInvitee only ever receives the DNC-filtered optional answer", () => {
+  it("optionalQuestionsAndAnswers is built from phoneOutcome.optionalAnswer, never the raw buildOptionalPhoneAnswer result", () => {
+    const src = read("src/lib/elevenlabs/tool-webhook.ts");
+    // If this were built from buildOptionalPhoneAnswer(...) directly, a
+    // do-not-call number would reach createInvitee unfiltered — the whole
+    // point of bookingPhoneOutcome is to sit between the two.
+    expect(src).toMatch(
+      /optionalQuestionsAndAnswers:\s*phoneOutcome\.optionalAnswer\s*\?\s*\[phoneOutcome\.optionalAnswer\]/,
     );
   });
 });

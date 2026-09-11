@@ -391,6 +391,25 @@ export function pickBookingPhone(args: {
 }
 
 /**
+ * The phone to answer a REQUIRED phone_number question with. Unlike the
+ * OPTIONAL question (buildOptionalPhoneAnswer), a REQUIRED one cannot be left
+ * blank, so it needs a fallback even when pickBookingPhone found nothing
+ * bookable: the raw business number, unvalidated, exactly as it was sent
+ * before this feature existed — the plan's promise that an unusable business
+ * phone "behaves exactly as before". Without this fallback, a business
+ * number that merely fails the NANP/US-CA shape check (foreign, a mistyped
+ * extension) left bookingPhone.phone null and owner_phone empty for every
+ * lead, so buildQuestionsAndAnswers fell back to the COMPANY NAME and
+ * Calendly rejected the booking outright.
+ */
+export function requiredQuestionPhone(
+  bookingPhone: BookingPhone,
+  lead: { business_phone: string | null; owner_phone: string | null },
+): string | null {
+  return bookingPhone.phone || lead.business_phone || lead.owner_phone || null;
+}
+
+/**
  * The answer to the host's OPTIONAL phone question (the webinar form's "Phone
  * Number"), or null.
  *

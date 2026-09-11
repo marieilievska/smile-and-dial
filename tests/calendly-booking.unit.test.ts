@@ -14,6 +14,7 @@ import {
   OFFER_LOOKAHEAD_DAYS,
   pickBookingPhone,
   relativeDayLabel,
+  requiredQuestionPhone,
 } from "../src/lib/calendly/booking";
 
 describe("buildInviteeLocation", () => {
@@ -543,6 +544,50 @@ describe("pickBookingPhone", () => {
       source: null,
       mobileInvalid: true,
     });
+  });
+});
+
+describe("requiredQuestionPhone", () => {
+  // Before this feature, a REQUIRED phone_number question always got the raw
+  // business number. pickBookingPhone only returns a NANP-shaped number, so a
+  // business number that is merely foreign or malformed (not unusable, just
+  // unvalidated) must still reach a REQUIRED question — the plan's promise
+  // that this case "behaves exactly as before".
+  const lead = { business_phone: "+44 20 7946 0958", owner_phone: null };
+  const requiredPhoneQ: CalendlyCustomQuestion = {
+    name: "Phone Number",
+    type: "phone_number",
+    position: 0,
+    required: true,
+    enabled: true,
+    answer_choices: [],
+  };
+
+  it("keeps the raw business number for a REQUIRED question when it fails the NANP check, instead of leaking the company name in", () => {
+    const bookingPhone = pickBookingPhone({
+      mobile: undefined,
+      businessPhone: lead.business_phone,
+    });
+    const phone = requiredQuestionPhone(bookingPhone, lead);
+    // Fed into buildQuestionsAndAnswers exactly as bookAppointment does.
+    expect(
+      buildQuestionsAndAnswers([requiredPhoneQ], {
+        company: "Acme Dental",
+        name: "Jamie",
+        email: "jamie@acmedental.example",
+        phone,
+      }),
+    ).toEqual([
+      { question: "Phone Number", answer: "+44 20 7946 0958", position: 0 },
+    ]);
+  });
+
+  it("still lets a valid cell win over the business number", () => {
+    const bookingPhone = pickBookingPhone({
+      mobile: "813-555-0123",
+      businessPhone: "+19075551234",
+    });
+    expect(requiredQuestionPhone(bookingPhone, lead)).toBe("+18135550123");
   });
 });
 

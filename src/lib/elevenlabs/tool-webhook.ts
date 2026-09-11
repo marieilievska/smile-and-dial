@@ -23,6 +23,7 @@ import {
   OFFER_LOOKAHEAD_DAYS,
   pickBookingPhone,
   relativeDayLabel,
+  requiredQuestionPhone,
 } from "@/lib/calendly/booking";
 import { agreedDayMatchesSlot } from "@/lib/calendly/agreed-day";
 import { hasBookingAtSlot } from "@/lib/calendly/booking-dedup";
@@ -1541,9 +1542,11 @@ async function bookAppointment(
         company: ctx.lead.company,
         name,
         email,
-        // A REQUIRED phone question gets the same number as the optional one;
-        // owner_phone stays the last resort it always was.
-        phone: bookingPhone.phone || ctx.lead.owner_phone,
+        // A REQUIRED question can't be skipped, so it falls back to the raw
+        // business number (unvalidated) rather than pickBookingPhone's null —
+        // otherwise an unusable business phone left this blank and
+        // buildQuestionsAndAnswers answered with the COMPANY NAME instead.
+        phone: requiredQuestionPhone(bookingPhone, ctx.lead),
       },
     );
     // Do-not-call lookup for the booking phone, on the lead OWNER's list (DNC
