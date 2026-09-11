@@ -121,7 +121,11 @@ function covers(live: unknown, ours: unknown): boolean {
  * api_schema siblings), so "live covers ours" is the test, with null ≈ missing
  * and `required` compared as a set. Coverage cannot see a REMOVAL, so the set
  * of parameter names must match exactly: a parameter dropped from code is
- * dropped live too.
+ * dropped live too. The same blind spot remains inside the maps we send EMPTY
+ * (`request_headers`, `path_params_schema`): anything added there in the
+ * dashboard is covered vacuously and survives until some other change triggers
+ * a PATCH. Inert while we send none — give those the parameter-name treatment
+ * the day code sends one.
  */
 export function ownedFieldsDiffer(live: ToolConfig, ours: ToolConfig): boolean {
   if (
