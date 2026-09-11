@@ -346,18 +346,23 @@ export function buildQuestionsAndAnswers(
  *  "how often do leads give a cell?" can be read from the audit trail. */
 export type BookingPhoneSource = "mobile" | "business";
 
-export type BookingPhone = {
-  phone: string | null;
-  source: BookingPhoneSource | null;
-  /** A cell was passed but wasn't a usable US/Canada number (misheard or
-   *  partial), so the business number was used instead. */
-  mobileInvalid: boolean;
-};
+/** The phone chosen for a booking. `mobileInvalid` is true when a cell was
+ *  passed but wasn't a usable US/Canada number (misheard, partial or foreign),
+ *  so it wasn't used: the business number was, if that one is usable. */
+export type BookingPhone =
+  | { phone: string; source: BookingPhoneSource; mobileInvalid: boolean }
+  | { phone: null; source: null; mobileInvalid: boolean };
 
-/** A US/Canada number in E.164 that is also a possible NANP number (area code
- *  and exchange can't start with 0 or 1), or null. */
+/** A US/Canada number in E.164 with a possible NANP shape (area code and
+ *  exchange can't start with 0 or 1), or null. A best-effort shape check: it
+ *  can't know whether an area code is actually in service. */
 function toBookableUsCaPhone(raw: string | null | undefined): string | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
+  // An explicit non-+1 country code is a foreign number. Without this guard, a
+  // foreign number whose digits total ten ("+354 611 1234") would be read as a
+  // US number.
+  const cleaned = raw.replace(/[^\d+]/g, "");
+  if (cleaned.startsWith("+") && !cleaned.startsWith("+1")) return null;
   const e164 = toE164UsCa(raw);
   return e164 && /^\+1[2-9]\d{2}[2-9]\d{6}$/.test(e164) ? e164 : null;
 }
@@ -365,12 +370,12 @@ function toBookableUsCaPhone(raw: string | null | undefined): string | null {
 /**
  * The number to put in the host's Calendly "Phone Number" question when the AI
  * books. Marija's rule (2026-09-10): the cell the lead gave on the call if
- * there is one, otherwise the business number we dialed. A host automation
- * texts that field.
+ * there is one, otherwise the lead's business number (the one the dialer
+ * calls). A host automation texts that field.
  *
- * Validated HERE, before anything is sent: Calendly's phone field rejects an
- * impossible number, and the retry that then drops the answer (createInvitee)
- * would lose the business-number fallback along with the bad cell.
+ * Checked HERE, before anything is sent: if a bad cell reached Calendly and was
+ * rejected, the retry that drops the answer (createInvitee) would lose the
+ * business-number fallback along with it.
  */
 export function pickBookingPhone(args: {
   mobile: string | null | undefined;
@@ -381,9 +386,8 @@ export function pickBookingPhone(args: {
   const mobile = toBookableUsCaPhone(args.mobile);
   if (mobile) return { phone: mobile, source: "mobile", mobileInvalid: false };
   const business = toBookableUsCaPhone(args.businessPhone);
-  return {
-    phone: business,
-    source: business ? "business" : null,
-    mobileInvalid: mobileGiven,
-  };
+  if (business) {
+    return { phone: business, source: "business", mobileInvalid: mobileGiven };
+  }
+  return { phone: null, source: null, mobileInvalid: mobileGiven };
 }

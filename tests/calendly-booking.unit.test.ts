@@ -465,6 +465,13 @@ describe("pickBookingPhone", () => {
         mobileInvalid: false,
       },
     );
+    expect(
+      pickBookingPhone({ mobile: "1-813-555-0123", businessPhone }),
+    ).toEqual({
+      phone: "+18135550123",
+      source: "mobile",
+      mobileInvalid: false,
+    });
   });
 
   it("falls back to the dialed business number when no cell was given", () => {
@@ -478,16 +485,37 @@ describe("pickBookingPhone", () => {
   });
 
   it("falls back to the business number when the cell was misheard, and flags it", () => {
-    // Partial, non-US/CA, and impossible NANP (area code starting with 1)
-    // numbers must never reach Calendly: its phone field would reject them, and
-    // the retry that drops the answer would lose the business number too.
-    for (const mobile of ["813 555", "+44 20 7946 0958", "123-456-7890"]) {
+    // Partial numbers, foreign numbers (even one whose digits total ten) and
+    // impossible NANP numbers (area code or exchange starting with 0 or 1) are
+    // never sent: the number we called goes in instead.
+    for (const mobile of [
+      "813 555",
+      "+44 20 7946 0958",
+      "+354 611 1234",
+      "123-456-7890",
+      "023-456-7890",
+      "813-055-0123",
+      "813-155-0123",
+    ]) {
       expect(pickBookingPhone({ mobile, businessPhone })).toEqual({
         phone: businessPhone,
         source: "business",
         mobileInvalid: true,
       });
     }
+  });
+
+  it("normalises the business number too, and drops an impossible one", () => {
+    expect(
+      pickBookingPhone({ mobile: undefined, businessPhone: "(907) 555-1234" }),
+    ).toEqual({
+      phone: "+19075551234",
+      source: "business",
+      mobileInvalid: false,
+    });
+    expect(
+      pickBookingPhone({ mobile: undefined, businessPhone: "+11234567890" }),
+    ).toEqual({ phone: null, source: null, mobileInvalid: false });
   });
 
   it("returns no phone when neither number is usable", () => {
