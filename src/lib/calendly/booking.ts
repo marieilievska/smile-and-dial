@@ -398,35 +398,32 @@ export function pickBookingPhone(args: {
  * Number"), or null.
  *
  * buildQuestionsAndAnswers deliberately answers only REQUIRED questions: a
- * wrong answer to an optional select gets the whole booking rejected. The
- * phone is the one optional field we fill on purpose, because the host's
- * reminder texts go to it. Every other optional question stays blank, and a
- * required phone question is still answered by buildQuestionsAndAnswers.
+ * wrong answer to an optional question can get the whole booking rejected or
+ * corrupt the host's data. The phone is the one optional field we fill on
+ * purpose, because the host's reminder texts go to it.
+ *
+ * Only Calendly's own `phone_number` question type counts, never the wording.
+ * The webinar is about answering phones, so the host's form can easily hold a
+ * question like "What phone system do you use today?", and a wording match
+ * would silently overwrite that answer with a number. A free-text "Phone"
+ * question therefore stays blank, as it does today.
  */
 export function buildOptionalPhoneAnswer(
   questions: CalendlyCustomQuestion[] | null | undefined,
   phone: string | null,
 ): CalendlyQuestionAnswer | null {
-  if (!phone) return null;
-  for (const q of questions ?? []) {
+  if (!phone?.trim()) return null;
+  const list = questions ?? [];
+  for (let i = 0; i < list.length; i++) {
+    const q = list[i];
     const question = typeof q?.name === "string" ? q.name : "";
-    if (!question) continue;
-    if (q.enabled === false) continue;
-    if (q.required === true) continue;
-
-    const type = (q.type ?? "").toLowerCase();
-    const hasChoices = (q.answer_choices ?? []).some(
-      (c) => typeof c === "string" && c.trim().length > 0,
-    );
-    if (hasChoices || type.includes("select")) continue;
-
-    if (type === "phone_number" || /\b(phone|mobile|cell)\b/i.test(question)) {
-      return {
-        question,
-        answer: phone,
-        position: typeof q.position === "number" ? q.position : 0,
-      };
-    }
+    if (!question || q.enabled === false || q.required === true) continue;
+    if ((q.type ?? "").toLowerCase() !== "phone_number") continue;
+    return {
+      question,
+      answer: phone,
+      position: typeof q.position === "number" ? q.position : i,
+    };
   }
   return null;
 }

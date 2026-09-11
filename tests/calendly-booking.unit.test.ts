@@ -575,6 +575,8 @@ describe("buildOptionalPhoneAnswer", () => {
 
   it("returns null when there is no phone to give", () => {
     expect(buildOptionalPhoneAnswer(liveForm, null)).toBeNull();
+    expect(buildOptionalPhoneAnswer(liveForm, "")).toBeNull();
+    expect(buildOptionalPhoneAnswer(liveForm, "   ")).toBeNull();
   });
 
   it("leaves a REQUIRED phone question to buildQuestionsAndAnswers", () => {
@@ -593,15 +595,47 @@ describe("buildOptionalPhoneAnswer", () => {
         answer_choices: ["Current Referrizer client", "New to Referrizer"],
       },
       {
+        name: "Can we text your cell?",
+        type: "single_select",
+        position: 1,
+        required: false,
+        enabled: true,
+        answer_choices: ["Yes", "No"],
+      },
+      {
         name: "Anything you'd like us to cover?",
         type: "text",
+        position: 2,
+        required: false,
+        enabled: true,
+        answer_choices: [],
+      },
+    ];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
+  });
+
+  it("ignores free-text questions that only mention a phone (the webinar is about phones)", () => {
+    // Deliberate: only Calendly's phone_number type is filled. A wording match
+    // would overwrite an answer like the phone system with a phone number.
+    const qs: CalendlyCustomQuestion[] = [
+      {
+        name: "What phone system do you use today?",
+        type: "text",
+        position: 0,
+        required: false,
+        enabled: true,
+        answer_choices: [],
+      },
+      {
+        name: "How many phone calls do you miss per week?",
+        type: "string",
         position: 1,
         required: false,
         enabled: true,
         answer_choices: [],
       },
       {
-        name: "How did you hear about our excellent program?",
+        name: "Best cell for reminders",
         type: "string",
         position: 2,
         required: false,
@@ -612,27 +646,41 @@ describe("buildOptionalPhoneAnswer", () => {
     expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
   });
 
-  it("skips a disabled phone question", () => {
-    const qs: CalendlyCustomQuestion[] = [{ ...liveForm[1], enabled: false }];
-    expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
-  });
-
-  it("recognises a free-text question that asks for a cell by its wording", () => {
+  it("finds the phone_number question even when a phone-worded question comes first", () => {
     const qs: CalendlyCustomQuestion[] = [
+      liveForm[0],
       {
-        name: "Best cell for reminders",
-        type: "string",
-        position: 3,
+        name: "What phone system do you use today?",
+        type: "text",
+        position: 1,
         required: false,
         enabled: true,
         answer_choices: [],
       },
+      { ...liveForm[1], position: 2 },
     ];
     expect(buildOptionalPhoneAnswer(qs, phone)).toEqual({
-      question: "Best cell for reminders",
+      question: "Phone Number",
       answer: phone,
-      position: 3,
+      position: 2,
     });
+  });
+
+  it("falls back to the question's place in the list when Calendly sends no position", () => {
+    const qs: CalendlyCustomQuestion[] = [
+      liveForm[0],
+      { ...liveForm[1], position: null },
+    ];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toEqual({
+      question: "Phone Number",
+      answer: phone,
+      position: 1,
+    });
+  });
+
+  it("skips a disabled phone question", () => {
+    const qs: CalendlyCustomQuestion[] = [{ ...liveForm[1], enabled: false }];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
   });
 
   it("returns null when the event type has no questions", () => {
