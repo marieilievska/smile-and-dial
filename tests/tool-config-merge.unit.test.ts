@@ -53,7 +53,7 @@ function liveTool(): ToolConfig {
     follow_redirects_allowed_domains: [],
     api_schema: {
       request_headers: {},
-      kind: "http",
+      kind: "webhook",
       url: `${URL_BASE}/schedule_callback`,
       method: "POST",
       path_params_schema: {},
@@ -74,7 +74,7 @@ function liveTool(): ToolConfig {
       response_body_schema: null,
       response_filter: null,
       content_type: "application/json",
-      auth_resolved_params: null,
+      auth_resolved_params: [],
       auth_connection: null,
     },
   };
@@ -160,7 +160,10 @@ describe("mergeToolConfig: the dashboard owns how a tool runs", () => {
     const merged = mergeToolConfig(live, ourTool());
     expect(merged.execution_mode).toBe("async");
     expect(merged.pre_tool_speech).toBe("force");
-    expect(merged.force_pre_tool_speech).toBe(true);
+    // The legacy mirror is dropped rather than echoed: it cannot express
+    // "disable_during_tool_and_turn" or tell "auto" from "off", and
+    // ElevenLabs recomputes it from pre_tool_speech.
+    expect(merged.force_pre_tool_speech).toBeUndefined();
     expect(merged.tool_call_sound).toBe("typing");
     expect(merged.response_timeout_secs).toBe(30);
     expect(merged.interruption_mode).toBe("disable_during_tool");
@@ -199,6 +202,21 @@ describe("mergeToolConfig: the dashboard owns how a tool runs", () => {
     mergeToolConfig(live, ours);
     expect(live).toEqual(liveBefore);
     expect(ours).toEqual(oursBefore);
+  });
+
+  it("drops ElevenLabs' deprecated mirror booleans so they cannot weaken the real setting", () => {
+    const live = {
+      ...liveTool(),
+      interruption_mode: "disable_during_tool_and_turn",
+      disable_interruptions: true,
+      pre_tool_speech: "off",
+      force_pre_tool_speech: false,
+    };
+    const merged = mergeToolConfig(live, ourTool());
+    expect(merged.interruption_mode).toBe("disable_during_tool_and_turn");
+    expect(merged.pre_tool_speech).toBe("off");
+    expect("disable_interruptions" in merged).toBe(false);
+    expect("force_pre_tool_speech" in merged).toBe(false);
   });
 });
 
@@ -298,5 +316,44 @@ describe("ownedFieldsDiffer: does a re-sync need to touch this tool at all?", ()
       response_timeout_secs: 45,
     };
     expect(ownedFieldsDiffer(live, ourTool())).toBe(false);
+  });
+
+  it("is true when a code-owned api_schema field we don't otherwise compare changed", () => {
+    // mergeToolConfig replaces the whole api_schema, so everything inside it
+    // counts as ours: a request header, a query schema, or the body's own
+    // description.
+    const api = ourTool().api_schema as Record<string, unknown>;
+    expect(
+      ownedFieldsDiffer(liveTool(), {
+        ...ourTool(),
+        api_schema: { ...api, request_headers: { "X-Tool-Secret": SECRET } },
+      }),
+    ).toBe(true);
+    expect(
+      ownedFieldsDiffer(liveTool(), {
+        ...ourTool(),
+        api_schema: {
+          ...api,
+          query_params_schema: { properties: { page: { type: "string" } } },
+        },
+      }),
+    ).toBe(true);
+    const reworded = withBody(ourTool(), () => {});
+    (
+      (reworded.api_schema as Record<string, unknown>)
+        .request_body_schema as Record<string, unknown>
+    ).description = "Reworded body description.";
+    expect(ownedFieldsDiffer(liveTool(), reworded)).toBe(true);
+  });
+
+  it("is true when a parameter switched from a description to a dynamic variable", () => {
+    const ours = withBody(ourTool(), (b) => {
+      b.properties.callback_datetime = {
+        type: "string",
+        enum: null,
+        dynamic_variable: "callback_datetime",
+      };
+    });
+    expect(ownedFieldsDiffer(liveTool(), ours)).toBe(true);
   });
 });

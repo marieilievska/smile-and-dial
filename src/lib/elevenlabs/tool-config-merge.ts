@@ -7,7 +7,7 @@
  * schema, which carries the shared secret and every parameter the webhook
  * reads). The ElevenLabs DASHBOARD owns everything about HOW the tool runs:
  * execution_mode (background or wait), pre-tool speech, interruptions, tool
- * sounds, the timeout, error handling, and any setting ElevenLabs adds later.
+ * sounds, the timeout, error handling, and any top-level setting ElevenLabs adds later.
  *
  * Why (Marija, 2026-09-11): she moved four tools to background execution and
  * made book_appointment always say its "locking that in" line, both in the
@@ -28,10 +28,25 @@ export const CODE_OWNED_TOOL_FIELDS = [
 
 export type ToolConfig = Record<string, unknown>;
 
+/** ElevenLabs still echoes an older boolean beside two of these settings.
+ *  `disable_interruptions` cannot express "disable_during_tool_and_turn" and
+ *  `force_pre_tool_speech` cannot tell "auto" from "off", so re-sending them
+ *  beside the real setting risks ElevenLabs resolving the pair to the weaker
+ *  value. The code before this module never sent them, and the live tools show
+ *  ElevenLabs recomputing them from the enums, so the merge drops each one
+ *  whenever its successor is present. */
+const DEPRECATED_MIRRORS: Record<string, string> = {
+  force_pre_tool_speech: "pre_tool_speech",
+  disable_interruptions: "interruption_mode",
+};
+
 /**
  * The config to PATCH onto an existing tool: the LIVE config with only the
  * code-owned fields replaced by ours. Sending the whole merged object is
  * correct whether ElevenLabs treats `tool_config` as a replacement or a merge.
+ * The whole `api_schema` is ours, so any sibling ElevenLabs keeps inside it
+ * (response_filter, auth_connection) is replaced, exactly as the code before
+ * this module did.
  */
 export function mergeToolConfig(
   live: ToolConfig,
@@ -40,6 +55,9 @@ export function mergeToolConfig(
   const merged: ToolConfig = { ...live };
   for (const field of CODE_OWNED_TOOL_FIELDS) {
     if (field in ours) merged[field] = ours[field];
+  }
+  for (const [legacy, successor] of Object.entries(DEPRECATED_MIRRORS)) {
+    if (successor in merged) delete merged[legacy];
   }
   return merged;
 }
@@ -93,29 +111,29 @@ function covers(live: unknown, ours: unknown): boolean {
  * tool already matches our plumbing and must be left alone: no PATCH at all,
  * so a routine campaign save changes nothing in ElevenLabs.
  *
- * Compared: type, name, description, URL, method, the required list (as a
- * set), and each parameter's type / enum / description / dynamic_variable /
- * constant_value. The SET of parameters must match exactly, so a parameter
- * removed from code is removed live too.
+ * Every field mergeToolConfig would overwrite is compared, so the two can
+ * never disagree about what "ours" means. A false "same" would leave stale
+ * plumbing live (ElevenLabs calling our webhook the wrong way, with the sync
+ * reporting success); a false "differs" only costs one extra PATCH that
+ * changes nothing.
+ *
+ * ElevenLabs echoes back more than we send (extra parameter defaults,
+ * api_schema siblings), so "live covers ours" is the test, with null ≈ missing
+ * and `required` compared as a set. Coverage cannot see a REMOVAL, so the set
+ * of parameter names must match exactly: a parameter dropped from code is
+ * dropped live too.
  */
 export function ownedFieldsDiffer(live: ToolConfig, ours: ToolConfig): boolean {
-  for (const field of ["type", "name", "description"] as const) {
-    if (live[field] !== ours[field]) return true;
-  }
-  const liveApi = asObject(live.api_schema);
-  const ourApi = asObject(ours.api_schema);
-  if (liveApi.url !== ourApi.url || liveApi.method !== ourApi.method) {
+  if (
+    CODE_OWNED_TOOL_FIELDS.some((field) => !covers(live[field], ours[field]))
+  ) {
     return true;
   }
-  const liveBody = asObject(liveApi.request_body_schema);
-  const ourBody = asObject(ourApi.request_body_schema);
-  if (!sameStringSet(liveBody.required, ourBody.required)) return true;
-  const liveProps = asObject(liveBody.properties);
-  const ourProps = asObject(ourBody.properties);
-  if (!sameStringSet(Object.keys(liveProps), Object.keys(ourProps))) {
-    return true;
-  }
-  return Object.entries(ourProps).some(
-    ([name, def]) => !covers(liveProps[name], def),
-  );
+  const paramNames = (config: ToolConfig): string[] =>
+    Object.keys(
+      asObject(
+        asObject(asObject(config.api_schema).request_body_schema).properties,
+      ),
+    );
+  return !sameStringSet(paramNames(live), paramNames(ours));
 }
