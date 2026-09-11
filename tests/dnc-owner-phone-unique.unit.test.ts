@@ -285,7 +285,7 @@ describe("createInvitee only ever receives the DNC-filtered optional answer", ()
 });
 
 describe("a failed mobile_phone save is logged, not swallowed", () => {
-  it("captures the update's error and flags mobile_save_failed on both outcome audits, keyed on that same error", () => {
+  it("captures the update's error and flags mobile_save_failed on the failure, success AND already-booked audits, keyed on that same error", () => {
     const src = read("src/lib/elevenlabs/tool-webhook.ts");
     const save =
       /error:\s*(\w+)\s*\}\s*=\s*await ctx\.supabase\s*\.from\("leads"\)[^;]*\.update\(\{\s*mobile_phone:[^;]*;/.exec(
@@ -302,8 +302,9 @@ describe("a failed mobile_phone save is logged, not swallowed", () => {
     const usesFlag = new RegExp(
       `${flagVar}\\s*\\?\\s*\\{\\s*mobile_save_failed:\\s*true\\s*\\}`,
     );
-    // … and BOTH the failure and success tool_book_appointment audits must
-    // use it, not just one of them.
+    // … and the failure, success AND already-booked tool_book_appointment
+    // audits must all use it — the cell save runs BEFORE the idempotency
+    // guard, so a failed save can precede any of the three.
     const failure =
       /logToolEvent\(ctx, "tool_book_appointment", \{[^;]*?error: result\.error[^;]*?\}\);/.exec(
         src,
@@ -312,10 +313,19 @@ describe("a failed mobile_phone save is logged, not swallowed", () => {
       /logToolEvent\(ctx, "tool_book_appointment", \{[^;]*?invitee_uri: result\.inviteeUri[^;]*?\}\);/.exec(
         src,
       );
+    const alreadyBooked =
+      /logToolEvent\(ctx, "tool_book_appointment", \{[^;]*?already_booked: true[^;]*?\}\);/.exec(
+        src,
+      );
     expect(failure, "tool_book_appointment failure audit").not.toBeNull();
     expect(success, "tool_book_appointment success audit").not.toBeNull();
+    expect(
+      alreadyBooked,
+      "tool_book_appointment already_booked audit",
+    ).not.toBeNull();
     expect(failure![0], "failure audit").toMatch(usesFlag);
     expect(success![0], "success audit").toMatch(usesFlag);
+    expect(alreadyBooked![0], "already_booked audit").toMatch(usesFlag);
   });
 });
 

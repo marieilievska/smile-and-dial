@@ -551,8 +551,7 @@ describe("requiredQuestionPhone", () => {
   // Before this feature, a REQUIRED phone_number question always got the raw
   // business number. pickBookingPhone only returns a NANP-shaped number, so a
   // business number that is merely foreign or malformed (not unusable, just
-  // unvalidated) must still reach a REQUIRED question — the plan's promise
-  // that this case "behaves exactly as before".
+  // unvalidated) must still reach a REQUIRED question.
   const lead = { business_phone: "+44 20 7946 0958", owner_phone: null };
   const requiredPhoneQ: CalendlyCustomQuestion = {
     name: "Phone Number",

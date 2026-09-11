@@ -1494,10 +1494,10 @@ async function bookAppointment(
         .from("leads")
         .update({ mobile_phone: bookingPhone.phone })
         .eq("id", ctx.lead.id);
-      // The booking still proceeds either way — the cell reached Calendly
-      // regardless — but phone_source: "mobile" is logged below as if this
-      // save landed, so a silent failure here would misreport the lead as
-      // holding a cell it never got.
+      // The save doesn't change what Calendly gets — bookingPhone.phone was
+      // already decided above — but phone_source: "mobile" is logged below as
+      // if this save landed, so a silent failure here would misreport the
+      // lead as holding a cell it never got.
       if (mobileSaveError) mobileSaveFailed = true;
     }
 
@@ -1524,6 +1524,7 @@ async function bookAppointment(
         already_booked: true,
         ...agreedDayAudit,
         ...phoneAudit,
+        ...(mobileSaveFailed ? { mobile_save_failed: true } : {}),
       });
       return {
         success: true,
@@ -1550,8 +1551,9 @@ async function bookAppointment(
         email,
         // A REQUIRED question can't be skipped, so it falls back to the raw
         // business number (unvalidated) rather than pickBookingPhone's null —
-        // otherwise an unusable business phone left this blank and
-        // buildQuestionsAndAnswers answered with the COMPANY NAME instead.
+        // otherwise an unusable business phone would leave this blank, and
+        // buildQuestionsAndAnswers would answer with the COMPANY NAME, which
+        // Calendly would reject.
         phone: requiredQuestionPhone(bookingPhone, ctx.lead),
       },
     );
