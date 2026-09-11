@@ -7,6 +7,7 @@ import type { SearchParams } from "@/app/(app)/leads/leads-url";
 
 loadEnv({ path: ".env.local" });
 
+const live = process.env.LEADS_SCALE_LIVE === "1";
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
@@ -20,8 +21,15 @@ const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
  * Read-only: we lean on the production data set, where a broad filter (a whole
  * state) already matches far more leads than any request URL can carry. No rows
  * are created or deleted.
+ *
+ * OPT-IN live check — skipped unless LEADS_SCALE_LIVE=1, the same gate the
+ * business-research live test uses for RESEARCH_LIVE. Without it, this test
+ * would query the production Supabase project on every `npm run test:unit`
+ * whenever a developer's .env.local happens to carry real Supabase keys.
+ *
+ *   LEADS_SCALE_LIVE=1 npx vitest run tests/leads-advanced-filter-scale.unit.test.ts
  */
-describe.skipIf(!URL || !KEY)("advanced filter at scale", () => {
+describe.skipIf(!live || !URL || !KEY)("advanced filter at scale", () => {
   let admin: SupabaseClient;
   // A state that holds thousands of leads — enough that the id-list approach is
   // guaranteed to overflow. Verified against prod (CA ≈ 11.8k).
