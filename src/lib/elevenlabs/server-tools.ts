@@ -306,8 +306,16 @@ type LiveTool = { id: string; config: ToolConfig };
  *  name → {id, live config} map. The id lets us reuse existing tools instead
  *  of duplicating them; the config lets us merge into their live settings
  *  instead of replacing them (the list endpoint returns full configs, so no
- *  extra GET per tool). */
-async function listToolsByName(apiKey: string): Promise<Map<string, LiveTool>> {
+ *  extra GET per tool).
+ *
+ *  Returns null when the workspace could not be READ at all (a failed page or
+ *  a thrown request) — distinct from an empty Map, which means the workspace
+ *  genuinely has no tools. The two must never be confused: treating a failed
+ *  read as "no tools" would make every tool look missing and rebuild all of
+ *  them as duplicates, stranding the dashboard settings on the originals. */
+async function listToolsByName(
+  apiKey: string,
+): Promise<Map<string, LiveTool> | null> {
   const byName = new Map<string, LiveTool>();
   let cursor: string | null = null;
   // Bounded loop so a misbehaving cursor can't spin forever.
@@ -315,21 +323,25 @@ async function listToolsByName(apiKey: string): Promise<Map<string, LiveTool>> {
     const url: string = cursor
       ? `${TOOLS_API}?cursor=${encodeURIComponent(cursor)}`
       : TOOLS_API;
-    const res = await fetch(url, { headers: { "xi-api-key": apiKey } });
-    if (!res.ok) break;
-    const data = (await res.json()) as {
-      tools?: { id?: string; tool_config?: ToolConfig }[];
-      has_more?: boolean;
-      next_cursor?: string | null;
-    };
-    for (const t of data.tools ?? []) {
-      const name = t.tool_config?.name;
-      if (typeof name === "string" && name && t.id) {
-        byName.set(name, { id: t.id, config: t.tool_config ?? {} });
+    try {
+      const res = await fetch(url, { headers: { "xi-api-key": apiKey } });
+      if (!res.ok) return null;
+      const data = (await res.json()) as {
+        tools?: { id?: string; tool_config?: ToolConfig }[];
+        has_more?: boolean;
+        next_cursor?: string | null;
+      };
+      for (const t of data.tools ?? []) {
+        const name = t.tool_config?.name;
+        if (typeof name === "string" && name && t.id) {
+          byName.set(name, { id: t.id, config: t.tool_config ?? {} });
+        }
       }
+      if (!data.has_more || !data.next_cursor) break;
+      cursor = data.next_cursor;
+    } catch {
+      return null;
     }
-    if (!data.has_more || !data.next_cursor) break;
-    cursor = data.next_cursor;
   }
   return byName;
 }
@@ -362,6 +374,19 @@ export async function ensureServerTools(): Promise<Record<string, string>> {
 
   try {
     const existing = await listToolsByName(apiKey);
+    // A workspace we could not READ is not a workspace with no tools. Treating
+    // a failed list as empty would create a second copy of every tool, point
+    // the agents at the copies, and leave the dashboard settings this module
+    // exists to protect stranded on the originals. Do nothing instead: nothing
+    // is cached, so the next sync retries. (Attaching no ids is safe for a
+    // connected agent — the overlay can only drop ids it can identify, so the
+    // agent keeps the tools it already has.)
+    if (!existing) {
+      console.error(
+        "[server-tools] could not list workspace tools; skipping this sync",
+      );
+      return {};
+    }
     const out: Record<string, string> = {};
 
     for (const key of SERVER_TOOL_KEYS) {
@@ -378,6 +403,17 @@ export async function ensureServerTools(): Promise<Record<string, string>> {
         // matches is left completely alone. Otherwise we PATCH the live config
         // with just our fields swapped in (see tool-config-merge.ts). Keep the
         // id even if the update fails: the tool still exists.
+        //
+        // A live config with no api_schema is not a config we can safely merge
+        // into: PATCHing it would drop every run-time setting while the log
+        // below claimed they were kept. Leave the tool alone and say so.
+        if (!live.config.api_schema) {
+          console.error(
+            `[server-tools] ${toolFunctionName(key)}: live config has no api_schema; skipping the update so its dashboard settings are not dropped`,
+          );
+          out[key] = live.id;
+          continue;
+        }
         if (ownedFieldsDiffer(live.config, config)) {
           const patched = await fetch(
             `${TOOLS_API}/${encodeURIComponent(live.id)}`,
