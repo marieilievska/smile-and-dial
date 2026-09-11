@@ -36,6 +36,16 @@ const MACHINE_GREETING_RE =
 const AI_SELF_ID_RE =
   /\bai receptionist\b|\bautomated receptionist\b|\bvirtual receptionist\b|\bai (assistant|agent)\b|\bsmart ai\b|\bi'?m an ai\b|\bi am (your |an |a )?ai\b|\bthis is \w+,? (a |an )?(smart )?ai\b|\bautomated (attendant|assistant)\b|\bvirtual assistant\b/i;
 
+/** A called-party clause that mentions an AI but is NOT a bot introducing
+ *  itself: a PERSON asking about us ("are you an AI agent, Tom?", "is this a
+ *  bot?") or describing THEIR OWN tools ("we already have an AI assistant").
+ *  Each put a human conversation into ai_receptionist — a no-human outcome that
+ *  erases the connect and rests the lead 15 days. Across all 4,144 calls on
+ *  2026-09-11 skipping these sentences changed exactly 4 calls, none a real
+ *  self-introduction. */
+const NOT_SELF_ID_CLAUSE_RE =
+  /\b(are|r)\s+(you|u)\b|\bis\s+(this|that|it)\s+(an?\s+)?(ai|bot|robot|automated|virtual|recording)\b|\byou\s+sound\b|\b(we|i)\s+(already\s+|currently\s+|just\s+|actually\s+)?(have|use|got|had|run|are using|am using|signed up)\b/i;
+
 /** Phrases that mark a called-party turn as a RECORDING / IVR / menu / voicemail
  *  rather than a live human reply — multilingual (EN / ES / FR) because our
  *  leads include Spanish- and French-speaking businesses whose machines we must
@@ -60,9 +70,15 @@ const MACHINE_REPLY_RE =
  *     "don’t", not "don't" (~134 turns per 400 calls), and a `don'?t` pattern
  *     silently misses every one of them.
  *  Validated: fires on 32/8,123 calls, all of which were already `dnc`, and
- *  catches all 5 of the audit’s missed DNCs. Zero false positives. */
+ *  catches all 5 of the audit’s missed DNCs. Zero false positives.
+ *
+ *  3. "out" only counts as "out of your list / system / database…". A bare
+ *     "get me … out" DNC'd an owner who said "get me out of here because I got
+ *     clients" while asking for the webinar details by email (BioFit StL,
+ *     2026-09-10). Re-checked against all 4,143 calls on 2026-09-11: that call
+ *     was the only one this narrowing changes. */
 const LEAD_REQUEST_REMOVAL_RE =
-  /\b(take|get)\s+(me|us|my|our)\b[^.?!]{0,30}\b(off|out)\b|\bremove\s+(me|us|my|our)\b|\bstop\s+calling\b|\b(do not|don['’]?t|never)\s+(call|contact)\b|\bdo[-\s]?not[-\s]?call\b|\bunsubscribe\b/i;
+  /\b(take|get)\s+(me|us|my|our)\b[^.?!]{0,30}\boff\b|\b(take|get)\s+(me|us|my|our)\b[^.?!]{0,30}\bout\s+of\s+(your|the|this)\s+(list|lists|system|database|rolodex|records|contacts|call(ing)?\s+list)\b|\bremove\s+(me|us|my|our)\b|\bstop\s+calling\b|\b(do not|don['’]?t|never)\s+(call|contact)\b|\bdo[-\s]?not[-\s]?call\b|\bunsubscribe\b/i;
 
 type Turn = { role?: unknown; message?: unknown };
 
@@ -126,13 +142,19 @@ export function leadRequestedRemoval(transcript: unknown): boolean {
   );
 }
 
-/** The called party's turns self-identify as an AI/automated/virtual assistant. */
+/** The called party's turns self-identify as an AI/automated/virtual assistant.
+ *  Judged sentence by sentence so a person's question about US ("are you an AI
+ *  agent?") or remark about their own setup ("we have an AI assistant") never
+ *  counts — see NOT_SELF_ID_CLAUSE_RE. Commas are NOT split on: "This is Max,
+ *  an AI" and "My name is Kirsten, your virtual receptionist" stay whole. */
 export function calledPartySelfIdentifiesAsAi(transcript: unknown): boolean {
-  const userText = normalizeTurns(transcript)
+  return normalizeTurns(transcript)
     .filter((t) => t.role === "user")
-    .map((t) => t.message)
-    .join(" \n ");
-  return AI_SELF_ID_RE.test(userText);
+    .flatMap((t) => t.message.split(/[.?!;]+/))
+    .some(
+      (sentence) =>
+        AI_SELF_ID_RE.test(sentence) && !NOT_SELF_ID_CLAUSE_RE.test(sentence),
+    );
 }
 
 /** Count GENUINE human replies: a called-party turn that (a) follows an agent
