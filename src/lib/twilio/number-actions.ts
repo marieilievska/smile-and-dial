@@ -24,7 +24,7 @@ import {
   searchAvailableNumbers,
   setNumberFriendlyName,
 } from "./numbers";
-import { isSuperAdmin } from "@/lib/auth/roles";
+import { canManageUsers, isSuperAdmin } from "@/lib/auth/roles";
 
 /** Longest friendly name we'll store — keeps the table tidy and matches
  *  Twilio's own FriendlyName limit. */
@@ -34,13 +34,26 @@ const NUMBERS_PATH = "/settings/twilio-numbers";
 
 type ActionResult = { error: string | null };
 
-/** Confirm the caller is a super admin. The two actions behind this gate
- *  ("Sync from Twilio", permanently deleting a released number) reconcile the
- *  SHARED Twilio account, not one person's numbers. */
-async function requireAdmin(): Promise<{
+/** The two gated actions here used to share one super-admin check. They do
+ *  not need the same tier, so they no longer share one:
+ *
+ *    Sync from Twilio   reconciles the ENTIRE shared Twilio account — every
+ *                       number, whoever owns it. Stays super admin.
+ *    Delete a released
+ *    number             touches exactly one row, looked up through the
+ *                       CALLER's own client. Moves to the admin tier.
+ *
+ *  Unlike the tier guards in lib/auth/guards.ts these hand back the caller's
+ *  Supabase client, because every call site goes on to read through it. */
+type Gated = {
   supabase: Awaited<ReturnType<typeof createClient>>;
   error: string | null;
-}> {
+};
+
+async function requireRole(
+  allows: (role: string | null | undefined) => boolean,
+  denial: string,
+): Promise<Gated> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -52,10 +65,26 @@ async function requireAdmin(): Promise<{
     .select("role")
     .eq("id", user.id)
     .single();
-  if (!isSuperAdmin(me?.role)) {
-    return { supabase, error: "Only a super admin can do that." };
-  }
+  if (!allows(me?.role)) return { supabase, error: denial };
   return { supabase, error: null };
+}
+
+/** Sees every number in the workspace, so may reconcile all of them. */
+async function requireSuperAdmin(): Promise<Gated> {
+  return requireRole(isSuperAdmin, "Only a super admin can do that.");
+}
+
+/** Elevated power that stays inside what the caller can already SEE.
+ *
+ *  `twilio_numbers_delete` is `owner_id = auth.uid() or is_admin(auth.uid())`
+ *  (20260831120000), so an admin has always been allowed to delete a number
+ *  they own — gating the action on super admin alone was stricter than the
+ *  table, which left an owner staring at their own released number with no
+ *  way to clear it. Ownership is still enforced, just by RLS rather than here:
+ *  the lookup in deleteTwilioNumber runs through the caller's client, so a row
+ *  they cannot see reads back as missing and the delete stops. */
+async function requireNumberManager(): Promise<Gated> {
+  return requireRole(canManageUsers, "You are not authorized.");
 }
 
 /** Confirm the caller is signed in, and report whether they see every
@@ -340,7 +369,7 @@ export async function releaseNumber(id: string): Promise<ActionResult> {
  *  release step is what hands the number back to Twilio). Historical calls
  *  that referenced it are detached first so the foreign key doesn't block. */
 export async function deleteTwilioNumber(id: string): Promise<ActionResult> {
-  const { supabase, error: adminError } = await requireAdmin();
+  const { supabase, error: adminError } = await requireNumberManager();
   if (adminError) return { error: adminError };
 
   const { data: number } = await supabase
@@ -435,7 +464,7 @@ export async function syncFromTwilio(): Promise<{
   refreshed: number;
   error: string | null;
 }> {
-  const { supabase, error: authError } = await requireAdmin();
+  const { supabase, error: authError } = await requireSuperAdmin();
   if (authError) return { added: 0, refreshed: 0, error: authError };
 
   const { numbers, error: listError } = await listOwnedNumbers();

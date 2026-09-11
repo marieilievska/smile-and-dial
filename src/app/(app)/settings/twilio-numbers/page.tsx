@@ -40,7 +40,7 @@ import { RepointWebhooksButton } from "./repoint-button";
 import { TwilioNumbersStatusTabs } from "./status-tabs";
 import { TwilioSyncButton } from "./sync-button";
 import { etDateTimeExact } from "@/lib/time/eastern";
-import { isSuperAdmin } from "@/lib/auth/roles";
+import { canManageUsers, isSuperAdmin } from "@/lib/auth/roles";
 import { SmartPagination } from "@/app/(app)/leads/smart-pagination";
 
 function str(v: string | string[] | undefined): string {
@@ -68,11 +68,21 @@ export default async function TwilioNumbersPage({
     .select("role")
     .eq("id", user.id)
     .single();
-  // Members (builders) manage the number pool. The two controls behind this
-  // flag both reconcile the SHARED Twilio account rather than one person's
-  // numbers — "Sync from Twilio", and permanently deleting a released number
-  // — so they belong to the tier that sees everything.
-  const isAdmin = isSuperAdmin(me?.role);
+  // Members (builders) manage the number pool. Two controls sit above that,
+  // and they are NOT the same tier:
+  //
+  //   Sync from Twilio  reconciles the SHARED Twilio account — every number,
+  //                     whoever owns it — so it needs the tier that sees
+  //                     everything.
+  //   Delete a released
+  //   number            clears one row the caller can already see. RLS has
+  //                     always allowed an owner to delete their own
+  //                     (twilio_numbers_delete, 20260831120000); gating the
+  //                     button on super admin alone promised LESS than the
+  //                     table delivered, so an admin's own released number
+  //                     had no way off the list.
+  const canSyncAccount = isSuperAdmin(me?.role);
+  const canDeleteReleased = canManageUsers(me?.role);
 
   const params = await searchParams;
   const status = ["all", "in_pool", "released"].includes(str(params.status))
@@ -204,9 +214,10 @@ export default async function TwilioNumbersPage({
          *  inbound assignment) that sits apart from the plain unattached
          *  buy flow. */}
         <div className="flex items-center gap-2">
-          {/* Sync reconciles the whole shared Twilio account, so it's admin-only
-           *  (see syncFromTwilio). Members still buy/manage their own numbers. */}
-          {isAdmin && <TwilioSyncButton />}
+          {/* Sync reconciles the whole shared Twilio account, so it's
+           *  super-admin only (see syncFromTwilio). Members still buy/manage
+           *  their own numbers. */}
+          {canSyncAccount && <TwilioSyncButton />}
           <BuyIntoPoolDialog campaigns={campaigns} />
           <BuyNumberDialog />
         </div>
@@ -379,7 +390,7 @@ export default async function TwilioNumbersPage({
                               }}
                             />
                             {number.released_at ? (
-                              isAdmin ? (
+                              canDeleteReleased ? (
                                 <DeleteNumberDialog
                                   number={{
                                     id: number.id,
