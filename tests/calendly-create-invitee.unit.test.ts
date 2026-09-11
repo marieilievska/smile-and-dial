@@ -251,7 +251,7 @@ describe("createInvitee: optional answers", () => {
     expect(sent).toHaveLength(1);
   });
 
-  it.each([401, 429])(
+  it.each([401, 403, 404, 429])(
     "keeps the phone on a bare %i, which no answer can cause",
     async (status) => {
       const { sent } = stubCalendly([{ status, body: {} }, booked]);

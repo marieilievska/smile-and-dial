@@ -434,8 +434,8 @@ export async function createInvitee(
     // names no field (a 400/422 with no details, e.g. just "The supplied
     // parameters are invalid."), book without them. Required answers stay, in
     // position order — without those Calendly refuses the booking outright. A
-    // 401/403/404/429 can't be caused by an answer, so the phone is kept and
-    // that failure is returned as-is.
+    // bare 401/403/404/429 can't be caused by an answer, so the phone is kept
+    // and that failure is returned as-is.
     let droppedOptionalAnswers = false;
     if (
       isRejection(result) &&

@@ -163,10 +163,11 @@ function bodySchemaFor(
       );
       add(
         "mobile",
-        "The lead's cell number for a text reminder, in E.164 format (+1 followed " +
-          "by the 10-digit number). Only if they gave one on this call; read it " +
-          "back to confirm first. Omit it if they didn't: the number you called " +
-          "is used instead.",
+        "The cell number the person you're booking gave on this call as their " +
+          "OWN, for a text reminder, in E.164 format (+1 followed by the 10-digit " +
+          "number). Read it back to confirm first. Omit it if they didn't give " +
+          "one, or if it's someone else's number: the business number on file is " +
+          "used instead.",
         false,
       );
       break;
