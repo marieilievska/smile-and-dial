@@ -161,6 +161,14 @@ function bodySchemaFor(
           "rejected. If you don't have it yet, ask for their first name before booking.",
         true,
       );
+      add(
+        "mobile",
+        "The lead's cell number for a text reminder, in E.164 format (+1 followed " +
+          "by the 10-digit number). Only if they gave one on this call; read it " +
+          "back to confirm first. Omit it if they didn't: the number you called " +
+          "is used instead.",
+        false,
+      );
       break;
     case "mark_dnc":
       add(
