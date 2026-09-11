@@ -60,7 +60,13 @@ export type CreateInviteeResult =
        *  answers (the phone) were dropped. */
       droppedOptionalAnswers?: boolean;
     }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /** True when the optional answers (the phone) were dropped on a retry
+       *  and the booking still failed; `error` is the retry's rejection. */
+      droppedOptionalAnswers?: boolean;
+    };
 
 type UsersMeResponse = {
   resource?: { uri?: string; current_organization?: string };
@@ -397,43 +403,60 @@ export async function createInvitee(
         .join(", ") ||
       data?.message ||
       `Calendly booking failed (${res.status}).`;
-    return { ok: res.ok, data, detail };
+    return { ok: res.ok, status: res.status, data, detail };
   };
 
   try {
     let body = payload;
     let result = await post(body);
+    // Only a 4xx guarantees Calendly created nothing. A 5xx can arrive after
+    // the invitee was saved, so retrying one could register the lead twice;
+    // neither retry below ever fires on it.
+    const isRejection = (r: { status: number }) =>
+      r.status >= 400 && r.status < 500;
     // Attribution must NEVER cost a real booking. Calendly's Create Invitee API
     // treats the `tracking` object as all-or-nothing, so a stray/partial one
     // gets the whole booking rejected ("tracking.utm_* is missing"). If that's
     // why it failed, drop tracking and retry once — the booking is the goal, the
     // UTM tag is a nice-to-have.
-    if (!result.ok && body.tracking && /tracking/i.test(result.detail)) {
+    if (
+      isRejection(result) &&
+      body.tracking &&
+      /tracking/i.test(result.detail)
+    ) {
       body = { ...body };
       delete body.tracking;
       result = await post(body);
     }
     // Same rule for the optional answers we volunteer (the phone): if Calendly
-    // rejects the booking over an answer, book without them. Required answers
-    // stay — without those Calendly refuses the booking outright.
+    // rejects the booking over an answer, or with no field-level details at all
+    // (it sometimes sends just "The supplied parameters are invalid."), book
+    // without them. Required answers stay, in position order — without those
+    // Calendly refuses the booking outright. A needless retry costs one fast
+    // 4xx: validation errors don't resolve themselves.
     let droppedOptionalAnswers = false;
     if (
-      !result.ok &&
+      isRejection(result) &&
       optionalAnswers.length > 0 &&
-      /question|answer|phone/i.test(result.detail)
+      (/question|answer|phone/i.test(result.detail) ||
+        !result.data?.details?.length)
     ) {
       body = { ...body };
-      if (requiredAnswers.length) body.questions_and_answers = requiredAnswers;
+      const kept = allAnswers.filter((a) => !optionalAnswers.includes(a));
+      if (kept.length) body.questions_and_answers = kept;
       else delete body.questions_and_answers;
       result = await post(body);
       droppedOptionalAnswers = true;
     }
-    if (!result.ok) return { ok: false, error: result.detail };
+    const dropped = droppedOptionalAnswers
+      ? { droppedOptionalAnswers: true }
+      : {};
+    if (!result.ok) return { ok: false, error: result.detail, ...dropped };
     return {
       ok: true,
       inviteeUri: result.data?.resource?.uri ?? null,
       eventUri: result.data?.resource?.event ?? null,
-      ...(droppedOptionalAnswers ? { droppedOptionalAnswers: true } : {}),
+      ...dropped,
     };
   } catch {
     return { ok: false, error: "Calendly booking request failed." };

@@ -37,7 +37,8 @@ const booked: Reply = {
   },
 };
 
-/** Calendly's 400 shape: a `details` list of { parameter, message }. */
+/** Calendly's usual 400 shape: a `details` list of { parameter, message }.
+ *  (It sometimes omits `details` entirely; see the bare-400 test.) */
 const rejected = (parameter: string, message: string): Reply => ({
   status: 400,
   body: {
@@ -53,6 +54,7 @@ const company = {
   position: 0,
 };
 const phone = { question: "Phone Number", answer: "+18135550123", position: 1 };
+const role = { question: "Your role", answer: "Owner", position: 2 };
 
 const input = {
   eventTypeUri: "https://api.calendly.com/event_types/ET1",
@@ -154,5 +156,90 @@ describe("createInvitee: optional answers", () => {
     );
     expect(result.ok).toBe(false);
     expect(sent).toHaveLength(1);
+  });
+
+  it("never retries a 5xx, even one that mentions the phone (the invitee may already exist)", async () => {
+    const { sent } = stubCalendly([
+      { status: 500, body: { message: "Error while saving invitee phone" } },
+      booked,
+    ]);
+    const result = await createInvitee(input, "token");
+    expect(result).toEqual({
+      ok: false,
+      error: "Error while saving invitee phone",
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("drops the phone on a bare 400 with no details (Calendly sends those too)", async () => {
+    const { sent } = stubCalendly([
+      {
+        status: 400,
+        body: {
+          title: "Invalid Argument",
+          message: "The supplied parameters are invalid.",
+        },
+      },
+      booked,
+    ]);
+    const result = await createInvitee(input, "token");
+    expect(result).toMatchObject({ ok: true, droppedOptionalAnswers: true });
+    expect(sent).toHaveLength(2);
+    expect(sent[1].questions_and_answers).toEqual([company]);
+  });
+
+  it("retries only once, and returns the retry's own error", async () => {
+    const { sent } = stubCalendly([
+      rejected(
+        "questions_and_answers",
+        "Phone Number is not a valid phone number",
+      ),
+      rejected("questions_and_answers", "Company Name is too long"),
+      booked,
+    ]);
+    const result = await createInvitee(input, "token");
+    expect(result).toEqual({
+      ok: false,
+      error: "questions_and_answers Company Name is too long",
+      droppedOptionalAnswers: true,
+    });
+    expect(sent).toHaveLength(2);
+  });
+
+  it("keeps tracking when only the phone is rejected", async () => {
+    const tracking = {
+      utm_source: "smile_dial",
+      utm_medium: "voice",
+      utm_campaign: "webinar",
+      utm_content: "webinar",
+      utm_term: "voice_ai",
+      salesforce_uuid: "lead-1",
+    };
+    const { sent } = stubCalendly([
+      rejected(
+        "questions_and_answers",
+        "Phone Number is not a valid phone number",
+      ),
+      booked,
+    ]);
+    await createInvitee({ ...input, tracking }, "token");
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toHaveProperty("tracking");
+  });
+
+  it("sends answers in position order, and keeps that order when the phone is dropped", async () => {
+    const { sent } = stubCalendly([
+      rejected(
+        "questions_and_answers",
+        "Phone Number is not a valid phone number",
+      ),
+      booked,
+    ]);
+    await createInvitee(
+      { ...input, questionsAndAnswers: [role, company] },
+      "token",
+    );
+    expect(sent[0].questions_and_answers).toEqual([company, phone, role]);
+    expect(sent[1].questions_and_answers).toEqual([company, role]);
   });
 });
