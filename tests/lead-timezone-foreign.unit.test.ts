@@ -92,6 +92,12 @@ describe("a country code other than +1 is never read as an area code", () => {
     expect(stateFromPhone("+8135550123")).toBeNull();
     expect(phoneToTimezone("+8135550123")).toBeNull();
     expect(toE164UsCa("+8135550123")).toBeNull();
+    // A doubled "+" typo for +1 205 259 8928: the second character isn't 1,
+    // so it falls under the same rule and reads as foreign rather than as
+    // Alabama — and both parsers still agree.
+    expect(stateFromPhone("++1 205 259 8928")).toBeNull();
+    expect(phoneToTimezone("++1 205 259 8928")).toBeNull();
+    expect(toE164UsCa("++1 205 259 8928")).toBeNull();
   });
 });
 
