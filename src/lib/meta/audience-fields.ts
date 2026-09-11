@@ -1,6 +1,7 @@
 import "server-only";
 
 import { CANADA_AREA_CODES } from "@/lib/dialer/nanp-states";
+import { hasForeignCountryCode } from "@/lib/leads/foreign-country-code";
 
 import { hashCity, hashCountry, hashEmail, hashPhone, hashState } from "./hash";
 
@@ -36,9 +37,10 @@ export type LeadForAudience = {
  *  the state is a Canadian province OR the phone's area code is Canadian;
  *  otherwise US.
  *
- *  A "+" then anything but 1 is a foreign country code, the rule toE164UsCa
- *  uses (#518): "+354 611 1234" is Iceland, not Quebec's 354. US and CA would
- *  both be guesses, so it gets null, which leaves Meta's COUNTRY cell empty.
+ *  A "+" then anything but 1 is a foreign country code: hasForeignCountryCode,
+ *  the rule toE164UsCa and areaCodeOf ask too. "+354 611 1234" is Iceland,
+ *  not Quebec's 354. US and CA would both be guesses, so it gets null, which
+ *  leaves Meta's COUNTRY cell empty.
  *  A US state doesn't overrule that (imports have filled one in from those
  *  same foreign digits); a province does, since nothing derives one from a
  *  phone.
@@ -48,8 +50,7 @@ export type LeadForAudience = {
 export function deriveCountry(lead: LeadForAudience): "US" | "CA" | null {
   const st = (lead.state ?? "").trim().toLowerCase();
   if (CA_PROVINCES.has(st)) return "CA";
-  const withPlus = (lead.business_phone ?? "").replace(/[^\d+]/g, "");
-  if (withPlus.startsWith("+") && !withPlus.startsWith("+1")) return null;
+  if (hasForeignCountryCode(lead.business_phone)) return null;
   const digits = (lead.business_phone ?? "").replace(/\D/g, "");
   const ac =
     digits.length === 11 && digits.startsWith("1")
