@@ -9,7 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 
 import { syncLeadCallCounters } from "./call-counters";
 import { IMPORTABLE_FIELDS } from "./import-fields";
-import { toE164UsCa } from "./twilio-lookup";
+import { toUsCaPhone } from "./us-ca-phone";
 import { isSuperAdmin } from "@/lib/auth/roles";
 
 type LeadUpdate = Database["public"]["Tables"]["leads"]["Update"];
@@ -46,6 +46,11 @@ async function assertLeadAccess(
 /** Standard lead fields the detail modal is allowed to edit. */
 const EDITABLE_KEYS = new Set<string>(IMPORTABLE_FIELDS.map((f) => f.key));
 const NUMERIC_KEYS = new Set(["google_rating", "google_reviews"]);
+/** Lead fields that hold a phone number. Each is stored in E.164 or not at
+ *  all — see the normalize step in updateLeadField. mobile_phone is not
+ *  editable today (the AI sets it from a call), but it is listed so the rule
+ *  already covers it the day it becomes editable. */
+const PHONE_FIELDS = new Set(["business_phone", "owner_phone", "mobile_phone"]);
 /** Contact-name fields whose ASR-captured value can be wrong and also lives,
  *  verbatim, inside the per-campaign summaries. Correcting one should scrub the
  *  old name out of those summaries so the agent doesn't reuse it on the next call. */
@@ -78,13 +83,16 @@ export async function updateLeadField(input: {
     if (Number.isNaN(parsed)) return { error: "Enter a valid number." };
     value = parsed;
   }
-  // Phone numbers must be stored in E.164 — DNC matching, dedup, and dialing
-  // all assume it. A manual edit of "(415) 555-1000" would silently break all
-  // three, so normalize here. Clearing the field (null) is allowed; a
-  // non-empty value that can't be a US/CA number is rejected outright rather
-  // than stored in a form nothing downstream can use.
-  if (input.field === "business_phone" && value !== null) {
-    const e164 = toE164UsCa(String(value));
+  // Phone numbers must be stored in E.164 — DNC matching, dedup and dialing
+  // all assume it, and since #532 the dialer refuses anything else outright.
+  // EVERY phone field, not only the business one: the owner's line is dialable
+  // by Call Now and screened against the DNC list, which stores E.164, so a
+  // prettily-typed number there was at once undialable and unmatchable.
+  // Clearing the field (null) is allowed; a non-empty value that can't be a
+  // US/CA number is rejected outright rather than stored in a form nothing
+  // downstream can use.
+  if (PHONE_FIELDS.has(input.field) && value !== null) {
+    const e164 = toUsCaPhone(String(value));
     if (!e164) return { error: "Enter a valid US/Canada phone number." };
     value = e164;
   }

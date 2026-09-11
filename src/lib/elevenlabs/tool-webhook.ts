@@ -37,6 +37,7 @@ import {
   localHourDaysAheadIso,
   resolveCallbackDatetime,
 } from "@/lib/dialer/local-schedule";
+import { toUsCaPhone } from "@/lib/leads/us-ca-phone";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
 import { etDayString } from "@/lib/time/eastern";
 import { shortenMessageLink } from "@/lib/shortlinks/shorten-message";
@@ -809,13 +810,14 @@ async function resolveCampaignSmsTemplate(
 
 /** Normalize a mobile the AI read back into E.164 (defensive — the tool already
  *  asks for E.164). US country code assumed when none is present. */
+/** A cell the agent heard, in E.164, or "" when it isn't a usable US/Canada
+ *  number. One rule with the booking path (toUsCaPhone), which is the point:
+ *  this used to prefix "+" onto whatever digits arrived, so a foreign number —
+ *  or half of a misheard one — was stored on the lead, texted, matched against
+ *  inbound replies, and handed to Calendly as the booking phone, while the
+ *  very same cell was refused for a booking. */
 function normalizeMobile(raw: string): string {
-  const s = raw.replace(/[^\d+]/g, "");
-  if (!s) return "";
-  if (s.startsWith("+")) return s;
-  if (s.length === 10) return `+1${s}`;
-  if (s.length === 11 && s.startsWith("1")) return `+${s}`;
-  return `+${s}`;
+  return toUsCaPhone(raw) ?? "";
 }
 
 /** Insert the sent `texts` row + bump the template's last_used_at. Shared by the
@@ -862,8 +864,12 @@ async function sendText(
 ): Promise<ToolWebhookResult> {
   // A text needs a MOBILE. The dialed business_phone is usually a landline, so
   // we use the mobile the AI confirmed on the call (or one stored earlier).
+  // The stored one goes through the same check rather than being trusted: the
+  // old rule saved foreign and half-heard numbers and nothing has re-examined
+  // them since. One in an older format is tidied up by the save below.
   const mobile =
-    normalizeMobile(str(body.mobile)) || ctx.lead.mobile_phone || "";
+    normalizeMobile(str(body.mobile)) ||
+    normalizeMobile(ctx.lead.mobile_phone ?? "");
   const note = str(body.note);
   if (!mobile) {
     return {
