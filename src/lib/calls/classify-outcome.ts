@@ -42,9 +42,18 @@ const AI_SELF_ID_RE =
  *  Each put a human conversation into ai_receptionist — a no-human outcome that
  *  erases the connect and rests the lead 15 days. Across all 4,144 calls on
  *  2026-09-11 skipping these sentences changed exactly 4 calls, none a real
- *  self-introduction. */
+ *  self-introduction.
+ *
+ *  Also a person's read of US ("I can tell this is an AI call" — which the
+ *  "this is <name>, an AI" branch matched with "an" as the name) and handing
+ *  something to an AI ("I'm hesitant to give it out to a AI agent"). Both were
+ *  owners (Kaos CrossFit, Melba's Dance School, 2026-09-11). The hand-off verb
+ *  is required on purpose: a bot saying "you're speaking with an AI assistant"
+ *  must still count. Across 4,162 calls this changes exactly those 2; the 12
+ *  self-IDs left are all bots ("I'm Cora, your virtual assistant", "this is
+ *  Kylie, an automated assistant"). */
 const NOT_SELF_ID_CLAUSE_RE =
-  /\b(are|r)\s+(you|u)\b|\bis\s+(this|that|it)\s+(an?\s+)?(ai|bot|robot|automated|virtual|recording)\b|\byou\s+sound\b|\b(we|i)\s+(already\s+|currently\s+|just\s+|actually\s+)?(have|use|got|had|run|are using|am using|signed up)\b/i;
+  /\b(are|r)\s+(you|u)\b|\bis\s+(this|that|it)\s+(an?\s+)?(ai|bot|robot|automated|virtual|recording)\b|\byou\s+sound\b|\b(we|i)\s+(already\s+|currently\s+|just\s+|actually\s+)?(have|use|got|had|run|are using|am using|signed up)\b|\b(can|could) tell\b|\bai (call|caller|calling)\b|\b(give|gave|giving|hand|send|share|trust)\b[^.?!]{0,25}\b(to|with) (a|an|the|some) ai\b/i;
 
 /** Phrases that mark a called-party turn as a RECORDING / IVR / menu / voicemail
  *  rather than a live human reply — multilingual (EN / ES / FR) because our
