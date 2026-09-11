@@ -1,5 +1,7 @@
 import "server-only";
 
+import { CANADA_AREA_CODES } from "@/lib/dialer/nanp-states";
+
 import { hashCity, hashCountry, hashEmail, hashPhone, hashState } from "./hash";
 
 /** The Meta customer-list schema we upload, in column order. CT = city,
@@ -23,51 +25,6 @@ const CA_PROVINCES = new Set([
   "yt",
 ]);
 
-/** Canadian area codes (subset is fine — anything not matched defaults to US,
- *  which is correct for this US-heavy list). */
-const CA_AREA_CODES = new Set([
-  "204",
-  "226",
-  "236",
-  "249",
-  "250",
-  "289",
-  "306",
-  "343",
-  "365",
-  "403",
-  "416",
-  "418",
-  "431",
-  "437",
-  "438",
-  "450",
-  "506",
-  "514",
-  "519",
-  "548",
-  "579",
-  "581",
-  "587",
-  "604",
-  "613",
-  "639",
-  "647",
-  "672",
-  "705",
-  "709",
-  "778",
-  "780",
-  "782",
-  "807",
-  "819",
-  "825",
-  "867",
-  "873",
-  "902",
-  "905",
-]);
-
 export type LeadForAudience = {
   business_email: string | null;
   business_phone: string | null;
@@ -75,11 +32,24 @@ export type LeadForAudience = {
   state: string | null;
 };
 
-/** US or CA. CA when the state is a Canadian province OR the phone's area code
- *  is Canadian; otherwise US. */
-export function deriveCountry(lead: LeadForAudience): "US" | "CA" {
+/** US or CA, or null when the phone has a country code other than +1. CA when
+ *  the state is a Canadian province OR the phone's area code is Canadian;
+ *  otherwise US.
+ *
+ *  A "+" then anything but 1 is a foreign country code, the rule toE164UsCa
+ *  uses (#518): "+354 611 1234" is Iceland, not Quebec's 354. US and CA would
+ *  both be guesses, so it gets null, which leaves Meta's COUNTRY cell empty.
+ *  A US state doesn't overrule that (imports have filled one in from those
+ *  same foreign digits); a province does, since nothing derives one from a
+ *  phone.
+ *
+ *  Canadian area codes come from the dialer's shared map. The private copy
+ *  this file used to keep fell 16 codes behind. */
+export function deriveCountry(lead: LeadForAudience): "US" | "CA" | null {
   const st = (lead.state ?? "").trim().toLowerCase();
   if (CA_PROVINCES.has(st)) return "CA";
+  const withPlus = (lead.business_phone ?? "").replace(/[^\d+]/g, "");
+  if (withPlus.startsWith("+") && !withPlus.startsWith("+1")) return null;
   const digits = (lead.business_phone ?? "").replace(/\D/g, "");
   const ac =
     digits.length === 11 && digits.startsWith("1")
@@ -87,7 +57,7 @@ export function deriveCountry(lead: LeadForAudience): "US" | "CA" {
       : digits.length === 10
         ? digits.slice(0, 3)
         : "";
-  if (ac && CA_AREA_CODES.has(ac)) return "CA";
+  if (ac && CANADA_AREA_CODES.has(ac)) return "CA";
   return "US";
 }
 

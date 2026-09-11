@@ -70,7 +70,7 @@ export async function GET(_request: NextRequest) {
       l.business_phone ?? "",
       l.city ?? "",
       l.state ?? "",
-      deriveCountry(l),
+      deriveCountry(l) ?? "",
     ]),
   ];
   const csv = BOM + rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
