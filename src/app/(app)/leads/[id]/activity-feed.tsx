@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { LEAD_PHONE_NOT_US_CA } from "@/lib/dialer/dialable-number";
 import { humanizeFallback, outcomeLabel } from "@/lib/labels";
 import { relativeTime } from "@/lib/relative-time";
 import { etDateTimeExact } from "@/lib/time/eastern";
@@ -72,7 +73,9 @@ function describeCall(item: Extract<FeedItem, { kind: "call" }>): string {
   return directionLabel;
 }
 
-function describeEvent(item: Extract<FeedItem, { kind: "event" }>): string {
+export function describeEvent(
+  item: Extract<FeedItem, { kind: "event" }>,
+): string {
   // Friendly translations for the kinds the user is likely to see.
   switch (item.eventKind) {
     case "call_now":
@@ -93,6 +96,8 @@ function describeEvent(item: Extract<FeedItem, { kind: "event" }>): string {
       return "Email reply received (Close)";
     case "spend_cap_hit":
       return "Campaign hit a spend cap";
+    case LEAD_PHONE_NOT_US_CA:
+      return "Not dialed: the number isn't a US or Canadian (+1) number";
     default:
       return humanizeFallback(item.eventKind);
   }

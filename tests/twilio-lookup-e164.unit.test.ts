@@ -110,3 +110,25 @@ describe("isUsCaNumber — only +1 followed by ten digits", () => {
     expect(isUsCaNumber("+1205259892")).toBe(false);
   });
 });
+
+/** Text as typed on a full-width (CJK) keyboard: each ASCII symbol and digit
+ *  becomes its U+FFxx twin, so "+" is "＋" (U+FF0B) and "2" is "２". */
+const fullWidth = (s: string) =>
+  s.replace(/[!-~]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0xfee0));
+
+describe("toE164UsCa — full-width characters read as what they stand for", () => {
+  it("a full-width plus is still a country code, so Singapore stays foreign", () => {
+    // Was "+16592345678". The "＋" was stripped like any other symbol, which
+    // left ten digits, the length of a bare US number: a stranger in 659.
+    expect(toE164UsCa("＋65 9234 5678")).toBeNull();
+    expect(toE164UsCa(fullWidth("+65 9234 5678"))).toBeNull();
+  });
+
+  it.each([
+    ["full-width digits", fullWidth("(205) 259-8928")],
+    ["a full-width +1 number", fullWidth("+1 205 259 8928")],
+    ["a full-width plus before 1", "＋1 205 259 8928"],
+  ])("%s (%s) is +12052598928", (_what, input) => {
+    expect(toE164UsCa(input)).toBe("+12052598928");
+  });
+});

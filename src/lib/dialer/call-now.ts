@@ -8,6 +8,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { ACTIVE_CALL_STATUSES } from "@/lib/calls/live-calls";
 import { withRecomputedTotal } from "@/lib/costs/breakdown";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
+import { isDialableNumber } from "@/lib/dialer/dialable-number";
 import { selectPoolNumber } from "@/lib/dialer/number-pool";
 import { closeStaleActiveCalls } from "@/lib/dialer/stale-calls";
 import type { Database } from "@/lib/supabase/database.types";
@@ -109,6 +110,18 @@ export async function callNow(input: {
     dialTarget === "owner" ? lead.owner_phone : lead.business_phone;
   if (dialTarget === "owner" && !lead.owner_phone) {
     return { error: "This lead has no owner phone number on file." };
+  }
+
+  // The dial-time number gate, the same one the autopilot tick applies, on
+  // whichever line this call would dial: only "+1" and ten digits is ever
+  // dialed (see isDialableNumber). Checked before anything else runs, because
+  // no safety check or pool number can make such a number callable. A MISSING
+  // business number is left to pre_call_check, which names that case itself.
+  if (dialNumber !== null && !isDialableNumber(dialNumber)) {
+    const whose = dialTarget === "owner" ? "The owner's" : "This lead's";
+    return {
+      error: `${whose} number isn't a US or Canadian number in +1 format, so Smile & Dial won't dial it. Fix the number on the lead first.`,
+    };
   }
 
   const { data: campaign } = await userClient

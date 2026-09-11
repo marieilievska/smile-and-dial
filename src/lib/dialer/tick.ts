@@ -5,6 +5,10 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { resolveDueCallbacksForLead } from "@/lib/callbacks/sync-next-call";
 import { resolveAndPlaceAgentCall } from "@/lib/dialer/agent-dial";
+import {
+  isDialableNumber,
+  LEAD_PHONE_NOT_US_CA,
+} from "@/lib/dialer/dialable-number";
 import { countryForAreaCode } from "@/lib/dialer/nanp-states";
 import {
   areaCodeOf,
@@ -21,6 +25,7 @@ import {
   maybeCheckPostCallWebhook,
   recordPoolExhausted,
   recordQueueReadFailure,
+  recordUndialableNumber,
   writeDialerHeartbeat,
   type WebhookHealthCheck,
 } from "@/lib/alerts/heartbeat";
@@ -730,6 +735,11 @@ async function runDialerTickCore(
   // in-tick; the pre_call_check pacing backstop + subsequent ticks still enforce
   // the spacing across ticks, so correctness never depends on the sleep.
   const MAX_TICK_SLEEP_MS = 45_000;
+  // How long a lead the number gate refuses waits before the tick looks at it
+  // again. Its number cannot fix itself, so the 5-minute re-check every other
+  // lead-level block gets would only re-read the same lead all day; an hour
+  // still picks up a number corrected on the lead page the same afternoon.
+  const UNDIALABLE_NUMBER_RECHECK_MS = 60 * 60 * 1000;
   let sleptMs = 0;
   // Campaigns that already refused for a CAMPAIGN-level reason this tick (capped
   // out, out of budget, no numbers). Every remaining candidate of that campaign
@@ -754,6 +764,39 @@ async function runDialerTickCore(
     const alreadyBlocked = campaignBlocked.get(c.campaign_id);
     if (alreadyBlocked) {
       summary.skippedCampaignBlocked++;
+      continue;
+    }
+
+    // The dial-time number gate: only "+1" and ten digits is ever dialed (see
+    // isDialableNumber). The queue only asks whether a number is null, and
+    // whatever it holds is handed to ElevenLabs verbatim. Checked before the
+    // pacing sleep and before pre_call_check, so a lead that cannot be dialed
+    // at all costs neither a wait nor a round trip.
+    //
+    // It counts as `blocked`, never `errors`: evaluate_alerts reads a run of
+    // ticks that error without dialing as a faulting dialer (dialer_stalled),
+    // and a campaign whose last due leads are all foreign is not one.
+    if (!isDialableNumber(c.business_phone)) {
+      summary.blocked++;
+      summary.blockedReasons[LEAD_PHONE_NOT_US_CA] =
+        (summary.blockedReasons[LEAD_PHONE_NOT_US_CA] ?? 0) + 1;
+      // One audit row on the lead's own Activity feed, throttled to once a
+      // week per lead so a list of them can't bury it.
+      await recordUndialableNumber(supabase, c.lead_id, c.campaign_id);
+      // Then out of the way for an hour (UNDIALABLE_NUMBER_RECHECK_MS). A due
+      // redial keeps its schedule, for the reason spelled out at the
+      // pre_call_check bump below: its next_call_at holds call 1's real 2-15
+      // day backoff, so an hour from now would pull that in, not push it out.
+      if (!c.is_redial_due) {
+        await supabase
+          .from("leads")
+          .update({
+            next_call_at: new Date(
+              Date.now() + UNDIALABLE_NUMBER_RECHECK_MS,
+            ).toISOString(),
+          })
+          .eq("id", c.lead_id);
+      }
       continue;
     }
 

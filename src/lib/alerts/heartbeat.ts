@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, Json } from "@/lib/supabase/database.types";
+import { LEAD_PHONE_NOT_US_CA } from "@/lib/dialer/dialable-number";
 import { fetchWorkspaceWebhooks } from "@/lib/elevenlabs/workspace-webhooks";
 
 import {
@@ -192,6 +193,35 @@ export async function recordPoolExhausted(
     "pool_exhausted",
     { table: "campaigns", id: campaignId },
     { campaign_id: campaignId, leads_blocked_this_tick: blockedThisTick },
+  );
+}
+
+/** The dial-time gate refused a lead whose number isn't "+1" and ten digits
+ *  (see isDialableNumber). Unlike a capped pool, this is about ONE lead and
+ *  will not clear on its own, so the row goes on that lead's own Activity
+ *  feed — which reads system_events by ref_table 'leads' + ref_id — where
+ *  whoever wonders why the lead is never called can find it.
+ *
+ *  At most once per lead per week: the tick meets such a lead again every hour
+ *  it stays due, and a row per meeting is how pool_exhausted buried that feed
+ *  under 20,535 rows in five days (#309). */
+export async function recordUndialableNumber(
+  supabase: Supabase,
+  leadId: string,
+  campaignId: string,
+): Promise<void> {
+  const claimed = await fireAlert(
+    supabase,
+    `event:${LEAD_PHONE_NOT_US_CA}`,
+    leadId,
+    "7 days",
+  );
+  if (!claimed) return;
+  await logSystemEvent(
+    supabase,
+    LEAD_PHONE_NOT_US_CA,
+    { table: "leads", id: leadId },
+    { lead_id: leadId, campaign_id: campaignId },
   );
 }
 

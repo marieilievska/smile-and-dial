@@ -9,6 +9,11 @@
  * Only a written code counts, so a foreign number that has lost its "+" isn't
  * caught here.
  *
+ * Full-width characters, as a CJK keyboard types them, are read as the ASCII
+ * they stand for before any of that, so "＋65 9234 5678" is foreign too.
+ * Stripped as a mere symbol, a "＋" took its country code with it and left ten
+ * bare digits — the length of a US number written without its 1.
+ *
  * The one copy of the rule. toE164UsCa (the number a lead is stored and dialed
  * under), areaCodeOf (the state and timezone an import fills in) and
  * deriveCountry (the COUNTRY sent to Meta) all ask it, so they can't drift
@@ -18,6 +23,6 @@
 export function hasForeignCountryCode(
   phone: string | null | undefined,
 ): boolean {
-  const cleaned = (phone ?? "").replace(/[^\d+]/g, "");
+  const cleaned = (phone ?? "").normalize("NFKC").replace(/[^\d+]/g, "");
   return cleaned.startsWith("+") && !cleaned.startsWith("+1");
 }

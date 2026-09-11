@@ -69,3 +69,21 @@ describe("hasForeignCountryCode — no + means no country code to read", () => {
     expect(hasForeignCountryCode(undefined)).toBe(false);
   });
 });
+
+/** Text as typed on a full-width (CJK) keyboard: each ASCII symbol and digit
+ *  becomes its U+FFxx twin, so "+" is "＋" (U+FF0B) and "6" is "６". */
+const fullWidth = (s: string) =>
+  s.replace(/[!-~]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0xfee0));
+
+describe("hasForeignCountryCode — a full-width plus is still a plus", () => {
+  // Stripping "everything but digits and +" used to strip a "＋" too, and the
+  // country code went with it: "＋65 9234 5678" became ten bare digits.
+  it.each([
+    ["a full-width plus", "＋65 9234 5678", true],
+    ["full-width plus and digits", fullWidth("+65 9234 5678"), true],
+    ["a full-width plus before 1", "＋1 205 259 8928", false],
+    ["a full-width +1 number", fullWidth("+1 205 259 8928"), false],
+  ])("%s (%s) is foreign: %s", (_what, phone, foreign) => {
+    expect(hasForeignCountryCode(phone)).toBe(foreign);
+  });
+});

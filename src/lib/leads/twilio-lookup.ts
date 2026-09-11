@@ -23,12 +23,19 @@ export function isUsCaNumber(phone: string): boolean {
  * with a "+" but no 1: "+8135550123" reads as +81 Japan, and a rejected typo
  * is better than a dialed stranger. That rule is hasForeignCountryCode's, which
  * areaCodeOf and deriveCountry ask too, so all three agree on what's foreign.
+ *
+ * Full-width characters, as a CJK keyboard types them ("＋", "２０５"), are
+ * read as the ASCII they stand for first. Stripped as mere symbols, a "＋"
+ * took its country code with it: "＋65 9234 5678" came out as the US number
+ * +16592345678. areaCodeOf reads them the same way, because an import passes
+ * one phone through both.
  */
 export function toE164UsCa(phone: string): string | null {
-  const cleaned = phone.replace(/[^\d+]/g, "");
+  const text = phone.normalize("NFKC");
+  const cleaned = text.replace(/[^\d+]/g, "");
   if (/^\+1\d{10}$/.test(cleaned)) return cleaned; // already E.164
-  if (hasForeignCountryCode(phone)) return null;
-  const digits = phone.replace(/\D/g, "");
+  if (hasForeignCountryCode(text)) return null;
+  const digits = text.replace(/\D/g, "");
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
   return null;
