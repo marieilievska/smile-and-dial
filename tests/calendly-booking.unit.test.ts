@@ -3,12 +3,18 @@ import { describe, expect, it } from "vitest";
 import type { CalendlyCustomQuestion } from "../src/lib/calendly/booking";
 import {
   availabilityWindows,
+  bookingPhoneAudit,
+  bookingPhoneOutcome,
   bookingTracking,
   buildInviteeLocation,
+  buildOptionalPhoneAnswer,
   buildQuestionsAndAnswers,
+  isSlotGoneError,
   normalizeUtmCampaign,
   OFFER_LOOKAHEAD_DAYS,
+  pickBookingPhone,
   relativeDayLabel,
+  requiredQuestionPhone,
 } from "../src/lib/calendly/booking";
 
 describe("buildInviteeLocation", () => {
@@ -441,5 +447,562 @@ describe("buildQuestionsAndAnswers", () => {
   it("preserves the question text EXACTLY — Calendly matches it case-sensitively", () => {
     const [a] = buildQuestionsAndAnswers(webinarQuestions, lead);
     expect(a.question).toBe("Company name");
+  });
+});
+
+describe("pickBookingPhone", () => {
+  // Marija, 2026-09-10: the cell the lead gives on the call goes into Calendly's
+  // Phone Number question; if they don't give one, the lead's business number does.
+  const businessPhone = "+19075551234";
+
+  it("uses the cell the lead gave, normalised to E.164", () => {
+    expect(
+      pickBookingPhone({ mobile: "(813) 555-0123", businessPhone }),
+    ).toEqual({
+      phone: "+18135550123",
+      source: "mobile",
+      mobileInvalid: false,
+    });
+    expect(pickBookingPhone({ mobile: "+18135550123", businessPhone })).toEqual(
+      {
+        phone: "+18135550123",
+        source: "mobile",
+        mobileInvalid: false,
+      },
+    );
+    expect(
+      pickBookingPhone({ mobile: "1-813-555-0123", businessPhone }),
+    ).toEqual({
+      phone: "+18135550123",
+      source: "mobile",
+      mobileInvalid: false,
+    });
+    expect(
+      pickBookingPhone({ mobile: "+(1) 813-555-0123", businessPhone }),
+    ).toEqual({
+      phone: "+18135550123",
+      source: "mobile",
+      mobileInvalid: false,
+    });
+  });
+
+  it("falls back to the business number when no cell was given", () => {
+    for (const mobile of [undefined, null, "", "   ", "N/A", "none"]) {
+      expect(pickBookingPhone({ mobile, businessPhone })).toEqual({
+        phone: businessPhone,
+        source: "business",
+        mobileInvalid: false,
+      });
+    }
+  });
+
+  it("falls back to the business number when the cell was misheard, and flags it", () => {
+    // Partial numbers, foreign numbers (even one whose digits total ten) and
+    // impossible NANP numbers (area code or exchange starting with 0 or 1) are
+    // never sent: the business number goes in instead. "+8135550123" (a US
+    // cell with the 1 dropped) is deliberately read as foreign: +81 is Japan.
+    for (const mobile of [
+      "813 555",
+      "+44 20 7946 0958",
+      "+354 611 1234",
+      "123-456-7890",
+      "023-456-7890",
+      "813-055-0123",
+      "813-155-0123",
+      "+8135550123",
+      " +354 611 1234",
+    ]) {
+      expect(pickBookingPhone({ mobile, businessPhone })).toEqual({
+        phone: businessPhone,
+        source: "business",
+        mobileInvalid: true,
+      });
+    }
+  });
+
+  it("normalises the business number too, and drops an impossible one", () => {
+    expect(
+      pickBookingPhone({ mobile: undefined, businessPhone: "(907) 555-1234" }),
+    ).toEqual({
+      phone: "+19075551234",
+      source: "business",
+      mobileInvalid: false,
+    });
+    expect(
+      pickBookingPhone({ mobile: undefined, businessPhone: "+11234567890" }),
+    ).toEqual({ phone: null, source: null, mobileInvalid: false });
+  });
+
+  it("returns no phone when neither number is usable", () => {
+    expect(pickBookingPhone({ mobile: null, businessPhone: null })).toEqual({
+      phone: null,
+      source: null,
+      mobileInvalid: false,
+    });
+    expect(pickBookingPhone({ mobile: "12", businessPhone: "12345" })).toEqual({
+      phone: null,
+      source: null,
+      mobileInvalid: true,
+    });
+  });
+});
+
+describe("requiredQuestionPhone", () => {
+  // Before this feature, a REQUIRED phone_number question always got the raw
+  // business number. pickBookingPhone only returns a NANP-shaped number, so a
+  // business number that is merely foreign or malformed (not unusable, just
+  // unvalidated) must still reach a REQUIRED question.
+  const lead = { business_phone: "+44 20 7946 0958", owner_phone: null };
+  const requiredPhoneQ: CalendlyCustomQuestion = {
+    name: "Phone Number",
+    type: "phone_number",
+    position: 0,
+    required: true,
+    enabled: true,
+    answer_choices: [],
+  };
+
+  it("keeps the raw business number for a REQUIRED question when it fails the NANP check, instead of leaking the company name in", () => {
+    const bookingPhone = pickBookingPhone({
+      mobile: undefined,
+      businessPhone: lead.business_phone,
+    });
+    const phone = requiredQuestionPhone(bookingPhone, lead);
+    // Fed into buildQuestionsAndAnswers exactly as bookAppointment does.
+    expect(
+      buildQuestionsAndAnswers([requiredPhoneQ], {
+        company: "Acme Dental",
+        name: "Jamie",
+        email: "jamie@acmedental.example",
+        phone,
+      }),
+    ).toEqual([
+      { question: "Phone Number", answer: "+44 20 7946 0958", position: 0 },
+    ]);
+  });
+
+  it("still lets a valid cell win over the business number", () => {
+    const bookingPhone = pickBookingPhone({
+      mobile: "813-555-0123",
+      businessPhone: "+19075551234",
+    });
+    expect(requiredQuestionPhone(bookingPhone, lead)).toBe("+18135550123");
+  });
+});
+
+describe("buildOptionalPhoneAnswer", () => {
+  // The live webinar form, read from Calendly on 2026-09-10.
+  const liveForm: CalendlyCustomQuestion[] = [
+    {
+      name: "Company Name",
+      type: "string",
+      position: 0,
+      required: true,
+      enabled: true,
+      answer_choices: [],
+    },
+    {
+      name: "Phone Number",
+      type: "phone_number",
+      position: 1,
+      required: false,
+      enabled: true,
+      answer_choices: [],
+    },
+  ];
+  const phone = "+18135550123";
+
+  it("answers the form's optional Phone Number question, text copied exactly", () => {
+    expect(buildOptionalPhoneAnswer(liveForm, phone)).toEqual({
+      question: "Phone Number",
+      answer: phone,
+      position: 1,
+    });
+  });
+
+  it("returns null when there is no phone to give", () => {
+    expect(buildOptionalPhoneAnswer(liveForm, null)).toBeNull();
+    expect(buildOptionalPhoneAnswer(liveForm, "")).toBeNull();
+    expect(buildOptionalPhoneAnswer(liveForm, "   ")).toBeNull();
+  });
+
+  it("trims surrounding whitespace from the phone before returning it", () => {
+    expect(buildOptionalPhoneAnswer(liveForm, `  ${phone}  `)).toEqual({
+      question: "Phone Number",
+      answer: phone,
+      position: 1,
+    });
+  });
+
+  it("leaves a REQUIRED phone question to buildQuestionsAndAnswers", () => {
+    const qs: CalendlyCustomQuestion[] = [{ ...liveForm[1], required: true }];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
+  });
+
+  it("never answers other optional questions, since a wrong answer can reject the booking", () => {
+    const qs: CalendlyCustomQuestion[] = [
+      {
+        name: "Which best describes you?",
+        type: "single_select",
+        position: 0,
+        required: false,
+        enabled: true,
+        answer_choices: ["Current Referrizer client", "New to Referrizer"],
+      },
+      {
+        name: "Can we text your cell?",
+        type: "single_select",
+        position: 1,
+        required: false,
+        enabled: true,
+        answer_choices: ["Yes", "No"],
+      },
+      {
+        name: "Anything you'd like us to cover?",
+        type: "text",
+        position: 2,
+        required: false,
+        enabled: true,
+        answer_choices: [],
+      },
+    ];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
+  });
+
+  it("ignores free-text questions that only mention a phone (the webinar is about phones)", () => {
+    // Deliberate: only Calendly's phone_number type is filled. A wording match
+    // would overwrite an answer like the phone system with a phone number.
+    const qs: CalendlyCustomQuestion[] = [
+      {
+        name: "What phone system do you use today?",
+        type: "text",
+        position: 0,
+        required: false,
+        enabled: true,
+        answer_choices: [],
+      },
+      {
+        name: "How many phone calls do you miss per week?",
+        type: "string",
+        position: 1,
+        required: false,
+        enabled: true,
+        answer_choices: [],
+      },
+      {
+        name: "Best cell for reminders",
+        type: "string",
+        position: 2,
+        required: false,
+        enabled: true,
+        answer_choices: [],
+      },
+    ];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
+  });
+
+  it("finds the phone_number question even when a phone-worded question comes first", () => {
+    const qs: CalendlyCustomQuestion[] = [
+      liveForm[0],
+      {
+        name: "What phone system do you use today?",
+        type: "text",
+        position: 1,
+        required: false,
+        enabled: true,
+        answer_choices: [],
+      },
+      { ...liveForm[1], position: 2 },
+    ];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toEqual({
+      question: "Phone Number",
+      answer: phone,
+      position: 2,
+    });
+  });
+
+  it("falls back to the question's place in the list when Calendly sends no position", () => {
+    const qs: CalendlyCustomQuestion[] = [
+      liveForm[0],
+      { ...liveForm[1], position: null },
+    ];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toEqual({
+      question: "Phone Number",
+      answer: phone,
+      position: 1,
+    });
+  });
+
+  it("skips a disabled phone question", () => {
+    const qs: CalendlyCustomQuestion[] = [{ ...liveForm[1], enabled: false }];
+    expect(buildOptionalPhoneAnswer(qs, phone)).toBeNull();
+  });
+
+  it("returns null when the event type has no questions", () => {
+    expect(buildOptionalPhoneAnswer([], phone)).toBeNull();
+    expect(buildOptionalPhoneAnswer(null, phone)).toBeNull();
+    expect(buildOptionalPhoneAnswer(undefined, phone)).toBeNull();
+  });
+});
+
+describe("bookingPhoneAudit", () => {
+  const businessPhone = "+19075551234";
+
+  it("records a cell the lead gave", () => {
+    const bookingPhone = pickBookingPhone({
+      mobile: "813-555-0123",
+      businessPhone,
+    });
+    expect(
+      bookingPhoneAudit({
+        bookingPhone,
+        rawMobile: "813-555-0123",
+        leadMobilePhone: null,
+      }),
+    ).toEqual({ phone_source: "mobile" });
+  });
+
+  it("records the old cell when a booking replaces a different one on the lead", () => {
+    const bookingPhone = pickBookingPhone({
+      mobile: "+18135550123",
+      businessPhone,
+    });
+    expect(
+      bookingPhoneAudit({
+        bookingPhone,
+        rawMobile: "+18135550123",
+        leadMobilePhone: "+19075550000",
+      }),
+    ).toEqual({
+      phone_source: "mobile",
+      mobile_phone_replaced: "+19075550000",
+    });
+    expect(
+      bookingPhoneAudit({
+        bookingPhone,
+        rawMobile: "+18135550123",
+        leadMobilePhone: "+18135550123",
+      }),
+    ).toEqual({ phone_source: "mobile" });
+  });
+
+  it("flags a misheard cell and keeps what was passed", () => {
+    const bookingPhone = pickBookingPhone({ mobile: "813 555", businessPhone });
+    expect(
+      bookingPhoneAudit({
+        bookingPhone,
+        rawMobile: "813 555",
+        leadMobilePhone: null,
+      }),
+    ).toEqual({
+      phone_source: "business",
+      mobile_invalid: true,
+      mobile_unused: "813 555",
+    });
+  });
+
+  it("keeps a placeholder or spelled-out cell as unused without calling it misheard", () => {
+    for (const rawMobile of ["N/A", "eight one three five five five"]) {
+      const bookingPhone = pickBookingPhone({
+        mobile: rawMobile,
+        businessPhone,
+      });
+      expect(
+        bookingPhoneAudit({ bookingPhone, rawMobile, leadMobilePhone: null }),
+      ).toEqual({ phone_source: "business", mobile_unused: rawMobile });
+    }
+  });
+
+  it("records only the source when no cell was passed", () => {
+    const bookingPhone = pickBookingPhone({ mobile: "", businessPhone });
+    expect(
+      bookingPhoneAudit({
+        bookingPhone,
+        rawMobile: "",
+        leadMobilePhone: "+18135550123",
+      }),
+    ).toEqual({ phone_source: "business" });
+    const none = pickBookingPhone({ mobile: "", businessPhone: null });
+    expect(
+      bookingPhoneAudit({
+        bookingPhone: none,
+        rawMobile: "",
+        leadMobilePhone: null,
+      }),
+    ).toEqual({ phone_source: null });
+  });
+});
+
+describe("bookingPhoneOutcome", () => {
+  const phone = "+18135550123";
+  const bookingPhone = pickBookingPhone({
+    mobile: phone,
+    businessPhone: "+19075551234",
+  });
+  const companyQ: CalendlyCustomQuestion = {
+    name: "Company Name",
+    type: "string",
+    position: 0,
+    required: true,
+    enabled: true,
+    answer_choices: [],
+  };
+  const optionalPhoneQ: CalendlyCustomQuestion = {
+    name: "Phone Number",
+    type: "phone_number",
+    position: 1,
+    required: false,
+    enabled: true,
+    answer_choices: [],
+  };
+  const liveForm = [companyQ, optionalPhoneQ];
+  const liveAnswer = buildOptionalPhoneAnswer(liveForm, phone);
+
+  const outcome = (over: Partial<Parameters<typeof bookingPhoneOutcome>[0]>) =>
+    bookingPhoneOutcome({
+      bookingPhone,
+      optionalAnswer: liveAnswer,
+      questions: liveForm,
+      leadIsDnc: false,
+      dncLookup: "clear",
+      ...over,
+    });
+
+  it("sends the optional phone when the number is clear", () => {
+    expect(outcome({})).toEqual({ optionalAnswer: liveAnswer, audit: {} });
+  });
+
+  it("drops it when the number is on the owner's do-not-call list", () => {
+    expect(outcome({ dncLookup: "listed" })).toEqual({
+      optionalAnswer: null,
+      audit: { phone_dnc: true },
+    });
+  });
+
+  it("drops it when the lead itself is do-not-call", () => {
+    expect(outcome({ leadIsDnc: true, dncLookup: null })).toEqual({
+      optionalAnswer: null,
+      audit: { phone_dnc: true },
+    });
+  });
+
+  it("fails closed: an unreadable list (or no lookup) is never treated as clear", () => {
+    expect(outcome({ dncLookup: "unknown" })).toEqual({
+      optionalAnswer: null,
+      audit: { phone_dnc_unchecked: true },
+    });
+    expect(outcome({ dncLookup: null })).toEqual({
+      optionalAnswer: null,
+      audit: { phone_dnc_unchecked: true },
+    });
+  });
+
+  it("flags a form with no phone_number question to carry the phone", () => {
+    // Judged by question type, not answer values: an inbound-created lead's
+    // company can equal its phone number.
+    expect(outcome({ optionalAnswer: null, questions: [companyQ] })).toEqual({
+      optionalAnswer: null,
+      audit: { phone_unanswered: true },
+    });
+  });
+
+  it("a REQUIRED phone_number question carries the phone: not unanswered, and a DNC number there is only flagged", () => {
+    const requiredForm = [companyQ, { ...optionalPhoneQ, required: true }];
+    expect(outcome({ optionalAnswer: null, questions: requiredForm })).toEqual({
+      optionalAnswer: null,
+      audit: {},
+    });
+    expect(
+      outcome({
+        optionalAnswer: null,
+        questions: requiredForm,
+        dncLookup: "listed",
+      }),
+    ).toEqual({ optionalAnswer: null, audit: { phone_dnc_required: true } });
+    // An UNVERIFIABLE number (an unreadable list, or no lookup at all) is sent
+    // too, same as a listed one: skipping a REQUIRED question would fail the
+    // whole booking either way, so it is only ever flagged, never dropped.
+    expect(
+      outcome({
+        optionalAnswer: null,
+        questions: requiredForm,
+        dncLookup: "unknown",
+      }),
+    ).toEqual({ optionalAnswer: null, audit: { phone_dnc_required: true } });
+    expect(
+      outcome({
+        optionalAnswer: null,
+        questions: requiredForm,
+        dncLookup: null,
+      }),
+    ).toEqual({ optionalAnswer: null, audit: { phone_dnc_required: true } });
+  });
+
+  it.each(["listed", "unknown"] as const)(
+    "phone_unanswered is judged by question TYPE alone, never do-not-call status — still flagged when the number is %s",
+    (dncLookup) => {
+      expect(
+        outcome({ optionalAnswer: null, questions: [companyQ], dncLookup }),
+      ).toEqual({ optionalAnswer: null, audit: { phone_unanswered: true } });
+    },
+  );
+
+  it("known gap: a REQUIRED free-text 'Phone' question is recognised by its TYPE, not its name, so it still reads as unanswered", () => {
+    const wordedForm: CalendlyCustomQuestion[] = [
+      companyQ,
+      {
+        name: "Phone",
+        type: "string",
+        position: 1,
+        required: true,
+        enabled: true,
+        answer_choices: [],
+      },
+    ];
+    expect(
+      outcome({
+        optionalAnswer: null,
+        questions: wordedForm,
+        dncLookup: "listed",
+      }),
+    ).toEqual({ optionalAnswer: null, audit: { phone_unanswered: true } });
+  });
+
+  it("does nothing when there is no phone at all", () => {
+    const none = pickBookingPhone({ mobile: "", businessPhone: null });
+    expect(
+      bookingPhoneOutcome({
+        bookingPhone: none,
+        optionalAnswer: null,
+        questions: liveForm,
+        leadIsDnc: true,
+        dncLookup: null,
+      }),
+    ).toEqual({ optionalAnswer: null, audit: {} });
+  });
+});
+
+describe("isSlotGoneError", () => {
+  it.each([
+    "start_time That start time has been filled",
+    "That time is unavailable",
+    "start_time is no longer available",
+    "The event is at capacity",
+  ])("treats %j as the time being gone", (detail) => {
+    expect(isSlotGoneError(detail)).toBe(true);
+  });
+
+  it.each([
+    "questions_and_answers Phone Number is not a valid phone number",
+    "Required Questions and Answers cannot be blank.",
+    "invitee either name or first_name must be filled",
+    "Calendly booking failed (500).",
+  ])("does not treat %j as the time being gone", (detail) => {
+    expect(isSlotGoneError(detail)).toBe(false);
+  });
+
+  it("is false for no error", () => {
+    expect(isSlotGoneError(null)).toBe(false);
+    expect(isSlotGoneError(undefined)).toBe(false);
   });
 });

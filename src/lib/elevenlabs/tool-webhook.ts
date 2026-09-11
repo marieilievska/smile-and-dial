@@ -12,11 +12,18 @@ import {
 } from "@/lib/calendly/api";
 import {
   availabilityWindows,
+  bookingPhoneAudit,
+  bookingPhoneOutcome,
   bookingTracking,
   buildInviteeLocation,
+  buildOptionalPhoneAnswer,
   buildQuestionsAndAnswers,
+  type DncLookup,
+  isSlotGoneError,
   OFFER_LOOKAHEAD_DAYS,
+  pickBookingPhone,
   relativeDayLabel,
+  requiredQuestionPhone,
 } from "@/lib/calendly/booking";
 import { agreedDayMatchesSlot } from "@/lib/calendly/agreed-day";
 import { hasBookingAtSlot } from "@/lib/calendly/booking-dedup";
@@ -1320,6 +1327,23 @@ async function bookAppointment(
     (ctx.lead.manager_name ?? "") ||
     (ctx.lead.employee_name ?? "");
 
+  // The number for the host's Calendly "Phone Number" question: the cell the
+  // person booking gave on this call, otherwise the lead's business number
+  // (Marija, 2026-09-10). A host automation texts that field.
+  const rawMobile = str(body.mobile);
+  const bookingPhone = pickBookingPhone({
+    mobile: rawMobile,
+    businessPhone: ctx.lead.business_phone,
+  });
+  // Folded into every live-booking audit event, so how often a cell is given
+  // (and how often one is misheard, unusable or replaces another) can be read
+  // from system_events.
+  const phoneAudit = bookingPhoneAudit({
+    bookingPhone,
+    rawMobile,
+    leadMobilePhone: ctx.lead.mobile_phone,
+  });
+
   // Resolve the campaign's Calendly BEFORE the slot check: a fixed-time event
   // supplies its own time, so we need to know that before deciding a missing
   // slot_id is a problem.
@@ -1458,6 +1482,25 @@ async function bookAppointment(
       };
     }
 
+    // Keep a cell the person booking gave on the lead itself (best-effort, as
+    // send_text does): an inbound call or text reply from that number then
+    // finds this lead, and it survives a booking that fails below.
+    let mobileSaveFailed = false;
+    if (
+      bookingPhone.source === "mobile" &&
+      bookingPhone.phone !== ctx.lead.mobile_phone
+    ) {
+      const { error: mobileSaveError } = await ctx.supabase
+        .from("leads")
+        .update({ mobile_phone: bookingPhone.phone })
+        .eq("id", ctx.lead.id);
+      // The save doesn't change what Calendly gets — bookingPhone.phone was
+      // already decided above — but phone_source: "mobile" is logged below as
+      // if this save landed, so a silent failure here would misreport the
+      // lead as holding a cell it never got.
+      if (mobileSaveError) mobileSaveFailed = true;
+    }
+
     // Idempotency guard (webinar-SAFE — never cancels): if this lead is already
     // registered for this event at this exact slot, return that booking instead
     // of creating a SECOND Calendly invitee. book_appointment gets invoked twice
@@ -1480,6 +1523,8 @@ async function bookAppointment(
         live: true,
         already_booked: true,
         ...agreedDayAudit,
+        ...phoneAudit,
+        ...(mobileSaveFailed ? { mobile_save_failed: true } : {}),
       });
       return {
         success: true,
@@ -1504,9 +1549,46 @@ async function bookAppointment(
         company: ctx.lead.company,
         name,
         email,
-        phone: ctx.lead.business_phone || ctx.lead.owner_phone,
+        // A REQUIRED question can't be skipped, so it falls back to the raw
+        // business number (unvalidated) rather than pickBookingPhone's null —
+        // otherwise an unusable business phone would leave this blank, and
+        // buildQuestionsAndAnswers would answer with the COMPANY NAME, which
+        // Calendly would reject.
+        phone: requiredQuestionPhone(bookingPhone, ctx.lead),
       },
     );
+    // Do-not-call lookup for the booking phone, on the lead OWNER's list (DNC
+    // is per person). A failed lookup is "unknown", never "clear": an
+    // unreadable list must not read as "not on DNC". limit(1), not
+    // maybeSingle(), as in send_text: maybeSingle() errors on two rows.
+    let dncLookup: DncLookup | null = null;
+    if (bookingPhone.phone && ctx.lead.status !== "dnc") {
+      const { data: dncHits, error: dncError } = await ctx.supabase
+        .from("dnc_entries")
+        .select("phone")
+        .eq("phone", bookingPhone.phone)
+        .eq("owner_id", ctx.lead.owner_id)
+        .limit(1);
+      dncLookup = dncError
+        ? "unknown"
+        : (dncHits?.length ?? 0) > 0
+          ? "listed"
+          : "clear";
+    }
+    // The host's OPTIONAL phone question, filled on purpose so the host's
+    // reminder texts have a number, unless the do-not-call rule drops it (the
+    // booking still goes through). createInvitee drops it too if Calendly
+    // objects.
+    const phoneOutcome = bookingPhoneOutcome({
+      bookingPhone,
+      optionalAnswer: buildOptionalPhoneAnswer(
+        eventConfig.customQuestions,
+        bookingPhone.phone,
+      ),
+      questions: eventConfig.customQuestions,
+      leadIsDnc: ctx.lead.status === "dnc",
+      dncLookup,
+    });
     // UTM attribution so booked appointments are traceable to Smile & Dial in
     // Calendly's reporting (utm_source=smile_dial, utm_medium=voice, campaign
     // per bookingTracking). Surfaces on the invitee + the post-call webhook.
@@ -1526,6 +1608,9 @@ async function bookAppointment(
         location,
         tracking,
         questionsAndAnswers,
+        optionalQuestionsAndAnswers: phoneOutcome.optionalAnswer
+          ? [phoneOutcome.optionalAnswer]
+          : undefined,
       },
       cal.token,
     );
@@ -1535,6 +1620,10 @@ async function bookAppointment(
         email,
         live: true,
         error: result.error,
+        ...phoneAudit,
+        ...phoneOutcome.audit,
+        ...(result.droppedOptionalAnswers ? { phone_dropped: true } : {}),
+        ...(mobileSaveFailed ? { mobile_save_failed: true } : {}),
       });
       // Only a genuine availability clash should send the AI back to pick
       // another time. Every OTHER failure is a config problem on the host's
@@ -1543,10 +1632,7 @@ async function bookAppointment(
       // unavailable" made the AI re-offer the SAME slot over and over and let a
       // full-day, 100%-failure outage pass as ordinary bad luck. Say something
       // true instead, and bank the email so the lead isn't lost.
-      const slotGone =
-        /unavailable|already.*(booked|taken)|no longer|invalid start.?time|spot|capacity|full/i.test(
-          result.error ?? "",
-        );
+      const slotGone = isSlotGoneError(result.error);
       return {
         success: false,
         message: slotGone
@@ -1595,6 +1681,10 @@ async function bookAppointment(
       live: true,
       invitee_uri: result.inviteeUri,
       ...agreedDayAudit,
+      ...phoneAudit,
+      ...phoneOutcome.audit,
+      ...(result.droppedOptionalAnswers ? { phone_dropped: true } : {}),
+      ...(mobileSaveFailed ? { mobile_save_failed: true } : {}),
     });
     return {
       success: true,

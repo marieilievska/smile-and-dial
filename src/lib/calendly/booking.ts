@@ -4,6 +4,8 @@
  * live in ./api.ts.
  */
 
+import { toE164UsCa } from "@/lib/leads/twilio-lookup";
+
 /** One entry of a Calendly event type's `locations` array (GET /event_types).
  *  We only care about `kind`; the other fields vary by location type. */
 export type CalendlyLocation = { kind?: string | null };
@@ -338,4 +340,249 @@ export function buildQuestionsAndAnswers(
     });
   }
   return out;
+}
+
+/** Where the phone on a booking came from. Logged on every live booking, so
+ *  "how often do leads give a cell?" can be read from the audit trail. */
+export type BookingPhoneSource = "mobile" | "business";
+
+/** The phone chosen for a booking. `mobileInvalid` is true when a cell was
+ *  passed but wasn't a usable US/Canada number (misheard, partial or foreign),
+ *  so it wasn't used: the business number was, if that one is usable. */
+export type BookingPhone =
+  | { phone: string; source: BookingPhoneSource; mobileInvalid: boolean }
+  | { phone: null; source: null; mobileInvalid: boolean };
+
+/** A US/Canada number in E.164 with a possible NANP shape (area code and
+ *  exchange can't start with 0 or 1), or null. A best-effort shape check: it
+ *  can't know whether an area code is actually in service. toE164UsCa already
+ *  rejects an explicit non-+1 country code (#518), so this needs no
+ *  foreign-number guard of its own. */
+function toBookableUsCaPhone(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const e164 = toE164UsCa(raw);
+  return e164 && /^\+1[2-9]\d{2}[2-9]\d{6}$/.test(e164) ? e164 : null;
+}
+
+/**
+ * The number to put in the host's Calendly "Phone Number" question when the AI
+ * books. Marija's rule (2026-09-10): the cell the lead gave on the call if
+ * there is one, otherwise the lead's business number (the one the dialer
+ * calls). A host automation texts that field.
+ *
+ * Checked HERE, before anything is sent: if a bad cell reached Calendly and was
+ * rejected, the retry that drops the answer (createInvitee) would lose the
+ * business-number fallback along with it.
+ */
+export function pickBookingPhone(args: {
+  mobile: string | null | undefined;
+  businessPhone: string | null | undefined;
+}): BookingPhone {
+  // A cell counts as "given" only if it has a digit: a placeholder the model
+  // sends instead of omitting the field ("N/A", "none") isn't a misheard number.
+  const mobileGiven = typeof args.mobile === "string" && /\d/.test(args.mobile);
+  const mobile = toBookableUsCaPhone(args.mobile);
+  if (mobile) return { phone: mobile, source: "mobile", mobileInvalid: false };
+  const business = toBookableUsCaPhone(args.businessPhone);
+  if (business) {
+    return { phone: business, source: "business", mobileInvalid: mobileGiven };
+  }
+  return { phone: null, source: null, mobileInvalid: mobileGiven };
+}
+
+/**
+ * The phone to answer a REQUIRED phone_number question with. Unlike the
+ * OPTIONAL question (buildOptionalPhoneAnswer), a REQUIRED one cannot be left
+ * blank, so it needs a fallback even when pickBookingPhone found nothing
+ * bookable: the raw business number, unvalidated, exactly as it was sent
+ * before this feature existed. Without this fallback, a business number that
+ * merely fails the NANP/US-CA shape check (foreign, an extension) would leave
+ * bookingPhone.phone null and owner_phone empty for every lead, so
+ * buildQuestionsAndAnswers would fall back to the COMPANY NAME, which
+ * Calendly would reject.
+ */
+export function requiredQuestionPhone(
+  bookingPhone: BookingPhone,
+  lead: { business_phone: string | null; owner_phone: string | null },
+): string | null {
+  return bookingPhone.phone || lead.business_phone || lead.owner_phone || null;
+}
+
+/**
+ * The answer to the host's OPTIONAL phone question (the webinar form's "Phone
+ * Number"), or null.
+ *
+ * buildQuestionsAndAnswers deliberately answers only REQUIRED questions: a
+ * wrong answer to an optional question can get the whole booking rejected or
+ * corrupt the host's data. The phone is the one optional field we fill on
+ * purpose, because the host's reminder texts go to it. A REQUIRED
+ * `phone_number` question is skipped HERE and left to buildQuestionsAndAnswers,
+ * so it is never answered twice.
+ *
+ * Only Calendly's own `phone_number` question type counts, never the wording.
+ * The webinar is about answering phones, so the host's form can easily hold a
+ * question like "What phone system do you use today?", and a wording match
+ * would silently overwrite that answer with a number. A free-text "Phone"
+ * question therefore stays blank, as it does today.
+ *
+ * The first enabled optional `phone_number` question wins when a form somehow
+ * has more than one.
+ */
+export function buildOptionalPhoneAnswer(
+  questions: CalendlyCustomQuestion[] | null | undefined,
+  phone: string | null,
+): CalendlyQuestionAnswer | null {
+  const answer = phone?.trim();
+  if (!answer) return null;
+  const list = questions ?? [];
+  for (let i = 0; i < list.length; i++) {
+    const q = list[i];
+    const question = typeof q?.name === "string" ? q.name : "";
+    if (!question || q.enabled === false || q.required === true) continue;
+    if ((q.type ?? "").toLowerCase() !== "phone_number") continue;
+    return {
+      question,
+      answer,
+      position: typeof q.position === "number" ? q.position : i,
+    };
+  }
+  return null;
+}
+
+/** What the lead owner's do-not-call lookup said about the booking phone.
+ *  "unknown" means the list couldn't be read, which is never treated as clear. */
+export type DncLookup = "listed" | "clear" | "unknown";
+
+/** The phone-choice fields logged on every live booking audit. */
+export type BookingPhoneAudit = {
+  phone_source: BookingPhoneSource | null;
+  /** A cell with digits was passed but couldn't be used (misheard, partial or
+   *  foreign). */
+  mobile_invalid?: boolean;
+  /** Whatever the agent passed as `mobile` but wasn't used, including words or
+   *  placeholders that mobile_invalid can't see. */
+  mobile_unused?: string;
+  /** The lead's previous, different mobile_phone that this booking's cell
+   *  replaces (e.g. a returning caller's number kept by merge_inbound_lead). */
+  mobile_phone_replaced?: string;
+};
+
+/**
+ * The audit fields describing which phone a booking chose and why. Pure, so
+ * the flags that verify this feature in production are pinned by tests.
+ */
+export function bookingPhoneAudit(args: {
+  bookingPhone: BookingPhone;
+  /** The trimmed `mobile` the agent passed ("" when none). */
+  rawMobile: string;
+  /** The lead's mobile_phone before this booking saves a cell. */
+  leadMobilePhone: string | null;
+}): BookingPhoneAudit {
+  const { bookingPhone, rawMobile, leadMobilePhone } = args;
+  const audit: BookingPhoneAudit = { phone_source: bookingPhone.source };
+  if (bookingPhone.mobileInvalid) audit.mobile_invalid = true;
+  if (rawMobile && bookingPhone.source !== "mobile") {
+    audit.mobile_unused = rawMobile;
+  }
+  if (
+    bookingPhone.source === "mobile" &&
+    leadMobilePhone &&
+    leadMobilePhone !== bookingPhone.phone
+  ) {
+    audit.mobile_phone_replaced = leadMobilePhone;
+  }
+  return audit;
+}
+
+/** Why the phone did or didn't reach Calendly, for the failure/success audits. */
+export type BookingPhoneOutcomeAudit = {
+  /** The optional phone answer was dropped: the lead or the number is
+   *  do-not-call. */
+  phone_dnc?: boolean;
+  /** The optional phone answer was dropped: the do-not-call list couldn't be
+   *  read. */
+  phone_dnc_unchecked?: boolean;
+  /** A REQUIRED phone_number question still carried a do-not-call or
+   *  unverifiable number, because skipping it would fail the booking. */
+  phone_dnc_required?: boolean;
+  /** A phone was chosen, but the form has no phone_number question to carry it
+   *  (e.g. the host turned Phone Number into free text) — also true when
+   *  getEventTypeConfig's read itself failed and returned no questions at
+   *  all. That booking fails loudly anyway (Calendly rejects a missing
+   *  location or required question), so this case is rare in practice. */
+  phone_unanswered?: boolean;
+};
+
+/**
+ * Applies the do-not-call rule to the booking phone and says why it did or
+ * didn't reach Calendly.
+ *
+ * - Never volunteer an opted-out number to the host's texting automation. The
+ *   optional phone answer is dropped when the lead is DNC, the number is on the
+ *   owner's list, or the list couldn't be read. That last case fails closed: an
+ *   unreadable list must not read as "not on DNC". The booking goes through
+ *   either way.
+ * - A REQUIRED phone_number question is answered by buildQuestionsAndAnswers
+ *   regardless, because skipping it would fail the booking, so that case is
+ *   only flagged.
+ * - "Unanswered" is judged by question TYPE, not by comparing answer values,
+ *   because an inbound-created lead's company can equal its phone number.
+ *   Known gap: a required free-text "Phone" question (not the phone_number
+ *   type) still carries the number but is reported as unanswered. It is also
+ *   reported when getEventTypeConfig's read failed and returned no questions
+ *   at all — that booking fails loudly anyway (Calendly rejects the missing
+ *   required question or location it can no longer see).
+ */
+export function bookingPhoneOutcome(args: {
+  bookingPhone: BookingPhone;
+  /** From buildOptionalPhoneAnswer, before the do-not-call rule. */
+  optionalAnswer: CalendlyQuestionAnswer | null;
+  questions: CalendlyCustomQuestion[] | null | undefined;
+  leadIsDnc: boolean;
+  /** The owner's dnc_entries lookup for bookingPhone.phone; null when none
+   *  ran. */
+  dncLookup: DncLookup | null;
+}): {
+  optionalAnswer: CalendlyQuestionAnswer | null;
+  audit: BookingPhoneOutcomeAudit;
+} {
+  const { bookingPhone, optionalAnswer, questions, leadIsDnc, dncLookup } =
+    args;
+  if (!bookingPhone.phone) return { optionalAnswer: null, audit: {} };
+
+  const listed = leadIsDnc || dncLookup === "listed";
+  // Fail closed: anything but a confirmed "clear" (an error, or no lookup at
+  // all) counts as unchecked.
+  const unchecked = !listed && dncLookup !== "clear";
+  const requiredPhoneQuestion = (questions ?? []).some(
+    (q) =>
+      typeof q?.name === "string" &&
+      q.name.length > 0 &&
+      q.enabled !== false &&
+      q.required === true &&
+      (q.type ?? "").toLowerCase() === "phone_number",
+  );
+
+  const audit: BookingPhoneOutcomeAudit = {};
+  if (optionalAnswer && listed) audit.phone_dnc = true;
+  if (optionalAnswer && unchecked) audit.phone_dnc_unchecked = true;
+  if (requiredPhoneQuestion && (listed || unchecked)) {
+    audit.phone_dnc_required = true;
+  }
+  if (!optionalAnswer && !requiredPhoneQuestion) audit.phone_unanswered = true;
+
+  return { optionalAnswer: listed || unchecked ? null : optionalAnswer, audit };
+}
+
+/**
+ * True when a Calendly booking error means the chosen time is gone (taken, full
+ * or past), so the AI should offer another time. Any other failure is a config
+ * problem that picking another time can't fix. "has been filled" is Calendly's
+ * wording for a full session; it must not match "must be filled"
+ * (a missing-field error).
+ */
+export function isSlotGoneError(detail: string | null | undefined): boolean {
+  return /unavailable|already.*(booked|taken)|no longer|invalid start.?time|spot|capacity|full|has been filled/i.test(
+    detail ?? "",
+  );
 }

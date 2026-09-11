@@ -251,6 +251,84 @@ describe("both is_phone_on_dnc callers pass the lead owner and fail closed", () 
   });
 });
 
+describe("the booking phone's DNC read fails closed", () => {
+  it("bookAppointment reads the lookup's error and turns it into 'unknown', never 'clear'", () => {
+    const src = read("src/lib/elevenlabs/tool-webhook.ts");
+    // A dropped error reads as "not on DNC" (see the is_phone_on_dnc callers
+    // above); bookingPhoneOutcome treats "unknown" as not clear.
+    const lookup =
+      /error:\s*(\w+)\s*\}\s*=\s*await ctx\.supabase\s*\.from\("dnc_entries"\)[^;]*\.eq\("phone",\s*bookingPhone\.phone\)/.exec(
+        src,
+      );
+    expect(lookup, "bookAppointment dnc_entries lookup").not.toBeNull();
+    // Build the second pattern from the SAME variable the destructuring above
+    // just captured, so a mapping keyed on a different variable (e.g.
+    // `dncLookup = dncHits ? "unknown" : …`, checking the row count instead of
+    // the error) fails this check instead of slipping past a bare `\w+`.
+    const errVar = lookup![1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    expect(src).toMatch(
+      new RegExp(`dncLookup\\s*=\\s*${errVar}\\s*\\?\\s*"unknown"`),
+    );
+  });
+});
+
+describe("createInvitee only ever receives the DNC-filtered optional answer", () => {
+  it("optionalQuestionsAndAnswers is built from phoneOutcome.optionalAnswer, never the raw buildOptionalPhoneAnswer result", () => {
+    const src = read("src/lib/elevenlabs/tool-webhook.ts");
+    // If this were built from buildOptionalPhoneAnswer(...) directly, a
+    // do-not-call number would reach createInvitee unfiltered — the whole
+    // point of bookingPhoneOutcome is to sit between the two.
+    expect(src).toMatch(
+      /optionalQuestionsAndAnswers:\s*phoneOutcome\.optionalAnswer\s*\?\s*\[phoneOutcome\.optionalAnswer\]/,
+    );
+  });
+});
+
+describe("a failed mobile_phone save is logged, not swallowed", () => {
+  it("captures the update's error and flags mobile_save_failed on the failure, success AND already-booked audits, keyed on that same error", () => {
+    const src = read("src/lib/elevenlabs/tool-webhook.ts");
+    const save =
+      /error:\s*(\w+)\s*\}\s*=\s*await ctx\.supabase\s*\.from\("leads"\)[^;]*\.update\(\{\s*mobile_phone:[^;]*;/.exec(
+        src,
+      );
+    expect(save, "leads.mobile_phone save").not.toBeNull();
+    const errVar = save![1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // The flag must be set FROM that same captured error …
+    const flagSet = new RegExp(
+      `if\\s*\\(${errVar}\\)\\s*(\\w+)\\s*=\\s*true;`,
+    ).exec(src);
+    expect(flagSet, "mobile_save_failed flag assignment").not.toBeNull();
+    const flagVar = flagSet![1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const usesFlag = new RegExp(
+      `${flagVar}\\s*\\?\\s*\\{\\s*mobile_save_failed:\\s*true\\s*\\}`,
+    );
+    // … and the failure, success AND already-booked tool_book_appointment
+    // audits must all use it — the cell save runs BEFORE the idempotency
+    // guard, so a failed save can precede any of the three.
+    const failure =
+      /logToolEvent\(ctx, "tool_book_appointment", \{[^;]*?error: result\.error[^;]*?\}\);/.exec(
+        src,
+      );
+    const success =
+      /logToolEvent\(ctx, "tool_book_appointment", \{[^;]*?invitee_uri: result\.inviteeUri[^;]*?\}\);/.exec(
+        src,
+      );
+    const alreadyBooked =
+      /logToolEvent\(ctx, "tool_book_appointment", \{[^;]*?already_booked: true[^;]*?\}\);/.exec(
+        src,
+      );
+    expect(failure, "tool_book_appointment failure audit").not.toBeNull();
+    expect(success, "tool_book_appointment success audit").not.toBeNull();
+    expect(
+      alreadyBooked,
+      "tool_book_appointment already_booked audit",
+    ).not.toBeNull();
+    expect(failure![0], "failure audit").toMatch(usesFlag);
+    expect(success![0], "success audit").toMatch(usesFlag);
+    expect(alreadyBooked![0], "already_booked audit").toMatch(usesFlag);
+  });
+});
+
 describe("every dnc_entries writer conflicts on (owner_id, phone)", () => {
   const files = walk(join(ROOT, "src"));
 

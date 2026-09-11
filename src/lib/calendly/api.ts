@@ -52,8 +52,21 @@ export type CalendlySlot = {
 };
 
 export type CreateInviteeResult =
-  | { ok: true; inviteeUri: string | null; eventUri: string | null }
-  | { ok: false; error: string };
+  | {
+      ok: true;
+      inviteeUri: string | null;
+      eventUri: string | null;
+      /** True when Calendly only accepted the booking after the optional
+       *  answers (the phone) were dropped. */
+      droppedOptionalAnswers?: boolean;
+    }
+  | {
+      ok: false;
+      error: string;
+      /** True when the optional answers (the phone) were dropped on a retry
+       *  and the booking still failed; `error` is the retry's rejection. */
+      droppedOptionalAnswers?: boolean;
+    };
 
 type UsersMeResponse = {
   resource?: { uri?: string; current_organization?: string };
@@ -337,6 +350,12 @@ export async function createInvitee(
      *  and Answers cannot be blank."). Build it from getEventTypeConfig's
      *  customQuestions via buildQuestionsAndAnswers (see ./booking). */
     questionsAndAnswers?: CalendlyQuestionAnswer[];
+    /** Answers to OPTIONAL booking-form questions we fill on purpose (today
+     *  only the phone, from buildOptionalPhoneAnswer). Sent with the required
+     *  answers, but dropped on one retry if Calendly rejects the booking over
+     *  an answer or with a bare 400/422: an optional field must never cost a
+     *  booking. */
+    optionalQuestionsAndAnswers?: CalendlyQuestionAnswer[];
   },
   token: string,
 ): Promise<CreateInviteeResult> {
@@ -355,11 +374,15 @@ export async function createInvitee(
   // has one ("location_configuration.kind invalid location choice"). Include it
   // when we have it; omit entirely for locationless event types.
   if (input.location) payload.location = input.location;
-  // Answers to the host's required booking-form questions. Omit the field
-  // entirely when there are none — an empty array reads as "blank answers".
-  if (input.questionsAndAnswers?.length) {
-    payload.questions_and_answers = input.questionsAndAnswers;
-  }
+  // Answers to the host's booking-form questions: the required ones plus any
+  // optional ones we fill on purpose (the phone). Omit the field entirely when
+  // there are none — an empty array reads as "blank answers".
+  const requiredAnswers = input.questionsAndAnswers ?? [];
+  const optionalAnswers = input.optionalQuestionsAndAnswers ?? [];
+  const allAnswers = [...requiredAnswers, ...optionalAnswers].sort(
+    (a, b) => a.position - b.position,
+  );
+  if (allAnswers.length) payload.questions_and_answers = allAnswers;
   // UTM attribution (Calendly's invitee `tracking`). Only send when at least one
   // field is set, so a bookingless/untagged call never posts an empty object.
   if (input.tracking && Object.values(input.tracking).some((v) => v)) {
@@ -381,26 +404,62 @@ export async function createInvitee(
         .join(", ") ||
       data?.message ||
       `Calendly booking failed (${res.status}).`;
-    return { ok: res.ok, data, detail };
+    return { ok: res.ok, status: res.status, data, detail };
   };
 
   try {
-    let result = await post(payload);
+    let body = payload;
+    let result = await post(body);
+    // Only a 4xx guarantees Calendly created nothing. A 5xx can arrive after
+    // the invitee was saved, so retrying one could register the lead twice;
+    // neither retry below ever fires on it.
+    const isRejection = (r: { status: number }) =>
+      r.status >= 400 && r.status < 500;
     // Attribution must NEVER cost a real booking. Calendly's Create Invitee API
     // treats the `tracking` object as all-or-nothing, so a stray/partial one
     // gets the whole booking rejected ("tracking.utm_* is missing"). If that's
     // why it failed, drop tracking and retry once — the booking is the goal, the
     // UTM tag is a nice-to-have.
-    if (!result.ok && payload.tracking && /tracking/i.test(result.detail)) {
-      const retry = { ...payload };
-      delete retry.tracking;
-      result = await post(retry);
+    if (
+      isRejection(result) &&
+      body.tracking &&
+      /tracking/i.test(result.detail)
+    ) {
+      body = { ...body };
+      delete body.tracking;
+      result = await post(body);
     }
-    if (!result.ok) return { ok: false, error: result.detail };
+    // Same rule for the optional answers we volunteer (the phone): if Calendly
+    // rejects the booking over an answer, or with a bare validation error that
+    // names no field (a 400/422 with no details, e.g. just "The supplied
+    // parameters are invalid."), book without them. Required answers stay, in
+    // position order — without those Calendly refuses the booking outright. A
+    // bare 401/403/404/429 can't be caused by an answer, so the phone is kept
+    // and that failure is returned as-is.
+    let droppedOptionalAnswers = false;
+    if (
+      isRejection(result) &&
+      optionalAnswers.length > 0 &&
+      (/question|answer|phone/i.test(result.detail) ||
+        ((result.status === 400 || result.status === 422) &&
+          !result.data?.details?.length))
+    ) {
+      body = { ...body };
+      const kept = allAnswers.filter((a) => !optionalAnswers.includes(a));
+      if (kept.length) body.questions_and_answers = kept;
+      else delete body.questions_and_answers;
+      result = await post(body);
+      droppedOptionalAnswers = true;
+    }
+    const dropped = droppedOptionalAnswers
+      ? { droppedOptionalAnswers: true }
+      : {};
+    if (!result.ok) return { ok: false, error: result.detail, ...dropped };
     return {
       ok: true,
       inviteeUri: result.data?.resource?.uri ?? null,
       eventUri: result.data?.resource?.event ?? null,
+      ...dropped,
     };
   } catch {
     return { ok: false, error: "Calendly booking request failed." };
