@@ -8,6 +8,7 @@ import {
   buildQuestionsAndAnswers,
   normalizeUtmCampaign,
   OFFER_LOOKAHEAD_DAYS,
+  pickBookingPhone,
   relativeDayLabel,
 } from "../src/lib/calendly/booking";
 
@@ -441,5 +442,64 @@ describe("buildQuestionsAndAnswers", () => {
   it("preserves the question text EXACTLY — Calendly matches it case-sensitively", () => {
     const [a] = buildQuestionsAndAnswers(webinarQuestions, lead);
     expect(a.question).toBe("Company name");
+  });
+});
+
+describe("pickBookingPhone", () => {
+  // Marija, 2026-09-10: the cell the lead gives on the call goes into Calendly's
+  // Phone Number question; if they don't give one, the number we dialed does.
+  const businessPhone = "+19075551234";
+
+  it("uses the cell the lead gave, normalised to E.164", () => {
+    expect(
+      pickBookingPhone({ mobile: "(813) 555-0123", businessPhone }),
+    ).toEqual({
+      phone: "+18135550123",
+      source: "mobile",
+      mobileInvalid: false,
+    });
+    expect(pickBookingPhone({ mobile: "+18135550123", businessPhone })).toEqual(
+      {
+        phone: "+18135550123",
+        source: "mobile",
+        mobileInvalid: false,
+      },
+    );
+  });
+
+  it("falls back to the dialed business number when no cell was given", () => {
+    for (const mobile of [undefined, null, "", "   "]) {
+      expect(pickBookingPhone({ mobile, businessPhone })).toEqual({
+        phone: businessPhone,
+        source: "business",
+        mobileInvalid: false,
+      });
+    }
+  });
+
+  it("falls back to the business number when the cell was misheard, and flags it", () => {
+    // Partial, non-US/CA, and impossible NANP (area code starting with 1)
+    // numbers must never reach Calendly: its phone field would reject them, and
+    // the retry that drops the answer would lose the business number too.
+    for (const mobile of ["813 555", "+44 20 7946 0958", "123-456-7890"]) {
+      expect(pickBookingPhone({ mobile, businessPhone })).toEqual({
+        phone: businessPhone,
+        source: "business",
+        mobileInvalid: true,
+      });
+    }
+  });
+
+  it("returns no phone when neither number is usable", () => {
+    expect(pickBookingPhone({ mobile: null, businessPhone: null })).toEqual({
+      phone: null,
+      source: null,
+      mobileInvalid: false,
+    });
+    expect(pickBookingPhone({ mobile: "12", businessPhone: "12345" })).toEqual({
+      phone: null,
+      source: null,
+      mobileInvalid: true,
+    });
   });
 });

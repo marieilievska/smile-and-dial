@@ -4,6 +4,8 @@
  * live in ./api.ts.
  */
 
+import { toE164UsCa } from "@/lib/leads/twilio-lookup";
+
 /** One entry of a Calendly event type's `locations` array (GET /event_types).
  *  We only care about `kind`; the other fields vary by location type. */
 export type CalendlyLocation = { kind?: string | null };
@@ -338,4 +340,50 @@ export function buildQuestionsAndAnswers(
     });
   }
   return out;
+}
+
+/** Where the phone on a booking came from. Logged on every live booking, so
+ *  "how often do leads give a cell?" can be read from the audit trail. */
+export type BookingPhoneSource = "mobile" | "business";
+
+export type BookingPhone = {
+  phone: string | null;
+  source: BookingPhoneSource | null;
+  /** A cell was passed but wasn't a usable US/Canada number (misheard or
+   *  partial), so the business number was used instead. */
+  mobileInvalid: boolean;
+};
+
+/** A US/Canada number in E.164 that is also a possible NANP number (area code
+ *  and exchange can't start with 0 or 1), or null. */
+function toBookableUsCaPhone(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const e164 = toE164UsCa(raw);
+  return e164 && /^\+1[2-9]\d{2}[2-9]\d{6}$/.test(e164) ? e164 : null;
+}
+
+/**
+ * The number to put in the host's Calendly "Phone Number" question when the AI
+ * books. Marija's rule (2026-09-10): the cell the lead gave on the call if
+ * there is one, otherwise the business number we dialed. A host automation
+ * texts that field.
+ *
+ * Validated HERE, before anything is sent: Calendly's phone field rejects an
+ * impossible number, and the retry that then drops the answer (createInvitee)
+ * would lose the business-number fallback along with the bad cell.
+ */
+export function pickBookingPhone(args: {
+  mobile: string | null | undefined;
+  businessPhone: string | null | undefined;
+}): BookingPhone {
+  const mobileGiven =
+    typeof args.mobile === "string" && args.mobile.trim().length > 0;
+  const mobile = toBookableUsCaPhone(args.mobile);
+  if (mobile) return { phone: mobile, source: "mobile", mobileInvalid: false };
+  const business = toBookableUsCaPhone(args.businessPhone);
+  return {
+    phone: business,
+    source: business ? "business" : null,
+    mobileInvalid: mobileGiven,
+  };
 }
