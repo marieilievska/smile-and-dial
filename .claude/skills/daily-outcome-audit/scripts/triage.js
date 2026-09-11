@@ -37,8 +37,14 @@ const evenSample = (arr, n) => (arr.length <= n ? arr.slice() : Array.from({ len
   const leadIds = [...new Set(rows.map((r) => r.lead_id).filter(Boolean))];
   const booked = new Set();
   for (let i = 0; i < leadIds.length; i += 100) {
-    const ls = await C.get(`leads?id=in.(${C.inList(leadIds.slice(i, i + 100))})&calendly_event_uri=not.is.null&select=id`);
+    const chunk = C.inList(leadIds.slice(i, i + 100));
+    const ls = await C.get(`leads?id=in.(${chunk})&calendly_event_uri=not.is.null&select=id`);
     for (const l of ls) booked.add(l.id);
+    // A scheduled calendly_events row is a booking too: before merge_inbound_lead
+    // v4 a merge dropped the lead's calendly_event_uri (Ascendance, 2026-09-10
+    // read as a "false win" that was a real booking).
+    const ev = await C.get(`calendly_events?lead_id=in.(${chunk})&status=eq.scheduled&select=lead_id`);
+    for (const e of ev) booked.add(e.lead_id);
   }
   const outByLead = {};
   for (const r of rows) (outByLead[r.lead_id] = outByLead[r.lead_id] || new Set()).add(r.outcome);
@@ -51,27 +57,36 @@ const evenSample = (arr, n) => (arr.length <= n ? arr.slice() : Array.from({ len
     for (const c of cbs) hasCb.add(c.originating_call_id);
   }
 
+  // 3b) calls that put a phone on the DNC list. dnc_entries is small, so read it
+  //     whole (unique order: PostgREST pages drop rows without one).
+  const dncEntryCall = new Set();
+  for (const e of await C.pageAll(`dnc_entries?source_call_id=not.is.null&select=source_call_id&order=id.asc`)) dncEntryCall.add(e.source_call_id);
+
   // 4) structural flags (no transcript)
   const flags = [];
   for (const r of rows) {
-    for (const f of F.structuralFlags({ outcome: r.outcome, extracted: r.extracted_data, leadHasBooking: booked.has(r.lead_id), hasCallbackRow: hasCb.has(r.id), status: r.status })) {
+    for (const f of F.structuralFlags({ outcome: r.outcome, extracted: r.extracted_data, leadHasBooking: booked.has(r.lead_id), hasCallbackRow: hasCb.has(r.id), status: r.status, hasDncEntry: dncEntryCall.has(r.id) })) {
       flags.push({ id: r.id, lead_id: r.lead_id, outcome: r.outcome, ...f });
     }
   }
   // hidden wins: booked leads whose day outcomes lack goal_met
   const hiddenWins = [...booked].filter((l) => !outByLead[l] || !outByLead[l].has("goal_met"));
 
-  // 5) transcript flags: all dnc + a voicemail sample
+  // 5) transcript flags: all dnc, a voicemail sample, and every call where a
+  //    person could have been offered removal without it being labelled dnc
+  //    (the human-conversation outcomes + ai_receptionist + invalid_number).
+  const OFFER_SCAN = new Set(["goal_met", "callback", "not_interested", "gatekeeper", "gatekeeper_not_interested", "transferred_to_human", "language_barrier", "ai_receptionist", "invalid_number"]);
   const dncRows = byOutcome.dnc || [];
   const vmRows = byOutcome.voicemail || [];
   const vmSample = evenSample(vmRows, VOICEMAIL_SAMPLE);
-  const tIds = [...dncRows.map((r) => r.id), ...vmSample.map((r) => r.id)];
+  const scanRows = [...dncRows, ...vmSample, ...rows.filter((r) => OFFER_SCAN.has(r.outcome))];
+  const tIds = scanRows.map((r) => r.id);
   const tById = {};
   for (let i = 0; i < tIds.length; i += 60) {
     const ts = await C.get(`calls?id=in.(${C.inList(tIds.slice(i, i + 60))})&select=id,transcript_json`);
     for (const t of ts) tById[t.id] = t.transcript_json;
   }
-  for (const r of [...dncRows, ...vmSample]) {
+  for (const r of scanRows) {
     for (const f of F.transcriptFlags({ outcome: r.outcome, transcript: tById[r.id] })) {
       flags.push({ id: r.id, lead_id: r.lead_id, outcome: r.outcome, ...f });
     }
@@ -87,6 +102,7 @@ const evenSample = (arr, n) => (arr.length <= n ? arr.slice() : Array.from({ len
   const niDenom = cnt("not_interested") || 1;
   const ratios = {
     not_interested_dm_no: +((flagByType.not_interested_dm_not_yes || 0) / niDenom).toFixed(3),
+    not_interested_share: +(cnt("not_interested") / total).toFixed(3),
     ai_receptionist_share: +(cnt("ai_receptionist") / total).toFixed(3),
     callback_share: +(cnt("callback") / total).toFixed(3),
     connect_rate: +(connected / denom).toFixed(3),
@@ -138,6 +154,10 @@ const evenSample = (arr, n) => (arr.length <= n ? arr.slice() : Array.from({ len
   for (const f of flags) addRead(f.id, f.outcome, `${f.type}: ${f.reason}`);
   for (const r of dncRows) addRead(r.id, "dnc", "always-read: all dnc");
   for (const r of byOutcome.goal_met || []) addRead(r.id, "goal_met", "always-read: all goal_met");
+  // Small bucket (2–25/day) that hides humans: on 2026-09-10, 2 of 5 were a bot
+  // receptionist transferring to a real person, 1 was a person ASKING "are you
+  // an AI agent?". No-human outcome, so a wrong one erases the conversation.
+  for (const r of byOutcome.ai_receptionist || []) addRead(r.id, "ai_receptionist", "always-read: all ai_receptionist");
 
   const readIds = [...wantRead.keys()];
   const dumpById = {};
@@ -166,9 +186,13 @@ const evenSample = (arr, n) => (arr.length <= n ? arr.slice() : Array.from({ len
   const dumpFile = path.join(__dirname, `_out-triage-${date}.txt`);
   fs.writeFileSync(dumpFile, out);
 
-  // suggested map — high-confidence structural suggestions only; gitignored (map*.json)
+  // suggested map — high-confidence structural suggestions only; gitignored (map*.json).
+  // Never suggest relabelling a hand-set row (outcome_source='manual'): a person
+  // or an earlier audit already decided it. On 2026-09-10 both suggestions were
+  // Marija's own not_interested overrides. The flag still lands in the read list.
+  const manual = new Set(rows.filter((r) => r.outcome_source === "manual").map((r) => r.id));
   const suggested = {};
-  for (const f of flags) if (f.suggest) suggested[f.id] = { to: f.suggest, from: f.outcome };
+  for (const f of flags) if (f.suggest && !manual.has(f.id)) suggested[f.id] = { to: f.suggest, from: f.outcome };
   const mapFile = path.join(__dirname, `map-triage-${date}.json`);
   fs.writeFileSync(mapFile, JSON.stringify(suggested, null, 2));
 

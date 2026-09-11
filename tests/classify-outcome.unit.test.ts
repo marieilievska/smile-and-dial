@@ -122,6 +122,66 @@ describe("classifyCallOutcome", () => {
     expect(r.reachedHuman).toBe(false);
   });
 
+  it("keeps a bot's comma-spliced self-introduction as ai_receptionist", () => {
+    // Verbatim opener: LGNDS Studios, 2026-09-10.
+    const r = classifyCallOutcome({
+      transcript: t(
+        [
+          "user",
+          "Hello. Thank you for calling Legends Dance Studios and Event Center. My name is Kirsten, your virtual receptionist. How can I help you today?",
+        ],
+        ["agent", "Hey, would you happen to be the owner?"],
+      ),
+      disposition: "gatekeeper",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 40,
+    });
+    expect(r.outcome).toBe("ai_receptionist");
+  });
+
+  it("does NOT treat a person ASKING whether we're an AI as an AI receptionist", () => {
+    // Verbatim lines: Stay Strong Brazilian Jiu Jitsu, 2026-09-10. The owner
+    // ("Both") talked for three minutes, asked about the AI, then declined —
+    // and the question alone filed the call as ai_receptionist.
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Hello?"],
+        ["agent", "Are you the owner or manager there?"],
+        ["user", "Both. How can I help you, Tom?"],
+        ["agent", "Would you ever consider havin' an AI pick up when you're closed?"],
+        [
+          "user",
+          "Hmm. Now, are you an AI agent, Tom, or you, are, are you, or are you Tom?",
+        ],
+        ["agent", "I'm actually an AI, yeah."],
+        ["user", "No, thank you."],
+      ),
+      disposition: "not_interested",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 183,
+      decisionMakerReached: "yes",
+    });
+    expect(r.outcome).toBe("not_interested");
+    expect(r.reachedHuman).toBe(true);
+  });
+
+  it("does NOT treat a person describing their OWN AI tool as an AI receptionist", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Thanks for calling, this is Dana."],
+        ["agent", "Would you ever consider having an AI pick up when you're busy?"],
+        [
+          "user",
+          "So, and we have an AI assistant to get all the emails from that, so we're good. Thank you, though.",
+        ],
+      ),
+      disposition: "gatekeeper_not_interested",
+      terminationReason: "Call ended by remote party",
+      callDurationSecs: 45,
+    });
+    expect(r.outcome).toBe("gatekeeper_not_interested");
+  });
+
   it("labels dead air (agent talks, only silence from the other end) as no_answer", () => {
     const r = classifyCallOutcome({
       transcript: t(
@@ -658,6 +718,33 @@ describe("classifyCallOutcome — lead asked to stop (DNC safety net)", () => {
     expect(say("Please take us off your calling list.")).toBe("dnc");
     expect(say("Can you please remove me from your call list?")).toBe("dnc");
     expect(say("No, take us off your list.")).toBe("dnc");
+    expect(say("Please take us out of your system.")).toBe("dnc");
+    expect(say("Can you get me out of your calling list?")).toBe("dnc");
+  });
+
+  // TRAP 3 — "out" alone is not a removal request. Verbatim: BioFit StL,
+  // 2026-09-10. The owner was with clients and wanted the details by email;
+  // a bare "get me … out" branch put him on the DNC list.
+  it("does NOT read 'get me out of here' as a removal request", () => {
+    const r = classifyCallOutcome({
+      transcript: t(
+        ["user", "Good afternoon, Maya. This is Andrew."],
+        ["agent", "Would you happen to be the owner?"],
+        [
+          "user",
+          "I, uh, am, but, um... Sorry, I got two clients in my office right now.",
+        ],
+        ["agent", "Right now I've got Monday, Tuesday, or Wednesday at 1:00 PM."],
+        [
+          "user",
+          "I, I, I can't. I don't even know what it's about, but get me out of here because I got clients, I got new clients in the office right now. You gotta just send it to me, to my email, and I'll take a look at it.",
+        ],
+      ),
+      disposition: "gatekeeper",
+      terminationReason: ENDED,
+      callDurationSecs: 101,
+    });
+    expect(r.outcome).toBe("gatekeeper");
   });
 
   // TRAP 1 — the pattern must never fire on a recorded greeting. A looser

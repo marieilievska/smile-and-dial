@@ -10,9 +10,25 @@ const dmOf = (extracted) => {
   return typeof v === "string" ? v.trim().toLowerCase() : null;
 };
 
-function structuralFlags({ outcome, extracted, leadHasBooking, hasCallbackRow, status }) {
+/** Outcomes whose post-call side effect writes a dnc_entries row. MIRROR of the
+ *  DNC family in src/lib/elevenlabs/post-call-webhook.ts (dncReasonForOutcome). */
+const DNC_FAMILY = new Set(["dnc", "invalid_number", "language_barrier"]);
+
+function structuralFlags({ outcome, extracted, leadHasBooking, hasCallbackRow, status, hasDncEntry = false }) {
   const out = [];
   const dm = dmOf(extracted);
+
+  // The phone is on the DNC list because of THIS call, but the call isn't a
+  // DNC-family outcome — the list, the lead and the label disagree. 2026-09-10:
+  // the agent's mark_dnc tool fired for LGNDS Studios while the classifier
+  // filed the call ai_receptionist (a bot answered, then transferred to the
+  // owner), so the lead sat "resting" with its number blocked.
+  if (hasDncEntry && !DNC_FAMILY.has(outcome)) {
+    out.push({
+      type: "dnc_entry_not_dnc",
+      reason: `a dnc_entries row cites this call but outcome=${outcome ?? "null"} → read, then relabel or remove the entry`,
+    });
+  }
 
   // not_interested is owner-only by definition; if the AI didn't confirm the
   // owner (dm != yes), it's likely a gatekeeper decline. (Phase 2 enforces this
@@ -68,6 +84,15 @@ function transcriptFlags({ outcome, transcript }) {
       reason: "dnc where an AGENT turn offered removal → agent-manufactured?",
     });
   }
+  // The agent offered removal but the call ISN'T dnc. If the person said yes,
+  // they were promised no more calls and will get them anyway (2026-09-10:
+  // River-City MMA, and LGNDS under ai_receptionist).
+  if (outcome !== "dnc" && S.agentOfferedRemoval(transcript)) {
+    out.push({
+      type: "agent_offer_not_dnc",
+      reason: `agent offered removal but outcome=${outcome ?? "null"} → did they accept? (promised no more calls)`,
+    });
+  }
   if (outcome === "voicemail" && S.genuineHumanReplyCount(transcript) >= 2) {
     out.push({
       type: "voicemail_has_human",
@@ -77,4 +102,4 @@ function transcriptFlags({ outcome, transcript }) {
   return out;
 }
 
-module.exports = { structuralFlags, transcriptFlags, dmOf };
+module.exports = { structuralFlags, transcriptFlags, dmOf, DNC_FAMILY };

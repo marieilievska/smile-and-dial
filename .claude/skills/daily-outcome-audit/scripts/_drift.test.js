@@ -47,6 +47,24 @@ test("flags a tiny ai_receptionist share jump (0.002 -> 0.017)", () => {
   assert.ok(r.flags.find((x) => x.key === "ai_receptionist_share"));
 });
 
+test("flags the 2026-09-10 not_interested share jump (0.007 -> 0.042) but not normal days", () => {
+  const hist = [
+    day("2026-09-02", { not_interested_share: 0.007 }),
+    day("2026-09-03", { not_interested_share: 0.011 }),
+    day("2026-09-04", { not_interested_share: 0.006 }),
+  ];
+  const jump = D.driftReport({ today: day("2026-09-10", { not_interested_share: 0.042 }), history: hist });
+  assert.ok(jump.flags.find((x) => x.key === "not_interested_share" && x.direction === "up"));
+  const normal = D.driftReport({ today: day("2026-09-10", { not_interested_share: 0.012 }), history: hist });
+  assert.equal(normal.flags.find((x) => x.key === "not_interested_share"), undefined);
+});
+
+test("a metric missing from older scorecard rows is skipped, not flagged", () => {
+  const hist = [day("d1", { connect_rate: 0.4 }), day("d2", { connect_rate: 0.4 })];
+  const r = D.driftReport({ today: day("d3", { connect_rate: 0.4, not_interested_share: 0.9 }), history: hist });
+  assert.equal(r.flags.find((x) => x.key === "not_interested_share"), undefined);
+});
+
 test("flags a count halving (goal_met 21 baseline -> 4) but not on a tiny base", () => {
   const big = D.driftReport({
     today: day("d4", { goal_met: 4 }),
