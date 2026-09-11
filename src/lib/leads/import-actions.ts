@@ -15,6 +15,7 @@ import {
   type LineType,
 } from "./import-fields";
 import { leadTimezoneFrom, stateFromPhone } from "./timezone";
+import { toUsCaPhone } from "./us-ca-phone";
 import {
   isDefinitiveLineType,
   isLookupLive,
@@ -637,6 +638,21 @@ export async function importLeads(input: {
     if (typeof fields.business_phone === "string") {
       const e164 = toE164UsCa(fields.business_phone);
       if (e164) fields.business_phone = e164;
+    }
+    // The owner's line the same way: Call Now dials it and the DNC list is
+    // matched against it, and both want E.164 (#534). By the stricter
+    // person-supplied rule, so a typo like "111-111-1111" stays visibly text
+    // rather than becoming +11111111111, which the dialer would accept.
+    // Untouched when it can't be read at all — a secondary field never costs
+    // a row, and text somebody can see beats a real number belonging to a
+    // stranger, which is what the looser rule did to business numbers (#518).
+    //
+    // business_phone keeps toE164UsCa above on purpose: it is the dedup
+    // identity (owner_id + business_phone), so tightening it would change
+    // which rows an import matches.
+    if (typeof fields.owner_phone === "string") {
+      const e164 = toUsCaPhone(fields.owner_phone);
+      if (e164) fields.owner_phone = e164;
     }
 
     const customs: { customId: string; value: string }[] = [];
