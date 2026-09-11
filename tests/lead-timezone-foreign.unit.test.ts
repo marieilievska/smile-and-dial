@@ -45,6 +45,24 @@ describe("a country code other than +1 is never read as an area code", () => {
     ["Japan", "+81 3 1234 5678", "813", "FL", "America/New_York"],
     // Twelve.
     ["the UK", "+44 20 7946 0958", "442", "CA", "America/Los_Angeles"],
+    // Same UK number, with the "+" pushed past other characters. Proves the
+    // check runs on the [^\d+]-cleaned string, not the raw text — read raw,
+    // neither of these starts with "+", so a check on the raw text would miss
+    // the country code and fall through to the digit count.
+    [
+      "the UK, with the + in brackets",
+      "(+44) 20 7946 0958",
+      "442",
+      "CA",
+      "America/Los_Angeles",
+    ],
+    [
+      'the UK, after a "Tel:" label',
+      "Tel: +44 20 7946 0958",
+      "442",
+      "CA",
+      "America/Los_Angeles",
+    ],
     ["Turkey", "+90 212 123 4567", "902", null, "America/Halifax"],
     // Thirteen.
     ["Brazil", "+55 11 91234 5678", "551", "NJ", "America/New_York"],
@@ -91,6 +109,10 @@ describe("a US or Canadian number keeps its area code in every format", () => {
     ["+1 with pretty formatting", "+1 (205) 259-8928"],
     ["a 1- prefix with dashes", "1-205-259-8928"],
     ["surrounding whitespace", "  205-259-8928  "],
+    // The raw text starts "+ 1", not "+1" — only the cleaned string reads as
+    // +1. A check on raw text would see a "+" not immediately followed by 1
+    // and wrongly call this foreign, dropping a real Alabama number.
+    ["a space after the plus", "+ 1 205 259 8928"],
   ])("%s (%s) is Alabama, on Central", (_format, phone) => {
     expect(stateFromPhone(phone)).toBe("AL");
     expect(phoneToTimezone(phone)).toBe("America/Chicago");
