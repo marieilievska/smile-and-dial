@@ -33,8 +33,9 @@ import {
 } from "@/lib/calendly/booking-tools-plan";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import {
+  clampCallbackToFloor,
   localHourDaysAheadIso,
-  parseLeadLocalDatetime,
+  resolveCallbackDatetime,
 } from "@/lib/dialer/local-schedule";
 import { renderTemplate, type TemplateContext } from "@/lib/close/templates";
 import { etDayString } from "@/lib/time/eastern";
@@ -1074,7 +1075,11 @@ async function scheduleCallback(
   // The clock time is read in the LEAD's timezone and any offset the model
   // attached is ignored: it stamps -04:00 on every lead, so "10:00-04:00" for
   // a Honolulu spa used to mean 4 AM there. 10:00 means 10:00 where they are.
-  const when = parseLeadLocalDatetime(raw, ctx.lead.timezone);
+  // The one exception is a reading that lands in the past, which the model
+  // never intends — there the stamped offset is what it meant (see
+  // resolveCallbackDatetime), and without it "call me in 20 minutes" from an
+  // Atlantic lead was refused as already passed.
+  const when = resolveCallbackDatetime(raw, ctx.lead.timezone);
   if (!raw || !when || Number.isNaN(when.getTime())) {
     return {
       success: false,
@@ -1091,7 +1096,11 @@ async function scheduleCallback(
 
   // Callbacks may be scheduled on weekends (agreed appointments), so honor the
   // exact time the lead asked for instead of rolling a weekend time to Monday.
-  const scheduledAt = when.toISOString();
+  // A time that is real but only moments away is held to the floor: callbacks
+  // bypass the throughput caps, so "in one minute" would have the dialer ring
+  // the number we are still hanging up on. No need to re-ask the lead over a
+  // few minutes — the agent's "I'll give you a shout shortly" still holds.
+  const scheduledAt = clampCallbackToFloor(when).toISOString();
 
   // If this same call already booked a callback (the lead changed the time
   // mid-conversation), update that one in place instead of inserting a second.

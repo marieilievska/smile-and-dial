@@ -14,9 +14,11 @@ import { classifyCallOutcome } from "@/lib/calls/classify-outcome";
 import { resolveOrCreateInboundCall } from "@/lib/elevenlabs/inbound-call";
 import { fetchAndStoreRecording } from "@/lib/elevenlabs/recording-fetch";
 import {
+  CALLBACK_PAST_TIME_CLAMPED,
+  clampCallbackToFloor,
   deferSameDayCallbackIso,
   localHourDaysAheadIso,
-  parseLeadLocalDatetime,
+  resolveCallbackDatetime,
 } from "@/lib/dialer/local-schedule";
 import {
   applyRetryForCall,
@@ -1587,18 +1589,39 @@ export async function applyOutcomeSideEffects(
       .select("timezone")
       .eq("id", input.leadId)
       .maybeSingle();
-    // Lead-local wall clock; the model's offset is ignored (see
-    // parseLeadLocalDatetime).
-    const parsed = parseLeadLocalDatetime(
+    // Lead-local wall clock, falling back to the offset the model stamped when
+    // that reading would land in the past (see resolveCallbackDatetime).
+    const parsed = resolveCallbackDatetime(
       input.callbackDatetime,
       leadTz?.timezone,
     );
     // Honor the exact time the lead named, weekends included (agreed callbacks
     // dial on weekends now). Only the DEFAULT slot (no time given) rolls to a
     // weekday via nextDayLocalHourIso.
-    const scheduledAt = parsed
+    const wanted = parsed
       ? parsed.toISOString()
       : nextDayLocalHourIso(leadTz?.timezone, 10);
+    // Last line of defence. Nothing downstream re-checks this, and a callback
+    // in the past is dialed on the next tick with the caps bypassed — the
+    // three-calls-in-four-minutes failure. Clamp rather than drop: the call is
+    // over, there is no one left to re-ask, and this lead DID ask to be called
+    // back. A clamp that actually bites is an alarm, not routine, so it is
+    // written to the Activity feed with both readings for diagnosis.
+    const scheduledAt = clampCallbackToFloor(new Date(wanted)).toISOString();
+    if (scheduledAt !== wanted) {
+      await supabase.from("system_events").insert({
+        kind: CALLBACK_PAST_TIME_CLAMPED,
+        actor_user_id: null,
+        ref_table: "calls",
+        ref_id: input.callId,
+        payload: {
+          model_datetime: input.callbackDatetime,
+          lead_timezone: leadTz?.timezone ?? null,
+          resolved_at: wanted,
+          clamped_to: scheduledAt,
+        } as Json,
+      });
+    }
 
     await supabase.from("callbacks").insert({
       lead_id: input.leadId,

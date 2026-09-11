@@ -242,3 +242,77 @@ export function localHourDaysAheadIso(
   const offset = readMs - wallGuess;
   return new Date(wallGuess - offset).toISOString();
 }
+
+/** The smallest gap we will ever leave between "now" and a callback we are
+ *  writing. A callback is dialed at dial_priority 0 and bypasses the throughput
+ *  caps, so one written in the past is redeemed on the very next tick — which
+ *  is how a Halifax lead was called at 08:36, 08:38 and 08:40 and asked to be
+ *  removed ("It has not been 20 minutes. You just called me three times in a
+ *  row."). Five minutes is long enough that the next tick can't re-dial the
+ *  number we just hung up on, and short enough to honour a genuine
+ *  "call me right back". */
+export const CALLBACK_FLOOR_MS = 5 * 60 * 1000;
+
+/** system_events kind written when the floor above actually bit — i.e. we
+ *  stopped a callback from being stored at a time that had already passed.
+ *  Shared so the writer and the Activity feed's label can't drift apart. */
+export const CALLBACK_PAST_TIME_CLAMPED = "callback_past_time_clamped";
+
+/** The instant a datetime string names IF its own trailing offset is taken at
+ *  face value. Null when the string carries no offset (there is nothing to
+ *  trust) or can't be parsed. */
+function parseStampedInstant(raw: string | null | undefined): Date | null {
+  const s = (raw ?? "").trim();
+  if (!/([Zz]|[+-]\d{2}:?\d{2})$/.test(s)) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Resolve an agent-supplied callback datetime, preferring the lead's wall clock
+ * but falling back to the offset the model stamped when the wall-clock reading
+ * would land in the past.
+ *
+ * `parseLeadLocalDatetime` throws the model's offset away on purpose, because
+ * the model writes the clock time the person actually said and stamps Eastern
+ * on every lead — "10:00-04:00" for a Honolulu spa means 10:00 HST, and
+ * honouring the offset booked it at 4 AM. That is right for a NAMED time.
+ *
+ * It is wrong for a RELATIVE one. ElevenLabs does not interpolate dynamic
+ * variables into data-collection field descriptions (the analysis result comes
+ * back with the literal `{{current_time}}` still in its json_schema), so the
+ * post-call extractor never learns the lead's local clock and counts "in 20
+ * minutes" from ElevenLabs' own `system__timezone`, America/New_York. For an
+ * Atlantic lead it then wrote `2026-09-11T08:52:00-04:00` — the correct instant
+ * (12:52Z, 19 minutes out) in the wrong zone's wall clock — and re-reading
+ * "08:52" as Halifax moved it an hour earlier, to 40 minutes before the call it
+ * came from had even ended.
+ *
+ * The two cases can't be told apart from the string. They can be told apart by
+ * result: the extractor is never trying to book the past, so when the
+ * lead-local reading is already behind us and the stamped offset is still
+ * ahead, the stamped offset is the reading that was meant. When both are behind
+ * us there is nothing to recover and the lead-local reading is returned for the
+ * caller to clamp or reject.
+ */
+export function resolveCallbackDatetime(
+  raw: string | null | undefined,
+  timeZone: string | null | undefined,
+  now: Date = new Date(),
+): Date | null {
+  const local = parseLeadLocalDatetime(raw, timeZone);
+  if (!local) return null;
+  if (local.getTime() > now.getTime()) return local;
+  const stamped = parseStampedInstant(raw);
+  if (stamped && stamped.getTime() > now.getTime()) return stamped;
+  return local;
+}
+
+/** Push a callback time forward to `now + CALLBACK_FLOOR_MS` if it is sooner
+ *  than that. Clamping rather than rejecting is deliberate on the paths that
+ *  run after the call has ended: there is no one left to re-ask, and dropping
+ *  the row entirely would lose a lead who explicitly asked to be called back. */
+export function clampCallbackToFloor(when: Date, now: Date = new Date()): Date {
+  const floor = now.getTime() + CALLBACK_FLOOR_MS;
+  return when.getTime() >= floor ? when : new Date(floor);
+}
