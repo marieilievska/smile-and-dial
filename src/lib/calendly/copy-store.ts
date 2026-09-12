@@ -98,6 +98,42 @@ export async function refreshAvailabilityCopy(
   return { ok: true, slots };
 }
 
+export type SoonestOpening =
+  | { kind: "slot"; startTime: string }
+  | { kind: "none" }
+  | { kind: "calendly_failed"; error: string };
+
+/**
+ * The soonest open session for an event, scanning Calendly forward window by
+ * window (each query is capped at 7 days; see availabilityWindows) — for a
+ * fixed-time event, that session is the one to book everyone into.
+ *
+ * Three answers, not two: "no session is open" and "Calendly did not answer"
+ * must not look alike, or a lead we could have booked is told the session is
+ * closed and the audit trail says so too. The scan stops at the first failed
+ * window — a Calendly that timed out once will not answer five more windows
+ * inside the ~20 s ElevenLabs allows — and an empty window moves on to the next.
+ */
+export async function scanSoonestOpening(
+  eventTypeUri: string,
+  token: string,
+  nowMs: number = Date.now(),
+): Promise<SoonestOpening> {
+  for (const w of availabilityWindows(nowMs)) {
+    const result = await fetchAvailableTimes(
+      eventTypeUri,
+      w.startISO,
+      w.endISO,
+      token,
+      AVAILABILITY_TIMEOUT_MS,
+    );
+    if (!result.ok) return { kind: "calendly_failed", error: result.error };
+    const first = result.slots[0];
+    if (first) return { kind: "slot", startTime: first.startTime };
+  }
+  return { kind: "none" };
+}
+
 /**
  * The times to offer this caller, and where they came from.
  *

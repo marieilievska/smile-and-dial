@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { availabilityWindows } from "../src/lib/calendly/booking";
 import {
   refreshAvailabilityCopy,
   resolveOfferableSlots,
+  scanSoonestOpening,
   warmBookingCopies,
   type AvailabilityCopy,
 } from "../src/lib/calendly/copy-store";
@@ -135,6 +137,68 @@ describe("refreshAvailabilityCopy", () => {
     );
     expect(errorSpy).toHaveBeenCalledTimes(1);
     errorSpy.mockRestore();
+  });
+});
+
+describe("scanSoonestOpening", () => {
+  it("returns the first slot of the first window that has one", async () => {
+    const fetchSpy = calendlyReturns([inHours(3), inHours(5)]);
+    global.fetch = fetchSpy as never;
+    const result = await scanSoonestOpening(
+      TARGET.eventTypeUri,
+      TARGET.token,
+      NOW,
+    );
+    expect(result).toEqual({ kind: "slot", startTime: inHours(3) });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves past an empty window to the next", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ collection: [] }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            collection: [{ status: "available", start_time: inHours(3) }],
+          }),
+          { status: 200 },
+        ),
+      );
+    global.fetch = fetchSpy as never;
+    const result = await scanSoonestOpening(
+      TARGET.eventTypeUri,
+      TARGET.token,
+      NOW,
+    );
+    expect(result).toEqual({ kind: "slot", startTime: inHours(3) });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops at the first failed window and says Calendly failed, not that nothing is open", async () => {
+    const fetchSpy = vi.fn(async () => new Response("nope", { status: 503 }));
+    global.fetch = fetchSpy as never;
+    const result = await scanSoonestOpening(
+      TARGET.eventTypeUri,
+      TARGET.token,
+      NOW,
+    );
+    expect(result).toEqual({ kind: "calendly_failed", error: "Calendly 503" });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("says nothing is open only when every window answered empty", async () => {
+    const fetchSpy = calendlyReturns([]);
+    global.fetch = fetchSpy as never;
+    const result = await scanSoonestOpening(
+      TARGET.eventTypeUri,
+      TARGET.token,
+      NOW,
+    );
+    expect(result).toEqual({ kind: "none" });
+    expect(fetchSpy).toHaveBeenCalledTimes(availabilityWindows(NOW).length);
   });
 });
 

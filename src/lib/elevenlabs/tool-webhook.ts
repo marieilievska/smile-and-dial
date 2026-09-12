@@ -4,13 +4,8 @@ import { timingSafeEqual } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { createInvitee, getEventTypeConfig } from "@/lib/calendly/api";
 import {
-  createInvitee,
-  fetchAvailableTimes,
-  getEventTypeConfig,
-} from "@/lib/calendly/api";
-import {
-  availabilityWindows,
   bookingPhoneAudit,
   bookingPhoneOutcome,
   bookingTracking,
@@ -29,11 +24,11 @@ import {
   BOOKING_NOT_CONFIGURED_MESSAGE,
   planBookingTool,
 } from "@/lib/calendly/booking-tools-plan";
-import { resolveOfferableSlots } from "@/lib/calendly/copy-store";
 import {
-  AVAILABILITY_TIMEOUT_MS,
-  soonestFromCopy,
-} from "@/lib/calendly/copy-rules";
+  resolveOfferableSlots,
+  scanSoonestOpening,
+} from "@/lib/calendly/copy-store";
+import { soonestFromCopy } from "@/lib/calendly/copy-rules";
 import { afterResponse } from "@/lib/server/after-response";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import {
@@ -329,35 +324,6 @@ async function resolveCampaignCalendly(
     availabilitySlots,
     availabilityFetchedAt,
   };
-}
-
-/** The soonest upcoming Calendly opening for an event type, or null when there
- *  are none in the scanned windows — or when Calendly doesn't answer. Reuses
- *  the same forward-window scan as get_available_times (Calendly caps each
- *  query at 7 days), so a webinar weeks out is still found. Bounded per window
- *  (AVAILABILITY_TIMEOUT_MS) and STOPS at the first window Calendly fails to
- *  answer, returning null rather than trying the rest: a Calendly that times
- *  out once is not going to answer five more windows inside the ~20 s
- *  ElevenLabs allows for this tool call. An empty but successful window just
- *  moves on to the next one. Openings come back chronological, so the first
- *  hit in a successful window is the soonest — which for a fixed-time event is
- *  the session to book everyone into. */
-async function soonestCalendlyOpening(
-  eventTypeUri: string,
-  token: string,
-): Promise<string | null> {
-  for (const w of availabilityWindows(Date.now())) {
-    const result = await fetchAvailableTimes(
-      eventTypeUri,
-      w.startISO,
-      w.endISO,
-      token,
-      AVAILABILITY_TIMEOUT_MS,
-    );
-    if (!result.ok) return null;
-    if (result.slots.length > 0) return result.slots[0].startTime;
-  }
-  return null;
 }
 
 /**
@@ -1499,19 +1465,33 @@ async function bookAppointment(
   // was never given.
   if (!slotId && cal?.eventTypeUri && cal.fixedTimeBooking) {
     const eventTypeUri = cal.eventTypeUri;
-    // The copy already holds the next week of openings, and a fixed-time
-    // event's session is the first of them — but only a copy fresh enough to
-    // book from (see soonestFromCopy). Otherwise scan Calendly live.
-    const soonest =
-      soonestFromCopy(
-        cal.availabilitySlots,
-        cal.availabilityFetchedAt,
-        Date.now(),
-      ) ??
-      (await ctx.timer.time("calendly_availability", () =>
-        soonestCalendlyOpening(eventTypeUri, cal.token),
-      ));
-    if (!soonest) {
+    // A fresh-enough copy already holds the session (see soonestFromCopy);
+    // otherwise scan Calendly live, which can answer three ways.
+    const fromCopy = soonestFromCopy(
+      cal.availabilitySlots,
+      cal.availabilityFetchedAt,
+      Date.now(),
+    );
+    const opening = fromCopy
+      ? ({ kind: "slot", startTime: fromCopy } as const)
+      : await ctx.timer.time("calendly_availability", () =>
+          scanSoonestOpening(eventTypeUri, cal.token),
+        );
+    if (opening.kind === "calendly_failed") {
+      await logToolEvent(ctx, "tool_book_appointment", {
+        email,
+        fixed_time: true,
+        calendly_unavailable: true,
+        calendly_error: opening.error,
+      });
+      return {
+        success: false,
+        message: email
+          ? `I can't complete the booking from here, but I've got ${email} — the team will send the invite through shortly.`
+          : "I can't complete the booking from here right now — I'll have the team follow up.",
+      };
+    }
+    if (opening.kind === "none") {
       await logToolEvent(ctx, "tool_book_appointment", {
         email,
         fixed_time: true,
@@ -1523,7 +1503,7 @@ async function bookAppointment(
           "That session isn't open for booking right now — I'll have the team follow up.",
       };
     }
-    slotId = soonest;
+    slotId = opening.startTime;
   }
 
   if (!slotId) {
