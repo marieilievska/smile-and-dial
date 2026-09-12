@@ -204,6 +204,48 @@ describe("renderOpeningInstruction", () => {
     ).toContain(`"Hey, it's 'Tom' from earlier, yesterday."`);
   });
 
+  it("curly double quotes become single quotes; apostrophes stay", () => {
+    expect(
+      renderOpeningInstruction({
+        situation: "spoken_before",
+        template: "It\u2019s \u201CTom\u201D again, {when}.",
+        when: "yesterday",
+      }),
+    ).toContain(`"It\u2019s 'Tom' again, yesterday."`);
+  });
+
+  it("fills every {when} in the line, not just the first", () => {
+    expect(
+      renderOpeningInstruction({
+        situation: "callback_booked",
+        template: "I called {when}, and {when} they said try back.",
+        when: "yesterday",
+      }),
+    ).toContain(`"I called yesterday, and yesterday they said try back."`);
+  });
+
+  it("a saved line longer than the cap is cut to OPENER_MAX_LENGTH before it's spoken", () => {
+    const text = renderOpeningInstruction({
+      situation: "spoken_before",
+      template: "x".repeat(OPENER_MAX_LENGTH + 100),
+      when: "yesterday",
+    });
+    expect(text).toContain(`"${"x".repeat(OPENER_MAX_LENGTH)}"`);
+    expect(text).not.toContain("x".repeat(OPENER_MAX_LENGTH + 1));
+  });
+
+  it("a cold call ignores any saved line", () => {
+    expect(
+      renderOpeningInstruction({
+        situation: "cold",
+        template: "Hey there, Tom here, I reached out {when}.",
+        when: "yesterday",
+      }),
+    ).toBe(
+      "COLD CALL: this is our first real conversation with this business. Use the cold opener below.",
+    );
+  });
+
   it("cold and inbound point at the prompt's own openers", () => {
     expect(renderOpeningInstruction({ situation: "cold", when: "" })).toBe(
       "COLD CALL: this is our first real conversation with this business. Use the cold opener below.",
@@ -236,5 +278,11 @@ describe("normalizeOpener — what a campaign's opener box stores", () => {
     expect(normalizeOpener("x".repeat(OPENER_MAX_LENGTH + 50))).toHaveLength(
       OPENER_MAX_LENGTH,
     );
+  });
+
+  it("re-trims after the cap so a cut never leaves a trailing space", () => {
+    expect(
+      normalizeOpener("x".repeat(OPENER_MAX_LENGTH - 1) + " " + "y".repeat(10)),
+    ).toBe("x".repeat(OPENER_MAX_LENGTH - 1));
   });
 });

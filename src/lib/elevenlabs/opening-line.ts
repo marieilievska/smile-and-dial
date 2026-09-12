@@ -124,21 +124,28 @@ export function normalizeOpener(
   return text || null;
 }
 
-/** The spoken line: the campaign's text or the default, {when} filled in,
- *  folded onto one line, with double quotes turned into single quotes so the
- *  line can't close the quotes the instruction wraps it in. */
+/** The spoken line: the campaign's text, normalized exactly as the settings box
+ *  stores it (trimmed, capped, blank → default), with {when} filled in, folded
+ *  onto one line, and double quotes turned into single quotes so the line can't
+ *  close the quotes the instruction wraps it in. */
 function renderLine(
   template: string | null | undefined,
   fallback: string,
   when: string,
 ): string {
-  const text = (template ?? "").trim() || fallback;
+  const text = normalizeOpener(template) ?? fallback;
   return text
     .split("{when}")
     .join(when)
     .replace(/["“”]/g, "'")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** What every follow-up instruction says after naming the situation: wait for
+ *  them, say exactly this line, never the cold opener. */
+function followUpInstruction(situation: string, line: string): string {
+  return `${situation} Wait for them to answer, then your first reply must be exactly: "${line}" Never use the cold opener on this call, however they answer the phone.`;
 }
 
 /** The {{opening_instruction}} dynamic variable for one call. */
@@ -152,21 +159,15 @@ export function renderOpeningInstruction(input: {
       return "INBOUND CALL: they are calling us back. Use the inbound opener below.";
     case "cold":
       return "COLD CALL: this is our first real conversation with this business. Use the cold opener below.";
-    case "callback_booked": {
-      const line = renderLine(
-        input.template,
-        DEFAULT_CALLBACK_OPENER,
-        input.when,
+    case "callback_booked":
+      return followUpInstruction(
+        "CALLBACK: we agreed to call this business back.",
+        renderLine(input.template, DEFAULT_CALLBACK_OPENER, input.when),
       );
-      return `CALLBACK: we agreed to call this business back. Wait for them to answer, then your first reply must be exactly: "${line}" Never use the cold opener on this call, however they answer the phone.`;
-    }
-    case "spoken_before": {
-      const line = renderLine(
-        input.template,
-        DEFAULT_SPOKEN_BEFORE_OPENER,
-        input.when,
+    case "spoken_before":
+      return followUpInstruction(
+        "FOLLOW-UP: we have spoken with this business before and no callback is booked.",
+        renderLine(input.template, DEFAULT_SPOKEN_BEFORE_OPENER, input.when),
       );
-      return `FOLLOW-UP: we have spoken with this business before and no callback is booked. Wait for them to answer, then your first reply must be exactly: "${line}" Never use the cold opener on this call, however they answer the phone.`;
-    }
   }
 }
