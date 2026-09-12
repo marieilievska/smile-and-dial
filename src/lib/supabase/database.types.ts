@@ -469,6 +469,8 @@ export type Database = {
       calendly_event_types: {
         Row: {
           active: boolean;
+          availability_fetched_at: string | null;
+          availability_slots: Json | null;
           duration_minutes: number | null;
           event_uri: string;
           id: string;
@@ -479,6 +481,8 @@ export type Database = {
         };
         Insert: {
           active?: boolean;
+          availability_fetched_at?: string | null;
+          availability_slots?: Json | null;
           duration_minutes?: number | null;
           event_uri: string;
           id?: string;
@@ -489,6 +493,8 @@ export type Database = {
         };
         Update: {
           active?: boolean;
+          availability_fetched_at?: string | null;
+          availability_slots?: Json | null;
           duration_minutes?: number | null;
           event_uri?: string;
           id?: string;
