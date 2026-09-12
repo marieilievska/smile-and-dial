@@ -10,6 +10,7 @@ import {
   offerableSlots,
   parseSlotList,
   SLOT_MIN_LEAD_MS,
+  soonestFromCopy,
   WARM_AFTER_MS,
 } from "../src/lib/calendly/copy-rules";
 
@@ -82,9 +83,14 @@ describe("offerableSlots", () => {
     ]);
   });
 
-  it("keeps a slot exactly at the lead time", () => {
+  it("keeps a slot just past the lead time", () => {
     const edge = new Date(NOW + SLOT_MIN_LEAD_MS + 1).toISOString();
     expect(offerableSlots([edge], NOW)).toEqual([edge]);
+  });
+
+  it("drops a slot exactly at the lead time", () => {
+    const edge = new Date(NOW + SLOT_MIN_LEAD_MS).toISOString();
+    expect(offerableSlots([edge], NOW)).toEqual([]);
   });
 });
 
@@ -96,5 +102,42 @@ describe("needsWarm", () => {
 
   it("is false for a copy the dialer refreshed a moment ago", () => {
     expect(needsWarm(ago(WARM_AFTER_MS - 1), NOW)).toBe(false);
+  });
+});
+
+describe("soonestFromCopy", () => {
+  const slot = (hoursFromNow: number) =>
+    new Date(NOW + hoursFromNow * 3600_000).toISOString();
+
+  it("takes the first offerable slot from a fresh copy", () => {
+    expect(soonestFromCopy([slot(3), slot(5)], ago(0), NOW)).toBe(slot(3));
+  });
+
+  it("takes the first offerable slot from a usable copy", () => {
+    expect(soonestFromCopy([slot(3), slot(5)], ago(COPY_USABLE_MS), NOW)).toBe(
+      slot(3),
+    );
+  });
+
+  it("is null from a fallback-only copy — too old to book from without asking Calendly first", () => {
+    expect(soonestFromCopy([slot(3)], ago(COPY_USABLE_MS + 1), NOW)).toBeNull();
+  });
+
+  it("is null when the copy is expired or has no timestamp", () => {
+    expect(
+      soonestFromCopy([slot(3)], ago(COPY_FALLBACK_MS + 1), NOW),
+    ).toBeNull();
+    expect(soonestFromCopy([slot(3)], null, NOW)).toBeNull();
+  });
+
+  it("is null when a fresh copy's only slot starts inside the lead time", () => {
+    const tooSoon = new Date(NOW + SLOT_MIN_LEAD_MS - 60_000).toISOString();
+    expect(soonestFromCopy([tooSoon], ago(0), NOW)).toBeNull();
+  });
+
+  it("returns the soonest even from an unsorted copy", () => {
+    expect(soonestFromCopy([slot(5), slot(3), slot(9)], ago(0), NOW)).toBe(
+      slot(3),
+    );
   });
 });

@@ -250,44 +250,16 @@ type AvailableTimesResponse = {
   }[];
 };
 
-/**
- * Fetch open slots for an event type. Calendly requires a future window no
- * larger than 7 days, so callers should pass a range within that bound.
- */
-export async function getAvailableTimes(
-  eventTypeUri: string,
-  startISO: string,
-  endISO: string,
-  token: string,
-): Promise<CalendlySlot[]> {
-  const url =
-    `${CAL_API}/event_type_available_times?event_type=` +
-    `${encodeURIComponent(eventTypeUri)}&start_time=` +
-    `${encodeURIComponent(startISO)}&end_time=${encodeURIComponent(endISO)}`;
-  try {
-    const res = await fetch(url, { headers: authHeaders(token) });
-    if (!res.ok) return [];
-    const data = (await res.json()) as AvailableTimesResponse;
-    return (data.collection ?? [])
-      .filter((s) => s.status === "available" && s.start_time)
-      .map((s) => ({
-        startTime: s.start_time as string,
-        schedulingUrl: s.scheduling_url ?? null,
-      }));
-  } catch {
-    return [];
-  }
-}
-
 export type AvailabilityFetch =
   | { ok: true; slots: CalendlySlot[] }
   | { ok: false; error: string };
 
 /**
- * Like getAvailableTimes, but says WHY it came back empty and gives up after
- * `timeoutMs`.
+ * Fetch open slots for an event type, saying WHY it came back empty and
+ * giving up after `timeoutMs`. Calendly requires a future window no larger
+ * than 7 days, so callers should pass a range within that bound.
  *
- * The difference matters for the stored copy (see ./copy-store): "Calendly says
+ * The distinction matters for the stored copy (see ./copy-store): "Calendly says
  * there is nothing open" must overwrite the copy, while "Calendly did not
  * answer in time" must leave the previous copy alone. It also matters on the
  * phone — without a timeout a slow Calendly holds the caller in silence until

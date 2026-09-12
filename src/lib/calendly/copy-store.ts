@@ -79,7 +79,7 @@ export async function refreshAvailabilityCopy(
 
   const slots = result.slots.map((s) => s.startTime);
   try {
-    await supabase
+    const { error } = await supabase
       .from("calendly_event_types")
       .update({
         availability_slots: slots as unknown as Json,
@@ -87,6 +87,11 @@ export async function refreshAvailabilityCopy(
         availability_fetched_at: new Date(nowMs).toISOString(),
       })
       .eq("id", target.eventTypeId);
+    if (error) {
+      console.error(
+        `[calendly-copy] could not store availability for event ${target.eventTypeId}: ${error.message}`,
+      );
+    }
   } catch {
     // The copy is an optimisation; never fail a caller over storing it.
   }

@@ -19,10 +19,14 @@ export const COPY_USABLE_MS = 10 * 60_000;
 export const COPY_FALLBACK_MS = 60 * 60_000;
 /** The dialer tops the copy up when it is older than this. */
 export const WARM_AFTER_MS = 60_000;
-/** Never offer a session starting sooner than this: the copy may predate
- *  Calendly closing its own booking window, and nobody joins a webinar that
- *  starts while they are still on the phone. */
-export const SLOT_MIN_LEAD_MS = 5 * 60_000;
+/** Never offer a session starting sooner than this. It MIRRORS the Calendly
+ *  event's minimum scheduling notice — 30 minutes on the daily webinar, set in
+ *  Calendly (Marija, 2026-09-12) — which Calendly's API does not expose, so it
+ *  cannot be read. A live read already respects the notice at the moment it is
+ *  made; this keeps an OLDER copy honest as the clock moves (a copy read at 1:21
+ *  still holds the 2 PM session, which Calendly refuses from 1:30). If the notice
+ *  is changed in Calendly, change this with it. */
+export const SLOT_MIN_LEAD_MS = 30 * 60_000;
 /** Stop waiting on Calendly's availability endpoint. The tool has 20 s before
  *  ElevenLabs abandons it, but the caller is listening to silence the whole
  *  time, and a copy up to an hour old beats four more seconds of nothing. */
@@ -79,6 +83,21 @@ export function offerableSlots(
   return slots
     .filter((s) => Date.parse(s) > nowMs + SLOT_MIN_LEAD_MS)
     .sort((a, b) => Date.parse(a) - Date.parse(b));
+}
+
+/** The session a fixed-time (webinar) booking should take from the copy: the
+ *  first offerable slot, but ONLY from a copy fresh or usable enough to book
+ *  from (at most COPY_USABLE_MS old). Anything older returns null so the caller
+ *  does a live scan instead — that path books immediately, with no list to fall
+ *  back on if Calendly rejects a stale slot. */
+export function soonestFromCopy(
+  slots: unknown,
+  fetchedAt: string | null | undefined,
+  nowMs: number,
+): string | null {
+  const freshness = copyFreshness(fetchedAt, nowMs);
+  if (freshness !== "fresh" && freshness !== "usable") return null;
+  return offerableSlots(parseSlotList(slots), nowMs)[0] ?? null;
 }
 
 /** Should the dialer refresh this event's copy on this tick? */

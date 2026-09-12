@@ -110,6 +110,32 @@ describe("refreshAvailabilityCopy", () => {
       },
     );
   });
+
+  it("logs, and still answers, when the database refuses the write", async () => {
+    global.fetch = calendlyReturns([inHours(3)]) as never;
+    const client = {
+      from() {
+        return {
+          update() {
+            return {
+              eq: async () => ({
+                error: { message: "column does not exist" },
+              }),
+            };
+          },
+        };
+      },
+    } as never;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(refreshAvailabilityCopy(client, TARGET, NOW)).resolves.toEqual(
+      {
+        ok: true,
+        slots: [inHours(3)],
+      },
+    );
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
+  });
 });
 
 describe("resolveOfferableSlots", () => {

@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import {
   createInvitee,
-  getAvailableTimes as calendlyGetAvailableTimes,
+  fetchAvailableTimes,
   getEventTypeConfig,
 } from "@/lib/calendly/api";
 import {
@@ -31,9 +31,8 @@ import {
 } from "@/lib/calendly/booking-tools-plan";
 import { resolveOfferableSlots } from "@/lib/calendly/copy-store";
 import {
-  copyFreshness,
-  offerableSlots,
-  parseSlotList,
+  AVAILABILITY_TIMEOUT_MS,
+  soonestFromCopy,
 } from "@/lib/calendly/copy-rules";
 import { afterResponse } from "@/lib/server/after-response";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
@@ -333,22 +332,30 @@ async function resolveCampaignCalendly(
 }
 
 /** The soonest upcoming Calendly opening for an event type, or null when there
- *  are none in the scanned window. Reuses the same forward-window scan as
- *  get_available_times (Calendly caps each query at 7 days), so a webinar weeks
- *  out is still found. Openings come back chronological, so the first hit is the
- *  soonest — which for a fixed-time event is the session to book everyone into. */
+ *  are none in the scanned windows — or when Calendly doesn't answer. Reuses
+ *  the same forward-window scan as get_available_times (Calendly caps each
+ *  query at 7 days), so a webinar weeks out is still found. Bounded per window
+ *  (AVAILABILITY_TIMEOUT_MS) and STOPS at the first window Calendly fails to
+ *  answer, returning null rather than trying the rest: a Calendly that times
+ *  out once is not going to answer five more windows inside the ~20 s
+ *  ElevenLabs allows for this tool call. An empty but successful window just
+ *  moves on to the next one. Openings come back chronological, so the first
+ *  hit in a successful window is the soonest — which for a fixed-time event is
+ *  the session to book everyone into. */
 async function soonestCalendlyOpening(
   eventTypeUri: string,
   token: string,
 ): Promise<string | null> {
   for (const w of availabilityWindows(Date.now())) {
-    const live = await calendlyGetAvailableTimes(
+    const result = await fetchAvailableTimes(
       eventTypeUri,
       w.startISO,
       w.endISO,
       token,
+      AVAILABILITY_TIMEOUT_MS,
     );
-    if (live.length > 0) return live[0].startTime;
+    if (!result.ok) return null;
+    if (result.slots.length > 0) return result.slots[0].startTime;
   }
   return null;
 }
@@ -408,14 +415,18 @@ async function logToolEvent(
   kind: string,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  await ctx.supabase.from("system_events").insert({
+  // Snapshot now, so total_ms measures the tool — not the audit write, and not
+  // however long after() waits before running it.
+  const row = {
     kind,
     actor_user_id: null,
     ref_table: "calls",
     ref_id: ctx.callId,
-    // Snapshotted here rather than inside the insert's promise so `total_ms`
-    // measures the tool, not the audit write that follows it.
     payload: { ...payload, timings: ctx.timer.snapshot() } as Json,
+  };
+  // Written after the response: an audit row must never make a caller wait.
+  await afterResponse(async () => {
+    await ctx.supabase.from("system_events").insert(row);
   });
 }
 
@@ -1489,20 +1500,17 @@ async function bookAppointment(
   if (!slotId && cal?.eventTypeUri && cal.fixedTimeBooking) {
     const eventTypeUri = cal.eventTypeUri;
     // The copy already holds the next week of openings, and a fixed-time
-    // event's session is the first of them. Only fall back to the six-week
-    // scan when the copy is too old to trust or holds nothing.
-    const nowMs = Date.now();
-    const fromCopy = offerableSlots(
-      parseSlotList(cal.availabilitySlots),
-      nowMs,
-    );
+    // event's session is the first of them — but only a copy fresh enough to
+    // book from (see soonestFromCopy). Otherwise scan Calendly live.
     const soonest =
-      copyFreshness(cal.availabilityFetchedAt, nowMs) !== "expired" &&
-      fromCopy.length > 0
-        ? fromCopy[0]
-        : await ctx.timer.time("calendly_availability", () =>
-            soonestCalendlyOpening(eventTypeUri, cal.token),
-          );
+      soonestFromCopy(
+        cal.availabilitySlots,
+        cal.availabilityFetchedAt,
+        Date.now(),
+      ) ??
+      (await ctx.timer.time("calendly_availability", () =>
+        soonestCalendlyOpening(eventTypeUri, cal.token),
+      ));
     if (!soonest) {
       await logToolEvent(ctx, "tool_book_appointment", {
         email,
