@@ -8,7 +8,6 @@ import {
   createInvitee,
   getAvailableTimes as calendlyGetAvailableTimes,
   getEventTypeConfig,
-  type CalendlySlot,
 } from "@/lib/calendly/api";
 import {
   availabilityWindows,
@@ -20,7 +19,6 @@ import {
   buildQuestionsAndAnswers,
   type DncLookup,
   isSlotGoneError,
-  OFFER_LOOKAHEAD_DAYS,
   pickBookingPhone,
   relativeDayLabel,
   requiredQuestionPhone,
@@ -31,6 +29,13 @@ import {
   BOOKING_NOT_CONFIGURED_MESSAGE,
   planBookingTool,
 } from "@/lib/calendly/booking-tools-plan";
+import { resolveOfferableSlots } from "@/lib/calendly/copy-store";
+import {
+  copyFreshness,
+  offerableSlots,
+  parseSlotList,
+} from "@/lib/calendly/copy-rules";
+import { afterResponse } from "@/lib/server/after-response";
 import { syncLeadNextCallToEarliestCallback } from "@/lib/callbacks/sync-next-call";
 import {
   clampCallbackToFloor,
@@ -257,6 +262,13 @@ type CampaignCalendly = {
   /** The campaign's "Booking UTM campaign" setting — stamped as utm_campaign on
    *  every booking. null = fall back to the legacy map / campaign name. */
   bookingUtmCampaign: string | null;
+  /** The event-type ROW id (not the Calendly URI), so a refreshed copy can be
+   *  written back. Null when the campaign has no event chosen. */
+  eventTypeId: string | null;
+  /** Our stored copy of this event's open times, and when it was read. May be
+   *  stale or absent — calendly/copy-rules decides whether to trust it. */
+  availabilitySlots: unknown;
+  availabilityFetchedAt: string | null;
 };
 
 /**
@@ -294,13 +306,19 @@ async function resolveCampaignCalendly(
   if (!token) return null;
 
   let eventTypeUri: string | null = null;
+  let eventTypeId: string | null = null;
+  let availabilitySlots: unknown = null;
+  let availabilityFetchedAt: string | null = null;
   if (campaign.calendly_event_id) {
     const { data: et } = await supabase
       .from("calendly_event_types")
-      .select("event_uri")
+      .select("id, event_uri, availability_slots, availability_fetched_at")
       .eq("id", campaign.calendly_event_id)
       .maybeSingle();
     eventTypeUri = et?.event_uri ?? null;
+    eventTypeId = et?.id ?? null;
+    availabilitySlots = et?.availability_slots ?? null;
+    availabilityFetchedAt = et?.availability_fetched_at ?? null;
   }
   return {
     token,
@@ -308,6 +326,9 @@ async function resolveCampaignCalendly(
     campaignName: campaign.name ?? null,
     fixedTimeBooking: campaign.fixed_time_booking === true,
     bookingUtmCampaign: campaign.booking_utm_campaign ?? null,
+    eventTypeId,
+    availabilitySlots,
+    availabilityFetchedAt,
   };
 }
 
@@ -1253,33 +1274,39 @@ async function getAvailableTimesResult(
     }
     if (plan === "live" && cal?.eventTypeUri) {
       const eventTypeUri = cal.eventTypeUri;
-      // ONE short window (see OFFER_LOOKAHEAD_DAYS). The daily webinar runs
+      // ONE short window (OFFER_LOOKAHEAD_DAYS, applied inside the copy
+      // refresh — see calendly/copy-store). The daily webinar runs
       // every weekday and its Calendly event only books a few days out, so the
       // agent gets EVERY open session in that range in a single call — a
       // handful of lines it can answer "does Thursday work?" from on the spot,
       // instead of the first three openings of a six-week scan plus a second
       // round-trip (dead air on the phone) for any day the owner names.
       const now = Date.now();
-      const [window] = availabilityWindows(now, {
-        windows: 1,
-        spanDays: OFFER_LOOKAHEAD_DAYS,
-      });
-      const live: CalendlySlot[] = await timer.time(
-        "calendly_availability",
-        () =>
-          calendlyGetAvailableTimes(
+      // Answer from our copy of Calendly's openings when it is fresh enough —
+      // asking Calendly here costs 1.0-1.4s of silence with the caller on the
+      // line. The dialer keeps the copy warm while it is placing calls; when
+      // to trust it (and when to fetch live anyway) is decided in
+      // calendly/copy-rules.
+      const offer = await timer.time("calendly_availability", () =>
+        resolveOfferableSlots(
+          ctx.supabase,
+          {
+            eventTypeId: cal.eventTypeId ?? "",
             eventTypeUri,
-            window.startISO,
-            window.endISO,
-            cal.token,
-          ),
+            token: cal.token,
+            slots: cal.availabilitySlots,
+            fetchedAt: cal.availabilityFetchedAt,
+          },
+          now,
+          afterResponse,
+        ),
       );
-      const slots: OfferedSlot[] = live
+      const slots: OfferedSlot[] = offer.slots
         .slice(0, MAX_OFFERED_SLOTS)
-        .map((s) => ({
-          slot_id: s.startTime,
-          label: fmtSlot(s.startTime, ctx.lead.timezone),
-          when: relativeDayLabel(s.startTime, now, ctx.lead.timezone),
+        .map((startTime) => ({
+          slot_id: startTime,
+          label: fmtSlot(startTime, ctx.lead.timezone),
+          when: relativeDayLabel(startTime, now, ctx.lead.timezone),
         }));
       // A real Calendly event is attached, so offer its TRUE openings — or say
       // there are none. Never invent generic slots here: fake times contradict
@@ -1288,7 +1315,8 @@ async function getAvailableTimesResult(
       if (slots.length > 0) {
         await logToolEvent(ctx, "tool_get_available_times", {
           slots: slots.length,
-          source: "live",
+          source: offer.source,
+          copy_age_s: offer.copyAgeS,
         });
         return {
           success: true,
@@ -1299,7 +1327,8 @@ async function getAvailableTimesResult(
       }
       await logToolEvent(ctx, "tool_get_available_times", {
         slots: 0,
-        source: "live",
+        source: offer.source,
+        copy_age_s: offer.copyAgeS,
       });
       return {
         success: false,
@@ -1459,9 +1488,21 @@ async function bookAppointment(
   // was never given.
   if (!slotId && cal?.eventTypeUri && cal.fixedTimeBooking) {
     const eventTypeUri = cal.eventTypeUri;
-    const soonest = await ctx.timer.time("calendly_availability", () =>
-      soonestCalendlyOpening(eventTypeUri, cal.token),
+    // The copy already holds the next week of openings, and a fixed-time
+    // event's session is the first of them. Only fall back to the six-week
+    // scan when the copy is too old to trust or holds nothing.
+    const nowMs = Date.now();
+    const fromCopy = offerableSlots(
+      parseSlotList(cal.availabilitySlots),
+      nowMs,
     );
+    const soonest =
+      copyFreshness(cal.availabilityFetchedAt, nowMs) !== "expired" &&
+      fromCopy.length > 0
+        ? fromCopy[0]
+        : await ctx.timer.time("calendly_availability", () =>
+            soonestCalendlyOpening(eventTypeUri, cal.token),
+          );
     if (!soonest) {
       await logToolEvent(ctx, "tool_book_appointment", {
         email,
