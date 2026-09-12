@@ -71,23 +71,34 @@ describe("whenPhrase", () => {
     ).toBe("earlier today");
   });
 
-  it("stays whole-day across a daylight-saving change", () => {
-    // US DST ends 2026-11-01: noon Sat Oct 31 EDT → noon Mon Nov 2 EST = 2 days.
+  it("counts calendar days across daylight-saving changes, not 24-hour blocks", () => {
+    // Fall back (2026-11-01 is a 25-hour day): 12:30 AM EDT and 11:45 PM EST
+    // are both Nov 1, 24h15m apart.
     expect(
       whenPhrase(
-        "2026-10-31T16:00:00Z",
-        new Date("2026-11-02T17:00:00Z"),
+        "2026-11-01T04:30:00Z",
+        new Date("2026-11-02T04:45:00Z"),
+        "America/New_York",
+      ),
+    ).toBe("earlier today");
+    // Spring forward (2026-03-08): 11:30 PM EST Sat Mar 7 → noon EDT Mon Mar 9
+    // is 2 calendar days but only 35.5 hours.
+    expect(
+      whenPhrase(
+        "2026-03-08T04:30:00Z",
+        new Date("2026-03-09T16:00:00Z"),
         "America/New_York",
       ),
     ).toBe("on Saturday");
   });
 
-  it("missing or unusable timezone → Eastern", () => {
-    // 6 PM ET Friday vs 11 AM ET Saturday.
-    expect(whenPhrase("2026-09-11T22:00:00Z", NOW, null)).toBe("yesterday");
-    expect(whenPhrase("2026-09-11T22:00:00Z", NOW, "Not/AZone")).toBe(
-      "yesterday",
-    );
+  it("missing or unusable timezone → Eastern (not UTC, Central or Pacific)", () => {
+    for (const tz of [null, "Not/AZone"]) {
+      // 11:30 PM ET Friday — but already Saturday in UTC.
+      expect(whenPhrase("2026-09-12T03:30:00Z", NOW, tz)).toBe("yesterday");
+      // 12:30 AM ET Saturday — still Friday in Central and Pacific.
+      expect(whenPhrase("2026-09-12T04:30:00Z", NOW, tz)).toBe("earlier today");
+    }
   });
 
   it("no usable timestamp → recently", () => {

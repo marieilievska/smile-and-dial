@@ -48,6 +48,9 @@ function localDayMs(date: Date, timeZone: string): number {
  * clock: earlier today · yesterday · on {Weekday} · last week · a few weeks
  * ago · about a month ago · a couple of months ago. "recently" when there's no
  * usable timestamp.
+ *
+ * `fromIso` is a timestamp with an offset (a timestamptz from the database).
+ * A moment slightly in the future — clock drift — reads as "earlier today".
  */
 export function whenPhrase(
   fromIso: string | null | undefined,
@@ -61,6 +64,10 @@ export function whenPhrase(
   const days = Math.round(
     (localDayMs(now, tz) - localDayMs(then, tz)) / DAY_MS,
   );
+  // en-CA dates are YYYY-MM-DD on Node and current browsers. If a runtime ever
+  // formats them differently the count is NaN, and "recently" is honest where
+  // any band would be a guess.
+  if (!Number.isFinite(days)) return "recently";
   if (days <= 0) return "earlier today";
   if (days === 1) return "yesterday";
   if (days <= 6) {
