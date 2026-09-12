@@ -13,6 +13,7 @@ type Filter =
   | { kind: "gte"; col: string; val: unknown }
   | { kind: "lte"; col: string; val: unknown }
   | { kind: "not-is-null"; col: string }
+  | { kind: "in"; col: string; vals: unknown[] }
   | { kind: "or"; groups: Array<{ col: string; val: unknown }> };
 
 export function makeFakeDb(seed: Record<string, Row[]> = {}) {
@@ -31,6 +32,7 @@ export function makeFakeDb(seed: Record<string, Row[]> = {}) {
       if (f.kind === "eq") return row[f.col] === f.val;
       if (f.kind === "is") return f.val === null && row[f.col] == null;
       if (f.kind === "not-is-null") return row[f.col] != null;
+      if (f.kind === "in") return f.vals.includes(row[f.col]);
       // String compare covers the ISO timestamps this is used for, which sort
       // lexicographically; numbers compare numerically.
       if (f.kind === "gte" || f.kind === "lte") {
@@ -123,6 +125,10 @@ export function makeFakeDb(seed: Record<string, Row[]> = {}) {
       },
       is: (col: string, val: unknown) => {
         filters.push({ kind: "is", col, val });
+        return api;
+      },
+      in: (col: string, vals: unknown[]) => {
+        filters.push({ kind: "in", col, vals: [...vals] });
         return api;
       },
       gte: (col: string, val: unknown) => {

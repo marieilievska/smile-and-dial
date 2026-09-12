@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { warmBookingCopies } from "@/lib/calendly/copy-store";
 import { runDialerTick } from "@/lib/dialer/tick";
+import { afterResponse } from "@/lib/server/after-response";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { isSuperAdmin } from "@/lib/auth/roles";
 
@@ -53,6 +56,16 @@ export async function POST(request: NextRequest) {
 
   try {
     const summary = await runDialerTick({ leadIds });
+    // Top up the booking tools' copy of Calendly's open times for the campaigns
+    // that just dialled — AFTER the response, so it can never lengthen a tick
+    // or delay a dial. At most one Calendly read per event per minute, and none
+    // when nothing is dialling.
+    const dialedCampaignIds = summary.dialedCampaignIds ?? [];
+    if (dialedCampaignIds.length > 0) {
+      await afterResponse(() =>
+        warmBookingCopies(createAdminClient(), dialedCampaignIds),
+      );
+    }
     return NextResponse.json(summary);
   } catch (error) {
     return NextResponse.json(

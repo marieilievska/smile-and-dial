@@ -53,6 +53,10 @@ export type TickSummary = {
    *  starvation bug this replaced. */
   campaignsRead: number;
   candidatesByCampaign: Record<string, number>;
+  /** Campaigns this tick actually placed a call for. The tick route uses it to
+   *  top up those campaigns' copy of Calendly's open times (see
+   *  calendly/copy-store), so a booking call reads a copy under a minute old. */
+  dialedCampaignIds?: string[];
   /** Set when there were more active campaigns than MAX_CAMPAIGN_FANOUT, so
    *  some got no candidates at all this tick. Never silently truncate. */
   campaignsSkippedForFanoutCap?: number;
@@ -749,6 +753,8 @@ async function runDialerTickCore(
   // that blocked. Reported on the summary + heartbeat; one audit row per
   // campaign per hour (see recordPoolExhausted).
   const poolExhaustedCampaigns = new Map<string, number>();
+  // Campaigns that placed at least one call this tick.
+  const dialedCampaigns = new Set<string>();
 
   for (const c of candidates) {
     // The queue can produce rows where the typed columns are nominally
@@ -921,6 +927,7 @@ async function runDialerTickCore(
       });
       if (res.callId) {
         summary.dialed++;
+        dialedCampaigns.add(c.campaign_id);
       } else if (res.inFlight) {
         // The DB active-dial index rejected the insert: another dialer already
         // has this lead in flight. Count it as blocked, not an error.
@@ -958,8 +965,10 @@ async function runDialerTickCore(
         agent_id: c.agent_id,
         twilio_number_id: null,
       });
-      if (callId) summary.dialed++;
-      else summary.errors++;
+      if (callId) {
+        summary.dialed++;
+        dialedCampaigns.add(c.campaign_id);
+      } else summary.errors++;
     }
   }
 
@@ -968,6 +977,10 @@ async function runDialerTickCore(
     for (const [campaignId, blocked] of poolExhaustedCampaigns) {
       await recordPoolExhausted(supabase, campaignId, blocked);
     }
+  }
+
+  if (dialedCampaigns.size > 0) {
+    summary.dialedCampaignIds = [...dialedCampaigns];
   }
 
   return summary;
