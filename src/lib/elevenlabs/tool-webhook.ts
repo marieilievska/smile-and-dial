@@ -60,6 +60,7 @@ import {
 import { recordAiCharge } from "@/lib/costs/ai-charges";
 import { numField, withRecomputedTotal } from "@/lib/costs/breakdown";
 import type { Database, Json } from "@/lib/supabase/database.types";
+import { ToolTimer } from "@/lib/elevenlabs/tool-timing";
 
 /**
  * ElevenLabs server-tool webhooks.
@@ -168,6 +169,8 @@ type CallContext = {
   supabase: SupabaseAdmin;
   callId: string;
   campaignId: string;
+  /** Times the steps of this one tool call; snapshotted onto its audit row. */
+  timer: ToolTimer;
   lead: {
     id: string;
     owner_id: string;
@@ -190,22 +193,27 @@ type CallContext = {
 async function resolveCallContext(
   supabase: SupabaseAdmin,
   callId: string,
+  timer: ToolTimer,
 ): Promise<CallContext | null> {
   if (!callId) return null;
-  const { data: call } = await supabase
-    .from("calls")
-    .select("id, lead_id, campaign_id")
-    .eq("id", callId)
-    .maybeSingle();
+  const { data: call } = await timer.time("context", () =>
+    supabase
+      .from("calls")
+      .select("id, lead_id, campaign_id")
+      .eq("id", callId)
+      .maybeSingle(),
+  );
   if (!call?.lead_id || !call.campaign_id) return null;
 
-  const { data: lead } = await supabase
-    .from("leads")
-    .select(
-      "id, owner_id, company, business_phone, mobile_phone, owner_phone, business_email, city, state, website, owner_name, manager_name, employee_name, timezone, status",
-    )
-    .eq("id", call.lead_id)
-    .maybeSingle();
+  const { data: lead } = await timer.time("context", () =>
+    supabase
+      .from("leads")
+      .select(
+        "id, owner_id, company, business_phone, mobile_phone, owner_phone, business_email, city, state, website, owner_name, manager_name, employee_name, timezone, status",
+      )
+      .eq("id", call.lead_id)
+      .maybeSingle(),
+  );
   if (!lead) return null;
 
   return {
@@ -213,6 +221,7 @@ async function resolveCallContext(
     callId: call.id,
     campaignId: call.campaign_id,
     lead,
+    timer,
   };
 }
 
@@ -335,13 +344,15 @@ export async function executeServerTool(
 ): Promise<ToolWebhookResult> {
   const supabase = makeServiceClient();
   const callId = str(body.call_id);
-  const ctx = await resolveCallContext(supabase, callId);
+  // One timer per tool call, from the first line of work to the audit row.
+  const timer = new ToolTimer();
+  const ctx = await resolveCallContext(supabase, callId, timer);
 
   // get_available_times doesn't hard require a resolved call: off-live it falls
   // back to generic slots, and on a live call it declines honestly (it needs
   // the call to know whose Calendly to read).
   if (tool === "get_available_times") {
-    return getAvailableTimesResult(supabase, ctx, callId);
+    return getAvailableTimesResult(supabase, ctx, callId, timer);
   }
 
   if (!ctx) {
@@ -381,7 +392,9 @@ async function logToolEvent(
     actor_user_id: null,
     ref_table: "calls",
     ref_id: ctx.callId,
-    payload: payload as Json,
+    // Snapshotted here rather than inside the insert's promise so `total_ms`
+    // measures the tool, not the audit write that follows it.
+    payload: { ...payload, timings: ctx.timer.snapshot() } as Json,
   });
 }
 
@@ -1202,6 +1215,7 @@ async function getAvailableTimesResult(
   supabase: SupabaseAdmin,
   ctx: CallContext | null,
   callId: string,
+  timer: ToolTimer,
 ): Promise<ToolWebhookResult> {
   const live = process.env.ELEVENLABS_LIVE === "live";
   // Offer the campaign owner's real Calendly openings over the next few days.
@@ -1209,7 +1223,9 @@ async function getAvailableTimesResult(
   // call with no Calendly to book into, invented times are a promise the
   // booking tool can't keep, so the agent is told to decline instead.
   if (ctx) {
-    const cal = await resolveCampaignCalendly(ctx.supabase, ctx.campaignId);
+    const cal = await timer.time("context", () =>
+      resolveCampaignCalendly(ctx.supabase, ctx.campaignId),
+    );
     const plan = planBookingTool({
       live,
       hasToken: Boolean(cal),
@@ -1236,6 +1252,7 @@ async function getAvailableTimesResult(
       };
     }
     if (plan === "live" && cal?.eventTypeUri) {
+      const eventTypeUri = cal.eventTypeUri;
       // ONE short window (see OFFER_LOOKAHEAD_DAYS). The daily webinar runs
       // every weekday and its Calendly event only books a few days out, so the
       // agent gets EVERY open session in that range in a single call — a
@@ -1247,11 +1264,15 @@ async function getAvailableTimesResult(
         windows: 1,
         spanDays: OFFER_LOOKAHEAD_DAYS,
       });
-      const live: CalendlySlot[] = await calendlyGetAvailableTimes(
-        cal.eventTypeUri,
-        window.startISO,
-        window.endISO,
-        cal.token,
+      const live: CalendlySlot[] = await timer.time(
+        "calendly_availability",
+        () =>
+          calendlyGetAvailableTimes(
+            eventTypeUri,
+            window.startISO,
+            window.endISO,
+            cal.token,
+          ),
       );
       const slots: OfferedSlot[] = live
         .slice(0, MAX_OFFERED_SLOTS)
@@ -1265,6 +1286,10 @@ async function getAvailableTimesResult(
       // the real date the agent quotes and produce un-bookable slot_ids (the
       // "why is it offering other times?" bug).
       if (slots.length > 0) {
+        await logToolEvent(ctx, "tool_get_available_times", {
+          slots: slots.length,
+          source: "live",
+        });
         return {
           success: true,
           message:
@@ -1272,6 +1297,10 @@ async function getAvailableTimesResult(
           slots,
         };
       }
+      await logToolEvent(ctx, "tool_get_available_times", {
+        slots: 0,
+        source: "live",
+      });
       return {
         success: false,
         message:
@@ -1379,7 +1408,9 @@ async function bookAppointment(
   // Resolve the campaign's Calendly BEFORE the slot check: a fixed-time event
   // supplies its own time, so we need to know that before deciding a missing
   // slot_id is a problem.
-  const cal = await resolveCampaignCalendly(ctx.supabase, ctx.campaignId);
+  const cal = await ctx.timer.time("context", () =>
+    resolveCampaignCalendly(ctx.supabase, ctx.campaignId),
+  );
   const plan = planBookingTool({
     live: process.env.ELEVENLABS_LIVE === "live",
     hasToken: Boolean(cal),
@@ -1427,7 +1458,10 @@ async function bookAppointment(
   // soonest opening ourselves rather than making the model invent a slot_id it
   // was never given.
   if (!slotId && cal?.eventTypeUri && cal.fixedTimeBooking) {
-    const soonest = await soonestCalendlyOpening(cal.eventTypeUri, cal.token);
+    const eventTypeUri = cal.eventTypeUri;
+    const soonest = await ctx.timer.time("calendly_availability", () =>
+      soonestCalendlyOpening(eventTypeUri, cal.token),
+    );
     if (!soonest) {
       await logToolEvent(ctx, "tool_book_appointment", {
         email,
@@ -1492,6 +1526,7 @@ async function bookAppointment(
 
   // Live: book the slot directly on the campaign owner's Calendly.
   if (cal?.eventTypeUri) {
+    const eventTypeUri = cal.eventTypeUri;
     if (Number.isNaN(when.getTime())) {
       return {
         success: false,
@@ -1573,7 +1608,9 @@ async function bookAppointment(
     //    required "Company name" field on 2026-08-18 and took booking to 0%.
     // Both are the HOST's settings and can change any day without a deploy, so
     // they're read per booking rather than assumed.
-    const eventConfig = await getEventTypeConfig(cal.eventTypeUri, cal.token);
+    const eventConfig = await ctx.timer.time("calendly_config", () =>
+      getEventTypeConfig(eventTypeUri, cal.token),
+    );
     const location = buildInviteeLocation(eventConfig.locations);
     const questionsAndAnswers = buildQuestionsAndAnswers(
       eventConfig.customQuestions,
@@ -1630,21 +1667,23 @@ async function bookAppointment(
       leadId: ctx.lead.id,
       bookingUtmCampaign: cal.bookingUtmCampaign,
     });
-    const result = await createInvitee(
-      {
-        eventTypeUri: cal.eventTypeUri,
-        startTime: when.toISOString(),
-        email,
-        name: name || undefined,
-        timezone: ctx.lead.timezone || "America/New_York",
-        location,
-        tracking,
-        questionsAndAnswers,
-        optionalQuestionsAndAnswers: phoneOutcome.optionalAnswer
-          ? [phoneOutcome.optionalAnswer]
-          : undefined,
-      },
-      cal.token,
+    const result = await ctx.timer.time("calendly_booking", () =>
+      createInvitee(
+        {
+          eventTypeUri,
+          startTime: when.toISOString(),
+          email,
+          name: name || undefined,
+          timezone: ctx.lead.timezone || "America/New_York",
+          location,
+          tracking,
+          questionsAndAnswers,
+          optionalQuestionsAndAnswers: phoneOutcome.optionalAnswer
+            ? [phoneOutcome.optionalAnswer]
+            : undefined,
+        },
+        cal.token,
+      ),
     );
     if (!result.ok) {
       await logToolEvent(ctx, "tool_book_appointment", {
