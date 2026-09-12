@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { whenPhrase } from "../src/lib/elevenlabs/opening-line";
+import {
+  DEFAULT_CALLBACK_OPENER,
+  DEFAULT_SPOKEN_BEFORE_OPENER,
+  OPENER_MAX_LENGTH,
+  normalizeOpener,
+  pickOpeningSituation,
+  renderOpeningInstruction,
+  whenPhrase,
+} from "../src/lib/elevenlabs/opening-line";
 
 /**
  * The "when" a follow-up opener says ("I called yesterday…"). Counted in
@@ -104,5 +112,129 @@ describe("whenPhrase", () => {
   it("no usable timestamp → recently", () => {
     expect(whenPhrase(null, NOW, CHICAGO)).toBe("recently");
     expect(whenPhrase("not a date", NOW, CHICAGO)).toBe("recently");
+  });
+});
+
+describe("pickOpeningSituation — first match wins", () => {
+  const nothing = {
+    inbound: false,
+    hasPendingCallbackInCampaign: false,
+    latestConversationAt: null,
+  };
+
+  it("inbound beats everything", () => {
+    expect(
+      pickOpeningSituation({
+        inbound: true,
+        hasPendingCallbackInCampaign: true,
+        latestConversationAt: "2026-09-11T22:00:00Z",
+      }),
+    ).toBe("inbound");
+  });
+
+  it("a callback booked in this campaign beats an earlier conversation", () => {
+    expect(
+      pickOpeningSituation({
+        ...nothing,
+        hasPendingCallbackInCampaign: true,
+        latestConversationAt: "2026-09-11T22:00:00Z",
+      }),
+    ).toBe("callback_booked");
+  });
+
+  it("a past conversation and no callback → spoken before", () => {
+    expect(
+      pickOpeningSituation({
+        ...nothing,
+        latestConversationAt: "2026-09-11T22:00:00Z",
+      }),
+    ).toBe("spoken_before");
+  });
+
+  it("nothing → cold", () => {
+    expect(pickOpeningSituation(nothing)).toBe("cold");
+  });
+});
+
+describe("renderOpeningInstruction", () => {
+  it("callback booked + blank box → the default line, {when} filled, told to wait for them", () => {
+    expect(
+      renderOpeningInstruction({
+        situation: "callback_booked",
+        template: null,
+        when: "yesterday",
+      }),
+    ).toBe(
+      'CALLBACK: we agreed to call this business back. Wait for them to answer, then your first reply must be exactly: "Hey there, um, I called yesterday and was told to try back around this time for the owner or manager. Are they around?" Never use the cold opener on this call, however they answer the phone.',
+    );
+  });
+
+  it("spoken before uses the campaign's own line", () => {
+    expect(
+      renderOpeningInstruction({
+        situation: "spoken_before",
+        template:
+          "Hey there, Tom here, um, I reached out {when} about a free Zoom. Is the owner around?",
+        when: "about a month ago",
+      }),
+    ).toBe(
+      'FOLLOW-UP: we have spoken with this business before and no callback is booked. Wait for them to answer, then your first reply must be exactly: "Hey there, Tom here, um, I reached out about a month ago about a free Zoom. Is the owner around?" Never use the cold opener on this call, however they answer the phone.',
+    );
+  });
+
+  it("a whitespace-only box falls back to the default line", () => {
+    expect(
+      renderOpeningInstruction({
+        situation: "spoken_before",
+        template: "   ",
+        when: "last week",
+      }),
+    ).toContain(
+      '"Hey there, um, I reached out last week and wanted to check back in. Is the owner or manager around?"',
+    );
+  });
+
+  it("double quotes and line breaks in a saved line can't break the quoted instruction", () => {
+    expect(
+      renderOpeningInstruction({
+        situation: "callback_booked",
+        template: 'Hey, it\'s "Tom"\nfrom earlier, {when}.',
+        when: "yesterday",
+      }),
+    ).toContain(`"Hey, it's 'Tom' from earlier, yesterday."`);
+  });
+
+  it("cold and inbound point at the prompt's own openers", () => {
+    expect(renderOpeningInstruction({ situation: "cold", when: "" })).toBe(
+      "COLD CALL: this is our first real conversation with this business. Use the cold opener below.",
+    );
+    expect(renderOpeningInstruction({ situation: "inbound", when: "" })).toBe(
+      "INBOUND CALL: they are calling us back. Use the inbound opener below.",
+    );
+  });
+
+  it("the default lines carry no persona name and use {when}", () => {
+    for (const line of [
+      DEFAULT_CALLBACK_OPENER,
+      DEFAULT_SPOKEN_BEFORE_OPENER,
+    ]) {
+      expect(line).toContain("{when}");
+      expect(line).not.toMatch(/\bTom\b/);
+    }
+  });
+});
+
+describe("normalizeOpener — what a campaign's opener box stores", () => {
+  it("trims, and blank becomes null (= use the default line)", () => {
+    expect(normalizeOpener("  Hey there {when}  ")).toBe("Hey there {when}");
+    expect(normalizeOpener("   ")).toBeNull();
+    expect(normalizeOpener(undefined)).toBeNull();
+    expect(normalizeOpener(null)).toBeNull();
+  });
+
+  it("caps at OPENER_MAX_LENGTH", () => {
+    expect(normalizeOpener("x".repeat(OPENER_MAX_LENGTH + 50))).toHaveLength(
+      OPENER_MAX_LENGTH,
+    );
   });
 });
