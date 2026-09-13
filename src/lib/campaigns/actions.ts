@@ -7,6 +7,7 @@ import { normalizeUtmCampaign } from "@/lib/calendly/booking";
 import { sanitizeAudienceSearch } from "@/lib/campaigns/audience-filter";
 import { campaignLaunchBlocker } from "@/lib/campaigns/integration-check";
 import { applyConnectedAgentIntegration } from "@/lib/elevenlabs/agents";
+import { normalizeOpener } from "@/lib/elevenlabs/opening-line";
 import { createAdminClient as createServiceClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -123,6 +124,13 @@ export type CampaignInput = {
    *  Delivered to ElevenLabs per-call by the conversation-init webhook. Empty =
    *  the webhook's default greeting (so inbound is never silent). */
   inboundGreeting?: string;
+  /** The agent's first REPLY — after the business answers, never a first
+   *  message — on a call where a callback is booked in this campaign. `{when}`
+   *  is filled in at dial time. Empty = the default line (opening-line.ts). */
+  callbackOpener?: string;
+  /** The agent's first reply when we've had a real conversation with the
+   *  business in this campaign and no callback is booked. Empty = default. */
+  spokenBeforeOpener?: string;
 };
 
 function parseNumber(value: string): number | null {
@@ -189,6 +197,8 @@ function buildUpdate(input: CampaignInput) {
     audience_search: sanitizeAudienceSearch(input.audienceSearch ?? "") || null,
     smart_list_id: input.smartListId?.trim() || null,
     inbound_greeting: input.inboundGreeting?.trim() || null,
+    callback_opener: normalizeOpener(input.callbackOpener),
+    spoken_before_opener: normalizeOpener(input.spokenBeforeOpener),
   };
 }
 
