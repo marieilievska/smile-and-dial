@@ -9,6 +9,7 @@ import {
   parseStatus,
   renderNote,
   resolveNames,
+  stripLeftOff,
 } from "../src/lib/openai/summary-note";
 
 /**
@@ -391,4 +392,34 @@ test("buildNote keeps only the newest MAX_KNOWN_BULLETS facts", () => {
   );
   expect(parseKnown(result.text)).toHaveLength(8);
   expect(parseKnown(result.text)[0]).toBe("They mentioned detail number 3.");
+});
+
+// ------------------------------------------------------------- stripLeftOff
+
+test("stripLeftOff drops only the Left off line from a structured note", () => {
+  const note = renderNote({
+    status: "Gatekeeper — owner not reached yet",
+    leftOff: "Call back tomorrow after 1:30.",
+    known: ["Uses Vagaro."],
+    callbackNotes: "",
+  });
+  expect(stripLeftOff(note)).toBe(
+    [
+      "Status: Gatekeeper — owner not reached yet",
+      "Known — don't re-ask:",
+      "  • Uses Vagaro.",
+    ].join("\n"),
+  );
+});
+
+test("stripLeftOff leaves a note with no Left off line — including legacy prose — unchanged", () => {
+  const structured = renderNote({
+    status: "Not interested",
+    leftOff: "",
+    known: [],
+    callbackNotes: "",
+  });
+  expect(stripLeftOff(structured)).toBe(structured);
+  const prose = "We spoke with the front desk; the owner is in on weekends.";
+  expect(stripLeftOff(prose)).toBe(prose);
 });
