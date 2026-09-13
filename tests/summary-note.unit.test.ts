@@ -423,3 +423,14 @@ test("stripLeftOff leaves a note with no Left off line — including legacy pros
   const prose = "We spoke with the front desk; the owner is in on weekends.";
   expect(stripLeftOff(prose)).toBe(prose);
 });
+
+test("stripLeftOff only drops a line that starts with Left off:", () => {
+  const bullet =
+    "Status: Gatekeeper\n  • Left off: owner said to email the link.";
+  expect(stripLeftOff(bullet)).toBe(bullet);
+  const prose = "Spoke to the front desk. Left off: owner back Monday.";
+  expect(stripLeftOff(prose)).toBe(prose);
+  expect(stripLeftOff("Status: A\r\nLeft off: B\r\nKnown")).toBe(
+    "Status: A\nKnown",
+  );
+});
