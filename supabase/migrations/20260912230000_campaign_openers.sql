@@ -24,9 +24,10 @@
 -- nullable: safe to apply before the code that reads them deploys.
 -- ---------------------------------------------------------------------------
 
--- The dialer reads campaigns every minute. Adding a nullable column is instant
--- but still takes a brief exclusive lock: give up after 5s instead of queueing
--- call-start reads behind a long transaction. A failed push is safe to re-run.
+-- The dialer reads campaigns every minute. Adding a nullable column is instant,
+-- but it still needs an ACCESS EXCLUSIVE lock, and while it waits for one every
+-- new read of campaigns queues behind it. Give up after 5s, so call-start reads
+-- stall at most 5s behind a long transaction. A failed push is safe to re-run.
 set lock_timeout = '5s';
 
 alter table public.campaigns
@@ -37,3 +38,6 @@ comment on column public.campaigns.callback_opener is
   'The agent''s first reply, after the business answers, when a callback is booked with this business in this campaign. {when} is filled in by code. NULL or blank = the default line in src/lib/elevenlabs/opening-line.ts.';
 comment on column public.campaigns.spoken_before_opener is
   'The agent''s first reply, after the business answers, when we have had a real conversation with this business in this campaign and no callback is booked. {when} is filled in by code. NULL or blank = the default line in src/lib/elevenlabs/opening-line.ts.';
+
+-- Don't leave the 5s limit on the CLI's connection for later migrations.
+reset lock_timeout;
