@@ -411,6 +411,9 @@ export function CampaignSettingsDialog({
         setName("");
         setDescription("");
         setTransferDestinationPhone("");
+        setInboundGreeting("");
+        setCallbackOpener("");
+        setSpokenBeforeOpener("");
         setDailySpendCap("");
         setMonthlySpendCap("");
         setAutopilotEnabled(true);
@@ -964,7 +967,7 @@ export function CampaignSettingsDialog({
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-callback-opener">
-                Callback booked opener
+                Opener when a callback is booked
               </Label>
               <Textarea
                 id="campaign-callback-opener"
@@ -975,16 +978,18 @@ export function CampaignSettingsDialog({
                 rows={3}
               />
               <p className="text-muted-foreground text-xs">
-                Used when a callback is booked with this business. The agent
-                says it as its first reply, after they answer, and never talks
-                over their greeting. Type {"{when}"} where
-                &ldquo;yesterday&rdquo; or &ldquo;about a month ago&rdquo;
-                should go. Leave blank to use a standard line.
+                Used when a callback is booked with this business in this
+                campaign. The agent says it as its first reply, after they
+                answer, and never talks over their greeting. Type {"{when}"}
+                where the timing goes: it becomes &ldquo;yesterday&rdquo;,
+                &ldquo;on Tuesday&rdquo; or &ldquo;about a month ago&rdquo;, so
+                don&apos;t add your own &ldquo;on&rdquo; or &ldquo;ago&rdquo;.
+                Leave blank to use a standard line.
               </p>
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="campaign-spoken-before-opener">
-                Spoken before opener
+                Opener when we&apos;ve spoken before
               </Label>
               <Textarea
                 id="campaign-spoken-before-opener"
@@ -998,8 +1003,9 @@ export function CampaignSettingsDialog({
                 Used when we&apos;ve talked with this business in this campaign
                 before but no callback is booked: a front desk, a &ldquo;not
                 interested&rdquo; after its rest, a missed callback. First reply
-                after they answer. Type {"{when}"} for the timing. Leave blank
-                to use a standard line.
+                after they answer. Type {"{when}"} for the timing (it brings its
+                own &ldquo;on&rdquo; or &ldquo;ago&rdquo;). Leave blank to use a
+                standard line.
               </p>
             </div>
           </CampaignSection>
@@ -1182,7 +1188,10 @@ export function CampaignSettingsDialog({
               title="Test"
               icon={<PlayCircle className="size-4" />}
             >
-              <TestCallTab campaignId={campaign.id} />
+              <TestCallTab
+                campaignId={campaign.id}
+                openers={{ callbackOpener, spokenBeforeOpener }}
+              />
             </CampaignSection>
           ) : null}
         </div>

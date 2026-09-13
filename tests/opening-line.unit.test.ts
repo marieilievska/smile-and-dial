@@ -5,6 +5,7 @@ import {
   DEFAULT_SPOKEN_BEFORE_OPENER,
   OPENER_MAX_LENGTH,
   normalizeOpener,
+  openerTemplateFor,
   pickOpeningSituation,
   renderOpeningInstruction,
   whenPhrase,
@@ -284,5 +285,59 @@ describe("normalizeOpener — what a campaign's opener box stores", () => {
     expect(
       normalizeOpener("x".repeat(OPENER_MAX_LENGTH - 1) + " " + "y".repeat(10)),
     ).toBe("x".repeat(OPENER_MAX_LENGTH - 1));
+  });
+});
+
+describe("the {when} placeholder, as people type it", () => {
+  it.each(["{when}", "{{when}}", "{ When }", "{WHEN}", "{{ when }}"])(
+    "fills %s",
+    (token) => {
+      const out = renderOpeningInstruction({
+        situation: "spoken_before",
+        template: `Hi, I reached out ${token} about the Zoom.`,
+        when: "on Tuesday",
+      });
+      expect(out).toContain('"Hi, I reached out on Tuesday about the Zoom."');
+    },
+  );
+
+  it("leaves any other braces exactly as typed", () => {
+    const out = renderOpeningInstruction({
+      situation: "callback_booked",
+      template: "Hi {{owner_name}}, I called {when}.",
+      when: "yesterday",
+    });
+    expect(out).toContain('"Hi {{owner_name}}, I called yesterday."');
+  });
+});
+
+describe("openerTemplateFor", () => {
+  const lines = {
+    callbackOpener: "callback line",
+    spokenBeforeOpener: "spoken before line",
+  };
+
+  it("gives the callback line when a callback is booked", () => {
+    expect(openerTemplateFor("callback_booked", lines)).toBe("callback line");
+  });
+
+  it("gives the spoken-before line on a follow-up", () => {
+    expect(openerTemplateFor("spoken_before", lines)).toBe(
+      "spoken before line",
+    );
+  });
+
+  it("gives no line to cold or inbound calls (they use the prompt's openers)", () => {
+    expect(openerTemplateFor("cold", lines)).toBeNull();
+    expect(openerTemplateFor("inbound", lines)).toBeNull();
+  });
+
+  it("treats a missing saved line as none", () => {
+    expect(
+      openerTemplateFor("callback_booked", {
+        callbackOpener: undefined,
+        spokenBeforeOpener: null,
+      }),
+    ).toBeNull();
   });
 });

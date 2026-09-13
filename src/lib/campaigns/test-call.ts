@@ -3,22 +3,8 @@
 import { createClient } from "@/lib/supabase/server";
 
 export type TestCallSession =
-  | {
-      signedUrl: string;
-      agentName: string;
-      /** The campaign's saved opener lines (null = the default line), so a
-       *  browser test can open exactly like a real follow-up call. */
-      callbackOpener: string | null;
-      spokenBeforeOpener: string | null;
-      error: null;
-    }
-  | {
-      signedUrl: null;
-      agentName: null;
-      callbackOpener: null;
-      spokenBeforeOpener: null;
-      error: string;
-    };
+  | { signedUrl: string; agentName: string; error: null }
+  | { signedUrl: null; agentName: null; error: string };
 
 /**
  * Mint a short-lived ElevenLabs signed URL so the browser can open a REAL
@@ -33,8 +19,6 @@ export async function getTestCallSession(
   const fail = (error: string): TestCallSession => ({
     signedUrl: null,
     agentName: null,
-    callbackOpener: null,
-    spokenBeforeOpener: null,
     error,
   });
 
@@ -45,11 +29,14 @@ export async function getTestCallSession(
   if (!user) return fail("You are not signed in.");
 
   // RLS scopes the campaign read to the owner / admins.
-  const { data: campaign } = await supabase
+  const { data: campaign, error: campaignError } = await supabase
     .from("campaigns")
-    .select("agent_id, callback_opener, spoken_before_opener")
+    .select("agent_id")
     .eq("id", campaignId)
     .maybeSingle();
+  if (campaignError) {
+    return fail("Couldn't load this campaign. Please try again.");
+  }
   if (!campaign?.agent_id) {
     return fail("This campaign has no agent assigned yet.");
   }
@@ -91,8 +78,6 @@ export async function getTestCallSession(
     return {
       signedUrl: data.signed_url,
       agentName: agent?.name ?? "this agent",
-      callbackOpener: campaign.callback_opener,
-      spokenBeforeOpener: campaign.spoken_before_opener,
       error: null,
     };
   } catch {

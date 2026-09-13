@@ -15,6 +15,7 @@ import { hangUpCall } from "@/lib/twilio/hangup";
 import { resolveBlockedInbound } from "./blocked-inbound";
 import { resolveOrCreateInboundCall } from "./inbound-call";
 import {
+  openerTemplateFor,
   pickOpeningSituation,
   renderOpeningInstruction,
   whenPhrase,
@@ -497,9 +498,10 @@ async function buildVarsForCall(
   const callbackBooked = situation === "callback_booked";
   const openingInstruction = renderOpeningInstruction({
     situation,
-    template: callbackBooked
-      ? campaign?.callback_opener
-      : campaign?.spoken_before_opener,
+    template: openerTemplateFor(situation, {
+      callbackOpener: campaign?.callback_opener,
+      spokenBeforeOpener: campaign?.spoken_before_opener,
+    }),
     when: whenPhrase(
       callbackBooked ? (bookedAt ?? lastContactAt) : lastContactAt,
       now,

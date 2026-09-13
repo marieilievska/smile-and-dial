@@ -124,6 +124,11 @@ export function normalizeOpener(
   return text || null;
 }
 
+/** The timing placeholder as people actually type it: {when}, {{when}} (the
+ *  agent prompt's own variable syntax), { When } — any case, inner spaces, one
+ *  or two braces. Any other braces are left exactly as typed. */
+const WHEN_PLACEHOLDER = /\{\{?\s*when\s*\}\}?/gi;
+
 /** The spoken line: the campaign's text, normalized exactly as the settings box
  *  stores it (trimmed, capped, blank → default), with {when} filled in, folded
  *  onto one line, and double quotes turned into single quotes so the line can't
@@ -135,8 +140,7 @@ function renderLine(
 ): string {
   const text = normalizeOpener(template) ?? fallback;
   return text
-    .split("{when}")
-    .join(when)
+    .replace(WHEN_PLACEHOLDER, () => when)
     .replace(/["“”]/g, "'")
     .replace(/\s+/g, " ")
     .trim();
@@ -146,6 +150,22 @@ function renderLine(
  *  them, say exactly this line, never the cold opener. */
 function followUpInstruction(situation: string, line: string): string {
   return `${situation} Wait for them to answer, then your first reply must be exactly: "${line}" Never use the cold opener on this call, however they answer the phone.`;
+}
+
+/** The campaign's saved line for a situation: its callback line when a
+ *  callback is booked, its spoken-before line for a follow-up. Cold and inbound
+ *  calls use the prompt's own openers, so they get none. One picker for real
+ *  calls (conversation-init) and the browser Test Call tab. */
+export function openerTemplateFor(
+  situation: OpeningSituation,
+  lines: {
+    callbackOpener: string | null | undefined;
+    spokenBeforeOpener: string | null | undefined;
+  },
+): string | null {
+  if (situation === "callback_booked") return lines.callbackOpener ?? null;
+  if (situation === "spoken_before") return lines.spokenBeforeOpener ?? null;
+  return null;
 }
 
 /** The {{opening_instruction}} dynamic variable for one call. */
