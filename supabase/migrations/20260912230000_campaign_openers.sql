@@ -2,10 +2,13 @@
 -- Per-campaign follow-up openers (2026-09-12).
 --
 -- On 2026-09-12, 51% of scheduled callbacks (40 of 78) opened with the cold
--- "weirdest call you get today" pitch: the prompt asked the agent to choose
--- an opener by condition, and ElevenLabs substitutes {{variables}} before the
--- model reads them. Code now picks the situation and sends one instruction,
--- {{opening_instruction}}; these columns hold the line it tells the agent to say.
+-- "weirdest call you get today" pitch. The prompt asked the agent to choose an
+-- opener by condition, but ElevenLabs substitutes {{variables}} before the
+-- model reads the prompt, so a rule like (when {{call_type}} is "cold")
+-- reached the model as (when callback is "cold"). Code now picks the situation
+-- and sends one instruction, {{opening_instruction}}
+-- (src/lib/elevenlabs/opening-line.ts); these columns hold the line it tells
+-- the agent to say.
 --
 --   callback_opener       a callback is booked with this business in this
 --                         campaign
@@ -15,9 +18,22 @@
 --
 -- Both are the agent's first REPLY, after the business answers — never a first
 -- message. {when} is filled in by code ("yesterday", "about a month ago").
--- NULL = the app's default line. Additive and nullable: safe to apply before
--- the code that reads them deploys.
+-- NULL or blank = the default line (DEFAULT_CALLBACK_OPENER /
+-- DEFAULT_SPOKEN_BEFORE_OPENER in opening-line.ts); the length cap
+-- (OPENER_MAX_LENGTH) lives there too, not in the database. Additive and
+-- nullable: safe to apply before the code that reads them deploys.
 -- ---------------------------------------------------------------------------
+
+-- The dialer reads campaigns every minute. Adding a nullable column is instant
+-- but still takes a brief exclusive lock: give up after 5s instead of queueing
+-- call-start reads behind a long transaction. A failed push is safe to re-run.
+set lock_timeout = '5s';
+
 alter table public.campaigns
   add column if not exists callback_opener text,
   add column if not exists spoken_before_opener text;
+
+comment on column public.campaigns.callback_opener is
+  'The agent''s first reply, after the business answers, when a callback is booked with this business in this campaign. {when} is filled in by code. NULL or blank = the default line in src/lib/elevenlabs/opening-line.ts.';
+comment on column public.campaigns.spoken_before_opener is
+  'The agent''s first reply, after the business answers, when we have had a real conversation with this business in this campaign and no callback is booked. {when} is filled in by code. NULL or blank = the default line in src/lib/elevenlabs/opening-line.ts.';
