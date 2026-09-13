@@ -3,8 +3,22 @@
 import { createClient } from "@/lib/supabase/server";
 
 export type TestCallSession =
-  | { signedUrl: string; agentName: string; error: null }
-  | { signedUrl: null; agentName: null; error: string };
+  | {
+      signedUrl: string;
+      agentName: string;
+      /** The campaign's saved opener lines (null = the default line), so a
+       *  browser test can open exactly like a real follow-up call. */
+      callbackOpener: string | null;
+      spokenBeforeOpener: string | null;
+      error: null;
+    }
+  | {
+      signedUrl: null;
+      agentName: null;
+      callbackOpener: null;
+      spokenBeforeOpener: null;
+      error: string;
+    };
 
 /**
  * Mint a short-lived ElevenLabs signed URL so the browser can open a REAL
@@ -19,6 +33,8 @@ export async function getTestCallSession(
   const fail = (error: string): TestCallSession => ({
     signedUrl: null,
     agentName: null,
+    callbackOpener: null,
+    spokenBeforeOpener: null,
     error,
   });
 
@@ -31,7 +47,7 @@ export async function getTestCallSession(
   // RLS scopes the campaign read to the owner / admins.
   const { data: campaign } = await supabase
     .from("campaigns")
-    .select("agent_id")
+    .select("agent_id, callback_opener, spoken_before_opener")
     .eq("id", campaignId)
     .maybeSingle();
   if (!campaign?.agent_id) {
@@ -75,6 +91,8 @@ export async function getTestCallSession(
     return {
       signedUrl: data.signed_url,
       agentName: agent?.name ?? "this agent",
+      callbackOpener: campaign.callback_opener,
+      spokenBeforeOpener: campaign.spoken_before_opener,
       error: null,
     };
   } catch {

@@ -5,7 +5,19 @@ import { ConversationProvider, useConversation } from "@elevenlabs/react";
 import { Mic, MicOff, PhoneOff, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { getTestCallSession } from "@/lib/campaigns/test-call";
+import {
+  renderOpeningInstruction,
+  type OpeningSituation,
+} from "@/lib/elevenlabs/opening-line";
 import { etFormat } from "@/lib/time/eastern";
 
 /**
@@ -19,9 +31,23 @@ import { etFormat } from "@/lib/time/eastern";
 
 type Line = { role: "agent" | "user"; text: string };
 
+/** Which real call situation a browser test pretends to be. */
+type TestAs = Exclude<OpeningSituation, "inbound">;
+
+const TEST_AS_LABELS: Record<TestAs, string> = {
+  cold: "First call (cold)",
+  callback_booked: "Callback booked",
+  spoken_before: "Spoken before",
+};
+
 /** Representative lead context so the agent's {{placeholders}} resolve during a
- *  test (there's no real lead behind a test call). */
-function testDynamicVariables(): Record<string, string> {
+ *  test (there's no real lead behind a test call). The opener is the exact
+ *  instruction a real call of the chosen kind gets, with "yesterday" as the
+ *  timing. */
+function testDynamicVariables(
+  testAs: TestAs,
+  openers: { callbackOpener: string | null; spokenBeforeOpener: string | null },
+): Record<string, string> {
   // Eastern, matching the current_date the real dialer hands the agent.
   const today = etFormat(new Date(), {
     weekday: "long",
@@ -30,7 +56,15 @@ function testDynamicVariables(): Record<string, string> {
     day: "numeric",
   });
   return {
-    call_type: "cold",
+    call_type: testAs === "callback_booked" ? "callback" : "cold",
+    opening_instruction: renderOpeningInstruction({
+      situation: testAs,
+      template:
+        testAs === "callback_booked"
+          ? openers.callbackOpener
+          : openers.spokenBeforeOpener,
+      when: "yesterday",
+    }),
     last_call_summary: "",
     last_callback_notes: "",
     transfer_number: "",
@@ -54,6 +88,7 @@ function TestCallInner({ campaignId }: { campaignId: string }) {
   const [transcript, setTranscript] = useState<Line[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
+  const [testAs, setTestAs] = useState<TestAs>("cold");
   const endRef = useRef<HTMLLIElement | null>(null);
 
   const convo = useConversation({
@@ -89,7 +124,10 @@ function TestCallInner({ campaignId }: { campaignId: string }) {
     try {
       convo.startSession({
         signedUrl: session.signedUrl,
-        dynamicVariables: testDynamicVariables(),
+        dynamicVariables: testDynamicVariables(testAs, {
+          callbackOpener: session.callbackOpener,
+          spokenBeforeOpener: session.spokenBeforeOpener,
+        }),
       });
     } catch {
       setError(
@@ -117,6 +155,31 @@ function TestCallInner({ campaignId }: { campaignId: string }) {
         voice, and tools. Uses your microphone and spends ElevenLabs credits,
         just like a live call.
       </p>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="test-call-as">Test as</Label>
+        <Select
+          value={testAs}
+          onValueChange={(value) => setTestAs(value as TestAs)}
+          disabled={onCall || connecting}
+        >
+          <SelectTrigger id="test-call-as" className="w-full sm:w-64">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(TEST_AS_LABELS) as TestAs[]).map((key) => (
+              <SelectItem key={key} value={key}>
+                {TEST_AS_LABELS[key]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-muted-foreground text-xs">
+          Follow-up tests use this campaign&apos;s saved opener lines, with
+          &ldquo;yesterday&rdquo; as the timing. Speak first, the way a business
+          answers the phone.
+        </p>
+      </div>
 
       <div className="border-border flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
         <div className="flex items-center gap-2">
