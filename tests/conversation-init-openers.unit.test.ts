@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CONVERSATION_OUTCOMES,
+  NO_HUMAN_OUTCOMES,
+  OVERRIDABLE_OUTCOMES,
+  REACHED_HUMAN_OUTCOMES,
+} from "@/lib/calls/outcomes";
+import {
   buildCallDynamicVariables,
   buildConversationInitData,
 } from "@/lib/elevenlabs/conversation-init";
@@ -64,8 +70,11 @@ function seed(over: { calls?: Row[]; callbacks?: Row[]; campaign?: Row } = {}) {
         campaign_id: "camp1",
         outcome: null,
         started_at: NOW.toISOString(),
+        created_at: NOW.toISOString(),
       },
-      ...(over.calls ?? []),
+      // A row's created_at defaults to its started_at (the dialer inserts the
+      // row just before it stamps started_at); a test can override either.
+      ...(over.calls ?? []).map((c) => ({ created_at: c.started_at, ...c })),
     ],
     callbacks: over.callbacks ?? [],
     lead_campaign_summaries: [
@@ -152,7 +161,7 @@ describe("opening_instruction — which opener a call gets", () => {
     expect(vars.call_type).toBe("cold");
   });
 
-  it("a hang-up or a 'call me later' is not a conversation → COLD, and no time label", async () => {
+  it("a hang-up or a 'call me later' is not a conversation → COLD, though the 'call me later' still dates the note", async () => {
     const db = seed({
       calls: [
         {
@@ -177,7 +186,9 @@ describe("opening_instruction — which opener a call gets", () => {
     expect(vars.opening_instruction).toBe(
       "COLD CALL: this is our first real conversation with this business. Use the cold opener below.",
     );
-    expect(vars.last_contact).toBe("");
+    // We reached a person on Wednesday (a call that can rewrite the note); the
+    // hang-up yesterday doesn't count.
+    expect(vars.last_contact).toBe("on Wednesday");
   });
 
   it("a conversation under another campaign doesn't count → COLD", async () => {
@@ -233,11 +244,173 @@ describe("opening_instruction — which opener a call gets", () => {
 
     expect(vars.opening_instruction).toMatch(/^FOLLOW-UP:/);
     expect(vars.last_callback_notes).toBe("");
+    // call_type still reflects ANY pending callback (the prompt's procedures
+    // read it); only the opener and the notes are per-campaign.
+    expect(vars.call_type).toBe("callback");
+  });
+
+  it("a callback booked on Wednesday, then a 'call me later' yesterday → CALLBACK dated from the booking call; the note dated yesterday", async () => {
+    const db = seed({
+      calls: [
+        {
+          id: "call-booked",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "callback",
+          started_at: WEDNESDAY,
+          callback_notes: "Owner is in after 2.",
+        },
+        {
+          id: "call-later",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "call_back_later",
+          started_at: YESTERDAY_5PM,
+        },
+      ],
+      callbacks: [
+        {
+          id: "cb1",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          status: "pending",
+          originating_call_id: "call-booked",
+          scheduled_at: "2026-09-12T18:30:00Z",
+        },
+      ],
+    });
+
+    const vars = await buildCallDynamicVariables(db.client, "call-now");
+
+    expect(vars.opening_instruction).toContain(
+      '"Hey there, um, I called on Wednesday and was told to try back around this time for the owner or manager. Are they around?"',
+    );
+    expect(vars.last_contact).toBe("yesterday");
+    expect(
+      vars.last_call_summary.startsWith(
+        "(Our last call with them was yesterday.)",
+      ),
+    ).toBe(true);
+  });
+
+  it("a real conversation, then a 'call me later' yesterday, no callback → FOLLOW-UP that says yesterday", async () => {
+    const db = seed({
+      calls: [
+        {
+          id: "call-gk",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "gatekeeper",
+          started_at: WEDNESDAY,
+        },
+        {
+          id: "call-later",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "call_back_later",
+          started_at: YESTERDAY_5PM,
+        },
+      ],
+    });
+
+    const vars = await buildCallDynamicVariables(db.client, "call-now");
+
+    expect(vars.opening_instruction).toBe(
+      'FOLLOW-UP: we have spoken with this business before and no callback is booked. Wait for them to answer, then your first reply must be exactly: "Hey there, um, I reached out yesterday and wanted to check back in. Is the owner or manager around?" Never use the cold opener on this call, however they answer the phone.',
+    );
+    expect(vars.last_contact).toBe("yesterday");
+  });
+
+  it("uses the campaign's own callback line when it has one", async () => {
+    const db = seed({
+      campaign: {
+        callback_opener:
+          "Hi, it's Tom again. I called {when} and they said to try back now. Is the owner in?",
+      },
+      calls: [
+        {
+          id: "call-booked",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "callback",
+          started_at: YESTERDAY_5PM,
+        },
+      ],
+      callbacks: [
+        {
+          id: "cb1",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          status: "pending",
+          originating_call_id: "call-booked",
+          scheduled_at: "2026-09-12T18:30:00Z",
+        },
+      ],
+    });
+
+    const vars = await buildCallDynamicVariables(db.client, "call-now");
+
+    expect(vars.opening_instruction).toBe(
+      'CALLBACK: we agreed to call this business back. Wait for them to answer, then your first reply must be exactly: "Hi, it\'s Tom again. I called yesterday and they said to try back now. Is the owner in?" Never use the cold opener on this call, however they answer the phone.',
+    );
+  });
+
+  it("a pending callback with no booking call on record → CALLBACK dated from the last call where we reached a person", async () => {
+    const db = seed({
+      calls: [
+        {
+          id: "call-gk",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "gatekeeper",
+          started_at: WEDNESDAY,
+        },
+      ],
+      callbacks: [
+        {
+          id: "cb1",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          status: "pending",
+          originating_call_id: null,
+          scheduled_at: "2026-09-12T18:30:00Z",
+        },
+      ],
+    });
+
+    const vars = await buildCallDynamicVariables(db.client, "call-now");
+
+    expect(vars.opening_instruction).toContain(
+      '"Hey there, um, I called on Wednesday and was told to try back around this time for the owner or manager. Are they around?"',
+    );
+    expect(vars.last_callback_notes).toBe("");
+  });
+
+  it("a real conversation whose start time was never stamped still counts, dated by when its row was created", async () => {
+    const db = seed({
+      calls: [
+        {
+          id: "call-gk",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "gatekeeper",
+          started_at: null,
+          created_at: WEDNESDAY,
+        },
+      ],
+    });
+
+    const vars = await buildCallDynamicVariables(db.client, "call-now");
+
+    expect(vars.opening_instruction).toMatch(
+      /^FOLLOW-UP: .*I reached out on Wednesday/,
+    );
+    expect(vars.last_contact).toBe("on Wednesday");
   });
 });
 
 describe("the note handed to the agent", () => {
-  it("dates it from the last REAL conversation, in calendar days — not from the last dial", async () => {
+  it("dates it from the last call where we reached a person, in calendar days — not from the last dial", async () => {
     // A gatekeeper at 5 PM yesterday, then a voicemail this morning (which also
     // stamped leads.last_call_at). The old label said "earlier today".
     const db = seed({
@@ -378,5 +551,25 @@ describe("the inbound webhook", () => {
     expect(res.dynamic_variables.opening_instruction).toBe(
       "INBOUND CALL: they are calling us back. Use the inbound opener below.",
     );
+  });
+});
+
+describe("REACHED_HUMAN_OUTCOMES", () => {
+  it("is exactly classifyOutcome's reachedHuman rule: not a hang-up, not a machine or no-pickup", () => {
+    const every = new Set<string>([...OVERRIDABLE_OUTCOMES, "call_back_later"]);
+    for (const outcome of every) {
+      const reachedHuman =
+        outcome !== "hung_up_immediately" &&
+        outcome !== "hung_up_later" &&
+        !NO_HUMAN_OUTCOMES.has(outcome);
+      expect(REACHED_HUMAN_OUTCOMES.has(outcome), outcome).toBe(reachedHuman);
+    }
+  });
+
+  it("holds every real conversation plus the 'call me later' brush-off", () => {
+    for (const outcome of CONVERSATION_OUTCOMES) {
+      expect(REACHED_HUMAN_OUTCOMES.has(outcome), outcome).toBe(true);
+    }
+    expect(REACHED_HUMAN_OUTCOMES.has("call_back_later")).toBe(true);
   });
 });

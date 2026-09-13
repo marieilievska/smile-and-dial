@@ -4,7 +4,10 @@ import { timingSafeEqual } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { CONVERSATION_OUTCOMES } from "@/lib/calls/outcomes";
+import {
+  CONVERSATION_OUTCOMES,
+  REACHED_HUMAN_OUTCOMES,
+} from "@/lib/calls/outcomes";
 import { stripLeftOff } from "@/lib/openai/summary-note";
 import type { Database } from "@/lib/supabase/database.types";
 import { hangUpCall } from "@/lib/twilio/hangup";
@@ -46,9 +49,9 @@ import {
  * ElevenLabs' own end_call can be talked over indefinitely.
  *
  * ALL dynamic variables an agent declares must be present in the response
- * or the conversation can fail to start, so we always return the three keys
- * (empty strings when we have nothing) plus the per-campaign transfer
- * number. Overrides are optional; we send none beyond the variables.
+ * or the conversation can fail to start, so we always return every key in
+ * DYNAMIC_VARIABLE_PLACEHOLDERS (empty strings when we have nothing).
+ * Overrides are optional; we send none beyond the variables.
  */
 
 type SupabaseAdmin = ReturnType<typeof createClient<Database>>;
@@ -81,9 +84,9 @@ export type ConversationInitResponse = {
     call_type: string;
     last_call_summary: string;
     last_callback_notes: string;
-    // How long ago the previous call was, in plain words ("yesterday", "3 days
-    // ago"). Anchors the agent in time so a callback doesn't sound like it's
-    // continuing a conversation that happened moments ago.
+    // When we last reached a person at this business in this campaign, in
+    // calendar days on the lead's clock ("yesterday", "on Wednesday", "about a
+    // month ago"); blank when we never have. Anchors the agent in time.
     last_contact: string;
     transfer_number: string;
     // Our internal calls.id, bound into every server tool's request so the
@@ -239,9 +242,9 @@ export async function getConversationInitSecret(): Promise<string | null> {
   }
 }
 
-/** Empty-but-complete variable set — what we return when we can't resolve
- *  the call (unknown sid, race before twilio_call_sid was stamped, etc.).
- *  The agent still starts; its prompt just sees blank placeholders. */
+/** Empty-but-complete variable set — what an outbound call whose row can't be
+ *  found gets, and what a blocked inbound caller gets before we hang up. The
+ *  agent still starts, with blank placeholders and a cold opener. */
 function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
   return {
     ...DYNAMIC_VARIABLE_PLACEHOLDERS,
@@ -260,7 +263,9 @@ function emptyVariables(): ConversationInitResponse["dynamic_variables"] {
 
 /** The variable set for a call the inbound webhook can't match to a row. Only
  *  inbound calls reach that webhook (outbound placement passes its own
- *  variables), so whoever this is dialed us: open as inbound, not cold. */
+ *  variables), so whoever this is dialed us: open as inbound, not cold.
+ *  call_type deliberately stays "cold" regardless — the contract for an
+ *  unresolved call — only the opener changes. */
 function unmatchedInboundVariables(): ConversationInitResponse["dynamic_variables"] {
   return {
     ...emptyVariables(),
@@ -293,6 +298,35 @@ function numStr(v: number | null | undefined): string {
   return typeof v === "number" && Number.isFinite(v) ? String(v) : "";
 }
 
+/** The most recent call with this lead in this campaign whose outcome is in
+ *  `outcomes`. Ordered by created_at, which is never null (the dialer stamps
+ *  started_at in a separate update after inserting the row). The call being
+ *  placed right now has no outcome yet, so it never matches. */
+function latestCallAmong(
+  supabase: SupabaseAdmin,
+  leadId: string,
+  campaignId: string,
+  outcomes: ReadonlySet<string>,
+) {
+  return supabase
+    .from("calls")
+    .select("started_at, created_at")
+    .eq("lead_id", leadId)
+    .eq("campaign_id", campaignId)
+    .in("outcome", [...outcomes])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+}
+
+/** When a call happened: its start, or its row's creation if the start was
+ *  never stamped. */
+function callTime(
+  row: { started_at: string | null; created_at: string } | null,
+): string | null {
+  return row ? (row.started_at ?? row.created_at) : null;
+}
+
 /**
  * Build the agent's dynamic variables for a resolved call row. Shared by the
  * inbound init webhook (resolves by call_sid) AND outbound placement (resolves
@@ -304,15 +338,17 @@ async function buildVarsForCall(
   call: { id: string; lead_id: string; campaign_id: string | null },
 ): Promise<ConversationInitResponse["dynamic_variables"]> {
   // Pull, in parallel: the lead (status + display fields), the campaign's
-  // transfer number and opener lines, the lead's pending callbacks, and the
-  // most recent REAL conversation with this business in this campaign. The
-  // rolling summary comes from the per-campaign lead_campaign_summaries row,
-  // fetched below.
+  // transfer number and opener lines, the lead's pending callbacks, the most
+  // recent REAL conversation with this business in this campaign (decides the
+  // situation), and the most recent call where we reached a person (dates the
+  // note and the follow-up line). The rolling summary comes from the
+  // per-campaign lead_campaign_summaries row, fetched below.
   const [
-    { data: lead },
-    { data: campaign },
-    { data: pendingCallbacks },
-    { data: lastConversation },
+    { data: lead, error: leadError },
+    { data: campaign, error: campaignError },
+    { data: pendingCallbacks, error: callbacksError },
+    { data: lastConversation, error: conversationError },
+    { data: lastContact, error: contactError },
   ] = await Promise.all([
     supabase
       .from("leads")
@@ -329,7 +365,7 @@ async function buildVarsForCall(
           )
           .eq("id", call.campaign_id)
           .maybeSingle()
-      : Promise.resolve({ data: null }),
+      : Promise.resolve({ data: null, error: null }),
     // Earliest first, the order the dialer works them in. A lead rarely holds
     // more than one or two, so ten is plenty.
     supabase
@@ -339,21 +375,46 @@ async function buildVarsForCall(
       .eq("status", "pending")
       .order("scheduled_at", { ascending: true })
       .limit(10),
-    // A "real conversation" is the app-wide CONVERSATION_OUTCOMES: hang-ups,
-    // "call me later" brush-offs, voicemail, bots and ai_error don't count.
-    // The call being placed right now has no outcome yet, so it never matches.
+    // The latest REAL conversation in this campaign decides whether this call
+    // is a follow-up at all: hang-ups, "call me later" brush-offs, voicemail
+    // and bots don't make one.
     call.campaign_id
-      ? supabase
-          .from("calls")
-          .select("started_at")
-          .eq("lead_id", call.lead_id)
-          .eq("campaign_id", call.campaign_id)
-          .in("outcome", [...CONVERSATION_OUTCOMES])
-          .order("started_at", { ascending: false, nullsFirst: false })
-          .limit(1)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
+      ? latestCallAmong(
+          supabase,
+          call.lead_id,
+          call.campaign_id,
+          CONVERSATION_OUTCOMES,
+        )
+      : Promise.resolve({ data: null, error: null }),
+    // The latest call in this campaign where we reached a person — the calls
+    // that can rewrite the note, "call me later" included — dates the note and
+    // is the "when" a follow-up line mentions.
+    call.campaign_id
+      ? latestCallAmong(
+          supabase,
+          call.lead_id,
+          call.campaign_id,
+          REACHED_HUMAN_OUTCOMES,
+        )
+      : Promise.resolve({ data: null, error: null }),
   ]);
+
+  // A failed read degrades (blank field, cold opener) exactly as before, but
+  // leaves a trace instead of silently blanking e.g. the transfer number.
+  const readErrors = {
+    lead: leadError,
+    campaign: campaignError,
+    "pending callbacks": callbacksError,
+    "last conversation": conversationError,
+    "last contact": contactError,
+  };
+  for (const [what, error] of Object.entries(readErrors)) {
+    if (error) {
+      console.error(
+        `[conversation-init] ${what} read failed for call ${call.id}: ${error.message}`,
+      );
+    }
+  }
 
   // call_type: a pending callback (or callback-status lead) means we've
   // talked before and promised to circle back; otherwise it's a cold dial.
@@ -370,14 +431,15 @@ async function buildVarsForCall(
     : null;
 
   // last_callback_notes: the pickup note of the call that booked that
-  // callback, so the agent can reference where things left off. Its start time
-  // is also the "when" in the callback opener ("I called yesterday").
+  // callback, so the agent can reference where things left off. Its time
+  // (callTime — start, or creation if start was never stamped) is also the
+  // "when" in the callback opener ("I called yesterday").
   let lastCallbackNotes = "";
   let bookedAt: string | null = null;
   if (campaignCallback?.originating_call_id) {
     const { data: originating } = await supabase
       .from("calls")
-      .select("summary, callback_notes, campaign_id, started_at")
+      .select("summary, callback_notes, campaign_id, started_at, created_at")
       .eq("id", campaignCallback.originating_call_id)
       .maybeSingle();
     // Require a real campaign on both sides — never treat two campaign-less
@@ -389,18 +451,20 @@ async function buildVarsForCall(
         originating?.callback_notes?.trim() ||
         originating?.summary?.trim() ||
         "";
-      bookedAt = originating?.started_at ?? null;
+      bookedAt = callTime(originating);
     }
   }
 
-  // Anchor the note in time from the last REAL conversation, in calendar days
-  // on the lead's clock. Not leads.last_call_at — every voicemail and no-answer
-  // stamps that — and not 24-hour blocks, which read a 5 PM call as "earlier
-  // today" the next morning.
+  // Anchor the note in time from the last call where we reached a person in
+  // this campaign — the calls that can rewrite the note, "call me later"
+  // included — in calendar days on the lead's clock. Not leads.last_call_at
+  // (every voicemail and no-answer stamps that), and not 24-hour blocks (which
+  // read a 5 PM call as "earlier today" the next morning).
   const now = new Date();
-  const lastConversationAt = lastConversation?.started_at ?? null;
-  const recency = lastConversationAt
-    ? whenPhrase(lastConversationAt, now, lead?.timezone)
+  const lastConversationAt = callTime(lastConversation);
+  const lastContactAt = callTime(lastContact);
+  const recency = lastContactAt
+    ? whenPhrase(lastContactAt, now, lead?.timezone)
     : "";
 
   let summaryText = "";
@@ -423,21 +487,21 @@ async function buildVarsForCall(
       : noteText;
 
   // How the agent opens: code picks the situation, the model never chooses.
+  // Only a real conversation makes a follow-up. The "when" a line mentions is
+  // the call that booked the callback, else the last time we reached a person.
   const situation = pickOpeningSituation({
     inbound: false,
     hasPendingCallbackInCampaign: campaignCallback !== null,
     latestConversationAt: lastConversationAt,
   });
+  const callbackBooked = situation === "callback_booked";
   const openingInstruction = renderOpeningInstruction({
     situation,
-    template:
-      situation === "callback_booked"
-        ? campaign?.callback_opener
-        : campaign?.spoken_before_opener,
+    template: callbackBooked
+      ? campaign?.callback_opener
+      : campaign?.spoken_before_opener,
     when: whenPhrase(
-      situation === "callback_booked"
-        ? (bookedAt ?? lastConversationAt)
-        : lastConversationAt,
+      callbackBooked ? (bookedAt ?? lastContactAt) : lastContactAt,
       now,
       lead?.timezone,
     ),
@@ -580,7 +644,8 @@ export async function buildConversationInitData(
   // it's an EL-native INBOUND call (a returned missed call): attribute it to
   // the caller's lead, create the row now, and mark the context "inbound".
   // A dialed number that isn't ours (an outbound-shaped init, which in
-  // practice never reaches this webhook) resolves to nothing and stays blank.
+  // practice never reaches this webhook) resolves to nothing: blank context
+  // with the inbound opener (unmatchedInboundVariables).
   // A caller the owner has blocked never reaches the agent. Terminating the
   // Twilio call here costs one API request; letting it through costs an
   // ElevenLabs conversation whose length the CALLER decides — one nuisance
