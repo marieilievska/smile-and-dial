@@ -73,6 +73,10 @@ describe("conversation-init — blocked caller", () => {
     expect(db.tables.calls).toHaveLength(0);
     expect(db.tables.leads).toHaveLength(0);
     expect(res.dynamic_variables.call_id).toBe("");
+    // Hung up before the agent speaks: the blank, cold variable set.
+    expect(res.dynamic_variables.opening_instruction).toBe(
+      "COLD CALL: this is our first real conversation with this business. Use the cold opener below.",
+    );
   });
 
   it("logs an inbound_blocked event against the campaign", async () => {

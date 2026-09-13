@@ -41,11 +41,14 @@ export async function getTestCallSession(
     return fail("This campaign has no agent assigned yet.");
   }
 
-  const { data: agent } = await supabase
+  const { data: agent, error: agentError } = await supabase
     .from("agents")
     .select("name, elevenlabs_agent_id")
     .eq("id", campaign.agent_id)
     .maybeSingle();
+  if (agentError) {
+    return fail("Couldn't load this campaign's agent. Please try again.");
+  }
   const elId = agent?.elevenlabs_agent_id?.trim();
   if (!elId) {
     return fail(

@@ -13,11 +13,12 @@ import {
  * Configured ONCE on the ElevenLabs side as the agent's "Initiation Data
  * Webhook Override" and reused for every agent Smile & Dial creates. At the
  * start of each conversation ElevenLabs POSTs { caller_id, agent_id,
- * called_number, call_sid }; we resolve the call by call_sid and return a
- * `conversation_initiation_client_data` event whose dynamic_variables fill
- * the agent prompt's {{call_type}} / {{last_call_summary}} /
- * {{last_callback_notes}} placeholders, plus the per-campaign transfer
- * number.
+ * called_number, call_sid, conversation_id }; we resolve the call by call_sid
+ * and return a `conversation_initiation_client_data` event whose
+ * dynamic_variables fill every key in DYNAMIC_VARIABLE_PLACEHOLDERS (see
+ * lib/elevenlabs/conversation-init) that the agent prompt references —
+ * {{opening_instruction}}, {{last_call_summary}}, {{last_callback_notes}},
+ * the per-campaign transfer number, and the rest.
  *
  * Always returns 200 with a complete variable set (blank when unresolved)
  * so a lookup miss never blocks the call from starting.

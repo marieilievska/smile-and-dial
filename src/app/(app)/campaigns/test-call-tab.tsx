@@ -41,6 +41,12 @@ const TEST_AS_LABELS: Record<TestAs, string> = {
   spoken_before: "Spoken before",
 };
 
+/** True only for the three "Test as" choices (own keys — "toString" and other
+ *  inherited names don't count). */
+function isTestAs(value: string): value is TestAs {
+  return Object.prototype.hasOwnProperty.call(TEST_AS_LABELS, value);
+}
+
 /** The panel's two opener boxes as currently typed (unsaved edits included). */
 type OpenerLines = {
   callbackOpener: string | null;
@@ -175,7 +181,7 @@ function TestCallInner({
         <Select
           value={testAs}
           onValueChange={(value) => {
-            if (value in TEST_AS_LABELS) setTestAs(value as TestAs);
+            if (isTestAs(value)) setTestAs(value);
           }}
           disabled={onCall || connecting}
         >

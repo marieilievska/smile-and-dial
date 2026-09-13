@@ -980,7 +980,7 @@ export function CampaignSettingsDialog({
               <p className="text-muted-foreground text-xs">
                 Used when a callback is booked with this business in this
                 campaign. The agent says it as its first reply, after they
-                answer, and never talks over their greeting. Type {"{when}"}
+                answer, and never talks over their greeting. Type {"{when}"}{" "}
                 where the timing goes: it becomes &ldquo;yesterday&rdquo;,
                 &ldquo;on Tuesday&rdquo; or &ldquo;about a month ago&rdquo;, so
                 don&apos;t add your own &ldquo;on&rdquo; or &ldquo;ago&rdquo;.

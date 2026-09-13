@@ -304,10 +304,12 @@ describe("the {when} placeholder, as people type it", () => {
   it("leaves any other braces exactly as typed", () => {
     const out = renderOpeningInstruction({
       situation: "callback_booked",
-      template: "Hi {{owner_name}}, I called {when}.",
+      template: "Hi {{owner_name}}, {whenever} {when_x} I called {when}.",
       when: "yesterday",
     });
-    expect(out).toContain('"Hi {{owner_name}}, I called yesterday."');
+    expect(out).toContain(
+      '"Hi {{owner_name}}, {whenever} {when_x} I called yesterday."',
+    );
   });
 });
 

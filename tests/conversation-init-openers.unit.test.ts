@@ -85,6 +85,51 @@ function seed(over: { calls?: Row[]; callbacks?: Row[]; campaign?: Row } = {}) {
   });
 }
 
+/** The fake client, except any `select` on `table` that names `column` fails
+ *  the way PostgREST does when that column doesn't exist (e.g. before a
+ *  migration). Every other query goes to the in-memory stand-in untouched. */
+function withMissingColumn(client: unknown, table: string, column: string) {
+  const failure = {
+    data: null,
+    error: { message: `column ${table}.${column} does not exist` },
+  };
+  const failing: object = new Proxy(
+    {},
+    {
+      get: (_target, prop) => {
+        if (prop === "then") {
+          return (
+            resolve: (value: typeof failure) => unknown,
+            reject?: (reason: unknown) => unknown,
+          ) => Promise.resolve(failure).then(resolve, reject);
+        }
+        if (prop === "maybeSingle" || prop === "single") {
+          return async () => failure;
+        }
+        return () => failing;
+      },
+    },
+  );
+  const inner = client as {
+    from: (name: string) => { select: (columns: string) => unknown };
+    rpc: unknown;
+  };
+  return {
+    from: (name: string) => {
+      const builder = inner.from(name);
+      if (name !== table) return builder;
+      return new Proxy(builder, {
+        get: (target, prop, receiver) =>
+          prop === "select"
+            ? (columns: string) =>
+                columns.includes(column) ? failing : target.select(columns)
+            : Reflect.get(target, prop, receiver),
+      });
+    },
+    rpc: inner.rpc,
+  } as never;
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
@@ -365,6 +410,13 @@ describe("opening_instruction — which opener a call gets", () => {
           outcome: "gatekeeper",
           started_at: WEDNESDAY,
         },
+        {
+          id: "call-dnc",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "dnc",
+          started_at: YESTERDAY_5PM,
+        },
       ],
       callbacks: [
         {
@@ -381,7 +433,7 @@ describe("opening_instruction — which opener a call gets", () => {
     const vars = await buildCallDynamicVariables(db.client, "call-now");
 
     expect(vars.opening_instruction).toContain(
-      '"Hey there, um, I called on Wednesday and was told to try back around this time for the owner or manager. Are they around?"',
+      '"Hey there, um, I called yesterday and was told to try back around this time for the owner or manager. Are they around?"',
     );
     expect(vars.last_callback_notes).toBe("");
   });
@@ -406,6 +458,123 @@ describe("opening_instruction — which opener a call gets", () => {
       /^FOLLOW-UP: .*I reached out on Wednesday/,
     );
     expect(vars.last_contact).toBe("on Wednesday");
+  });
+
+  it("opener columns unavailable (e.g. before the migration) → the transfer number still arrives, the default line is used, and the failure is logged", async () => {
+    const db = seed({
+      campaign: {
+        transfer_destination_phone: "+15125550100",
+        spoken_before_opener: "Custom line {when}.",
+      },
+      calls: [
+        {
+          id: "call-gk",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "gatekeeper",
+          started_at: WEDNESDAY,
+        },
+      ],
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const vars = await buildCallDynamicVariables(
+      withMissingColumn(db.client, "campaigns", "callback_opener"),
+      "call-now",
+    );
+
+    expect(vars.transfer_number).toBe("+15125550100");
+    expect(vars.opening_instruction).toContain(
+      '"Hey there, um, I reached out on Wednesday and wanted to check back in. Is the owner or manager around?"',
+    );
+    expect(errors).toHaveBeenCalledWith(
+      expect.stringContaining("[conversation-init]"),
+    );
+    errors.mockRestore();
+  });
+
+  it("orders calls by when their row was created — a newer call whose start was never stamped still wins", async () => {
+    const db = seed({
+      calls: [
+        {
+          id: "call-gk",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "gatekeeper",
+          started_at: WEDNESDAY,
+        },
+        {
+          id: "call-gk2",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "gatekeeper",
+          started_at: null,
+          created_at: YESTERDAY_5PM,
+        },
+      ],
+    });
+
+    const vars = await buildCallDynamicVariables(db.client, "call-now");
+
+    expect(vars.last_contact).toBe("yesterday");
+    expect(vars.opening_instruction).toMatch(
+      /^FOLLOW-UP: .*I reached out yesterday/,
+    );
+  });
+
+  it("a lead marked callback with nothing booked in this campaign → call_type stays callback, the opener is FOLLOW-UP and the Left off line is dropped", async () => {
+    const db = seed({
+      calls: [
+        {
+          id: "call-gk",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "gatekeeper",
+          started_at: WEDNESDAY,
+        },
+      ],
+    });
+    db.tables.leads[0].status = "callback";
+
+    const vars = await buildCallDynamicVariables(db.client, "call-now");
+
+    expect(vars.call_type).toBe("callback");
+    expect(vars.opening_instruction).toMatch(/^FOLLOW-UP:/);
+    expect(vars.last_call_summary).not.toContain("Left off:");
+  });
+
+  it("a call with no campaign → COLD with no campaign context, and nothing logged", async () => {
+    const db = seed({
+      calls: [
+        {
+          id: "call-gk",
+          lead_id: "lead1",
+          campaign_id: "camp1",
+          outcome: "gatekeeper",
+          started_at: WEDNESDAY,
+        },
+      ],
+    });
+    db.tables.calls[0].campaign_id = null; // the call being placed
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const vars = await buildCallDynamicVariables(db.client, "call-now");
+
+    expect(vars.opening_instruction).toMatch(/^COLD CALL:/);
+    expect(vars.last_contact).toBe("");
+    expect(vars.last_call_summary).toBe("");
+    expect(vars.transfer_number).toBe("");
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it("a lead with a timezone Intl doesn't know still gets today's date (Eastern) instead of failing the dial", async () => {
+    const db = seed();
+    db.tables.leads[0].timezone = "Mars/Olympus";
+
+    const vars = await buildCallDynamicVariables(db.client, "call-now");
+
+    expect(vars.current_date).toBe("Saturday, September 12, 2026");
   });
 });
 
@@ -555,7 +724,7 @@ describe("the inbound webhook", () => {
 });
 
 describe("REACHED_HUMAN_OUTCOMES", () => {
-  it("is exactly classifyOutcome's reachedHuman rule: not a hang-up, not a machine or no-pickup", () => {
+  it("is exactly classifyCallOutcome's reachedHuman rule: not a hang-up, not a machine or no-pickup", () => {
     const every = new Set<string>([...OVERRIDABLE_OUTCOMES, "call_back_later"]);
     for (const outcome of every) {
       const reachedHuman =

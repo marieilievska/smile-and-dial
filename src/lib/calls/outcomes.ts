@@ -88,7 +88,7 @@ export const CONVERSATION_OUTCOMES = new Set<string>([
 ]);
 
 /** A person answered and actually talked with us: every CONNECTED outcome
- *  except the two hang-ups. This is classifyOutcome's `reachedHuman`
+ *  except the two hang-ups. This is classifyCallOutcome's `reachedHuman`
  *  (src/lib/calls/classify-outcome.ts) — the calls whose transcript can rewrite
  *  a lead's rolling call note — so anything that dates that note counts these,
  *  including the "call me later" brush-off CONVERSATION_OUTCOMES leaves out. */
