@@ -79,6 +79,9 @@ describe("conversation-init — inbound (returned missed call)", () => {
     expect(res.dynamic_variables.business_name).toBe("Gaia Spa - Arlington");
     expect(res.dynamic_variables.owner_name).toBe("Adian");
     expect(res.dynamic_variables.lead_timezone).toBe("America/New_York");
+    expect(res.dynamic_variables.opening_instruction).toBe(
+      "INBOUND CALL: they are calling us back. Use the inbound opener below.",
+    );
     expect(res.conversation_config_override?.agent.first_message).toBe(
       "Hello?",
     );
@@ -158,6 +161,11 @@ describe("conversation-init — inbound (returned missed call)", () => {
       db.client,
     );
     expect(res.dynamic_variables.call_type).toBe("cold");
+    // Intended: an init we can't resolve keeps the cold call_type contract but
+    // opens as inbound — only inbound calls reach this webhook.
+    expect(res.dynamic_variables.opening_instruction).toBe(
+      "INBOUND CALL: they are calling us back. Use the inbound opener below.",
+    );
     expect(res.dynamic_variables.call_id).toBe("");
     expect(db.tables.calls).toHaveLength(0);
   });

@@ -87,6 +87,17 @@ export const CONVERSATION_OUTCOMES = new Set<string>([
   "language_barrier",
 ]);
 
+/** A person answered and actually talked with us: every CONNECTED outcome
+ *  except the two hang-ups. This is classifyCallOutcome's `reachedHuman`
+ *  (src/lib/calls/classify-outcome.ts) — the calls whose transcript can rewrite
+ *  a lead's rolling call note — so anything that dates that note counts these,
+ *  including the "call me later" brush-off CONVERSATION_OUTCOMES leaves out. */
+export const REACHED_HUMAN_OUTCOMES = new Set<string>([
+  ...CONVERSATION_OUTCOMES,
+  "call_back_later",
+  "dnc",
+]);
+
 /** No human was reached — a machine answered (voicemail or an AI receptionist
  *  bot), nobody picked up, or the call failed. We don't mirror the AI's
  *  "extracted data" (decision maker, sentiment, …) to the lead for these: a

@@ -29,20 +29,26 @@ export async function getTestCallSession(
   if (!user) return fail("You are not signed in.");
 
   // RLS scopes the campaign read to the owner / admins.
-  const { data: campaign } = await supabase
+  const { data: campaign, error: campaignError } = await supabase
     .from("campaigns")
     .select("agent_id")
     .eq("id", campaignId)
     .maybeSingle();
+  if (campaignError) {
+    return fail("Couldn't load this campaign. Please try again.");
+  }
   if (!campaign?.agent_id) {
     return fail("This campaign has no agent assigned yet.");
   }
 
-  const { data: agent } = await supabase
+  const { data: agent, error: agentError } = await supabase
     .from("agents")
     .select("name, elevenlabs_agent_id")
     .eq("id", campaign.agent_id)
     .maybeSingle();
+  if (agentError) {
+    return fail("Couldn't load this campaign's agent. Please try again.");
+  }
   const elId = agent?.elevenlabs_agent_id?.trim();
   if (!elId) {
     return fail(

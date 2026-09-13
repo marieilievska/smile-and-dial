@@ -866,6 +866,7 @@ export type Database = {
           autopilot_enabled: boolean;
           booking_utm_campaign: string | null;
           calendly_event_id: string | null;
+          callback_opener: string | null;
           calling_hours_end: string;
           calling_hours_start: string;
           calls_per_day_cap: number;
@@ -890,6 +891,7 @@ export type Database = {
           smart_list_id: string | null;
           smart_scheduling: boolean;
           sms_template_id: string | null;
+          spoken_before_opener: string | null;
           status: string;
           transfer_destination_phone: string | null;
           twilio_number_id: string | null;
@@ -900,6 +902,7 @@ export type Database = {
           autopilot_enabled?: boolean;
           booking_utm_campaign?: string | null;
           calendly_event_id?: string | null;
+          callback_opener?: string | null;
           calling_hours_end?: string;
           calling_hours_start?: string;
           calls_per_day_cap?: number;
@@ -924,6 +927,7 @@ export type Database = {
           smart_list_id?: string | null;
           smart_scheduling?: boolean;
           sms_template_id?: string | null;
+          spoken_before_opener?: string | null;
           status?: string;
           transfer_destination_phone?: string | null;
           twilio_number_id?: string | null;
@@ -934,6 +938,7 @@ export type Database = {
           autopilot_enabled?: boolean;
           booking_utm_campaign?: string | null;
           calendly_event_id?: string | null;
+          callback_opener?: string | null;
           calling_hours_end?: string;
           calling_hours_start?: string;
           calls_per_day_cap?: number;
@@ -958,6 +963,7 @@ export type Database = {
           smart_list_id?: string | null;
           smart_scheduling?: boolean;
           sms_template_id?: string | null;
+          spoken_before_opener?: string | null;
           status?: string;
           transfer_destination_phone?: string | null;
           twilio_number_id?: string | null;

@@ -46,6 +46,11 @@ import {
 } from "@/lib/campaigns/audience-actions";
 import { setCampaignLists } from "@/lib/campaigns/list-attachments-actions";
 import { stateForAreaCode } from "@/lib/dialer/nanp-states";
+import {
+  DEFAULT_CALLBACK_OPENER,
+  DEFAULT_SPOKEN_BEFORE_OPENER,
+  OPENER_MAX_LENGTH,
+} from "@/lib/elevenlabs/opening-line";
 
 import { TestCallTab } from "./test-call-tab";
 
@@ -89,6 +94,8 @@ export type CampaignData = {
   audience_search: string | null;
   smart_list_id: string | null;
   inbound_greeting: string | null;
+  callback_opener: string | null;
+  spoken_before_opener: string | null;
 };
 
 const NO_NUMBER = "__none__";
@@ -204,6 +211,12 @@ export function CampaignSettingsDialog({
   );
   const [inboundGreeting, setInboundGreeting] = useState(
     campaign?.inbound_greeting ?? "",
+  );
+  const [callbackOpener, setCallbackOpener] = useState(
+    campaign?.callback_opener ?? "",
+  );
+  const [spokenBeforeOpener, setSpokenBeforeOpener] = useState(
+    campaign?.spoken_before_opener ?? "",
   );
   const [dailySpendCap, setDailySpendCap] = useState(
     campaign?.daily_spend_cap != null ? String(campaign.daily_spend_cap) : "",
@@ -344,6 +357,8 @@ export function CampaignSettingsDialog({
         dialIntervalSeconds,
         transferDestinationPhone,
         inboundGreeting,
+        callbackOpener,
+        spokenBeforeOpener,
         dailySpendCap,
         monthlySpendCap,
         autopilotEnabled,
@@ -396,6 +411,9 @@ export function CampaignSettingsDialog({
         setName("");
         setDescription("");
         setTransferDestinationPhone("");
+        setInboundGreeting("");
+        setCallbackOpener("");
+        setSpokenBeforeOpener("");
         setDailySpendCap("");
         setMonthlySpendCap("");
         setAutopilotEnabled(true);
@@ -947,6 +965,49 @@ export function CampaignSettingsDialog({
                 first.)
               </p>
             </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="campaign-callback-opener">
+                Opener when a callback is booked
+              </Label>
+              <Textarea
+                id="campaign-callback-opener"
+                value={callbackOpener}
+                onChange={(event) => setCallbackOpener(event.target.value)}
+                placeholder={DEFAULT_CALLBACK_OPENER}
+                maxLength={OPENER_MAX_LENGTH}
+                rows={3}
+              />
+              <p className="text-muted-foreground text-xs">
+                Used when a callback is booked with this business in this
+                campaign. The agent says it as its first reply, after they
+                answer, and never talks over their greeting. Type {"{when}"}{" "}
+                where the timing goes: it becomes &ldquo;yesterday&rdquo;,
+                &ldquo;on Tuesday&rdquo; or &ldquo;about a month ago&rdquo;, so
+                don&apos;t add your own &ldquo;on&rdquo; or &ldquo;ago&rdquo;.
+                Leave blank to use a standard line.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="campaign-spoken-before-opener">
+                Opener when we&apos;ve spoken before
+              </Label>
+              <Textarea
+                id="campaign-spoken-before-opener"
+                value={spokenBeforeOpener}
+                onChange={(event) => setSpokenBeforeOpener(event.target.value)}
+                placeholder={DEFAULT_SPOKEN_BEFORE_OPENER}
+                maxLength={OPENER_MAX_LENGTH}
+                rows={3}
+              />
+              <p className="text-muted-foreground text-xs">
+                Used when we&apos;ve talked with this business in this campaign
+                before but no callback is booked: a front desk, a &ldquo;not
+                interested&rdquo; after its rest, a missed callback. First reply
+                after they answer. Type {"{when}"} for the timing (it brings its
+                own &ldquo;on&rdquo; or &ldquo;ago&rdquo;). Leave blank to use a
+                standard line.
+              </p>
+            </div>
           </CampaignSection>
 
           <CampaignSection
@@ -1127,7 +1188,10 @@ export function CampaignSettingsDialog({
               title="Test"
               icon={<PlayCircle className="size-4" />}
             >
-              <TestCallTab campaignId={campaign.id} />
+              <TestCallTab
+                campaignId={campaign.id}
+                openers={{ callbackOpener, spokenBeforeOpener }}
+              />
             </CampaignSection>
           ) : null}
         </div>

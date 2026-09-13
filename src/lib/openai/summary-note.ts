@@ -360,6 +360,18 @@ export function parseKnown(note: string): string[] {
   return out;
 }
 
+/** The note as it reads when no callback is booked: the "Left off:" pickup
+ *  line removed, because the pickup point it describes has passed (a front
+ *  desk's "try tomorrow" from last week). Every other line is kept exactly
+ *  (line breaks come back as "\n"). A legacy prose note has no such line and
+ *  comes back with only its line breaks normalized. */
+export function stripLeftOff(note: string): string {
+  return (note ?? "")
+    .split(/\r?\n/)
+    .filter((line) => !/^[ \t]*Left off:/.test(line))
+    .join("\n");
+}
+
 /**
  * Turn one untrusted model response into the note we store.
  *

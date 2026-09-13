@@ -5,7 +5,20 @@ import { ConversationProvider, useConversation } from "@elevenlabs/react";
 import { Mic, MicOff, PhoneOff, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { getTestCallSession } from "@/lib/campaigns/test-call";
+import {
+  openerTemplateFor,
+  renderOpeningInstruction,
+  type OpeningSituation,
+} from "@/lib/elevenlabs/opening-line";
 import { etFormat } from "@/lib/time/eastern";
 
 /**
@@ -19,9 +32,34 @@ import { etFormat } from "@/lib/time/eastern";
 
 type Line = { role: "agent" | "user"; text: string };
 
+/** Which real call situation a browser test pretends to be. */
+type TestAs = Exclude<OpeningSituation, "inbound">;
+
+const TEST_AS_LABELS: Record<TestAs, string> = {
+  cold: "First call (cold)",
+  callback_booked: "Callback booked",
+  spoken_before: "Spoken before",
+};
+
+/** True only for the three "Test as" choices (own keys — "toString" and other
+ *  inherited names don't count). */
+function isTestAs(value: string): value is TestAs {
+  return Object.prototype.hasOwnProperty.call(TEST_AS_LABELS, value);
+}
+
+/** The panel's two opener boxes as currently typed (unsaved edits included). */
+type OpenerLines = {
+  callbackOpener: string | null;
+  spokenBeforeOpener: string | null;
+};
+
 /** Representative lead context so the agent's {{placeholders}} resolve during a
- *  test (there's no real lead behind a test call). */
-function testDynamicVariables(): Record<string, string> {
+ *  test (there's no real lead behind a test call). The opener is built from the
+ *  lines as currently typed in the panel, with "yesterday" as the timing. */
+function testDynamicVariables(
+  testAs: TestAs,
+  openers: OpenerLines,
+): Record<string, string> {
   // Eastern, matching the current_date the real dialer hands the agent.
   const today = etFormat(new Date(), {
     weekday: "long",
@@ -30,7 +68,13 @@ function testDynamicVariables(): Record<string, string> {
     day: "numeric",
   });
   return {
-    call_type: "cold",
+    call_type: testAs === "callback_booked" ? "callback" : "cold",
+    opening_instruction: renderOpeningInstruction({
+      situation: testAs,
+      template: openerTemplateFor(testAs, openers),
+      when: "yesterday",
+    }),
+    last_contact: testAs === "cold" ? "" : "yesterday",
     last_call_summary: "",
     last_callback_notes: "",
     transfer_number: "",
@@ -50,11 +94,19 @@ function testDynamicVariables(): Record<string, string> {
   };
 }
 
-function TestCallInner({ campaignId }: { campaignId: string }) {
+function TestCallInner({
+  campaignId,
+  openers,
+}: {
+  campaignId: string;
+  openers: OpenerLines;
+}) {
   const [transcript, setTranscript] = useState<Line[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
+  const [testAs, setTestAs] = useState<TestAs>("cold");
   const endRef = useRef<HTMLLIElement | null>(null);
+  const mountedRef = useRef(true);
 
   const convo = useConversation({
     onConnect: () => setError(null),
@@ -82,6 +134,8 @@ function TestCallInner({ campaignId }: { campaignId: string }) {
     setPreparing(true);
     const session = await getTestCallSession(campaignId);
     setPreparing(false);
+    // The panel closed while we waited — don't open a session nobody can see.
+    if (!mountedRef.current) return;
     if (session.signedUrl === null) {
       setError(session.error);
       return;
@@ -89,7 +143,7 @@ function TestCallInner({ campaignId }: { campaignId: string }) {
     try {
       convo.startSession({
         signedUrl: session.signedUrl,
-        dynamicVariables: testDynamicVariables(),
+        dynamicVariables: testDynamicVariables(testAs, openers),
       });
     } catch {
       setError(
@@ -102,9 +156,13 @@ function TestCallInner({ campaignId }: { campaignId: string }) {
     convo.endSession();
   }
 
-  // End the session if the tab unmounts mid-call so we don't leave it running.
+  // End the session if the tab unmounts mid-call so we don't leave it running,
+  // and remember it's gone: a start still fetching its signed URL must not open
+  // a live mic session after the panel closed (nobody could see or hang it up).
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       convo.endSession();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -117,6 +175,34 @@ function TestCallInner({ campaignId }: { campaignId: string }) {
         voice, and tools. Uses your microphone and spends ElevenLabs credits,
         just like a live call.
       </p>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="test-call-as">Test as</Label>
+        <Select
+          value={testAs}
+          onValueChange={(value) => {
+            if (isTestAs(value)) setTestAs(value);
+          }}
+          disabled={onCall || connecting}
+        >
+          <SelectTrigger id="test-call-as" className="w-full sm:w-64">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(TEST_AS_LABELS) as TestAs[]).map((key) => (
+              <SelectItem key={key} value={key}>
+                {TEST_AS_LABELS[key]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-muted-foreground text-xs">
+          Callback booked and Spoken before use the opener lines above as
+          they&apos;re typed now (unsaved edits included), with
+          &ldquo;yesterday&rdquo; for the timing. You speak first, like a
+          business answering the phone.
+        </p>
+      </div>
 
       <div className="border-border flex items-center justify-between gap-3 rounded-lg border px-4 py-3">
         <div className="flex items-center gap-2">
@@ -206,10 +292,16 @@ function TestCallInner({ campaignId }: { campaignId: string }) {
   );
 }
 
-export function TestCallTab({ campaignId }: { campaignId: string }) {
+export function TestCallTab({
+  campaignId,
+  openers,
+}: {
+  campaignId: string;
+  openers: OpenerLines;
+}) {
   return (
     <ConversationProvider>
-      <TestCallInner campaignId={campaignId} />
+      <TestCallInner campaignId={campaignId} openers={openers} />
     </ConversationProvider>
   );
 }

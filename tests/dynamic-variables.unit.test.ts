@@ -41,6 +41,7 @@ const EXPECTED_VARIABLES = [
   "last_contact",
   "lead_timezone",
   "manager_name",
+  "opening_instruction",
   "owner_name",
   "transfer_number",
 ];
